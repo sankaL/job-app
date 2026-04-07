@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resume-builder-backend"
+version = "0.1.0"
+description = "Phase 0 FastAPI backend for the AI Resume Builder"
+requires-python = ">=3.9"
+dependencies = [
+  "fastapi>=0.115.12",
+  "httpx>=0.28.1",
+  "psycopg[binary]>=3.2.7",
+  "pydantic-settings>=2.8.1",
+  "PyJWT[crypto]>=2.10.1",
+  "uvicorn[standard]>=0.34.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.26.0"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]

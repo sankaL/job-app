@@ -10,6 +10,7 @@ __pycache__/
 
 # Environment variables and secrets
 .env
+.env.compose
 .env.local
 .env.*.local
 *.pem
@@ -18,7 +19,12 @@ __pycache__/
 # Build outputs
 frontend/build/
 frontend/dist/
+frontend/*.tsbuildinfo
 backend/dist/
+backend/build/
+backend/*.egg-info/
+agents/build/
+agents/*.egg-info/
 
 # IDE
 .vscode/

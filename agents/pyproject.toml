@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resume-builder-agents"
+version = "0.1.0"
+description = "Phase 0 ARQ worker baseline for the AI Resume Builder"
+requires-python = ">=3.9"
+dependencies = [
+  "arq>=0.26.3",
+  "httpx>=0.28.1",
+  "pydantic-settings>=2.8.1"
+]
+
+[tool.setuptools]
+py-modules = ["worker"]

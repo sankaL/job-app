@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-04-07 10:00:16 EDT
+**Last updated:** 2026-04-07 11:36:08 EDT
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -79,3 +79,15 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - extraction can persist normalized origin values when known
   - manual entry and later edits can save the dropdown value and the `other` label safely
   - duplicate detection uses `job_posting_origin` when available and falls back to `job_title` + `company` when it is missing
+
+## Current Implementation Note: Phase 0 Foundation
+
+- The initial Phase 0 migration is implemented as repo-owned SQL under `supabase/migrations/`.
+- Local development applies migrations through the Compose-managed `migration-runner` service instead of ad-hoc manual SQL execution.
+- Local dev mode does not provide Supabase Auth invite or recovery emails; GoTrue email delivery is intentionally disabled and app-level email tests should use the backend Resend gate instead.
+- Auth provisioning depends on the Phase 0 profile-sync trigger: inserts and email updates on `auth.users` must continue to create or align the matching `public.profiles` row.
+- Post-deploy or post-reset verification for Phase 0 should confirm:
+  - the schema migration applies before backend and PostgREST reads begin
+  - profile sync runs for newly provisioned users
+  - every documented user-scoped table has RLS enabled and owner-only policies present
+  - the protected backend bootstrap endpoint can resolve a profile for an invited user without cross-user access

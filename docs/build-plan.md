@@ -1,12 +1,12 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-04-07 10:05:06 EDT  
-**Implementation status:** Planning complete; implementation not started  
+**Last updated:** 2026-04-07 12:06:48 EDT  
+**Implementation status:** Phase 0 implemented; later phases pending  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
-This roadmap assumes a greenfield implementation. The current repository contains product requirements and agent guidance, but no committed frontend, backend, or Supabase application code yet.
+This roadmap now includes the committed Phase 0 foundation: frontend and backend app scaffolds, a worker baseline, shared workflow contract assets, and a repo-owned local Docker stack. Later phases remain unimplemented.
 
 ## Planning Defaults
 
@@ -24,7 +24,7 @@ This roadmap assumes a greenfield implementation. The current repository contain
 
 | Phase | Status | Outcome |
 |---|---|---|
-| Phase 0 | Planned | Foundation, containerized local stack, auth boundary, schema, and shared workflow contract |
+| Phase 0 | Implemented | Foundation, containerized local stack, auth boundary, schema, and shared workflow contract |
 | Phase 1 | Planned | Application intake, extraction, manual fallback, and duplicate review |
 | Phase 2 | Planned | Base resumes, profile data, section preferences, and generation setup |
 | Phase 3 | Planned | Generation, validation, assembly, notifications, and application workspace |
@@ -39,12 +39,12 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
-| P0-T01 | Scaffold the committed frontend, backend, and agents stack foundations | Infra | TODO | 2026-04-07 | |
-| P0-T02 | Dockerize the local frontend, backend, agents, and Supabase dev stack with Makefile orchestration | Infra | TODO | 2026-04-07 | |
-| P0-T03 | Build the invite-only login surface and protected frontend route shell | FE | TODO | 2026-04-07 | |
-| P0-T04 | Implement backend auth middleware and per-request user resolution from Supabase JWTs | BE | TODO | 2026-04-07 | |
-| P0-T05 | Create the initial schema, enums, and owner-scoped RLS policies from the schema doc | BE | TODO | 2026-04-07 | |
-| P0-T06 | Centralize shared status constants and workflow contract types across app layers | Other | TODO | 2026-04-07 | |
+| P0-T01 | Scaffold the committed frontend, backend, and agents stack foundations | Infra | DONE | 2026-04-07 11:36:08 EDT | React/Vite/Tailwind frontend, FastAPI backend, and ARQ worker baseline are committed. |
+| P0-T02 | Dockerize the local frontend, backend, agents, and Supabase dev stack with Makefile orchestration | Infra | DONE | 2026-04-07 11:36:08 EDT | Root Docker Compose, Makefile, migrations runner, health check, and local invite-user seed flow are committed. |
+| P0-T03 | Build the invite-only login surface and protected frontend route shell | FE | DONE | 2026-04-07 11:36:08 EDT | Login-only surface, protected route guard, authenticated shell bootstrap, and sessionStorage Supabase persistence are implemented. |
+| P0-T04 | Implement backend auth middleware and per-request user resolution from Supabase JWTs | BE | DONE | 2026-04-07 11:36:08 EDT | Bearer-token auth dependency, JWT verification with JWKS plus local-secret fallback, and session bootstrap endpoint are implemented. |
+| P0-T05 | Create the initial schema, enums, and owner-scoped RLS policies from the schema doc | BE | DONE | 2026-04-07 11:36:08 EDT | Initial SQL migration includes enums, tables, constraints, indexes, profile sync triggers, and RLS policies. |
+| P0-T06 | Centralize shared status constants and workflow contract types across app layers | Other | DONE | 2026-04-07 11:36:08 EDT | Repo-level workflow contract JSON is loaded and validated in frontend, backend, and worker code. |
 
 ### Phase 1 Tasks
 
@@ -107,6 +107,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| A0-T01 | Simplify the local env contract, disable local auth emails, and add the backend Resend send gate | Infra | DONE | 2026-04-07 12:06:48 EDT | Root env is now canonical, local GoTrue mail delivery is disabled, and backend email sending is gated by `EMAIL_NOTIFICATIONS_ENABLED`. |
 
 ## Phase 0 — Foundation, Containerization, Auth Boundary, and Schema
 
