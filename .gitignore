@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/.venv/
+backend/venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Build outputs
+frontend/build/
+frontend/dist/
+backend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+
+# Logs
+*.log
+logs/
+
+# Testing
+coverage/
+.nyc_output/
+.pytest_cache/
+
+# AI/LLM caches
+.agents/
+.kilocode/
+
+# Misc
+*.bak
+*.tmp
