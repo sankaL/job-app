@@ -11,9 +11,11 @@ dependencies = [
   "arq>=0.26.3",
   "fastapi>=0.115.12",
   "httpx>=0.28.1",
+  "pdfplumber>=0.11.0",
   "psycopg[binary]>=3.2.7",
   "pydantic-settings>=2.8.1",
   "PyJWT[crypto]>=2.10.1",
+  "python-multipart>=0.0.9",
   "redis>=5.2.1",
   "uvicorn[standard]>=0.34.0"
 ]

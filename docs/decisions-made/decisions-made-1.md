@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-04-07 17:30:00 EDT — Phase 2 — File Format and LLM Cleanup Decisions
+
+- Status: Accepted
+- Context: Phase 2 needed concrete decisions for resume file ingestion and optional LLM post-processing before the base resume management and profile surfaces could be implemented without leaving open design gaps.
+- Decisions:
+  1. PDF-only resume upload for MVP (using pdfplumber). .docx support deferred to reduce scope.
+  2. Optional LLM cleanup pass via direct OpenRouter API call (httpx) rather than LangChain. LangChain integration deferred to Phase 3 generation pipeline.
+  3. OpenRouter cleanup model defaults to openai/gpt-4o-mini with 30-second timeout. Cleanup failures are non-blocking — raw parsed Markdown is returned on any error.
+- Rationale: Keep Phase 2 focused on data management and configuration setup. PDF is the most common resume format. Direct OpenRouter call avoids premature LangChain dependency.
+- Consequences: The resume upload path now accepts only `.pdf` files, the backend makes a best-effort LLM cleanup call with graceful fallback, and Phase 3 will introduce LangChain for generation rather than retrofitting it into the upload pipeline.
+
 ## 2026-04-07 15:30:43 EDT — Add blocked-source recovery and Chrome extension intake as the Phase 1A follow-on
 
 - Status: Accepted

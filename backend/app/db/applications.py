@@ -313,8 +313,11 @@ class ApplicationRepository:
             "job_posting_origin": "public.job_posting_origin_enum",
             "duplicate_resolution_status": "public.duplicate_resolution_status_enum",
         }
+        uuid_casts = {"base_resume_id"}
         if field_name in enum_casts:
             return sql.SQL("%s::{}").format(sql.SQL(enum_casts[field_name]))
+        if field_name in uuid_casts:
+            return sql.SQL("%s::uuid")
         return sql.SQL("%s")
 
 

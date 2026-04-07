@@ -45,6 +45,20 @@ export function AppShell() {
               <Button
                 variant="secondary"
                 className="border-white/20 bg-transparent text-white"
+                onClick={() => navigate("/app/resumes")}
+              >
+                Resumes
+              </Button>
+              <Button
+                variant="secondary"
+                className="border-white/20 bg-transparent text-white"
+                onClick={() => navigate("/app/profile")}
+              >
+                Profile
+              </Button>
+              <Button
+                variant="secondary"
+                className="border-white/20 bg-transparent text-white"
                 onClick={() => navigate("/app/extension")}
               >
                 Chrome Extension

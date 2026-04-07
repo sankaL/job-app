@@ -2,8 +2,11 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/routes/AppShell";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
 import { ApplicationsDashboardPage } from "@/routes/ApplicationsDashboardPage";
+import { BaseResumeEditorPage } from "@/routes/BaseResumeEditorPage";
+import { BaseResumesPage } from "@/routes/BaseResumesPage";
 import { ExtensionPage } from "@/routes/ExtensionPage";
 import { LoginPage } from "@/routes/LoginPage";
+import { ProfilePage } from "@/routes/ProfilePage";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
 
 export default function App() {
@@ -21,6 +24,10 @@ export default function App() {
         <Route index element={<ApplicationsDashboardPage />} />
         <Route path="applications/:applicationId" element={<ApplicationDetailPage />} />
         <Route path="extension" element={<ExtensionPage />} />
+        <Route path="profile" element={<ProfilePage />} />
+        <Route path="resumes" element={<BaseResumesPage />} />
+        <Route path="resumes/new" element={<BaseResumeEditorPage />} />
+        <Route path="resumes/:resumeId" element={<BaseResumeEditorPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/app" replace />} />
     </Routes>

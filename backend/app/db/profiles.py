@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
@@ -153,6 +154,70 @@ class ProfileRepository:
         with self._connection() as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id,))
             connection.commit()
+
+    def update_profile(
+        self,
+        user_id: str,
+        updates: dict[str, Any],
+    ) -> Optional[ProfileRecord]:
+        if not updates:
+            return self.fetch_profile(user_id)
+
+        assignments = [
+            sql.SQL("{} = {}").format(sql.Identifier(field), self._cast_placeholder(field))
+            for field in updates
+        ]
+        values = list(updates.values())
+        update_query = sql.SQL(
+            """
+            update public.profiles
+            set {assignments}
+            where id = %s
+            returning id::text
+            """
+        ).format(assignments=sql.SQL(", ").join(assignments))
+
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(update_query, (*values, user_id))
+            row = cursor.fetchone()
+            connection.commit()
+
+        if row is None or row.get("id") is None:
+            return None
+
+        return self.fetch_profile(user_id)
+
+    def _cast_placeholder(self, field_name: str) -> sql.SQL:
+        jsonb_fields = {"section_preferences", "section_order"}
+        if field_name in jsonb_fields:
+            return sql.SQL("%s::jsonb")
+        return sql.SQL("%s")
+
+    def update_default_resume(self, user_id: str, resume_id: Optional[str]) -> None:
+        query = """
+        update public.profiles
+        set default_base_resume_id = %s
+        where id = %s
+        """
+
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (resume_id, user_id))
+            connection.commit()
+
+    def fetch_default_resume_id(self, user_id: str) -> Optional[str]:
+        query = """
+        select default_base_resume_id::text
+        from public.profiles
+        where id = %s
+        """
+
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (user_id,))
+            row = cursor.fetchone()
+
+        if row is None:
+            return None
+        return row.get("default_base_resume_id")
 
 
 def get_profile_repository() -> ProfileRepository:

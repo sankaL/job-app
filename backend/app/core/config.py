@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     shared_contract_path: str = Field(
         default="/workspace/shared/workflow-contract.json", alias="SHARED_CONTRACT_PATH"
     )
+    openrouter_api_key: Optional[str] = Field(default=None, alias="OPENROUTER_API_KEY")
+    openrouter_cleanup_model: str = Field(
+        default="openai/gpt-4o-mini", alias="OPENROUTER_CLEANUP_MODEL"
+    )
 
     @property
     def email(self) -> EmailSettings:

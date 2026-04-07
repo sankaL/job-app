@@ -1,8 +1,8 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-04-07 16:02:40 EDT  
-**Implementation status:** Phase 0, Phase 1, and Phase 1A implemented; later phases pending  
+**Last updated:** 2026-04-07 17:30:00 EDT  
+**Implementation status:** Phase 0, Phase 1, Phase 1A, and Phase 2 implemented; later phases pending  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
@@ -27,7 +27,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 | Phase 0 | Implemented | Foundation, containerized local stack, auth boundary, schema, and shared workflow contract |
 | Phase 1 | Implemented | Application intake, extraction, manual fallback, duplicate review, and extraction-problem notifications |
 | Phase 1A | Implemented | Blocked-page recovery, pasted-text retry, and Chrome current-tab capture intake |
-| Phase 2 | Planned | Base resumes, profile data, section preferences, and generation setup |
+| Phase 2 | Implemented | Base resumes, profile data, section preferences, PDF upload with optional LLM cleanup, and pre-generation configuration surface |
 | Phase 3 | Planned | Generation, validation, assembly, notifications, and application workspace |
 | Phase 4 | Planned | Editing, regeneration, and PDF export |
 | Phase 5 | Planned | Hardening, recovery, and end-to-end MVP acceptance |
@@ -73,11 +73,11 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
-| P2-T01 | Implement base resume CRUD persistence, default selection, and user-scoped APIs | BE | TODO | 2026-04-07 | |
-| P2-T02 | Build base resume, profile, and section preference management screens | FE | TODO | 2026-04-07 | |
-| P2-T03 | Add resume ingestion for file upload and structured form input with Markdown output | BE | TODO | 2026-04-07 | |
-| P2-T04 | Persist and apply user personal information, section enablement, and section order preferences | BE | TODO | 2026-04-07 | |
-| P2-T05 | Create the pre-generation configuration surface for length, aggressiveness, instructions, and resume selection | FE | TODO | 2026-04-07 | |
+| P2-T01 | Implement base resume CRUD persistence, default selection, and user-scoped APIs | BE | DONE | 2026-04-07 | Base resume CRUD APIs (list, create, read, update, delete, set-default) implemented with repository, service, and API layers following Phase 1 patterns. |
+| P2-T02 | Build base resume, profile, and section preference management screens | FE | DONE | 2026-04-07 | Base resume list and editor pages, profile and section preferences page, and navigation links added to the app shell. |
+| P2-T03 | Add resume ingestion for file upload and structured form input with Markdown output | BE | DONE | 2026-04-07 | PDF upload parsing via pdfplumber with optional OpenRouter LLM cleanup for structural improvement. PDF-only for MVP; .docx deferred. |
+| P2-T04 | Persist and apply user personal information, section enablement, and section order preferences | BE | DONE | 2026-04-07 | Profile PATCH API supports personal info (name, phone, address) and section preference (enablement, order) updates with validation. |
+| P2-T05 | Create the pre-generation configuration surface for length, aggressiveness, instructions, and resume selection | FE | DONE | 2026-04-07 | Generation settings form on application detail page with base resume selection, target length, aggressiveness, and additional instructions. Generate button disabled pending Phase 3. |
 
 ### Phase 3 Tasks
 

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -7,15 +7,17 @@ import { StatusBadge } from "@/components/StatusBadge";
 import {
   fetchApplicationDetail,
   fetchApplicationProgress,
+  listBaseResumes,
   patchApplication,
   recoverApplicationFromSource,
   resolveDuplicate,
   retryExtraction,
   submitManualEntry,
   type ApplicationDetail,
+  type BaseResumeSummary,
   type ExtractionProgress,
 } from "@/lib/api";
-import { jobPostingOriginOptions } from "@/lib/application-options";
+import { AGGRESSIVENESS_OPTIONS, jobPostingOriginOptions, PAGE_LENGTH_OPTIONS } from "@/lib/application-options";
 
 type JobFormState = {
   job_title: string;
@@ -44,6 +46,12 @@ export function ApplicationDetailPage() {
   const [isSubmittingManualEntry, setIsSubmittingManualEntry] = useState(false);
   const [sourceTextDraft, setSourceTextDraft] = useState("");
   const [isRecoveringFromSource, setIsRecoveringFromSource] = useState(false);
+  const [baseResumes, setBaseResumes] = useState<BaseResumeSummary[]>([]);
+  const [selectedResumeId, setSelectedResumeId] = useState<string | null>(null);
+  const [pageLength, setPageLength] = useState<string>("1_page");
+  const [aggressiveness, setAggressiveness] = useState<string>("medium");
+  const [additionalInstructions, setAdditionalInstructions] = useState("");
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   function applyDetailState(response: ApplicationDetail) {
     setDetail(response);
@@ -55,6 +63,7 @@ export function ApplicationDetailPage() {
       job_posting_origin: response.job_posting_origin ?? "",
       job_posting_origin_other_text: response.job_posting_origin_other_text ?? "",
     });
+    setSelectedResumeId(response.base_resume_id);
   }
 
   useEffect(() => {
@@ -117,6 +126,32 @@ export function ApplicationDetailPage() {
 
     return () => window.clearTimeout(timeout);
   }, [applicationId, detail, notesDraft]);
+
+  // Fetch base resumes when generation settings should be visible
+  useEffect(() => {
+    if (!detail) {
+      return;
+    }
+    const extractionStates = ["extraction_pending", "extracting", "manual_entry_required", "duplicate_review_required"];
+    if (extractionStates.includes(detail.internal_state)) {
+      return;
+    }
+
+    listBaseResumes()
+      .then((resumes) => {
+        setBaseResumes(resumes);
+        // Set default resume if not already set
+        if (!selectedResumeId && resumes.length > 0) {
+          const defaultResume = resumes.find((r) => r.is_default);
+          if (defaultResume) {
+            setSelectedResumeId(defaultResume.id);
+          }
+        }
+      })
+      .catch(() => {
+        // Silently fail - the UI will show "No base resumes yet"
+      });
+  }, [detail, selectedResumeId]);
 
   if (!applicationId) {
     return null;
@@ -235,6 +270,26 @@ export function ApplicationDetailPage() {
       navigate(`/app/applications/${detail.duplicate_warning.matched_application.id}`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to open matched application.");
+    }
+  }
+
+  async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedResumeId) {
+      return;
+    }
+    setIsSavingSettings(true);
+    setError(null);
+
+    try {
+      const response = await patchApplication(activeApplicationId, {
+        base_resume_id: selectedResumeId,
+      });
+      applyDetailState(response);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to save settings.");
+    } finally {
+      setIsSavingSettings(false);
     }
   }
 
@@ -555,6 +610,129 @@ export function ApplicationDetailPage() {
               ) : null}
             </div>
           </div>
+
+          {/* Generation Settings Section */}
+          {(() => {
+            const extractionStates = ["extraction_pending", "extracting", "manual_entry_required", "duplicate_review_required"];
+            return !extractionStates.includes(detail.internal_state);
+          })() ? (
+            <Card>
+              <p className="text-sm uppercase tracking-[0.18em] text-ink/45">Generation Settings</p>
+              <form className="mt-5 space-y-6" onSubmit={handleSaveSettings}>
+                {/* Base Resume Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-ink">Base Resume</label>
+                  {baseResumes.length === 0 ? (
+                    <div className="mt-2 rounded-2xl border border-black/10 bg-black/5 px-4 py-3 text-sm text-ink/70">
+                      No base resumes yet.{" "}
+                      <Link className="font-medium text-spruce hover:underline" to="/app/resumes">
+                        Create one now
+                      </Link>
+                    </div>
+                  ) : (
+                    <select
+                      className="mt-2 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink"
+                      value={selectedResumeId ?? ""}
+                      onChange={(event) => setSelectedResumeId(event.target.value || null)}
+                    >
+                      <option value="">Select a base resume</option>
+                      {baseResumes.map((resume) => (
+                        <option key={resume.id} value={resume.id}>
+                          {resume.name}
+                          {resume.is_default ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* Target Length */}
+                <div>
+                  <label className="block text-sm font-medium text-ink">Target Length</label>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {PAGE_LENGTH_OPTIONS.map((option) => (
+                      <label
+                        key={option.value}
+                        className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                          pageLength === option.value
+                            ? "border-spruce bg-spruce text-white"
+                            : "border-black/10 bg-white text-ink hover:border-black/20"
+                        }`}
+                      >
+                        <input
+                          checked={pageLength === option.value}
+                          className="sr-only"
+                          name="pageLength"
+                          type="radio"
+                          value={option.value}
+                          onChange={() => setPageLength(option.value)}
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Aggressiveness */}
+                <div>
+                  <label className="block text-sm font-medium text-ink">Tailoring Aggressiveness</label>
+                  <div className="mt-2 space-y-2">
+                    {AGGRESSIVENESS_OPTIONS.map((option) => (
+                      <label
+                        key={option.value}
+                        className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+                          aggressiveness === option.value
+                            ? "border-spruce bg-spruce/5"
+                            : "border-black/10 bg-white hover:border-black/20"
+                        }`}
+                      >
+                        <input
+                          checked={aggressiveness === option.value}
+                          className="mt-1"
+                          name="aggressiveness"
+                          type="radio"
+                          value={option.value}
+                          onChange={() => setAggressiveness(option.value)}
+                        />
+                        <div>
+                          <p className="text-sm font-medium text-ink">{option.label}</p>
+                          <p className="mt-1 text-sm text-ink/65">{option.description}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Additional Instructions */}
+                <div>
+                  <label className="block text-sm font-medium text-ink">Additional Instructions (Optional)</label>
+                  <textarea
+                    className="mt-2 min-h-24 w-full rounded-[24px] border border-black/10 bg-white px-4 py-3 text-sm text-ink"
+                    placeholder="Add any specific instructions for the AI..."
+                    value={additionalInstructions}
+                    onChange={(event) => setAdditionalInstructions(event.target.value)}
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap gap-3">
+                  <Button disabled={isSavingSettings || !selectedResumeId || baseResumes.length === 0} type="submit">
+                    {isSavingSettings ? "Saving…" : "Save Settings"}
+                  </Button>
+                  <Button
+                    disabled
+                    className="relative"
+                    title="Generation will be available in the next update"
+                    type="button"
+                    variant="secondary"
+                  >
+                    Generate Resume
+                    <span className="ml-2 rounded-full bg-black/10 px-2 py-0.5 text-xs">Coming Soon</span>
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          ) : null}
         </>
       )}
     </div>

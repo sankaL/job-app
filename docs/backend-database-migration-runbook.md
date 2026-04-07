@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-04-07 15:51:23 EDT
+**Last updated:** 2026-04-07 17:30:00 EDT
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -129,3 +129,15 @@ This runbook applies whenever backend or database work changes schema, compatibi
 - Post-deploy verification should confirm:
   - worker success callbacks persist `extracted_reference_id` when provided
   - duplicate detection can match two applications by the persisted reference ID even when their job URLs differ
+
+## Current Implementation Note: Phase 2 Base Resumes and Profile Preferences
+
+- Phase 2 adds the migration `supabase/migrations/20260407_000004_phase_2_base_resumes.sql`.
+- This migration adds granular RLS policies for `base_resumes` and `resume_drafts` tables, replaces catch-all owner policies with per-operation policies, and adds a `user_id` index on `base_resumes`.
+- No schema changes to table definitions were required; Phase 0 migration already created all Phase 2 tables (`base_resumes`, `resume_drafts`, `profiles` section-preference columns).
+- No backfill is required. Existing rows use default section preferences until users modify them.
+- Post-deploy verification for Phase 2 should confirm:
+  - authenticated users can list, create, read, update, and delete only their own base resumes
+  - setting a default base resume clears the previous default for that user
+  - profile PATCH updates persist personal info and section preferences correctly
+  - RLS policies enforce per-operation ownership on `base_resumes` and `resume_drafts`

@@ -31,6 +31,7 @@ class UpdateApplicationRequest(BaseModel):
     job_description: Optional[str] = None
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
+    base_resume_id: Optional[str] = None
 
     @field_validator("notes", "job_title", "company", "job_description", "job_posting_origin_other_text")
     @classmethod

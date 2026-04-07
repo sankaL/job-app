@@ -114,6 +114,44 @@ export type ExtensionTokenResponse = {
   status: ExtensionConnectionStatus;
 };
 
+export type BaseResumeSummary = {
+  id: string;
+  name: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BaseResumeDetail = {
+  id: string;
+  name: string;
+  content_md: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProfileData = {
+  id: string;
+  email: string;
+  name: string | null;
+  phone: string | null;
+  address: string | null;
+  default_base_resume_id: string | null;
+  section_preferences: Record<string, boolean>;
+  section_order: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProfileUpdatePayload = {
+  name?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  section_preferences?: Record<string, boolean>;
+  section_order?: string[];
+};
+
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
 };
@@ -150,6 +188,30 @@ async function authenticatedRequest<T>(path: string, options: RequestOptions = {
       detail = payload.detail ?? detail;
     } catch {
       detail = "Request failed.";
+    }
+    throw new Error(detail);
+  }
+
+  return response.json();
+}
+
+async function authenticatedUpload<T>(path: string, formData: FormData): Promise<T> {
+  const token = await getAccessToken();
+  const response = await fetch(`${env.VITE_API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let detail = "Upload failed.";
+    try {
+      const payload = await response.json();
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = "Upload failed.";
     }
     throw new Error(detail);
   }
@@ -242,5 +304,89 @@ export async function issueExtensionToken(): Promise<ExtensionTokenResponse> {
 export async function revokeExtensionToken(): Promise<ExtensionConnectionStatus> {
   return authenticatedRequest<ExtensionConnectionStatus>("/api/extension/token", {
     method: "DELETE",
+  });
+}
+
+// Base resumes
+
+export async function listBaseResumes(): Promise<BaseResumeSummary[]> {
+  return authenticatedRequest<BaseResumeSummary[]>("/api/base-resumes");
+}
+
+export async function createBaseResume(name: string, contentMd: string): Promise<BaseResumeDetail> {
+  return authenticatedRequest<BaseResumeDetail>("/api/base-resumes", {
+    method: "POST",
+    body: { name, content_md: contentMd },
+  });
+}
+
+export async function fetchBaseResume(resumeId: string): Promise<BaseResumeDetail> {
+  return authenticatedRequest<BaseResumeDetail>(`/api/base-resumes/${resumeId}`);
+}
+
+export async function updateBaseResume(
+  resumeId: string,
+  updates: { name?: string; content_md?: string },
+): Promise<BaseResumeDetail> {
+  return authenticatedRequest<BaseResumeDetail>(`/api/base-resumes/${resumeId}`, {
+    method: "PATCH",
+    body: updates,
+  });
+}
+
+export async function deleteBaseResume(resumeId: string, force?: boolean): Promise<void> {
+  const token = await getAccessToken();
+  const response = await fetch(
+    `${env.VITE_API_URL}/api/base-resumes/${resumeId}?force=${force ?? false}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    let detail = "Delete failed.";
+    try {
+      const payload = await response.json();
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = "Delete failed.";
+    }
+    throw new Error(detail);
+  }
+}
+
+export async function setDefaultBaseResume(resumeId: string): Promise<BaseResumeSummary> {
+  return authenticatedRequest<BaseResumeSummary>(`/api/base-resumes/${resumeId}/set-default`, {
+    method: "POST",
+  });
+}
+
+export async function uploadBaseResume(
+  file: File,
+  name: string,
+  useLlmCleanup?: boolean,
+): Promise<BaseResumeDetail> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("name", name);
+  if (useLlmCleanup !== undefined) {
+    formData.append("use_llm_cleanup", String(useLlmCleanup));
+  }
+  return authenticatedUpload<BaseResumeDetail>("/api/base-resumes/upload", formData);
+}
+
+// Profile
+
+export async function fetchProfile(): Promise<ProfileData> {
+  return authenticatedRequest<ProfileData>("/api/profiles");
+}
+
+export async function updateProfile(updates: ProfileUpdatePayload): Promise<ProfileData> {
+  return authenticatedRequest<ProfileData>("/api/profiles", {
+    method: "PATCH",
+    body: updates,
   });
 }
