@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-04-07 11:36:08 EDT
+**Last updated:** 2026-04-07 15:51:23 EDT
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -91,3 +91,41 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - profile sync runs for newly provisioned users
   - every documented user-scoped table has RLS enabled and owner-only policies present
   - the protected backend bootstrap endpoint can resolve a profile for an invited user without cross-user access
+
+## Current Implementation Note: Phase 1 Intake and Duplicate Review
+
+- Phase 1 ships without a new schema migration. It reuses the existing `applications` and `notifications` tables plus Redis-backed progress keys.
+- `applications.duplicate_match_fields` now stores the surfaced duplicate signals and may include `job_posting_origin`, `job_url`, `reference_id`, or `job_description` when those signals materially contributed to the match.
+- `notifications.action_required` must be treated as an active-attention flag. Resolution flows for manual entry and duplicate review should clear existing action-required rows for that application instead of leaving them active forever.
+- Post-deploy verification for Phase 1 should confirm:
+  - URL-based application creation immediately creates a draft row and redirects to the detail page
+  - extraction progress polling updates while the worker runs and stops cleanly at success or failure
+  - extraction success requires `job_title` and `job_description`, while missing `company` leaves the application recoverable and duplicate review deferred
+  - duplicate detection can surface high-confidence matches from exact job links or extracted reference ids, not only title and company similarity
+  - action-required notification badges clear after successful manual entry or duplicate dismissal
+
+## Current Implementation Note: Phase 1A Blocked Recovery and Chrome Extension Intake
+
+- Phase 1A adds the additive migration `supabase/migrations/20260407_000002_phase_1a_blocked_recovery_extension.sql`.
+- `applications.extraction_failure_details` stores sanitized blocked-source diagnostics. Do not persist raw block-page HTML, challenge payloads, or IP-address text there.
+- `profiles.extension_token_hash`, `profiles.extension_token_created_at`, and `profiles.extension_token_last_used_at` back the scoped Chrome extension import token. The plaintext token must never be stored in the database.
+- Rollout order for Phase 1A:
+  1. Apply the additive migration.
+  2. Deploy backend and worker code that reads and writes the new columns.
+  3. Deploy frontend blocked-recovery UI and extension onboarding.
+  4. Load or publish the Chrome extension bundle separately.
+- No backfill is required. Existing applications may keep `NULL` `extraction_failure_details`, and existing profiles may keep `NULL` extension-token fields until the feature is used.
+- Post-deploy verification for Phase 1A should confirm:
+  - blocked Indeed or Cloudflare-style pages transition to `manual_entry_required` with `failure_reason = extraction_failed` and sanitized failure details
+  - pasted source-text recovery clears stale `extraction_failure_details` after successful recovery
+  - extension token rotation invalidates the previous token immediately
+  - extension imports create applications inside the authenticated owner boundary only
+
+## Current Additive Change Note: Persisted Extracted Reference IDs
+
+- Add the additive migration `supabase/migrations/20260407_000003_phase_1a_extracted_reference_id.sql`.
+- `applications.extracted_reference_id` should be treated as a persisted extraction output, not as user-entered data.
+- No backfill is required. Existing rows may keep `NULL` reference IDs and duplicate detection must continue to fall back to URL and description parsing for those rows.
+- Post-deploy verification should confirm:
+  - worker success callbacks persist `extracted_reference_id` when provided
+  - duplicate detection can match two applications by the persisted reference ID even when their job URLs differ

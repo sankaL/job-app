@@ -1,5 +1,20 @@
 # Decisions Made
 
+## 2026-04-07 15:30:43 EDT — Add blocked-source recovery and Chrome extension intake as the Phase 1A follow-on
+
+- Status: Accepted
+- Context: Phase 1 left extraction failures recoverable through retry and manual entry, but hostile job sites can return block pages instead of postings, and the product needed a compliant way to ingest job content from a user-controlled browser session without introducing a separate extension sign-in flow.
+- Decision: Detect blocked pages explicitly before LLM extraction, persist sanitized blocked-source diagnostics on the application, and route recovery through pasted-text retry first and manual entry second. Add a Chrome-only Manifest V3 extension that captures current-tab content, creates new applications through a token-protected import endpoint, and receives its scoped token from the authenticated web app rather than storing Supabase session credentials.
+- Consequences: The schema now needs additive storage for `applications.extraction_failure_details` and revocable hashed extension tokens on `profiles`. The detail page becomes the blocked-source recovery surface, the worker must classify block pages deterministically, and extension imports stay inside the existing per-user ownership boundary without expanding the public auth surface.
+
+## 2026-04-07 13:15:06 EDT — Lock the Phase 1 extraction and per-agent model configuration contract
+
+- Status: Accepted
+- Context: Phase 1 needed concrete extraction behavior and a stable environment-variable contract for multiple AI agents before the worker, backend callback flow, duplicate review, and frontend recovery states could be implemented without leaving open design gaps.
+- Decision: Implement extraction as a hybrid pipeline that captures deterministic page context with Playwright, sends that context to an OpenRouter-backed extraction agent for structured output, and accepts automatic extraction only when `job_title` and `job_description` validate successfully. Keep `company` optional at extraction time, defer duplicate review until company exists, and score duplicates with additional URL, reference-id, origin, and description context instead of title-company similarity alone.
+- Model-config decision: Use one shared `OPENROUTER_API_KEY` plus explicit primary and fallback model environment variables per agent. Phase 1 wires the extraction agent now and reserves the same pattern for generation, validation, and future agents.
+- Consequences: The worker now owns Playwright capture plus LLM extraction, the backend keeps workflow state and duplicate decisions, extraction failure cleanly falls back to manual entry, and future AI agents can be added without reworking the model configuration surface.
+
 ## 2026-04-07 12:06:48 EDT — Simplify the local env contract and separate app email from local auth email
 
 - Status: Accepted

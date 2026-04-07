@@ -9,7 +9,7 @@
 
 Build a private, invite-only web application that helps users generate ATS-friendly resumes tailored to specific job postings.
 
-A user logs in, creates a job application from a job link, and the system attempts to extract the job details and posting origin asynchronously. The user then selects a base resume, chooses generation settings, and the system produces a tailored resume draft in Markdown. The user can review, edit, regenerate sections, regenerate the full resume, and export a PDF.
+A user logs in, creates a job application from a job link or Chrome current-tab capture, and the system attempts to extract the job details and posting origin asynchronously. The user then selects a base resume, chooses generation settings, and the system produces a tailored resume draft in Markdown. The user can review, edit, regenerate sections, regenerate the full resume, and export a PDF.
 
 This is an MVP. The focus is a clean, reliable workflow with strong user feedback during async processing, clear attention states, and a single ATS-safe PDF output format.
 
@@ -197,7 +197,7 @@ The landing page shows a list of job applications for the logged-in user.
 
 ### 10.2 Create New Application
 
-**Entry point:** A prominent **New Application** CTA opens a simple modal or drawer.
+**Entry point:** A prominent **New Application** CTA is available on the applications dashboard and accepts the job URL directly from the dashboard workflow.
 
 **Required input:** Job application URL only.
 
@@ -205,8 +205,9 @@ The landing page shows a list of job applications for the logged-in user.
 1. Create the application record
 2. Set visible status to **Draft**
 3. Start async extraction job
-4. Show meaningful loading feedback (progress message, skeleton state)
-5. User can stay on the page or navigate away — the job continues in the background
+4. Redirect the user to the new application's detail page immediately after creation
+5. Show meaningful loading feedback there (progress messages, skeleton state, and retry or manual-entry recovery when needed)
+6. User can still navigate away while the job continues in the background
 
 **Extraction target fields:**
 - Job title
@@ -228,7 +229,9 @@ The landing page shows a list of job applications for the logged-in user.
 
 Automatic extraction should map known posting domains into these normalized values when confidence is sufficient. If the user selects **Other**, the UI must also collect a short free-text label for the source.
 
-**Extraction implementation:** Playwright headless browser or equivalent. See §9 for timeout requirements.
+**Extraction implementation:** Use a hybrid extraction pipeline. First capture deterministic page context with Playwright headless browsing, including final URL, page title, meta tags, JSON-LD when present, visible page text, normalized origin from hostname, and recognizable reference-id patterns. Then send that context to an LLM extraction agent through OpenRouter and validate the structured output against a strict schema before accepting it. See §9 for timeout requirements.
+
+**Alternate intake path:** A connected Chrome extension may capture the current tab's URL, page title, meta tags, JSON-LD, and visible page text, then create a new application from that captured content instead of relying on server-side page retrieval first. The extension may create new applications only in MVP; it does not attach captured content to existing applications.
 
 ---
 
@@ -237,7 +240,7 @@ Automatic extraction should map known posting domains into these normalized valu
 Extraction failure is a high-priority failure state.
 
 **If the user is still in the creation flow when extraction fails:**
-- Immediately route the user to a manual entry form
+- The application detail page should switch directly into the manual-entry-required recovery state
 
 **If the user has navigated away:**
 - Set visible status to **Needs Action**
@@ -255,6 +258,20 @@ Extraction failure is a high-priority failure state.
 
 **Retry:** Users must be able to retry extraction from the UI at any point.
 
+**Blocked-page handling:** If the captured page is a site block, challenge, or anti-bot notice instead of a real posting:
+- Detect the blocked page explicitly before LLM extraction
+- Persist sanitized diagnostics only: provider, reference ID such as Ray ID, blocked URL, and detection timestamp
+- Transition the application to `manual_entry_required` with `failure_reason = extraction_failed`
+- Show a purpose-built recovery state on the detail page
+
+**Recovery order when extraction fails:**
+1. Let the user paste job posting text from their browser and retry extraction from that pasted text
+2. If that still fails or the user does not have source text, fall back to full manual entry
+
+The blocked-page recovery UI must not persist raw block-page HTML, IP-address text, or challenge payloads.
+
+Automatic extraction counts as successful only when it yields a non-blank `job_title` and `job_description`. `company` may remain blank after extraction; in that case the application proceeds, but duplicate detection is deferred until the user later supplies company information.
+
 If extraction succeeds for the core job details but cannot classify the posting origin confidently, leave the origin blank and allow the user to provide or edit it later from the application detail page.
 
 **After manual entry:** Duplicate detection runs automatically.
@@ -270,18 +287,21 @@ Duplicate detection runs automatically after either:
 If `job_posting_origin` was unknown during the initial duplicate check and the user later saves it before dismissing duplicate review, duplicate detection should run again using the updated origin.
 
 **Matching logic:**
-- Fuzzy match on combined normalized `job_title` + `company` string
-- Include normalized `job_posting_origin` as an additional match field when it is populated on both the current application and the candidate application
-- Missing origin must not block duplicate evaluation; when origin is unknown on either side, fall back to `job_title` + `company` matching and surface only the fields that actually matched
+- Run duplicate detection only when the current application has both `job_title` and `company`
+- Start with a fuzzy similarity score over normalized `job_title` + `company`
+- Boost confidence when normalized `job_posting_origin` matches on both records
+- Treat exact job-link matches and exact extracted reference-id matches as high-confidence duplicate signals
+- Use materially similar job-description content as an additional confidence signal when available
+- Missing origin must not block duplicate evaluation; when origin is unknown on either side, fall back to the other available signals and surface only the fields that actually matched
 - Recommended similarity threshold: **≥ 85%** (tunable via config, not hardcoded)
-- Library recommendation: `rapidfuzz` (Python)
+- If extraction succeeds without `company`, skip duplicate review for now and re-run it when the user later saves company information or updates origin before dismissing review
 
 **If overlap is found:**
 Show a warning UI (banner or modal) on the application detail page before generation with:
 - Similarity score
 - Which fields matched
 - Link to the existing matching application
-- Link to the existing application's resume
+- Match basis or confidence context derived from the compared signals
 
 **User options:**
 - **Proceed Anyway** — dismisses the warning permanently for this application; duplicate flag is cleared and does not re-evaluate on subsequent regenerations
@@ -600,6 +620,9 @@ All emails must include a direct link to the relevant application.
 | default_base_resume_id | UUID FK | nullable |
 | section_preferences | JSONB | Map of section_id → enabled boolean |
 | section_order | JSONB | Ordered array of section identifiers |
+| extension_token_hash | string | nullable; server-side only; stores the scoped Chrome extension token hash |
+| extension_token_created_at | timestamp | nullable |
+| extension_token_last_used_at | timestamp | nullable |
 | created_at | timestamp | |
 | updated_at | timestamp | |
 
@@ -623,12 +646,14 @@ All emails must include a direct link to the relevant application.
 | job_title | string | Extracted or manually entered |
 | company | string | Extracted or manually entered |
 | job_description | text | Extracted or manually entered |
+| extracted_reference_id | string | nullable; persisted extracted requisition or reference ID when available |
 | job_posting_origin | enum | Normalized posting source; extracted when possible and user-editable later. `linkedin`, `indeed`, `google_jobs`, `glassdoor`, `ziprecruiter`, `monster`, `dice`, `company_website`, `other`; nullable |
 | job_posting_origin_other_text | string | nullable; required when `job_posting_origin = other` |
 | base_resume_id | UUID FK | Base resume used for generation |
 | visible_status | enum | `draft`, `needs_action`, `in_progress`, `complete` |
 | internal_state | enum | See §8 |
 | failure_reason | enum | See §8; nullable |
+| extraction_failure_details | JSONB | nullable; sanitized blocked-source diagnostics and future recoverable extraction metadata |
 | applied | boolean | User-controlled flag |
 | duplicate_similarity_score | float | nullable |
 | duplicate_match_fields | JSONB | nullable |
@@ -699,7 +724,6 @@ All emails must include a direct link to the relevant application.
 - Public sign-up
 - Collaborative or team workflows
 - Persistent PDF storage
-- Browser extension
 - Side-by-side duplicate comparison
 - Advanced analytics or reporting
 - Resume version history UI
@@ -730,7 +754,9 @@ The MVP is successful if a user can:
 
 - [ ] Log in to an invite-only app with email and password
 - [ ] Create a new application from a job link
+- [ ] Create a new application from a connected Chrome current-tab capture
 - [ ] Receive automatic extraction or be routed to manual entry on failure
+- [ ] See blocked-source recovery with provider, reference ID, blocked URL, and pasted-text retry before manual entry
 - [ ] See job posting origin auto-populated when it can be extracted and supply or edit it manually when needed
 - [ ] See duplicate overlap warnings with similarity score, matched fields, and a link to the existing application
 - [ ] Dismiss a duplicate warning permanently (does not re-evaluate on regeneration)

@@ -6,7 +6,7 @@ from typing import Annotated, Any, Optional
 import jwt
 from fastapi import Depends, Header, HTTPException, status
 from jwt import PyJWKClient
-from jwt.exceptions import InvalidTokenError, PyJWKClientError
+from jwt.exceptions import InvalidTokenError, PyJWKClientError, PyJWKSetError
 from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
@@ -50,7 +50,7 @@ class AuthVerifier:
         try:
             signing_key = self._jwk_client.get_signing_key_from_jwt(token)
             return jwt.decode(token, signing_key.key, **decode_kwargs)
-        except (PyJWKClientError, InvalidTokenError):
+        except (PyJWKClientError, PyJWKSetError, InvalidTokenError):
             if not self.settings.supabase_jwt_secret:
                 raise self._unauthorized("Unable to verify Supabase access token.")
 

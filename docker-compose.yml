@@ -27,6 +27,7 @@ services:
       APP_ENV: ${APP_ENV:-development}
       APP_DEV_MODE: ${DEV_MODE:-true}
       API_PORT: "8000"
+      APP_URL: ${APP_URL:-http://localhost:5173}
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:5432/postgres
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: ${APP_URL:-http://localhost:5173}
@@ -34,6 +35,8 @@ services:
       SUPABASE_EXTERNAL_URL: ${SUPABASE_URL:-http://localhost:54421}
       SUPABASE_AUTH_JWKS_URL: http://supabase-kong:8000/auth/v1/.well-known/jwks.json
       SUPABASE_JWT_SECRET: ${JWT_SECRET}
+      WORKER_CALLBACK_SECRET: ${WORKER_CALLBACK_SECRET}
+      DUPLICATE_SIMILARITY_THRESHOLD: ${DUPLICATE_SIMILARITY_THRESHOLD:-85}
       EMAIL_NOTIFICATIONS_ENABLED: ${EMAIL_NOTIFICATIONS_ENABLED:-false}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
@@ -57,9 +60,19 @@ services:
       APP_DEV_MODE: ${DEV_MODE:-true}
       REDIS_URL: redis://redis:6379/0
       BACKEND_API_URL: http://backend:8000
+      WORKER_CALLBACK_SECRET: ${WORKER_CALLBACK_SECRET}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      EXTRACTION_AGENT_MODEL: ${EXTRACTION_AGENT_MODEL:-}
+      EXTRACTION_AGENT_FALLBACK_MODEL: ${EXTRACTION_AGENT_FALLBACK_MODEL:-}
+      GENERATION_AGENT_MODEL: ${GENERATION_AGENT_MODEL:-}
+      GENERATION_AGENT_FALLBACK_MODEL: ${GENERATION_AGENT_FALLBACK_MODEL:-}
+      VALIDATION_AGENT_MODEL: ${VALIDATION_AGENT_MODEL:-}
+      VALIDATION_AGENT_FALLBACK_MODEL: ${VALIDATION_AGENT_FALLBACK_MODEL:-}
     volumes:
       - ./agents:/app
       - ./shared:/workspace/shared:ro
+    ipc: host
     depends_on:
       redis:
         condition: service_started

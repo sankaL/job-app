@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
     app_dev_mode: bool = Field(default=False, alias="APP_DEV_MODE")
     api_port: int = Field(default=8000, alias="API_PORT")
+    app_url: str = Field(default="http://localhost:5173", alias="APP_URL")
     database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:54322/postgres",
         alias="DATABASE_URL",
@@ -55,6 +56,10 @@ class Settings(BaseSettings):
     supabase_jwt_secret: Optional[str] = Field(default=None, alias="SUPABASE_JWT_SECRET")
     supabase_jwt_audience: str = Field(default="authenticated", alias="SUPABASE_JWT_AUDIENCE")
     supabase_jwt_issuer: Optional[str] = Field(default=None, alias="SUPABASE_JWT_ISSUER")
+    worker_callback_secret: Optional[str] = Field(default=None, alias="WORKER_CALLBACK_SECRET")
+    duplicate_similarity_threshold: float = Field(
+        default=85.0, alias="DUPLICATE_SIMILARITY_THRESHOLD"
+    )
     email_notifications_enabled: bool = Field(
         default=False, alias="EMAIL_NOTIFICATIONS_ENABLED"
     )

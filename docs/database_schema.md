@@ -1,7 +1,7 @@
 # AI Resume Builder Database Schema
 
 **Document status:** Source of truth for the MVP database contract  
-**Last updated:** 2026-04-07 10:00:16 EDT
+**Last updated:** 2026-04-07 15:51:23 EDT
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Related rollout guide:** `docs/backend-database-migration-runbook.md`
 
@@ -36,7 +36,9 @@ Backend write paths must validate these shapes before persisting them.
 |---|---|---|
 | `profiles.section_preferences` | Object map of section identifier to boolean, for example `{"summary": true, "professional_experience": true, "education": true, "skills": true}` | Default keys are the four MVP sections. Additional keys may exist for forward compatibility but are ignored unless the application supports them. |
 | `profiles.section_order` | Ordered JSON array of section identifiers, for example `["summary", "professional_experience", "education", "skills"]` | Must contain enabled sections in the order used for future generations. |
-| `applications.duplicate_match_fields` | Object with `matched_fields` array and `match_basis` string, for example `{"matched_fields": ["job_title", "company", "job_posting_origin"], "match_basis": "job_title_company_with_origin"}` | Stores what caused the duplicate warning, not the full comparison payload. `matched_fields` may omit `job_posting_origin` when the value is unknown on either side or was not used. |
+| `applications.extraction_failure_details` | Object with `kind`, `provider`, `reference_id`, `blocked_url`, and `detected_at`, for example `{"kind": "blocked_source", "provider": "indeed", "reference_id": "9e8afb060bd31117", "blocked_url": "https://www.indeed.com/viewjob?jk=abc123", "detected_at": "2026-04-07T19:30:43+00:00"}` | Stores sanitized extraction failure diagnostics for recoverable failures. MVP currently persists blocked-source metadata only. |
+| `applications.extracted_reference_id` | Lowercase or normalized requisition/reference identifier, for example `"req-42"` | Stores the reference identifier extracted during capture so duplicate detection can use a persisted signal instead of re-parsing URLs or descriptions later. |
+| `applications.duplicate_match_fields` | Object with `matched_fields` array and `match_basis` string, for example `{"matched_fields": ["job_title", "company", "job_url"], "match_basis": "exact_job_url"}` | Stores what caused the duplicate warning, not the full comparison payload. `matched_fields` may include `job_posting_origin`, `job_url`, `reference_id`, or `job_description` only when those signals actually contributed to the duplicate warning. |
 | `resume_drafts.generation_params` | Object with `page_length`, `aggressiveness`, and `additional_instructions`, for example `{"page_length": "1_page", "aggressiveness": "medium", "additional_instructions": null}` | `page_length` values: `1_page`, `2_page`, `3_page`. `aggressiveness` values: `low`, `medium`, `high`. |
 | `resume_drafts.sections_snapshot` | Object with `enabled_sections` and `section_order`, for example `{"enabled_sections": ["summary", "professional_experience", "education", "skills"], "section_order": ["summary", "professional_experience", "education", "skills"]}` | Snapshot taken at generation time so later preference changes do not rewrite old drafts implicitly. |
 
@@ -56,6 +58,9 @@ Application-owned extension of `auth.users`.
 | `default_base_resume_id` | `uuid` | Yes | `null` | Canonical pointer to the user's default base resume. Composite foreign key with `id` to `base_resumes (id, user_id)` and `ON DELETE SET NULL`. |
 | `section_preferences` | `jsonb` | No | `{"summary": true, "professional_experience": true, "education": true, "skills": true}` | See JSON contract above. |
 | `section_order` | `jsonb` | No | `["summary", "professional_experience", "education", "skills"]` | See JSON contract above. |
+| `extension_token_hash` | `text` | Yes | `null` | Server-side hash of the scoped Chrome extension import token. Never exposed back to the client. |
+| `extension_token_created_at` | `timestamptz` | Yes | `null` | When the current extension token was issued or rotated. |
+| `extension_token_last_used_at` | `timestamptz` | Yes | `null` | Last successful extension import using the scoped token. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
 
@@ -67,6 +72,7 @@ Application-owned extension of `auth.users`.
 **Constraints**
 
 - `UNIQUE (email)`
+- Unique partial index on `extension_token_hash` when present
 
 **RLS requirements**
 
@@ -116,12 +122,14 @@ User-owned job application records and workflow state.
 | `job_title` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
 | `company` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
 | `job_description` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
+| `extracted_reference_id` | `text` | Yes | `null` | Persisted reference or requisition identifier extracted from the posting when available. |
 | `job_posting_origin` | `job_posting_origin_enum` | Yes | `null` | Normalized posting source when extraction or user input can identify it. |
 | `job_posting_origin_other_text` | `text` | Yes | `null` | Free-text source label used only when `job_posting_origin = 'other'`. |
 | `base_resume_id` | `uuid` | Yes | `null` | Composite foreign key with `user_id` to `base_resumes (id, user_id)` and `ON DELETE SET NULL`. |
 | `visible_status` | `visible_status_enum` | No | `draft` | User-visible status. |
 | `internal_state` | `internal_state_enum` | No | `extraction_pending` | Internal workflow state. |
 | `failure_reason` | `failure_reason_enum` | Yes | `null` | Nullable recoverable failure type. |
+| `extraction_failure_details` | `jsonb` | Yes | `null` | See JSON contract above. |
 | `applied` | `boolean` | No | `false` | User-controlled flag independent from `visible_status`. |
 | `duplicate_similarity_score` | `numeric(5,2)` | Yes | `null` | Percentage score from `0.00` to `100.00`. |
 | `duplicate_match_fields` | `jsonb` | Yes | `null` | See JSON contract above. |
@@ -144,6 +152,8 @@ User-owned job application records and workflow state.
 
 - `applied` must remain editable regardless of the primary visible status.
 - `job_posting_origin` may remain `NULL` after extraction succeeds if origin classification is unknown; the user may supply or edit it later.
+- `extraction_failure_details` stores sanitized recoverable diagnostics for extraction failures. MVP uses it for blocked-source metadata such as provider, reference ID, blocked URL, and detection timestamp.
+- `extracted_reference_id` should be written from the extraction pipeline when present and reused by duplicate detection before falling back to URL or description parsing.
 - Duplicate dismissal is stored on the application so the warning does not re-evaluate for that application after dismissal.
 - Duplicate detection must include normalized `job_posting_origin` when it is populated on both compared applications, and fall back to `job_title` + `company` matching when origin is missing on either side.
 - The backend must clear stale `failure_reason` values when a recoverable workflow succeeds.
@@ -206,7 +216,8 @@ In-app workflow notifications for a single user.
 
 **Behavior notes**
 
-- High-signal failures must create `action_required = true` notifications.
+- High-signal failures and unresolved duplicate review must create `action_required = true` notifications.
+- `action_required` is an active-attention flag, not permanent history. Recovery flows should clear it when the underlying issue is resolved.
 - Notifications may outlive deleted application references by keeping the row and nulling `application_id`.
 
 **RLS requirements**
@@ -236,6 +247,7 @@ If implementation constraints require equivalent ownership validation outside a 
 | Index target | Purpose |
 |---|---|
 | `profiles.email` unique index | Fast profile lookup by mirrored auth email if needed |
+| `profiles.extension_token_hash` unique partial index | Fast scoped extension-token lookup |
 | `base_resumes (user_id, updated_at DESC)` | Resume list ordering |
 | `base_resumes (user_id, name)` | Name-based selection and lookup |
 | `applications (user_id, updated_at DESC)` | Dashboard default sort |

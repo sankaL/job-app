@@ -49,8 +49,8 @@ export function LoginPage() {
               Tailored resumes without breaking the source of truth.
             </h1>
             <p className="mt-6 max-w-xl text-lg text-white/75">
-              Phase 0 establishes the protected shell only: authenticated access, local dev-mode wiring,
-              and the shared workflow vocabulary the rest of the product builds on.
+              Sign in to capture job postings, recover failed extraction, and review duplicate
+              overlap before resume generation starts.
             </p>
             <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-5">
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/50">

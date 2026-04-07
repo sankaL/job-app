@@ -1,12 +1,12 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-04-07 12:06:48 EDT  
-**Implementation status:** Phase 0 implemented; later phases pending  
+**Last updated:** 2026-04-07 16:02:40 EDT  
+**Implementation status:** Phase 0, Phase 1, and Phase 1A implemented; later phases pending  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
-This roadmap now includes the committed Phase 0 foundation: frontend and backend app scaffolds, a worker baseline, shared workflow contract assets, and a repo-owned local Docker stack. Later phases remain unimplemented.
+This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, and the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on. Later phases remain unimplemented.
 
 ## Planning Defaults
 
@@ -25,7 +25,8 @@ This roadmap now includes the committed Phase 0 foundation: frontend and backend
 | Phase | Status | Outcome |
 |---|---|---|
 | Phase 0 | Implemented | Foundation, containerized local stack, auth boundary, schema, and shared workflow contract |
-| Phase 1 | Planned | Application intake, extraction, manual fallback, and duplicate review |
+| Phase 1 | Implemented | Application intake, extraction, manual fallback, duplicate review, and extraction-problem notifications |
+| Phase 1A | Implemented | Blocked-page recovery, pasted-text retry, and Chrome current-tab capture intake |
 | Phase 2 | Planned | Base resumes, profile data, section preferences, and generation setup |
 | Phase 3 | Planned | Generation, validation, assembly, notifications, and application workspace |
 | Phase 4 | Planned | Editing, regeneration, and PDF export |
@@ -39,6 +40,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B0-T01 | Fail closed when local Supabase exposes an empty JWKS set during backend JWT verification | BE | DONE | 2026-04-07 13:38:00 EDT | Auth verification now treats empty JWKS responses like other key-fetch failures, falls back to the configured shared secret when available, and has regression coverage for both fallback and fail-closed paths. |
 | P0-T01 | Scaffold the committed frontend, backend, and agents stack foundations | Infra | DONE | 2026-04-07 11:36:08 EDT | React/Vite/Tailwind frontend, FastAPI backend, and ARQ worker baseline are committed. |
 | P0-T02 | Dockerize the local frontend, backend, agents, and Supabase dev stack with Makefile orchestration | Infra | DONE | 2026-04-07 11:36:08 EDT | Root Docker Compose, Makefile, migrations runner, health check, and local invite-user seed flow are committed. |
 | P0-T03 | Build the invite-only login surface and protected frontend route shell | FE | DONE | 2026-04-07 11:36:08 EDT | Login-only surface, protected route guard, authenticated shell bootstrap, and sessionStorage Supabase persistence are implemented. |
@@ -50,12 +52,22 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
-| P1-T01 | Build the applications dashboard with loading, search, filter, sort, and inline applied toggle support | FE | TODO | 2026-04-07 | |
-| P1-T02 | Implement new application creation from URL-only submission and draft record setup | BE | TODO | 2026-04-07 | |
-| P1-T03 | Orchestrate async job extraction with progress, retry handling, and bounded recovery behavior | BE | TODO | 2026-04-07 | |
-| P1-T04 | Build the manual entry fallback flow with job posting origin selection and editing for extraction failures | FE | TODO | 2026-04-07 | |
-| P1-T05 | Add duplicate detection using job posting origin when available, plus persisted warning and dismissal tracking | BE | TODO | 2026-04-07 | |
-| P1-T06 | Deliver in-app and email notifications for extraction problems and manual-entry-required states | BE | TODO | 2026-04-07 | |
+| P1-T01 | Build the applications dashboard with loading, search, filter, sort, and inline applied toggle support | FE | DONE | 2026-04-07 13:15:06 EDT | Dashboard route now lists user-scoped applications with empty/loading states, local filter/sort controls, duplicate and attention badges, and optimistic applied toggles. |
+| P1-T02 | Implement new application creation from URL-only submission and draft record setup | BE | DONE | 2026-04-07 13:15:06 EDT | URL-only creation now creates the draft row immediately, seeds extraction progress, and redirects to the detail page. |
+| P1-T03 | Orchestrate async job extraction with progress, retry handling, and bounded recovery behavior | BE | DONE | 2026-04-07 13:15:06 EDT | ARQ extraction jobs now drive Redis-backed polling progress, internal worker callbacks, retry flow, timeout/error fallback, and title+description validation. |
+| P1-T04 | Build the manual entry fallback flow with job posting origin selection and editing for extraction failures | FE | DONE | 2026-04-07 13:15:06 EDT | Detail page now exposes retry extraction, manual-entry-required recovery, editable origin handling, and conditional Other labels. |
+| P1-T05 | Add duplicate detection using job posting origin when available, plus persisted warning and dismissal tracking | BE | DONE | 2026-04-07 13:15:06 EDT | Duplicate review now uses confidence scoring across title/company plus origin, URL, reference-id, and description signals with persisted dismissal or redirect state. |
+| P1-T06 | Deliver in-app and email notifications for extraction problems and manual-entry-required states | BE | DONE | 2026-04-07 13:15:06 EDT | Extraction failures now mark active action-required notifications, clear them on recovery, and send the gated Resend email notification. |
+
+### Phase 1A Tasks
+
+| Task ID | Task | Type | Status | Date updated | Comments |
+|---|---|---|---|---|---|
+| P1A-T01 | Detect blocked pages explicitly and persist sanitized failure diagnostics on applications | BE | DONE | 2026-04-07 15:30:43 EDT | Worker extraction now classifies blocked pages before LLM extraction and stores provider, reference ID, blocked URL, and detection timestamp in `applications.extraction_failure_details`. |
+| P1A-T02 | Add pasted-text recovery so extraction can rerun from user-supplied source content | BE | DONE | 2026-04-07 15:30:43 EDT | Application detail now supports authenticated source-text recovery that requeues extraction from pasted content and clears stale blocked-failure state on success. |
+| P1A-T03 | Build the blocked-source recovery UI with diagnostics, pasted-text retry, and manual fallback continuity | FE | DONE | 2026-04-07 15:30:43 EDT | Detail page now shows blocked-source diagnostics, pasted-text retry, URL retry, and the existing manual-entry flow in one recovery surface. |
+| P1A-T04 | Add scoped Chrome extension token bootstrap, revoke, and token-protected import endpoints | BE | DONE | 2026-04-07 15:30:43 EDT | Backend now issues revocable hashed extension tokens per profile, exposes connection status, and accepts extension imports through token-only routes. |
+| P1A-T05 | Ship a Chrome Manifest V3 current-tab capture extension and app onboarding flow | FE | DONE | 2026-04-07 15:30:43 EDT | The app now includes Chrome extension onboarding, and the repo includes a load-unpacked MV3 extension bundle for current-tab capture and application creation. |
 
 ### Phase 2 Tasks
 
@@ -102,6 +114,8 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B1A-T01 | Persist extracted reference IDs from worker success callbacks and use them in duplicate detection | BE | DONE | 2026-04-07 15:51:23 EDT | Added `applications.extracted_reference_id`, persisted worker-extracted IDs, and updated duplicate detection to use the stored value before falling back to URL or description parsing. |
+| B1A-T02 | Restore fail-closed application-state transitions and tighten Chrome extension bridge trust checks | BE/FE | DONE | 2026-04-07 16:02:40 EDT | Manual-entry PATCH edits no longer clear recovery state, duplicate resolution now requires a pending duplicate-review state, retry queue failures restore manual-entry progress/notifications, and the Chrome extension now accepts bridge messages only from trusted local or already-connected app origins. |
 
 ### Ad-hoc
 
@@ -212,6 +226,40 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Capture job posting origin automatically when possible and allow manual selection later when needed.
 - See duplicate overlap warnings with similarity score, matched fields, and a link to the existing application.
 - Dismiss a duplicate warning permanently.
+
+## Phase 1A — Blocked-Page Recovery and Chrome Extension Intake
+
+**Scope**
+
+- Detect blocked pages explicitly before LLM extraction and persist sanitized blocked-source diagnostics on the application.
+- Add pasted-text recovery so extraction can rerun from user-supplied source content before the user falls back to manual entry.
+- Extend the application detail page with blocked-source recovery messaging, diagnostics, pasted-text retry, and the existing manual fallback.
+- Add scoped Chrome extension token bootstrap, revoke, and token-protected import endpoints.
+- Ship a Chrome Manifest V3 extension that captures the current tab and creates a new application in the authenticated app.
+
+**Dependencies**
+
+- Phase 1 application intake, progress polling, worker callback, and manual-entry baseline
+- Existing user-scoped auth and notifications contracts from Phase 0 and Phase 1
+
+**Deliverables**
+
+- Additive schema migration for `applications.extraction_failure_details` and revocable extension-token fields on `profiles`.
+- Worker blocked-page detection for Indeed- and Cloudflare-style block signals, including sanitized reference-ID extraction.
+- Authenticated pasted-text recovery endpoint plus frontend recovery form on the application detail page.
+- Chrome extension onboarding route in the app and a load-unpacked MV3 extension bundle under `frontend/public/chrome-extension/`.
+
+**Exit Criteria**
+
+- Blocked pages route the application into `manual_entry_required` with sanitized diagnostics and active attention state.
+- Pasted-text recovery can rerun extraction and clear stale blocked-failure state on success.
+- Revoking an extension token invalidates further extension imports immediately.
+- Chrome current-tab capture can create a new application and open the detail page without using Supabase session tokens in the extension.
+
+**PRD Acceptance Coverage**
+
+- Create a new application from a connected Chrome current-tab capture.
+- Receive blocked-source recovery with provider, reference ID, blocked URL, and pasted-text retry before manual entry.
 
 ## Phase 2 — Base Resumes, Profile, Preferences, and Generation Setup
 
