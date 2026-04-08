@@ -82,6 +82,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
   - update the relevant product or architecture docs
   - add or adjust regression coverage where the codebase supports it
   - record the rationale in the decisions log
+  - **CRITICAL**: If agent logic changes (generation, validation, extraction, or any AI orchestration logic), update `docs/prompts.md` with the new prompt structure, parameters, and behavioral changes in the same task.
 
 ### Task Completion Bookkeeping
 After completing a task:

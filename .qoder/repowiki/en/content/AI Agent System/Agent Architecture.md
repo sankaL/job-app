@@ -4,6 +4,7 @@
 **Referenced Files in This Document**
 - [worker.py](file://agents/worker.py)
 - [generation.py](file://agents/generation.py)
+- [privacy.py](file://agents/privacy.py)
 - [validation.py](file://agents/validation.py)
 - [assembly.py](file://agents/assembly.py)
 - [pyproject.toml](file://agents/pyproject.toml)
@@ -13,7 +14,18 @@
 - [workflow-contract.json](file://shared/workflow-contract.json)
 - [jobs.py](file://backend/app/services/jobs.py)
 - [test_worker.py](file://agents/tests/test_worker.py)
+- [test_generation_pipeline.py](file://agents/tests/test_generation_pipeline.py)
+- [decisions-made-1.md](file://docs/decisions-made/decisions-made-1.md)
+- [2026-04-08-single-call-generation-privacy-hardening.md](file://docs/task-output/2026-04-08-single-call-generation-privacy-hardening.md)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated generation workflow to reflect single-call structured JSON generation architecture
+- Added comprehensive privacy sanitization and integrated security features
+- Enhanced validation pipeline with deterministic local validation rules
+- Updated architecture diagrams to show unified prompt system and privacy controls
+- Revised generation workflow to show privacy sanitization and local validation steps
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -28,13 +40,14 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document explains the ARQ-based agent architecture for extracting job postings, generating tailored resumes, and validating outputs. It covers task queue management via Redis, asynchronous processing workflows, progress tracking, configuration management, structured LLM outputs using LangChain, OpenRouter API access, Playwright-based web scraping, and integration with the backend’s workflow contract and state machine. It also documents agent lifecycle, callback mechanisms, error handling, and monitoring approaches.
+This document explains the ARQ-based agent architecture for extracting job postings, generating tailored resumes, and validating outputs. The architecture has been modernized to use a single-call generation approach with integrated privacy sanitization and comprehensive validation rules. It covers task queue management via Redis, asynchronous processing workflows, progress tracking, configuration management, structured LLM outputs using LangChain, OpenRouter API access, Playwright-based web scraping, and integration with the backend's workflow contract and state machine. It also documents agent lifecycle, callback mechanisms, error handling, and monitoring approaches.
 
 ## Project Structure
-The agents subsystem is organized around four Python modules plus packaging and containerization:
+The agents subsystem is organized around five Python modules plus packaging and containerization:
 - worker.py: Agent orchestration, scraping, extraction, progress tracking, callbacks, and job runners
-- generation.py: Section-based generation with structured LLM outputs and fallback logic
-- validation.py: Hallucination detection, completeness, ordering, and ATS-safety checks
+- generation.py: Single-call structured JSON generation with unified prompt system and privacy sanitization
+- privacy.py: Integrated privacy sanitization removing PII and contact information before LLM calls
+- validation.py: Comprehensive deterministic validation rules for ATS-safety, grounding, and security
 - assembly.py: Final resume assembly from personal info header and ordered sections
 - pyproject.toml: Dependencies and build configuration
 - Dockerfile: Container image definition and ARQ worker command
@@ -45,6 +58,7 @@ graph TB
 subgraph "Agents"
 W["worker.py"]
 G["generation.py"]
+PVT["privacy.py"]
 V["validation.py"]
 A["assembly.py"]
 P["pyproject.toml"]
@@ -63,18 +77,19 @@ W --> R
 W --> B
 W --> OR
 G --> OR
-V --> OR
+PVT --> G
+V --> A
 W --> G
 G --> A
-V --> A
 classDef ext fill:#fff,stroke:#333,stroke-width:1px;
 ```
 
 **Diagram sources**
-- [worker.py:1-1236](file://agents/worker.py#L1-L1236)
-- [generation.py:1-351](file://agents/generation.py#L1-L351)
-- [validation.py:1-292](file://agents/validation.py#L1-L292)
-- [assembly.py:1-63](file://agents/assembly.py#L1-L63)
+- [worker.py:1-1338](file://agents/worker.py#L1-L1338)
+- [generation.py:1-596](file://agents/generation.py#L1-L596)
+- [privacy.py:1-173](file://agents/privacy.py#L1-L173)
+- [validation.py:1-511](file://agents/validation.py#L1-L511)
+- [assembly.py:1-71](file://agents/assembly.py#L1-L71)
 - [pyproject.toml:1-26](file://agents/pyproject.toml#L1-L26)
 - [Dockerfile:1-14](file://agents/Dockerfile#L1-L14)
 - [docker-compose.yml:54-83](file://docker-compose.yml#L54-L83)
@@ -93,25 +108,27 @@ classDef ext fill:#fff,stroke:#333,stroke-width:1px;
 - BackendCallbackClient: Async HTTP client to notify backend of job events and outcomes
 - OpenRouterExtractionAgent: Structured extraction using LangChain with primary/fallback model fallback
 - Playwright scraping: Chromium-based page capture with metadata and JSON-LD extraction
-- Generation pipeline: Section-by-section generation with structured outputs and progress callbacks
-- Validation pipeline: Hallucination detection, completeness, ordering, and ATS-safety checks
+- Single-call Generation Pipeline: Unified structured JSON generation with privacy sanitization and fallback logic
+- Integrated Privacy Sanitization: Comprehensive PII removal before LLM calls with header preservation
+- Deterministic Validation Pipeline: Local schema and rule validation replacing separate LLM validation
 - Assembly: Final Markdown resume composition from personal info and ordered sections
 - Job queues: Backend enqueues ARQ jobs for extraction and generation
 
 **Section sources**
-- [worker.py:54-71](file://agents/worker.py#L54-L71)
-- [worker.py:272-288](file://agents/worker.py#L272-L288)
-- [worker.py:290-305](file://agents/worker.py#L290-L305)
-- [worker.py:307-370](file://agents/worker.py#L307-L370)
-- [worker.py:372-424](file://agents/worker.py#L372-L424)
-- [generation.py:159-224](file://agents/generation.py#L159-L224)
-- [validation.py:231-291](file://agents/validation.py#L231-L291)
-- [assembly.py:12-62](file://agents/assembly.py#L12-L62)
+- [worker.py:56-73](file://agents/worker.py#L56-L73)
+- [worker.py:344-360](file://agents/worker.py#L344-L360)
+- [worker.py:362-391](file://agents/worker.py#L362-L391)
+- [worker.py:393-457](file://agents/worker.py#L393-L457)
+- [worker.py:459-496](file://agents/worker.py#L459-L496)
+- [generation.py:1-596](file://agents/generation.py#L1-L596)
+- [privacy.py:118-160](file://agents/privacy.py#L118-L160)
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [assembly.py:20-71](file://agents/assembly.py#L20-L71)
 - [jobs.py:12-43](file://backend/app/services/jobs.py#L12-L43)
 - [jobs.py:45-85](file://backend/app/services/jobs.py#L45-L85)
 
 ## Architecture Overview
-The agents subsystem runs as an ARQ worker container. Jobs are enqueued by the backend into Redis and processed asynchronously. Agents report progress to Redis and notify the backend via authenticated callbacks. LLM interactions leverage OpenRouter through LangChain with structured outputs. Web scraping is performed via Playwright.
+The agents subsystem runs as an ARQ worker container with a streamlined single-call generation architecture. Jobs are enqueued by the backend into Redis and processed asynchronously. Agents report progress to Redis and notify the backend via authenticated callbacks. LLM interactions leverage OpenRouter through LangChain with single structured JSON calls. Privacy sanitization removes PII before external calls, and deterministic validation ensures security compliance locally.
 
 ```mermaid
 sequenceDiagram
@@ -120,6 +137,8 @@ participant Q as "Redis Queue"
 participant ARQ as "ARQ Worker"
 participant Scraper as "Playwright"
 participant LLM as "OpenRouter"
+participant Sanitizer as "Privacy Sanitizer"
+participant Validator as "Local Validator"
 participant Store as "Redis Progress"
 participant CB as "Backend Callback"
 BE->>Q : "Enqueue extraction job"
@@ -135,10 +154,12 @@ ARQ->>CB : "Notify succeeded"
 BE->>Q : "Enqueue generation job"
 Q-->>ARQ : "Dequeue run_generation_job"
 ARQ->>Store : "Set generating progress"
-ARQ->>LLM : "Generate sections"
-LLM-->>ARQ : "Sections"
-ARQ->>LLM : "Validate resume"
-LLM-->>ARQ : "Validation result"
+ARQ->>Sanitizer : "Remove PII from base resume"
+Sanitizer-->>ARQ : "Sanitized content"
+ARQ->>LLM : "Single structured JSON generation"
+LLM-->>ARQ : "Generated sections JSON"
+ARQ->>Validator : "Local validation (order, ATS, PII)"
+Validator-->>ARQ : "Validation result"
 ARQ->>Store : "Set validated state"
 ARQ->>CB : "Notify completed"
 ```
@@ -146,13 +167,12 @@ ARQ->>CB : "Notify completed"
 **Diagram sources**
 - [jobs.py:16-42](file://backend/app/services/jobs.py#L16-L42)
 - [jobs.py:49-84](file://backend/app/services/jobs.py#L49-L84)
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
-- [worker.py:682-806](file://agents/worker.py#L682-L806)
-- [worker.py:272-288](file://agents/worker.py#L272-L288)
-- [worker.py:290-305](file://agents/worker.py#L290-L305)
-- [worker.py:307-370](file://agents/worker.py#L307-L370)
-- [generation.py:159-224](file://agents/generation.py#L159-L224)
-- [validation.py:231-291](file://agents/validation.py#L231-L291)
+- [worker.py:624-765](file://agents/worker.py#L624-L765)
+- [worker.py:780-1006](file://agents/worker.py#L780-L1006)
+- [worker.py:362-391](file://agents/worker.py#L362-L391)
+- [generation.py:454-518](file://agents/generation.py#L454-L518)
+- [privacy.py:118-160](file://agents/privacy.py#L118-L160)
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
 
 ## Detailed Component Analysis
 
@@ -181,10 +201,10 @@ class WorkerSettingsEnv {
 ```
 
 **Diagram sources**
-- [worker.py:54-71](file://agents/worker.py#L54-L71)
+- [worker.py:56-73](file://agents/worker.py#L56-L73)
 
 **Section sources**
-- [worker.py:54-71](file://agents/worker.py#L54-L71)
+- [worker.py:56-73](file://agents/worker.py#L56-L73)
 - [docker-compose.yml:58-71](file://docker-compose.yml#L58-L71)
 
 ### Task Queue Management Through Redis and ARQ
@@ -199,15 +219,15 @@ EnqExt --> DeqExt["ARQ dequeues run_extraction_job"]
 DeqExt --> ExtFlow["Run extraction workflow"]
 ExtFlow --> EnqGen["Enqueue generation job"]
 EnqGen --> DeqGen["ARQ dequeues run_generation_job"]
-DeqGen --> GenFlow["Run generation workflow"]
+DeqGen --> GenFlow["Run single-call generation workflow"]
 GenFlow --> End(["Completed"])
 ```
 
 **Diagram sources**
 - [jobs.py:16-42](file://backend/app/services/jobs.py#L16-L42)
 - [jobs.py:49-84](file://backend/app/services/jobs.py#L49-L84)
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
-- [worker.py:682-806](file://agents/worker.py#L682-L806)
+- [worker.py:624-765](file://agents/worker.py#L624-L765)
+- [worker.py:780-1006](file://agents/worker.py#L780-L1006)
 
 **Section sources**
 - [jobs.py:12-43](file://backend/app/services/jobs.py#L12-L43)
@@ -216,12 +236,12 @@ GenFlow --> End(["Completed"])
 ### Asynchronous Processing Workflows
 
 #### Extraction Workflow
-- Initializes progress, notifies backend “started”
+- Initializes progress, notifies backend "started"
 - Scrapes page via Playwright or loads SourceCapture
 - Detects blocked sources and reports failures
 - Runs structured extraction via OpenRouterExtractionAgent
 - Validates final extraction and transitions to generation_pending
-- Notifies backend “succeeded”
+- Notifies backend "succeeded"
 
 ```mermaid
 sequenceDiagram
@@ -250,50 +270,133 @@ ARQ->>BC : "succeeded"
 ```
 
 **Diagram sources**
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
-- [worker.py:372-424](file://agents/worker.py#L372-L424)
-- [worker.py:307-370](file://agents/worker.py#L307-L370)
-- [worker.py:448-473](file://agents/worker.py#L448-L473)
-- [worker.py:475-510](file://agents/worker.py#L475-L510)
+- [worker.py:624-765](file://agents/worker.py#L624-L765)
+- [worker.py:393-457](file://agents/worker.py#L393-L457)
+- [worker.py:459-496](file://agents/worker.py#L459-L496)
+- [worker.py:271-310](file://agents/worker.py#L271-L310)
 
 **Section sources**
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
+- [worker.py:624-765](file://agents/worker.py#L624-L765)
 
-#### Generation Workflow
+#### Single-Call Generation Workflow
 - Validates model configuration and initializes progress
-- Generates sections sequentially with progress updates
-- Validates resume for hallucinations, completeness, ordering, and ATS-safety
+- Sanitizes base resume content to remove PII and contact information
+- Generates all sections in a single structured JSON call with unified prompt system
+- Performs comprehensive local validation for order, ATS-safety, and security
+- Assembles final resume with preserved personal information
 - Reports completion to backend
+
+**Updated** Streamlined from multiple LLM calls to a single structured JSON generation with integrated privacy controls
 
 ```mermaid
 sequenceDiagram
 participant ARQ as "ARQ Worker"
-participant LLMG as "Generation LLM"
-participant LLMV as "Validation LLM"
+participant Sanitizer as "Privacy Sanitizer"
+participant LLM as "OpenRouter"
+participant Validator as "Local Validator"
 participant RW as "RedisProgressWriter"
 participant BC as "BackendCallbackClient"
 ARQ->>RW : "Set generating (5%)"
-ARQ->>BC : "generation started"
-loop "Each enabled section"
-ARQ->>LLMG : "Generate section"
-LLMG-->>ARQ : "Section content"
-ARQ->>RW : "Progress update"
+ARQ->>BC : "started"
+ARQ->>Sanitizer : "sanitize_resume_markdown()"
+Sanitizer-->>ARQ : "Sanitized content"
+ARQ->>LLM : "Single structured JSON generation"
+LLM-->>ARQ : "Generated sections JSON"
+ARQ->>Validator : "validate_resume()"
+Validator-->>ARQ : "Validation result"
+alt "Validation failed"
+ARQ->>RW : "Set generation_failed (100%)"
+ARQ->>BC : "failed"
+else "Validation passed"
+ARQ->>RW : "Set generating (85%)"
+ARQ->>ARQ : "assemble_resume()"
+ARQ->>RW : "Set resume_ready (100%)"
+ARQ->>BC : "succeeded"
 end
-ARQ->>LLMV : "Validate resume"
-LLMV-->>ARQ : "Validation result"
-ARQ->>RW : "Set validated state"
-ARQ->>BC : "generation succeeded"
 ```
 
 **Diagram sources**
-- [worker.py:682-806](file://agents/worker.py#L682-L806)
-- [generation.py:159-224](file://agents/generation.py#L159-L224)
-- [validation.py:231-291](file://agents/validation.py#L231-L291)
+- [worker.py:780-1006](file://agents/worker.py#L780-L1006)
+- [generation.py:454-518](file://agents/generation.py#L454-L518)
+- [privacy.py:118-160](file://agents/privacy.py#L118-L160)
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [assembly.py:20-71](file://agents/assembly.py#L20-L71)
 
 **Section sources**
-- [worker.py:682-806](file://agents/worker.py#L682-L806)
-- [generation.py:159-224](file://agents/generation.py#L159-L224)
-- [validation.py:231-291](file://agents/validation.py#L231-L291)
+- [worker.py:780-1006](file://agents/worker.py#L780-L1006)
+- [generation.py:454-518](file://agents/generation.py#L454-L518)
+- [privacy.py:118-160](file://agents/privacy.py#L118-L160)
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [assembly.py:20-71](file://agents/assembly.py#L20-L71)
+
+### Privacy Sanitization and Security Controls
+- Comprehensive PII removal including emails, phone numbers, URLs, and contact markers
+- Header preservation to maintain personal information outside LLM context
+- Contact line detection and removal from both header and body sections
+- Name detection and validation to prevent personal information leakage
+- Integration with generation pipeline to sanitize base resume content before LLM calls
+
+**Updated** Integrated privacy sanitization as a core component of the generation workflow
+
+```mermaid
+flowchart TD
+A["Base Resume Content"] --> B["Header Detection"]
+B --> C{"Contains contact info?"}
+C --> |Yes| D["Extract header lines"]
+D --> E["Remove contact lines from body"]
+C --> |No| F["Process body only"]
+E --> G["Sanitized Content"]
+F --> G
+G --> H["Send to LLM"]
+H --> I["Restore header locally"]
+I --> J["Final Resume"]
+```
+
+**Diagram sources**
+- [privacy.py:118-160](file://agents/privacy.py#L118-L160)
+- [generation.py:481-483](file://agents/generation.py#L481-L483)
+
+**Section sources**
+- [privacy.py:118-160](file://agents/privacy.py#L118-L160)
+- [generation.py:481-483](file://agents/generation.py#L481-L483)
+
+### Deterministic Validation Pipeline
+- Comprehensive validation rules replacing separate LLM validation
+- Section order validation and duplicate detection
+- ATS-safety checks (no tables, images, HTML, code fences)
+- Contact leakage prevention and PII detection
+- Grounding validation for claims and supporting snippets
+- Date token validation and unsupported date drift detection
+- Length guidance validation based on target page length
+
+**Updated** Replaced LLM-based validation with deterministic local validation for security and reliability
+
+```mermaid
+flowchart TD
+A["Generated Sections"] --> B["Unknown/Duplicate Sections"]
+B --> C["Required Sections Check"]
+C --> D["Section Order Validation"]
+D --> E["Heading Contract Check"]
+E --> F["Supporting Snippets Validation"]
+F --> G["Claim Grounding Check"]
+G --> H["Contact Leakage Check"]
+H --> I["Date Token Validation"]
+I --> J["ATS Safety Check"]
+J --> K["Length Guidance Check"]
+K --> L{"All validations pass?"}
+L --> |Yes| M["Valid"]
+L --> |No| N["Invalid with errors"]
+```
+
+**Diagram sources**
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [validation.py:148-222](file://agents/validation.py#L148-L222)
+- [validation.py:256-394](file://agents/validation.py#L256-L394)
+
+**Section sources**
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [validation.py:148-222](file://agents/validation.py#L148-L222)
+- [validation.py:256-394](file://agents/validation.py#L256-L394)
 
 ### Progress Tracking Mechanisms
 - RedisProgressWriter stores JobProgress keyed by application_id with TTL
@@ -310,13 +413,13 @@ Cb --> E(["End"])
 ```
 
 **Diagram sources**
-- [worker.py:448-473](file://agents/worker.py#L448-L473)
-- [worker.py:272-288](file://agents/worker.py#L272-L288)
+- [worker.py:535-562](file://agents/worker.py#L535-L562)
+- [worker.py:344-360](file://agents/worker.py#L344-L360)
 
 **Section sources**
-- [worker.py:272-288](file://agents/worker.py#L272-L288)
-- [worker.py:448-473](file://agents/worker.py#L448-L473)
-- [worker.py:475-510](file://agents/worker.py#L475-L510)
+- [worker.py:535-562](file://agents/worker.py#L535-L562)
+- [worker.py:344-360](file://agents/worker.py#L344-L360)
+- [worker.py:573-608](file://agents/worker.py#L573-L608)
 
 ### Callback Mechanisms to Backend API
 - BackendCallbackClient posts events to backend with X-Worker-Secret header
@@ -337,19 +440,22 @@ API-->>BC : "200 OK"
 ```
 
 **Diagram sources**
-- [worker.py:290-305](file://agents/worker.py#L290-L305)
-- [worker.py:548-555](file://agents/worker.py#L548-L555)
-- [worker.py:635-643](file://agents/worker.py#L635-L643)
+- [worker.py:362-391](file://agents/worker.py#L362-L391)
+- [worker.py:646-653](file://agents/worker.py#L646-L653)
+- [worker.py:830-838](file://agents/worker.py#L830-L838)
 
 **Section sources**
-- [worker.py:290-305](file://agents/worker.py#L290-L305)
-- [worker.py:548-555](file://agents/worker.py#L548-L555)
-- [worker.py:635-643](file://agents/worker.py#L635-L643)
+- [worker.py:362-391](file://agents/worker.py#L362-L391)
+- [worker.py:646-653](file://agents/worker.py#L646-L653)
+- [worker.py:830-838](file://agents/worker.py#L830-L838)
 
 ### Integration with LangChain and OpenRouter
 - Structured outputs via ChatOpenAI.with_structured_output
+- Single-call generation with unified prompt system
 - Extraction agent validates presence of required keys and models
 - Generation and validation agents use fallback models for resilience
+
+**Updated** Generation now uses single structured JSON calls instead of section-by-section processing
 
 ```mermaid
 classDiagram
@@ -359,26 +465,28 @@ class OpenRouterExtractionAgent {
 }
 class GenerationPipeline {
 +generate_sections(...)
--_call_llm_with_fallback(...)
++_call_json_with_fallback(...)
++_build_shared_system_prompt(...)
 }
 class ValidationPipeline {
 +validate_resume(...)
--_check_hallucinations(...)
+-_check_required_sections(...)
+-_check_ats_safety(...)
 }
 OpenRouterExtractionAgent --> "uses" ChatOpenAI
 GenerationPipeline --> "uses" ChatOpenAI
-ValidationPipeline --> "uses" ChatOpenAI
+ValidationPipeline --> "uses" Pydantic Validation
 ```
 
 **Diagram sources**
-- [worker.py:307-370](file://agents/worker.py#L307-L370)
-- [generation.py:117-151](file://agents/generation.py#L117-L151)
-- [validation.py:48-115](file://agents/validation.py#L48-L115)
+- [worker.py:393-457](file://agents/worker.py#L393-L457)
+- [generation.py:388-441](file://agents/generation.py#L388-L441)
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
 
 **Section sources**
-- [worker.py:307-370](file://agents/worker.py#L307-L370)
-- [generation.py:117-151](file://agents/generation.py#L117-L151)
-- [validation.py:48-115](file://agents/validation.py#L48-L115)
+- [worker.py:393-457](file://agents/worker.py#L393-L457)
+- [generation.py:388-441](file://agents/generation.py#L388-L441)
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
 
 ### Playwright-Based Web Scraping
 - Launches headless Chromium, navigates to job URL, waits for DOM/network idle
@@ -397,10 +505,10 @@ G --> H["Build PageContext"]
 ```
 
 **Diagram sources**
-- [worker.py:372-410](file://agents/worker.py#L372-L410)
+- [worker.py:459-496](file://agents/worker.py#L459-L496)
 
 **Section sources**
-- [worker.py:372-410](file://agents/worker.py#L372-L410)
+- [worker.py:459-496](file://agents/worker.py#L459-L496)
 
 ### Workflow Contract Integration and State Machine Participation
 - Agents load the shared workflow contract to align internal states and workflow kinds
@@ -416,14 +524,14 @@ R --> |"poll"| FE["Frontend"]
 ```
 
 **Diagram sources**
-- [worker.py:240-246](file://agents/worker.py#L240-L246)
+- [worker.py:312-318](file://agents/worker.py#L312-L318)
 - [workflow_contract.py:32-39](file://backend/app/core/workflow_contract.py#L32-L39)
 - [workflow-contract.json:9-87](file://shared/workflow-contract.json#L9-L87)
 
 **Section sources**
 - [workflow-contract.json:1-112](file://shared/workflow-contract.json#L1-L112)
 - [workflow_contract.py:22-39](file://backend/app/core/workflow_contract.py#L22-L39)
-- [worker.py:512-523](file://agents/worker.py#L512-L523)
+- [worker.py:610-622](file://agents/worker.py#L610-L622)
 
 ### Agent Lifecycle: From Initialization to Completion
 - Container starts ARQ worker with WorkerSettings
@@ -431,6 +539,8 @@ R --> |"poll"| FE["Frontend"]
 - Jobs run extraction or generation workflows
 - Progress is persisted and callbacks are sent
 - Terminal states are reported with optional failure details
+
+**Updated** Generation workflow now uses single-call architecture with integrated privacy and validation
 
 ```mermaid
 stateDiagram-v2
@@ -448,16 +558,16 @@ GenerationFailed --> [*]
 ```
 
 **Diagram sources**
-- [worker.py:512-523](file://agents/worker.py#L512-L523)
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
-- [worker.py:682-806](file://agents/worker.py#L682-L806)
+- [worker.py:610-622](file://agents/worker.py#L610-L622)
+- [worker.py:624-765](file://agents/worker.py#L624-L765)
+- [worker.py:780-1006](file://agents/worker.py#L780-L1006)
 - [workflow-contract.json:9-19](file://shared/workflow-contract.json#L9-L19)
 
 **Section sources**
 - [Dockerfile:13-13](file://agents/Dockerfile#L13-L13)
-- [worker.py:512-523](file://agents/worker.py#L512-L523)
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
-- [worker.py:682-806](file://agents/worker.py#L682-L806)
+- [worker.py:610-622](file://agents/worker.py#L610-L622)
+- [worker.py:624-765](file://agents/worker.py#L624-L765)
+- [worker.py:780-1006](file://agents/worker.py#L780-L1006)
 
 ## Dependency Analysis
 - Runtime dependencies include ARQ, httpx, langchain-openai, playwright, pydantic-settings
@@ -494,6 +604,8 @@ P --> PS
 - Persist progress periodically to avoid losing state during long-running jobs
 - Keep page scraping minimal by limiting text and meta extraction sizes
 - Monitor Redis TTL and cleanup strategies for progress keys
+- Single-call generation reduces LLM costs and improves response times
+- Privacy sanitization prevents data leakage and reduces model context size
 
 ## Troubleshooting Guide
 Common issues and strategies:
@@ -502,15 +614,18 @@ Common issues and strategies:
 - Insufficient source text: If captured text is too short, fail early with extraction_failed
 - LLM timeouts: Generation and validation enforce timeouts; adjust settings if needed
 - Backend callback failures: Verify WORKER_CALLBACK_SECRET and backend connectivity
+- Privacy violations: Check that sanitization removes all PII before LLM calls
+- Validation failures: Review validation error messages for specific rule violations
 
 **Section sources**
-- [worker.py:312-318](file://agents/worker.py#L312-L318)
-- [worker.py:580-604](file://agents/worker.py#L580-L604)
-- [worker.py:645-666](file://agents/worker.py#L645-L666)
-- [worker.py:295-296](file://agents/worker.py#L295-L296)
+- [worker.py:398-414](file://agents/worker.py#L398-L414)
+- [worker.py:678-690](file://agents/worker.py#L678-L690)
+- [worker.py:743-764](file://agents/worker.py#L743-L764)
+- [worker.py:367-368](file://agents/worker.py#L367-L368)
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
 
 ## Conclusion
-The ARQ-based agent architecture provides a robust, asynchronous pipeline for job posting extraction and resume generation. It leverages Redis for reliable task queuing, LangChain with OpenRouter for structured LLM outputs, Playwright for resilient scraping, and a shared workflow contract to integrate with the backend’s state machine. Progress tracking and callback mechanisms keep the UI informed, while fallback strategies and validation improve reliability and quality.
+The ARQ-based agent architecture provides a robust, asynchronous pipeline for job posting extraction and resume generation with enhanced privacy and security. The single-call generation architecture streamlines the process, reduces costs, and improves reliability while integrated privacy sanitization ensures PII protection. Deterministic validation replaces LLM-based validation for better security and faster performance. It leverages Redis for reliable task queuing, LangChain with OpenRouter for structured LLM outputs, Playwright for resilient scraping, and a shared workflow contract to integrate with the backend's state machine. Progress tracking and callback mechanisms keep the UI informed, while fallback strategies and comprehensive validation improve reliability and quality.
 
 ## Appendices
 
@@ -520,34 +635,49 @@ The ARQ-based agent architecture provides a robust, asynchronous pipeline for jo
 
 **Section sources**
 - [docker-compose.yml:58-71](file://docker-compose.yml#L58-L71)
-- [worker.py:54-71](file://agents/worker.py#L54-L71)
+- [worker.py:56-73](file://agents/worker.py#L56-L73)
 
 ### Task Scheduling Patterns
 - Backend enqueues jobs with unique job_id and passes application/user identifiers
 - ARQ worker processes jobs asynchronously; agents set periodic progress updates
+- Single-call generation reduces job complexity and improves throughput
 
 **Section sources**
 - [jobs.py:16-42](file://backend/app/services/jobs.py#L16-L42)
 - [jobs.py:49-84](file://backend/app/services/jobs.py#L49-L84)
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
+- [worker.py:624-765](file://agents/worker.py#L624-L765)
 
 ### Monitoring Approaches
 - Poll Redis progress keys for application_id to observe state and percent_complete
 - Observe backend-visible status via mapping rules derived from internal states
 - Log and alert on terminal_error_code values
+- Monitor validation error patterns for quality improvements
 
 **Section sources**
-- [worker.py:272-288](file://agents/worker.py#L272-L288)
+- [worker.py:535-562](file://agents/worker.py#L535-L562)
 - [workflow-contract.json:89-110](file://shared/workflow-contract.json#L89-L110)
 
 ### Error Handling Strategies
 - Primary/fallback model selection for LLM calls
 - Early exit on blocked pages or insufficient text
 - Terminal state reporting with failure details and error codes
-- Validation-driven feedback loops to improve outputs
+- Comprehensive validation-driven feedback loops to improve outputs
+- Privacy sanitization prevents PII exposure in error messages
 
 **Section sources**
-- [worker.py:320-328](file://agents/worker.py#L320-L328)
-- [worker.py:580-604](file://agents/worker.py#L580-L604)
-- [worker.py:475-510](file://agents/worker.py#L475-L510)
-- [validation.py:231-291](file://agents/validation.py#L231-L291)
+- [worker.py:405-414](file://agents/worker.py#L405-L414)
+- [worker.py:678-690](file://agents/worker.py#L678-L690)
+- [worker.py:573-608](file://agents/worker.py#L573-L608)
+- [validation.py:445-511](file://agents/validation.py#L445-L511)
+
+### Privacy and Security Features
+- Integrated privacy sanitization removes PII before LLM calls
+- Header preservation maintains personal information outside model context
+- Comprehensive contact detection and removal
+- Deterministic validation prevents security vulnerabilities
+- Stale-job fencing prevents late callback overwrites
+
+**Section sources**
+- [privacy.py:118-160](file://agents/privacy.py#L118-L160)
+- [validation.py:352-394](file://agents/validation.py#L352-L394)
+- [worker.py:564-571](file://agents/worker.py#L564-L571)

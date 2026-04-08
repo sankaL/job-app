@@ -35,3 +35,13 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 - Do not silently coerce substantive hallucinations into acceptance.
 - Preserve enough structured diagnostic context to debug failures without logging unnecessary sensitive resume or job-posting content.
 - Keep AI guidance limited to durable product rules. Do not encode unresolved choices such as provider-specific prompt patterns, alternate validation policies, or future MVP expansions as if they are settled.
+
+## Documentation Requirements (CRITICAL)
+- **Any change to agent logic** (generation, validation, extraction, or AI orchestration) **must** update `docs/prompts.md` in the same task.
+- Documentation must include:
+  - Updated prompt structure and template text
+  - Parameters and payload schema changes
+  - Behavioral changes and their intended effects
+  - New prompt variants or removed variants
+- This applies to all prompt modifications, including system prompts, human payloads, operation variants, aggressiveness levels, target lengths, and section permutations.
+- Never modify agent logic without simultaneously updating the prompt catalog.
