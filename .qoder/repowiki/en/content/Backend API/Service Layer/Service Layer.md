@@ -26,12 +26,12 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for new resume generation services including generation service, validation service, and assembly service
-- Updated job queue management documentation to cover both extraction and generation/regeneration workflows
-- Enhanced progress tracking integration with Redis for generation workflows
-- Added callback handling documentation for generation and regeneration events
-- Updated service dependencies to include new generation and validation agents
-- Added resume draft management documentation for persistent draft storage
+- Enhanced worker agent system documentation with improved generation reliability and validation
+- Updated timeout handling documentation with 300-second maximum timeout and 45-second constraints
+- Added comprehensive timeout handling with distinct error codes for generation and regeneration failures
+- Updated validation error reporting documentation that preserves existing validation errors during terminal progress reconciliation
+- Enhanced progress reporting documentation with granular percentage completion tracking
+- Updated service dependencies to reflect improved error handling and timeout management
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -55,10 +55,12 @@ This document describes the backend service layer architecture and business logi
 - PDF export services for ATS-compliant resume generation
 - Progress tracking services for real-time status updates
 - Resume parsing services for extracting and normalizing resume content
-- **New**: Section-based resume generation service with LLM-powered content creation
-- **New**: Validation service for hallucination detection and ATS compliance checking
-- **New**: Assembly service for combining personal info with generated sections
-- **New**: Resume draft management for persistent draft storage and regeneration
+- **New**: Enhanced Section-based resume generation service with LLM-powered content creation and improved reliability
+- **New**: Advanced Validation service for hallucination detection and ATS compliance checking with comprehensive error reporting
+- **New**: Robust Assembly service for combining personal info with generated sections
+- **New**: Comprehensive timeout handling with 300-second maximum generation timeout and 45-second section regeneration constraints
+- **New**: Distinct error codes for generation and regeneration failures with proper progress reporting
+- **New**: Improved validation error reporting that preserves existing validation errors during terminal progress reconciliation
 - Dependency injection patterns, transaction management, and error handling strategies
 - Practical examples of service usage and integration patterns
 
@@ -68,7 +70,7 @@ The backend is organized around a layered architecture:
 - Service layer: Business logic orchestrators implementing workflows and integrations
 - Database layer: Repositories encapsulating SQL operations and data models
 - Workers: Background job queues for extraction, generation, and validation tasks
-- Agents: Specialized services for LLM-powered content generation and validation
+- Agents: Specialized services for LLM-powered content generation and validation with enhanced reliability
 
 ```mermaid
 graph TB
@@ -99,8 +101,8 @@ W2["Generation Worker"]
 W3["Validation Worker"]
 end
 subgraph "Agents Layer"
-AG1["Generation Agent"]
-AG2["Validation Agent"]
+AG1["Enhanced Generation Agent"]
+AG2["Advanced Validation Agent"]
 AG3["Assembly Agent"]
 end
 A1 --> S1
@@ -160,10 +162,11 @@ W2 --> AG3
 - PDF Export: Markdown-to-ATS-safe PDF generation with timeout
 - Resume Parser: PDF text extraction and Markdown normalization
 - Workflow Status: Derives visible status from internal state and failure indicators
-- **New**: Generation Service: Section-based LLM-powered resume generation with configurable aggressiveness and target length
-- **New**: Validation Service: Hallucination detection and ATS compliance checking for generated content
-- **New**: Assembly Service: Combines personal info header with ordered generated sections into final resume
-- **New**: Resume Draft Repository: Persistent storage for generated resume drafts with regeneration support
+- **New**: Enhanced Generation Service: Section-based LLM-powered resume generation with configurable aggressiveness, target length, and improved reliability with timeout handling
+- **New**: Advanced Validation Service: Comprehensive hallucination detection and ATS compliance checking with detailed error reporting and auto-corrections
+- **New**: Robust Assembly Service: Combines personal info header with ordered generated sections into final resume with proper error handling
+- **New**: Comprehensive Timeout Management: 300-second maximum timeout for full generation, 45-second constraints for section regeneration, and distinct error codes for different failure scenarios
+- **New**: Enhanced Progress Reporting: Granular percentage completion tracking from 10-80% for generation, 85% for validation, and 95% for assembly
 
 **Section sources**
 - [application_manager.py:143-168](file://backend/app/services/application_manager.py#L143-L168)
@@ -181,7 +184,7 @@ W2 --> AG3
 - [resume_drafts.py:1-173](file://backend/app/db/resume_drafts.py#L1-L173)
 
 ## Architecture Overview
-The service layer coordinates between API endpoints, database repositories, external workers, and auxiliary services. It uses dependency injection via FastAPI Depends to assemble services with their repositories and external clients.
+The service layer coordinates between API endpoints, database repositories, external workers, and auxiliary services. It uses dependency injection via FastAPI Depends to assemble services with their repositories and external clients. The enhanced worker agent system now provides improved reliability with comprehensive timeout handling and error reporting.
 
 ```mermaid
 sequenceDiagram
@@ -192,8 +195,8 @@ participant ExtQ as "Extraction Queue"
 participant GenQ as "Generation Queue"
 participant ValQ as "Validation Queue"
 participant DB as "Repositories"
-participant GenAgent as "Generation Agent"
-participant ValAgent as "Validation Agent"
+participant GenAgent as "Enhanced Generation Agent"
+participant ValAgent as "Advanced Validation Agent"
 Client->>API : "POST /api/applications"
 API->>AM : "create_application(user_id, job_url)"
 AM->>DB : "create_application()"
@@ -201,8 +204,8 @@ AM->>ExtQ : "enqueue(job_id, payload)"
 AM->>DB : "progress.set(initial)"
 AM-->>API : "ApplicationDetailPayload"
 API-->>Client : "201 Created"
-Note over ExtQ : "Background worker runs extraction"
-ExtQ-->>AM : "callback(event='succeeded' | 'failed')"
+Note over ExtQ : "Background worker runs extraction with timeout handling"
+ExtQ-->>AM : "callback(event='succeeded' | 'failed' | 'timeout')"
 AM->>DB : "update_application(), progress.set()"
 AM-->>API : "ApplicationDetailPayload"
 API-->>Client : "Updated status"
@@ -214,14 +217,14 @@ AM-->>API : "ApplicationDetailPayload"
 API-->>Client : "200 OK"
 Client->>API : "POST /api/applications/{id}/generate"
 API->>AM : "trigger_generation(base_resume_id, settings)"
-AM->>GenQ : "enqueue(generation payload)"
+AM->>GenQ : "enqueue(generation payload with timeouts)"
 AM->>DB : "progress.set(generation_pending)"
-Note over GenQ : "Background worker runs generation"
-GenQ->>GenAgent : "generate_sections()"
+Note over GenQ : "Background worker runs enhanced generation with 300s timeout"
+GenQ->>GenAgent : "generate_sections() with 45s timeout"
 GenAgent-->>GenQ : "generated sections"
-GenQ->>ValAgent : "validate_resume()"
-ValAgent-->>GenQ : "validation result"
-GenQ-->>AM : "callback(success/failure)"
+GenQ->>ValAgent : "validate_resume() with comprehensive error reporting"
+ValAgent-->>GenQ : "validation result with preserved errors"
+GenQ-->>AM : "callback(success/failure/timeout)"
 AM->>DB : "update_application(), progress.set()"
 AM->>DB : "draft.upsert()"
 AM-->>API : "ApplicationDetailPayload"
@@ -241,19 +244,22 @@ API-->>Client : "Updated status"
 ## Detailed Component Analysis
 
 ### Application Manager Service
-The Application Manager orchestrates the end-to-end application workflow:
+The Application Manager orchestrates the end-to-end application workflow with enhanced timeout handling and error management:
 - Creation: Creates application records and enqueues extraction jobs
-- Recovery and retries: Handles manual entry fallbacks and retry logic
+- Recovery and retries: Handles manual entry fallbacks and retry logic with improved timeout detection
 - Duplicate resolution: Runs duplicate evaluation and exposes resolution actions
-- Generation: Validates readiness, collects profile data, enqueues generation jobs, and persists drafts
-- Progress tracking: Updates Redis-backed progress records
+- Generation: Validates readiness, collects profile data, enqueues generation jobs with timeout constraints, and persists drafts
+- Progress tracking: Updates Redis-backed progress records with granular percentage completion
 - Notifications: Clears action-required flags and creates success notifications
-- Callback handling: Processes worker callbacks for extraction and generation events
+- Callback handling: Processes worker callbacks for extraction and generation events with comprehensive error reporting
+- **New**: Enhanced timeout detection: Monitors generation progress and recovers stuck jobs with appropriate error codes
+- **New**: Terminal progress reconciliation: Preserves existing validation errors during progress state recovery
 
 Key responsibilities and integration points:
 - Uses ApplicationRepository, BaseResumeRepository, ResumeDraftRepository, ProfileRepository, NotificationRepository
 - Integrates with ExtractionJobQueue and GenerationJobQueue
 - Uses DuplicateDetector, EmailSender, RedisProgressStore, and derive_visible_status
+- **New**: Implements comprehensive timeout management with distinct error codes for generation and regeneration failures
 
 ```mermaid
 classDiagram
@@ -273,6 +279,10 @@ class ApplicationManager {
 +handle_generation_callback(payload) ApplicationRecord
 +trigger_full_regeneration(user_id, application_id, target_length, aggressiveness, additional_instructions) ApplicationDetailPayload
 +trigger_section_regeneration(user_id, application_id, section_name, instructions) ApplicationDetailPayload
++handle_regeneration_callback(payload) ApplicationRecord
++_detect_and_recover_stuck_generation(record) bool
++_reconcile_terminal_generation_progress(record, progress) ApplicationRecord
++_generation_timeout_seconds(record, progress) tuple[int, int]
 }
 class DuplicateDetector {
 +evaluate(application, candidates) Optional~DuplicateDecision~
@@ -462,6 +472,7 @@ Progress tracking persists workflow state and messages in Redis:
 - ProgressRecord captures job_id, state, message, completion percentage, timestamps, and terminal error code
 - RedisProgressStore serializes to JSON with TTL
 - Application Manager updates progress on state transitions and callbacks
+- **New**: Enhanced progress reporting with granular percentage completion tracking from 10-80% for generation, 85% for validation, and 95% for assembly
 
 ```mermaid
 sequenceDiagram
@@ -502,26 +513,29 @@ Join --> End(["Return Markdown"])
 **Section sources**
 - [resume_parser.py:13-228](file://backend/app/services/resume_parser.py#L13-L228)
 
-### New: Generation Service (LLM-Powered Resume Generation)
-The Generation Service creates resume content using section-based LLM prompting:
+### Enhanced Generation Service (LLM-Powered Resume Generation)
+The Generation Service creates resume content using section-based LLM prompting with enhanced reliability:
 - Supports four resume sections: summary, professional experience, education, skills
 - Configurable aggressiveness levels (low, medium, high) for tailoring
 - Target length guidance for single or dual-page resumes
-- Structured LLM output with fallback mechanisms
-- Progress reporting with percentage completion tracking
+- Structured LLM output with fallback mechanisms and improved timeout handling
+- **New**: 45-second timeout constraint for individual section generation
+- **New**: Granular progress reporting with percentage completion tracking from 10-80%
+- **New**: Enhanced error handling with fallback models and comprehensive validation
 
 Key features:
 - Section-by-section generation with grounding in base resume content
 - User-defined additional instructions for customization
 - Structured output validation and error handling
 - Integration with Redis progress tracking
+- **New**: Improved reliability with timeout management and error recovery
 
 ```mermaid
 flowchart TD
 Start(["generate_sections()"]) --> Enabled["Filter enabled sections"]
 Enabled --> Loop{"For each section"}
 Loop --> Prompt["Build section prompt"]
-Prompt --> CallLLM["Call LLM with fallback"]
+Prompt --> CallLLM["Call LLM with 45s timeout"]
 CallLLM --> Progress["Update progress (10-80%)"]
 Progress --> Loop
 Loop --> Validate["Validate sections"]
@@ -534,18 +548,21 @@ Validate --> Result["Return sections + model_used"]
 **Section sources**
 - [generation.py:1-351](file://agents/generation.py#L1-L351)
 
-### New: Validation Service (Hallucination Detection and ATS Compliance)
-The Validation Service ensures generated content quality and ATS compliance:
+### Advanced Validation Service (Hallucination Detection and ATS Compliance)
+The Validation Service ensures generated content quality and ATS compliance with comprehensive error reporting:
 - LLM-based hallucination detection comparing generated vs. base resume
 - Required sections verification and ordering validation
-- ATS safety checking (no tables, images, or decorative elements)
-- Auto-correction capabilities for formatting issues
+- ATS safety checking (no tables, images, or decorative elements) with auto-corrections
+- **New**: Comprehensive error reporting that preserves existing validation errors during terminal progress reconciliation
+- **New**: Detailed error categorization with section-specific validation failures
+- **New**: Auto-correction capabilities for formatting issues while maintaining content integrity
 
 Validation pipeline:
 - Hallucination detection across all generated sections
 - Required sections completeness check
 - Section ordering validation according to preferences
 - ATS safety compliance with automatic formatting corrections
+- **New**: Enhanced error preservation during progress state recovery
 
 ```mermaid
 flowchart TD
@@ -565,12 +582,13 @@ Valid --> |No| Fail["Return valid=False with details"]
 **Section sources**
 - [validation.py:1-292](file://agents/validation.py#L1-L292)
 
-### New: Assembly Service (Resume Composition)
+### Robust Assembly Service (Resume Composition)
 The Assembly Service combines personal information with generated sections:
 - Creates personal info header with name and contact details
 - Orders sections according to preferences
 - Ensures personal info comes from profile, not LLM generation
 - Produces clean, final Markdown resume
+- **New**: Proper error handling and content validation during assembly process
 
 ```mermaid
 flowchart TD
@@ -588,40 +606,43 @@ Finalize --> End(["Return complete Markdown"])
 **Section sources**
 - [assembly.py:1-63](file://agents/assembly.py#L1-L63)
 
-### New: Resume Draft Management
-The Resume Draft Repository provides persistent storage for generated content:
-- Stores complete resume drafts with generation parameters
-- Tracks sections snapshot and last generation timestamp
-- Supports content updates and export tracking
-- Enables regeneration workflows with history preservation
+### Enhanced Worker Agent System (Improved Reliability and Timeout Handling)
+The Worker Agent System provides comprehensive job processing with enhanced reliability:
+- **New**: 300-second maximum timeout for full generation workflows
+- **New**: 45-second constraints for section regeneration operations
+- **New**: Distinct error codes for generation and regeneration failures
+- **New**: Comprehensive timeout handling with proper progress reporting
+- **New**: Enhanced validation error reporting that preserves existing validation errors during terminal progress reconciliation
+- **New**: Granular progress reporting with percentage completion tracking
+- **New**: Improved error recovery and job cancellation mechanisms
+
+Worker capabilities:
+- Extraction, generation, and validation job processing
+- Timeout detection and recovery for stuck jobs
+- Progress monitoring and reporting
+- Error handling with appropriate terminal error codes
+- **New**: Enhanced reliability with comprehensive timeout management
 
 ```mermaid
-classDiagram
-class ResumeDraftRepository {
-+fetch_draft(user_id, application_id) ResumeDraftRecord
-+upsert_draft(application_id, user_id, content_md, generation_params, sections_snapshot) ResumeDraftRecord
-+update_draft_content(application_id, user_id, content_md) ResumeDraftRecord
-+update_exported_at(application_id, user_id) void
-}
-class ResumeDraftRecord {
-+id : str
-+application_id : str
-+user_id : str
-+content_md : str
-+generation_params : dict
-+sections_snapshot : dict
-+last_generated_at : str
-+last_exported_at : Optional[str]
-+updated_at : str
-}
-ResumeDraftRepository --> ResumeDraftRecord : "manages"
+flowchart TD
+Start(["Worker Job Execution"]) --> Timeout["Apply timeout constraints"]
+Timeout --> Progress["Report progress updates"]
+Progress --> Validate["Validate results"]
+Validate --> Success{"Job succeeded?"}
+Success --> |Yes| Report["Report success with completion"]
+Success --> |No| Error["Handle error with terminal code"]
+Error --> Recover["Recover from timeout/stuck state"]
+Recover --> Report
+Report --> End(["Complete"])
 ```
 
 **Diagram sources**
-- [resume_drafts.py:41-173](file://backend/app/db/resume_drafts.py#L41-L173)
+- [worker.py:520-545](file://agents/worker.py#L520-L545)
+- [worker.py:815-831](file://agents/worker.py#L815-L831)
+- [worker.py:1147-1163](file://agents/worker.py#L1147-L1163)
 
 **Section sources**
-- [resume_drafts.py:1-173](file://backend/app/db/resume_drafts.py#L1-L173)
+- [worker.py:1-1299](file://agents/worker.py#L1-L1299)
 
 ### Service Dependency Injection Patterns
 Dependency injection is implemented via FastAPI Depends:
@@ -657,7 +678,9 @@ Error handling:
 - Email sender gracefully falls back to noop when notifications are disabled
 - PDF export enforces timeouts and propagates errors
 - Resume parser returns raw content on LLM failures and logs warnings
-- Generation and validation services implement structured error handling with fallback models
+- **New**: Generation and validation services implement structured error handling with fallback models and comprehensive timeout management
+- **New**: Enhanced error reporting with distinct terminal error codes for different failure scenarios
+- **New**: Improved progress reporting with granular percentage completion tracking
 
 **Section sources**
 - [applications.py:123-200](file://backend/app/db/applications.py#L123-L200)
@@ -669,6 +692,8 @@ Error handling:
 - [resume_parser.py:181-228](file://backend/app/services/resume_parser.py#L181-L228)
 - [generation.py:117-151](file://agents/generation.py#L117-L151)
 - [validation.py:48-115](file://agents/validation.py#L48-L115)
+- [worker.py:928-950](file://agents/worker.py#L928-L950)
+- [worker.py:1247-1269](file://agents/worker.py#L1247-L1269)
 
 ### Practical Examples of Service Usage and Integration Patterns
 - Creating an application from a URL:
@@ -677,16 +702,19 @@ Error handling:
 - Handling extraction callbacks:
   - Worker sends callback; Application Manager validates job_id and user, updates state, and triggers duplicate resolution
 - Generating a resume:
-  - Application Manager validates readiness, collects profile and base resume data, enqueues generation, and persists draft
-  - Generation worker runs section-by-section generation with validation
+  - Application Manager validates readiness, collects profile and base resume data, enqueues generation with timeout constraints, and persists draft
+  - Generation worker runs section-by-section generation with validation and comprehensive error reporting
   - Assembly service composes final resume with personal info header
 - Managing base resumes:
   - API endpoint uploads PDF, parses to Markdown, optionally cleans up with LLM, and creates base resume
 - Progress polling:
-  - Client polls progress endpoint; Application Manager returns Redis-stored progress or derives state
+  - Client polls progress endpoint; Application Manager returns Redis-stored progress or derives state with enhanced timeout detection
 - Regenerating specific sections:
-  - Application Manager triggers section regeneration with user instructions
-  - Worker regenerates single section and validates ATS compliance
+  - Application Manager triggers section regeneration with user instructions and 45-second timeout constraints
+  - Worker regenerates single section with validation and ATS compliance checking
+- **New**: Handling timeout failures:
+  - Application Manager detects stuck generation jobs and recovers with appropriate error codes
+  - Worker reports timeout failures with distinct terminal error codes for generation and regeneration
 
 **Section sources**
 - [applications.py:1-200](file://backend/app/api/applications.py#L1-L200)
@@ -705,10 +733,11 @@ Service-layer dependencies and coupling:
 - Jobs queues encapsulate ARQ specifics
 - Progress store encapsulates Redis serialization and TTL
 - Workflow status derivation is pure logic decoupled from persistence
-- **New**: Generation Service depends on LangChain OpenAI for LLM calls
-- **New**: Validation Service performs hallucination detection and ATS compliance checking
-- **New**: Assembly Service composes final resume content
-- **New**: Resume Draft Repository provides persistent storage for generated content
+- **New**: Generation Service depends on LangChain OpenAI for LLM calls with enhanced timeout management
+- **New**: Validation Service performs hallucination detection and ATS compliance checking with comprehensive error reporting
+- **New**: Assembly Service composes final resume content with proper error handling
+- **New**: Worker Agent System provides comprehensive job processing with timeout constraints and error recovery
+- **New**: Enhanced timeout handling with distinct error codes for different failure scenarios
 
 Potential circular dependencies:
 - None observed among services; repositories are data-only and imported locally where needed
@@ -718,8 +747,9 @@ External dependencies:
 - Redis for progress store
 - HTTP clients for email and LLM cleanup
 - WeasyPrint for PDF generation (optional, guarded by import)
-- **New**: LangChain OpenAI for LLM-powered generation and validation
-- **New**: Playwright for web scraping in extraction
+- **New**: LangChain OpenAI for LLM-powered generation and validation with enhanced reliability
+- **New**: Playwright for web scraping in extraction with timeout constraints
+- **New**: Comprehensive timeout management with 300-second maximum and 45-second section constraints
 
 ```mermaid
 graph TB
@@ -734,9 +764,12 @@ AM --> GQ["Generation Queue"]
 AM --> PS["Progress Store"]
 BR --> PR["Profile Repo"]
 RP["Resume Parser"] --> PDF["PDF Export"]
-GQ --> GEN["Generation Agent"]
-GQ --> VAL["Validation Agent"]
+GQ --> GEN["Enhanced Generation Agent"]
+GQ --> VAL["Advanced Validation Agent"]
 GEN --> ASSEM["Assembly Agent"]
+W["Worker Agent System"] --> GEN
+W --> VAL
+W --> ASSEM
 ```
 
 **Diagram sources**
@@ -747,6 +780,7 @@ GEN --> ASSEM["Assembly Agent"]
 - [validation.py:1-292](file://agents/validation.py#L1-L292)
 - [assembly.py:1-63](file://agents/assembly.py#L1-L63)
 - [resume_drafts.py:1-173](file://backend/app/db/resume_drafts.py#L1-L173)
+- [worker.py:1-1299](file://agents/worker.py#L1-L1299)
 
 **Section sources**
 - [application_manager.py:143-168](file://backend/app/services/application_manager.py#L143-L168)
@@ -754,14 +788,15 @@ GEN --> ASSEM["Assembly Agent"]
 
 ## Performance Considerations
 - Async I/O: Email and PDF export use async clients and thread pools to avoid blocking the event loop
-- Timeouts: PDF export enforces a strict timeout to prevent long-running conversions
+- **New**: Enhanced timeout management: 300-second maximum timeout for full generation, 45-second constraints for section regeneration
+- **New**: Distinct error codes: Separate error codes for generation and regeneration failures for better error handling
+- **New**: Granular progress reporting: Percentage completion tracking from 10-80% for generation, 85% for validation, 95% for assembly
 - Redis TTL: Progress records expire automatically to prevent stale data accumulation
 - Minimal DB round-trips: Application Manager batches updates and progress writes
 - Optional LLM cleanup: Disabled by default; enable only when needed to reduce latency
-- **New**: Generation service implements structured LLM calls with fallback models for reliability
-- **New**: Validation service uses rule-based ATS checking for fast pre-validation
-- **New**: Generation progress tracking provides granular updates (10-80% for generation, 85% for validation)
-- **New**: Draft persistence enables efficient regeneration without reprocessing entire content
+- **New**: Enhanced generation service reliability: Structured LLM calls with fallback models and comprehensive timeout management
+- **New**: Advanced validation service: Rule-based ATS checking with auto-corrections for fast pre-validation
+- **New**: Improved draft persistence: Efficient regeneration without reprocessing entire content with enhanced error preservation
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -772,10 +807,14 @@ Common issues and resolutions:
 - Email disabled: NoOpEmailSender logs and skips sending
 - PDF generation timeout: asyncio.TimeoutError propagated; retry or reduce content size
 - Resume parsing errors: API maps parsing failures to client errors with details
-- **New**: Generation timeout: Full generation exceeds 300-second limit; check LLM provider performance
-- **New**: Validation failures: Hallucination detection or ATS violations require content revision
-- **New**: Regeneration errors: Single-section regeneration requires valid section name and instructions
+- **New**: Generation timeout: Full generation exceeds 300-second limit; check LLM provider performance and retry
+- **New**: Section regeneration timeout: Single-section regeneration exceeds 45-second limit; adjust instructions or retry
+- **New**: Validation failures: Hallucination detection or ATS violations require content revision with preserved validation errors
+- **New**: Regeneration errors: Single-section regeneration requires valid section name and instructions with distinct error codes
 - **New**: Draft persistence failures: Upsert operations require valid JSON parameters and application ownership
+- **New**: Timeout detection: Application Manager detects stuck generation jobs and recovers with appropriate error codes
+- **New**: Error code distinction: Generation and regeneration failures use separate terminal error codes for better troubleshooting
+- **New**: Progress reconciliation: Existing validation errors are preserved during terminal progress state recovery
 
 **Section sources**
 - [application_manager.py:191-225](file://backend/app/services/application_manager.py#L191-L225)
@@ -788,7 +827,7 @@ Common issues and resolutions:
 - [resume_drafts.py:115-118](file://backend/app/db/resume_drafts.py#L115-L118)
 
 ## Conclusion
-The service layer cleanly separates business logic from infrastructure concerns, enabling robust workflows for job application intake, duplication prevention, generation, and delivery. Dependency injection, repository abstractions, and queue-based processing provide scalability and maintainability. Clear error handling and progress tracking ensure reliable user experiences. The addition of specialized generation, validation, and assembly services enhances content quality and ATS compliance while maintaining the modular architecture.
+The service layer cleanly separates business logic from infrastructure concerns, enabling robust workflows for job application intake, duplication prevention, generation, and delivery. Dependency injection, repository abstractions, and queue-based processing provide scalability and maintainability. Clear error handling and progress tracking ensure reliable user experiences. The addition of specialized generation, validation, and assembly services with enhanced timeout management and error reporting significantly improves content quality, ATS compliance, and system reliability while maintaining the modular architecture. The comprehensive timeout handling with distinct error codes and progress reconciliation mechanisms provides excellent operational visibility and fault tolerance.
 
 ## Appendices
 - API registration occurs in the main application, mounting routers for sessions, profiles, applications, base resumes, extension, and internal worker endpoints.

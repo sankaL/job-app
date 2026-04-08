@@ -219,10 +219,10 @@ export function BaseResumeEditorPage() {
                 type="checkbox"
                 onChange={(e) => setUseLlmCleanup(e.target.checked)}
               />
-              <span className="text-sm text-ink">Improve with AI (recommended)</span>
+              <span className="text-sm text-ink">Improve with AI (sanitized)</span>
             </label>
             <p className="text-xs text-ink/50">
-              AI cleanup fixes formatting issues and improves the structure of extracted content.
+              AI cleanup removes the contact header before sending content externally, improves the body formatting, and then restores the stripped header locally.
             </p>
 
             <div className="flex gap-3">

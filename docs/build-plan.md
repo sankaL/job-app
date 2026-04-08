@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-04-07  
+**Last updated:** 2026-04-08  
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 pending  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -84,8 +84,8 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
 | P3-T01 | Build the application detail page as the primary resume workspace with preview and status context | FE | DONE | 2026-04-07 | Application detail page serves as the resume workspace with status badge, job info, generation settings, Markdown preview, and applied toggle. |
-| P3-T02 | Implement section-based resume generation through LangChain and OpenRouter with model fallback handling | AI | DONE | 2026-04-07 | Section-based generation via LangChain ChatOpenAI + OpenRouter with primary/fallback model support in agents/generation.py. |
-| P3-T03 | Add validation for hallucinations, required sections, ordering, and ATS-safety before draft assembly | AI | DONE | 2026-04-07 | LLM-based hallucination detection plus rule-based ATS-safety, required sections, and ordering validation in agents/validation.py. |
+| P3-T02 | Implement structured single-call resume generation through LangChain and OpenRouter with model fallback handling | AI | DONE | 2026-04-08 08:39:33 EDT | Initial generation and full regeneration now use one OpenRouter call that returns ordered JSON sections, with a fallback retry only after provider failure or invalid structured output. |
+| P3-T03 | Add deterministic validation for grounding, section order, ATS-safety, and contact-data leakage before draft assembly | AI | DONE | 2026-04-08 08:39:33 EDT | Schema validation plus rule-based checks now gate assembly, replacing the separate validation model call and rejecting contact leakage or unsupported claims. |
 | P3-T04 | Assemble final Markdown using profile data and ordered enabled sections, then persist the current draft | BE | DONE | 2026-04-07 | Personal info header injection and ordered section assembly in agents/assembly.py, persisted to resume_drafts via DraftRepository. |
 | P3-T05 | Update statuses and send in-app and email notifications for generation outcomes and attention states | BE | DONE | 2026-04-07 | Generation success/failure status transitions, in-app notifications, and email notifications for generation events. |
 | P3-T06 | Preserve applied flag independence from the primary application status throughout the workspace flow | BE | DONE | 2026-04-07 | Applied flag remains independently user-controlled across all generation, editing, and export status transitions. |
@@ -95,8 +95,8 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
 | P4-T01 | Add Markdown edit mode with persistent saves and a preview or edit mode switch | FE | DONE | 2026-04-07 | Edit/preview toggle with inline Markdown editor, save to backend, and react-markdown preview with remark-gfm. |
-| P4-T02 | Implement single-section regeneration with required instructions and validator enforcement | AI | DONE | 2026-04-07 | Section regeneration endpoint with required instructions, validation, and selective draft update. |
-| P4-T03 | Implement full regeneration with prefilled prior settings and overwrite of the current draft | AI | DONE | 2026-04-07 | Full regeneration reuses prior generation params, overwrites current draft, and updates timestamps. |
+| P4-T02 | Implement single-section regeneration with required instructions and deterministic validation | AI | DONE | 2026-04-08 08:39:33 EDT | Section regeneration now uses one sanitized model call for the selected section, validates deterministically, and updates only that section in the draft. |
+| P4-T03 | Implement full regeneration with prefilled prior settings and overwrite of the current draft | AI | DONE | 2026-04-08 08:39:33 EDT | Full regeneration reuses saved draft settings from `generation_params`, runs the single-call JSON pipeline, and overwrites the current draft on success. |
 | P4-T04 | Build on-demand PDF export from the latest draft content without persistent PDF storage | BE | DONE | 2026-04-07 | WeasyPrint-based PDF export with ATS-safe CSS, thread pool execution with 20s timeout, no persistent storage. |
 | P4-T05 | Return status to In Progress after edits or regeneration and handle regen or export notifications | BE | DONE | 2026-04-07 | Post-export edits/regeneration return status to in_progress; export and regeneration notifications implemented. |
 
@@ -114,7 +114,13 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B4-T09 | Fix review regressions in fallback retry, grounding validation, and privacy sanitization | AI/BE | DONE | 2026-04-08 09:59:29 EDT | Fallback retry now resumes on schema-invalid model output, deterministic validation now checks unsupported role, employer, and credential claims in generated prose, markdown `# Name` headers are sanitized correctly, and upload cleanup no longer strips substantive project or publication URL lines from resume bodies. |
+| B4-T08 | Allow grounded list-style supporting snippets without requiring exact contiguous source order | AI | DONE | 2026-04-08 09:35:16 EDT | Deterministic validation now accepts list-like skill snippets when their individual grounded terms exist in the sanitized source, avoiding false failures for shortened or reordered excerpts such as `SQL, Python, Java` or `Azure DevOps, CI/CD, Jenkins`. |
+| B4-T07 | Make resume assembly null-safe for legacy or incomplete profile fields | AI | DONE | 2026-04-08 09:30:25 EDT | Assembly now coerces nullable personal-info fields to empty strings instead of calling `.strip()` on `None`, so existing applications with incomplete profile data no longer crash after a valid one-call generation response. |
+| B4-T06 | Treat recoverable structured-output issues as local normalization instead of fallback-model retries | AI | DONE | 2026-04-08 09:24:20 EDT | Generation now truncates oversized `supporting_snippets` lists locally, explicitly asks for 1-6 snippets in the prompt, and only retries the fallback model on provider failures or unparseable JSON rather than on deterministic schema-validation issues. |
+| B4-T05 | Normalize equivalent LLM JSON section shapes before schema validation so generation does not fail on wrapper differences | AI | DONE | 2026-04-08 09:14:40 EDT | The generation parser now accepts canonical `sections` arrays, `sections` maps, root-level section maps, and bare single-section payloads, normalizes them locally, and only falls back when the output is still structurally invalid after normalization. |
 | B4-T03 | Fix JSONB application updates so terminal generation recovery can persist failure details | BE | DONE | 2026-04-07 23:19:59 EDT | `applications.update_application()` now wraps JSONB fields correctly for psycopg, allowing timeout and terminal-progress reconciliation paths to persist `generation_failure_details`, `extraction_failure_details`, and duplicate match metadata without 500s. |
+| B4-T04 | Stop multi-call resume generation, keep contact data out of LLM prompts, and harden generation callbacks | BE/FE/AI | DONE | 2026-04-08 08:39:33 EDT | Resume writing now uses one structured LLM call per action, sanitizes contact/header data before external calls, reattaches it locally, retries callbacks with backoff, fences stale worker progress, and hydrates saved generation settings back into regeneration UX. |
 | B4-T02 | Stop infinite generation polling loops and make full-generation timeout progress-aware | BE/FE/AI | DONE | 2026-04-07 23:07:06 EDT | Full generation now times out on stalled progress instead of a blunt 90-second wall-clock, stalled-job recovery runs from the progress endpoint, and the detail page stops polling after terminal progress even if the final detail refresh fails. |
 | B4-T01 | Fix generation callback contract, active-state handling, and cancel or timeout failure compatibility | BE/FE/AI | DONE | 2026-04-07 22:45:00 EDT | Worker callbacks now match the backend payload contract, generation timeout and cancellation failure reasons are schema-safe, stale callbacks are fenced off after cancel or timeout, and the detail page no longer treats failed `generation_pending` rows as active jobs. |
 | B1A-T01 | Persist extracted reference IDs from worker success callbacks and use them in duplicate detection | BE | DONE | 2026-04-07 15:51:23 EDT | Added `applications.extracted_reference_id`, persisted worker-extracted IDs, and updated duplicate detection to use the stored value before falling back to URL or description parsing. |
@@ -124,6 +130,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| A0-T02 | Document the latest live prompt catalog and variant permutations under `docs/prompts.md` | Docs | DONE | 2026-04-08 10:00:39 EDT | Added a code-derived prompt catalog covering extraction, resume generation, section regeneration, and upload cleanup, including the current prompt text, variant matrix, and dynamic section-permutation rules. |
 | A0-T01 | Simplify the local env contract, disable local auth emails, and add the backend Resend send gate | Infra | DONE | 2026-04-07 12:06:48 EDT | Root env is now canonical, local GoTrue mail delivery is disabled, and backend email sending is gated by `EMAIL_NOTIFICATIONS_ENABLED`. |
 
 ## Phase 0 — Foundation, Containerization, Auth Boundary, and Schema
@@ -308,8 +315,8 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 **Scope**
 
 - Build the application detail page as the main resume workspace.
-- Implement section-based resume generation through LangChain and OpenRouter.
-- Run the validation layer over combined output before assembly.
+- Implement structured single-call resume generation through LangChain and OpenRouter.
+- Run deterministic schema and rule validation over generated output before assembly.
 - Assemble final Markdown by injecting profile personal information and ordered enabled sections.
 - Save the current draft, update statuses, and create the required in-app and email notifications.
 - Render generated Markdown in preview mode and keep the `applied` flag independent from the visible status.
@@ -322,12 +329,12 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 **Decision Gates**
 
 - Confirm the Markdown rendering library for the frontend preview mode.
-- Lock the exact validator output contract used between prompt assets and backend orchestration.
+- Lock the structured JSON contract used between prompt assets and backend orchestration.
 
 **Deliverables**
 
-- Section-based generation service with configurable primary and fallback models.
-- Validation service enforcing hallucination, section presence, order, and ATS-safety rules.
+- Single-call generation service with configurable primary and fallback models.
+- Deterministic validation service enforcing schema compliance, grounding, section presence, order, ATS-safety, and contact-data exclusion.
 - Resume assembly path writing `resume_drafts`.
 - Application detail page with status badge, job info, notifications, preview mode, and `applied` toggle behavior.
 
@@ -368,7 +375,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 **Deliverables**
 
 - Markdown editor mode and preview/edit mode switch.
-- Section regeneration endpoint and validator path.
+- Section regeneration endpoint with deterministic validation.
 - Full regeneration path that overwrites the current draft and updates timestamps.
 - PDF export endpoint that streams the generated file without storing it.
 - In-app notifications for export success and failure, plus email notifications for export failures.

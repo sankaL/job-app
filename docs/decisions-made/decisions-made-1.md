@@ -1,5 +1,17 @@
 # Decisions Made
 
+## 2026-04-08 08:39:33 EDT — Move resume writing to single-call structured generation with local privacy and validation controls
+
+- Status: Accepted
+- Context: Resume generation had regressed into mediocre output, redundant OpenRouter calls, and prompt paths that could include user contact data. The existing architecture used multiple model calls to write sections and a separate model call to validate them, which increased cost and complexity while leaving privacy and async edge cases exposed.
+- Decision:
+  1. Use one OpenRouter call for each initial-generation, full-regeneration, or single-section-regeneration action, with the model returning strict JSON that the app splits and assembles locally.
+  2. Remove personal and contact information from resume content before every external LLM call that touches resume text, and reattach the stripped header locally after deterministic validation or upload cleanup.
+  3. Replace the separate validation model call with local schema and rule validation that checks section order, ATS-safety, contact leakage, grounding snippets, and unsupported date or claim drift.
+  4. Allow a second model request only when the primary request fails at the provider or transport layer, or returns invalid structured output; user-requested regeneration remains the only normal user-initiated repeat path.
+  5. Harden async generation callbacks with bounded callback retries, stale-job fencing, and frontend hydration of saved generation settings so retries and regenerations reuse the intended configuration.
+- Consequences: Resume writing is cheaper and easier to reason about, PII stays inside the app boundary, validation becomes deterministic and fail-closed, and late or stale async updates can no longer overwrite terminal application state as easily.
+
 ## 2026-04-07 23:07:06 EDT — Treat full-generation timeouts as stalled-progress detection, not a blunt wall-clock cutoff
 
 - Status: Accepted
@@ -24,7 +36,7 @@
 ## Phase 3 & 4: Generation, Editing, and Export (2026-04-07)
 
 ### Generation Architecture
-- **Section-based generation**: Each resume section (summary, experience, education, skills, etc.) is generated as an independent LLM call. This enables targeted section regeneration without re-generating the entire resume.
+- **Superseded on 2026-04-08**: The original section-based multi-call generation approach was replaced by single-call structured generation plus deterministic local validation and privacy sanitization.
 - **Model fallback**: Primary model → fallback model on failure. Configured via GENERATION_AGENT_MODEL and GENERATION_AGENT_FALLBACK_MODEL env vars.
 - **LangChain + OpenRouter**: Used ChatOpenAI from langchain-openai pointed at OpenRouter API base for model flexibility.
 

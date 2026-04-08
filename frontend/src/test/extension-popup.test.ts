@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error public extension bundle is plain JS for Chrome MV3 loading
 import {
   buildImportRequest,
   isTrustedAppUrl,
   normalizeAppOrigin,
-} from "../../public/chrome-extension/popup.js";
+} from "./chrome-extension-test-helpers";
 
 describe("chrome extension popup helpers", () => {
   it("builds the extension import payload from a captured page", () => {

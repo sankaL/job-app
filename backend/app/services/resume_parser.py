@@ -7,6 +7,8 @@ from typing import Optional
 
 import httpx
 
+from app.services.resume_privacy import reattach_header_lines, sanitize_resume_markdown
+
 logger = logging.getLogger(__name__)
 
 
@@ -182,12 +184,19 @@ class ResumeParserService:
             logger.debug("OpenRouter API key not configured, skipping LLM cleanup")
             return raw_markdown
 
+        sanitized = sanitize_resume_markdown(raw_markdown)
+        sanitized_markdown = sanitized.sanitized_markdown
+        if not sanitized_markdown.strip():
+            logger.warning("Sanitized resume content was empty, skipping LLM cleanup")
+            return raw_markdown
+
         system_prompt = (
             "You are a resume formatting assistant. Your job is to improve the structure "
             "of parsed resume text into clean Markdown. Detect and format section headings "
             "(## level), bullet points, dates, job titles, company names, education entries. "
+            "The input has already had personal/contact data removed. Do NOT add or infer contact info. "
             "Do NOT modify, add, or remove any content - only improve formatting and structure. "
-            "Return only the formatted Markdown."
+            "Return only the formatted Markdown body without personal/contact header lines."
         )
 
         try:
@@ -204,13 +213,15 @@ class ResumeParserService:
                         "model": self.openrouter_model,
                         "messages": [
                             {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": raw_markdown},
+                            {"role": "user", "content": sanitized_markdown},
                         ],
                     },
                 )
                 response.raise_for_status()
                 data = response.json()
-                return data["choices"][0]["message"]["content"]
+                cleaned_body = data["choices"][0]["message"]["content"]
+                cleaned_sanitized = sanitize_resume_markdown(cleaned_body).sanitized_markdown or cleaned_body
+                return reattach_header_lines(cleaned_sanitized, sanitized.header_lines)
 
         except httpx.TimeoutException:
             logger.warning("LLM cleanup timed out after 30 seconds, returning raw markdown")

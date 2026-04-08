@@ -9,6 +9,14 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
+def _clean_personal_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
 def assemble_resume(
     *,
     personal_info: dict[str, Any],
@@ -28,7 +36,7 @@ def assemble_resume(
     lines: list[str] = []
 
     # -- Header: name --
-    name: str = personal_info.get("name", "").strip()
+    name = _clean_personal_value(personal_info.get("name"))
     if name:
         lines.append(f"# {name}")
     else:
@@ -36,15 +44,15 @@ def assemble_resume(
 
     # -- Contact line --
     contact_parts: list[str] = []
-    email: Optional[str] = personal_info.get("email")
-    if email and email.strip():
-        contact_parts.append(email.strip())
-    phone: Optional[str] = personal_info.get("phone")
-    if phone and phone.strip():
-        contact_parts.append(phone.strip())
-    address: Optional[str] = personal_info.get("address")
-    if address and address.strip():
-        contact_parts.append(address.strip())
+    email = _clean_personal_value(personal_info.get("email"))
+    if email:
+        contact_parts.append(email)
+    phone = _clean_personal_value(personal_info.get("phone"))
+    if phone:
+        contact_parts.append(phone)
+    address = _clean_personal_value(personal_info.get("address"))
+    if address:
+        contact_parts.append(address)
 
     if contact_parts:
         lines.append(" | ".join(contact_parts))

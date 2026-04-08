@@ -41,12 +41,13 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Single-section regeneration must enforce a `45s` timeout.
 - PDF export must enforce a `20s` timeout.
 - Background work must use bounded retries, explicit cancellation behavior, and clear terminal failure handling.
-- OpenRouter integration must support a configurable primary model and configurable fallback model, with one retry against the fallback after primary-model failure.
+- OpenRouter integration must support a configurable primary model and configurable fallback model, with one retry against the fallback only after primary-model failure or invalid structured output.
 
 ## Generation and Validation Boundaries
-- Generation is section-based. Each enabled section is generated independently so it can be regenerated independently later.
+- Initial generation and full regeneration must use one LLM request that returns structured JSON for all enabled sections in order.
 - Respect the user's enabled sections, section order, target length, aggressiveness setting, and additional instructions where applicable.
+- Strip personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
 - Never generate personal information or invent credentials, employers, titles, dates, or educational institutions.
-- Run a validator gate over generated content before assembly.
-- Validator outcomes are limited to approve, auto-correct for minor structural issues, or fail.
+- Run deterministic schema and rule validation over generated content before assembly.
+- Validator outcomes are limited to approve or fail.
 - Validation failure must block assembly and follow the generation failure path defined by the PRD.

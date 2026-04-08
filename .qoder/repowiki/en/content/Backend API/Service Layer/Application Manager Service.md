@@ -13,7 +13,18 @@
 - [generation.py](file://agents/generation.py)
 - [validation.py](file://agents/validation.py)
 - [workflow-contract.json](file://shared/workflow-contract.json)
+- [decisions-made-1.md](file://docs/decisions-made/decisions-made-1.md)
+- [phase_4_generation_failure_reasons.sql](file://supabase/migrations/20260407_000006_phase_4_generation_failure_reasons.sql)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced stuck generation recovery mechanisms with sophisticated dual-timing approach
+- Added separate idle timeout and maximum wall-clock timeout parameters
+- Implemented proper handling of full generation workflows with 90-second idle timeout and 300-second maximum cap
+- Added comprehensive timeout handling for section regeneration with 45-second idle timeout and 90-second maximum
+- Updated error handling strategies with distinct error codes for different timeout scenarios
+- Enhanced recovery mechanisms to prevent infinite loops in generation workflows
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -28,16 +39,16 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the Application Manager Service that orchestrates the entire job application workflow. It manages application lifecycle stages, coordinates extraction and generation jobs, detects and resolves duplicates, tracks progress via Redis, and handles worker callbacks. It covers state transitions, integration with job queues, duplicate detection, progress tracking, and error handling strategies.
+This document describes the Application Manager Service that orchestrates the entire job application workflow. It manages application lifecycle stages, coordinates extraction and generation jobs, detects and resolves duplicates, tracks progress via Redis, and handles worker callbacks. The service now includes sophisticated stuck generation recovery mechanisms with dual-timing approach featuring separate idle timeout and maximum wall-clock timeout parameters for both full generation and section regeneration workflows.
 
 ## Project Structure
 The Application Manager Service spans backend APIs, services, repositories, and worker agents:
 - Backend API routes expose application CRUD and workflow actions.
-- ApplicationService encapsulates orchestration logic.
+- ApplicationService encapsulates orchestration logic with enhanced timeout handling.
 - Repositories manage persistence for applications, drafts, and notifications.
 - Job queues enqueue asynchronous tasks for extraction and generation.
-- Workers execute jobs and report progress and outcomes.
-- Progress store persists transient workflow progress in Redis.
+- Workers execute jobs and report progress and outcomes with timeout awareness.
+- Progress store persists transient workflow progress in Redis with recovery mechanisms.
 - Duplicate detector evaluates potential duplicates based on configurable thresholds.
 
 ```mermaid
@@ -103,22 +114,23 @@ GENW --> LLM
 - [validation.py:231-292](file://agents/validation.py#L231-L292)
 
 ## Core Components
-- ApplicationService: Central orchestrator for application lifecycle, state transitions, duplicate detection, progress tracking, and worker callbacks.
+- ApplicationService: Central orchestrator for application lifecycle, state transitions, duplicate detection, progress tracking, worker callbacks, and sophisticated stuck generation recovery with dual-timing timeout mechanisms.
 - ApplicationRepository: Database access for applications, including listing, creating, fetching, and updating records.
 - DuplicateDetector: Evaluates potential duplicates using similarity thresholds and match basis heuristics.
-- RedisProgressStore: Stores and retrieves transient progress for applications.
-- Job queues: Enqueue extraction and generation/regeneration jobs to workers.
-- Worker agents: Execute extraction, generation, and validation, reporting progress and outcomes.
+- RedisProgressStore: Stores and retrieves transient progress for applications with recovery capabilities.
+- Job queues: Enqueue extraction and generation/regeneration jobs to workers with timeout awareness.
+- Worker agents: Execute extraction, generation, and validation with individual timeout constraints and comprehensive error handling.
 
 Key responsibilities:
 - Creation: From URL or browser capture, enqueue extraction, and initialize progress.
 - Updates: Patch application fields; trigger duplicate resolution when relevant fields change.
 - Manual entry: Allow users to complete missing job details.
 - Retry: Re-queue extraction after failures.
-- Generation: Trigger generation with base resume and profile preferences; track progress and outcomes.
-- Regeneration: Full or section-specific regeneration with validation.
-- Progress: Poll progress from Redis; fallback to derived messages.
-- Callbacks: Handle worker events to update state and notify users.
+- Generation: Trigger generation with base resume and profile preferences; track progress and outcomes with timeout recovery.
+- Regeneration: Full or section-specific regeneration with validation and timeout-aware recovery.
+- Progress: Poll progress from Redis; fallback to derived messages with recovery mechanisms.
+- Callbacks: Handle worker events to update state and notify users with timeout handling.
+- Timeout Recovery: Detect and recover from stuck generation jobs using dual-timing approach.
 
 **Section sources**
 - [application_manager.py:143-1543](file://backend/app/services/application_manager.py#L143-L1543)
@@ -131,9 +143,9 @@ Key responsibilities:
 ## Architecture Overview
 The Application Manager Service integrates:
 - FastAPI endpoints that delegate to ApplicationService.
-- ApplicationService coordinating repositories, job queues, progress store, and duplicate detection.
-- Workers consuming jobs from ARQ queues, reporting progress to Redis, and invoking LLM providers.
-- Contract-driven status derivation mapping internal states to visible statuses.
+- ApplicationService coordinating repositories, job queues, progress store, and duplicate detection with timeout recovery mechanisms.
+- Workers consuming jobs from ARQ queues, reporting progress to Redis, and invoking LLM providers with individual timeout constraints.
+- Contract-driven status derivation mapping internal states to visible statuses with timeout-aware transitions.
 
 ```mermaid
 sequenceDiagram
@@ -175,12 +187,13 @@ API-->>Client : 201 Created
 ## Detailed Component Analysis
 
 ### ApplicationService
-ApplicationService is the central orchestrator. It:
+ApplicationService is the central orchestrator with enhanced timeout recovery capabilities. It:
 - Creates applications and enqueues extraction jobs.
 - Handles manual entry, retries, recovery from captures, and duplicate resolution.
-- Triggers generation and regeneration, validates outcomes, and updates progress.
-- Processes worker callbacks to advance state and notify users.
-- Derives visible status from internal state and failure reasons.
+- Triggers generation and regeneration with timeout-aware processing.
+- Validates outcomes, updates progress, and manages sophisticated stuck generation recovery.
+- Processes worker callbacks to advance state and notify users with timeout handling.
+- Derives visible status from internal state and failure reasons with timeout awareness.
 
 Key methods and flows:
 - Creation from URL: create_application
@@ -191,8 +204,9 @@ Key methods and flows:
 - Duplicate resolution: resolve_duplicate
 - Generation triggers: trigger_generation, trigger_full_regeneration, trigger_section_regeneration
 - Callback handlers: handle_worker_callback, handle_generation_callback, handle_regeneration_callback
-- Progress polling: get_progress
+- Progress polling: get_progress with automatic timeout recovery
 - Draft management: get_draft, save_draft_edit, export_pdf
+- Timeout recovery: _detect_and_recover_stuck_generation, _recover_stuck_generation_if_needed
 
 ```mermaid
 classDiagram
@@ -216,6 +230,9 @@ class ApplicationService {
 +get_draft(user_id, application_id) ResumeDraftRecord?
 +save_draft_edit(user_id, application_id, content) ResumeDraftRecord
 +export_pdf(user_id, application_id) (bytes, str)
+-_detect_and_recover_stuck_generation(record) bool
+-_recover_stuck_generation_if_needed(record) ApplicationRecord
+-_generation_timeout_seconds(record, progress) tuple[int, int]
 }
 ```
 
@@ -224,6 +241,50 @@ class ApplicationService {
 
 **Section sources**
 - [application_manager.py:143-1543](file://backend/app/services/application_manager.py#L143-L1543)
+
+### Enhanced Timeout Recovery Mechanisms
+The Application Manager Service now implements sophisticated stuck generation recovery with dual-timing approach:
+
+#### Dual-Timing Timeout Parameters
+- **Full Generation Workflows**: 90-second idle timeout with 300-second maximum wall-clock cap
+- **Section Regeneration Workflows**: 45-second idle timeout with 90-second maximum wall-clock cap
+
+#### Timeout Detection Logic
+The system monitors two critical metrics:
+- **Idle Timeout**: Time since last progress update indicates job stall
+- **Maximum Wall-Clock Timeout**: Absolute time limit prevents indefinite hanging
+
+#### Recovery Process
+When timeouts are detected:
+1. System identifies target state (generation_pending for initial generation, resume_ready for regeneration)
+2. Sets terminal progress with appropriate error code (generation_timeout or regeneration_failed)
+3. Creates action-required notification for user
+4. Prevents stale worker callbacks from overwriting recovery state
+
+```mermaid
+flowchart TD
+Start(["Monitor Generation Activity"]) --> CheckActive{"Is Generation Active?"}
+CheckActive --> |No| End(["No Action Needed"])
+CheckActive --> |Yes| CalcTimes["Calculate Idle & Total Elapsed"]
+CalcTimes --> CheckTimeouts{"Timeout Detected?"}
+CheckTimeouts --> |No| End
+CheckTimeouts --> |Yes| DetermineType["Determine Timeout Type"]
+DetermineType --> IdleTimeout{"Idle Timeout?"}
+IdleTimeout --> |Yes| SetIdleProgress["Set Terminal Progress<br/>with generation_timeout"]
+IdleTimeout --> |No| SetMaxProgress["Set Terminal Progress<br/>with max wall-clock reached"]
+SetIdleProgress --> CreateNotification["Create Action-Required Notification"]
+SetMaxProgress --> CreateNotification
+CreateNotification --> End
+```
+
+**Diagram sources**
+- [application_manager.py:493-566](file://backend/app/services/application_manager.py#L493-L566)
+- [application_manager.py:1764-1778](file://backend/app/services/application_manager.py#L1764-L1778)
+
+**Section sources**
+- [application_manager.py:493-566](file://backend/app/services/application_manager.py#L493-L566)
+- [application_manager.py:1764-1778](file://backend/app/services/application_manager.py#L1764-L1778)
+- [decisions-made-1.md:3-11](file://docs/decisions-made/decisions-made-1.md#L3-L11)
 
 ### ApplicationRepository
 ApplicationRepository provides database operations:
@@ -282,7 +343,7 @@ Update --> End
 - [application_manager.py:1185-1268](file://backend/app/services/application_manager.py#L1185-L1268)
 
 ### Progress Tracking and Callback Handling
-Progress tracking uses Redis to store transient progress keyed by application ID. ApplicationService sets initial progress upon creation and updates it during extraction and generation. Worker agents report progress and outcomes via callbacks.
+Progress tracking uses Redis to store transient progress keyed by application ID. ApplicationService sets initial progress upon creation and updates it during extraction and generation. Worker agents report progress and outcomes via callbacks with timeout awareness.
 
 ```mermaid
 sequenceDiagram
@@ -310,9 +371,9 @@ Svc->>Prog : set(state="generation_pending"|state="manual_entry_required", perce
 - [worker.py:526-667](file://agents/worker.py#L526-L667)
 
 ### Generation and Regeneration Workflows
-Generation and regeneration are handled by worker agents:
-- Generation: Generate sections, validate, assemble, and produce a resume.
-- Regeneration: Full or section-specific regeneration with validation and draft updates.
+Generation and regeneration are handled by worker agents with timeout awareness:
+- Generation: Generate sections, validate, assemble, and produce a resume with timeout constraints.
+- Regeneration: Full or section-specific regeneration with validation, draft updates, and timeout recovery.
 
 ```mermaid
 sequenceDiagram
@@ -322,7 +383,7 @@ participant GenW as "Generation Worker"
 participant R as "RedisProgressStore"
 participant API as "Backend Callback Endpoint"
 Svc->>GenQ : enqueue(application_id, user_id, job_title, company, description, base_resume, ...)
-GenQ-->>GenW : run_generation_job(...)
+GenQ-->>GenW : run_generation_job(timeout=300s)
 GenW->>R : set(state="generating", percent=5..85)
 GenW->>API : POST /api/internal/worker/generation-callback (event="started")
 GenW->>API : POST /api/internal/worker/generation-callback (event="succeeded"|event="failed")
@@ -396,9 +457,10 @@ class SectionRegenerationRequest {
 ApplicationService depends on:
 - Repositories for persistence
 - Job queues for asynchronous processing
-- Progress store for transient state
+- Progress store for transient state with timeout recovery
 - Duplicate detector for duplicate evaluation
 - Workflow status derivation for visible status mapping
+- Worker agents with timeout-aware processing
 
 ```mermaid
 graph LR
@@ -407,9 +469,11 @@ SVC --> DUPS["DuplicateDetector"]
 SVC --> PROG["RedisProgressStore"]
 SVC --> JOBQ["ExtractionJobQueue / GenerationJobQueue"]
 SVC --> WF["derive_visible_status"]
+SVC --> TIMEOUT["Timeout Recovery Mechanisms"]
 JOBQ --> ARQ["ARQ Redis"]
 PROG --> REDIS["Redis"]
 DUPS --> REPO
+TIMEOUT --> PROG
 ```
 
 **Diagram sources**
@@ -430,16 +494,19 @@ DUPS --> REPO
 - Asynchronous job processing: Extraction and generation are offloaded to workers to keep API responses fast.
 - Progress polling: Clients poll Redis-backed progress to avoid long-polling on the server.
 - Validation timeouts: Generation and regeneration enforce timeouts to prevent resource starvation.
-- Section preferences: Generation respects user’s section preferences to minimize unnecessary work.
+- Section preferences: Generation respects user's section preferences to minimize unnecessary work.
 - Fallback mechanisms: On extraction failure, the system transitions to manual entry with a terminal error code stored in progress.
-
-[No sources needed since this section provides general guidance]
+- **Enhanced**: Timeout recovery prevents infinite loops in generation workflows with dual-timing approach.
+- **Enhanced**: Separate idle and maximum wall-clock timeouts prevent both false positives and resource starvation.
+- **Enhanced**: Sophisticated recovery mechanisms ensure stuck jobs are properly terminated and users are notified.
 
 ## Troubleshooting Guide
 Common issues and recovery steps:
 - Extraction fails due to blocked source: Worker reports failure with details; ApplicationService transitions to manual entry required and sets a terminal error code in progress.
 - Extraction timeout: Worker reports failure; ApplicationService transitions to manual entry required.
 - Generation timeout or validation failure: Worker reports failure; ApplicationService marks generation failed and notifies the user.
+- **Enhanced**: Stuck generation detection: System automatically detects stalled jobs and recovers them with appropriate timeout codes.
+- **Enhanced**: Dual-timing timeout handling: Different timeout parameters for full generation (90s idle, 300s max) vs section regeneration (45s idle, 90s max).
 - Export failure: ApplicationService updates state to resume_ready with failure reason and creates an action-required notification.
 
 Operational tips:
@@ -447,17 +514,18 @@ Operational tips:
 - Confirm ARQ queue availability and worker health.
 - Check LLM provider keys and model configurations.
 - Review duplicate resolution status before generation.
+- **Enhanced**: Monitor timeout recovery logs for stuck job detection and recovery.
+- **Enhanced**: Verify timeout parameters are appropriate for your workload patterns.
 
 **Section sources**
 - [application_manager.py:1270-1324](file://backend/app/services/application_manager.py#L1270-L1324)
 - [worker.py:645-667](file://agents/worker.py#L645-L667)
 - [worker.py:856-905](file://agents/worker.py#L856-L905)
 - [application_manager.py:1150-1184](file://backend/app/services/application_manager.py#L1150-L1184)
+- [application_manager.py:493-566](file://backend/app/services/application_manager.py#L493-L566)
 
 ## Conclusion
-The Application Manager Service provides a robust, asynchronous workflow for job application intake, extraction, generation, and regeneration. It integrates cleanly with job queues and Redis-backed progress tracking, supports duplicate detection and resolution, and offers comprehensive error handling and recovery. The contract-driven status derivation ensures consistent visibility for users.
-
-[No sources needed since this section summarizes without analyzing specific files]
+The Application Manager Service provides a robust, asynchronous workflow for job application intake, extraction, generation, and regeneration. It integrates cleanly with job queues and Redis-backed progress tracking, supports duplicate detection and resolution, and offers comprehensive error handling and recovery. The enhanced timeout recovery mechanisms with dual-timing approach ensure that stuck generation jobs are properly detected and recovered, preventing infinite loops while allowing legitimate long-running operations to complete successfully.
 
 ## Appendices
 
@@ -490,6 +558,33 @@ regenerating_full --> resume_ready : "succeeded"
 - [workflow-contract.json:9-26](file://shared/workflow-contract.json#L9-L26)
 - [workflow.py:11-31](file://backend/app/services/workflow.py#L11-L31)
 
+### Enhanced Timeout Recovery Configuration
+
+#### Timeout Parameters
+- **Full Generation Workflows**: 
+  - Idle Timeout: 90 seconds (no progress updates)
+  - Maximum Wall-Clock: 300 seconds (absolute time limit)
+- **Section Regeneration Workflows**:
+  - Idle Timeout: 45 seconds (no progress updates)
+  - Maximum Wall-Clock: 90 seconds (absolute time limit)
+
+#### Error Codes
+- **generation_timeout**: Initial generation exceeded idle or maximum timeout
+- **generation_cancelled**: User-initiated cancellation
+- **regeneration_failed**: Regeneration operation failed (includes timeout)
+
+#### Recovery Behavior
+- **Stuck Detection**: Monitors progress timestamps and elapsed time
+- **Graceful Recovery**: Sets terminal progress with appropriate error code
+- **State Transition**: Moves to generation_pending (initial) or resume_ready (regeneration)
+- **User Notification**: Creates action-required notification for timeout recovery
+
+**Section sources**
+- [application_manager.py:42-46](file://backend/app/services/application_manager.py#L42-L46)
+- [application_manager.py:1764-1778](file://backend/app/services/application_manager.py#L1764-L1778)
+- [decisions-made-1.md:3-11](file://docs/decisions-made/decisions-made-1.md#L3-L11)
+- [phase_4_generation_failure_reasons.sql:3-4](file://supabase/migrations/20260407_000006_phase_4_generation_failure_reasons.sql#L3-L4)
+
 ### Practical Workflows
 
 - Application creation from URL
@@ -518,17 +613,17 @@ regenerating_full --> resume_ready : "succeeded"
 - Generation workflow
   - Endpoint: POST /api/applications/{id}/generate
   - Service: trigger_generation
-  - Outcome: Generation job enqueued; progress set to generation_pending; worker validates and assembles resume.
+  - Outcome: Generation job enqueued with timeout constraints; progress set to generation_pending; worker validates and assembles resume.
 
 - Regeneration workflow
   - Endpoints: POST /api/applications/{id}/regenerate, POST /api/applications/{id}/regenerate-section
   - Services: trigger_full_regeneration, trigger_section_regeneration
-  - Outcome: Regeneration job enqueued; progress updated; validation performed; draft updated.
+  - Outcome: Regeneration job enqueued with timeout constraints; progress updated; validation performed; draft updated.
 
 - Progress polling
   - Endpoint: GET /api/applications/{id}/progress
-  - Service: get_progress
-  - Outcome: Returns Redis-stored progress or derived progress record.
+  - Service: get_progress with automatic timeout recovery
+  - Outcome: Returns Redis-stored progress or derived progress record; automatically recovers stuck generation jobs.
 
 - PDF export
   - Endpoint: GET /api/applications/{id}/export-pdf
@@ -555,3 +650,4 @@ regenerating_full --> resume_ready : "succeeded"
 - [application_manager.py:815-905](file://backend/app/services/application_manager.py#L815-L905)
 - [application_manager.py:439-454](file://backend/app/services/application_manager.py#L439-L454)
 - [application_manager.py:1069-1148](file://backend/app/services/application_manager.py#L1069-L1148)
+- [application_manager.py:493-566](file://backend/app/services/application_manager.py#L493-L566)

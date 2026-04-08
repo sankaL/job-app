@@ -665,6 +665,23 @@ class ApplicationService:
         record = await self._recover_stuck_generation_if_needed(record)
         progress = await self.progress_store.get(application_id)
         if progress is not None:
+            if (
+                (record.failure_reason is not None or record.internal_state == "resume_ready")
+                and progress.completed_at is None
+                and progress.terminal_error_code is None
+            ):
+                synthesized = build_progress(
+                    job_id=f"state-{application_id}",
+                    workflow_kind=progress.workflow_kind,
+                    state=record.internal_state,
+                    message=self._default_progress_message(record),
+                    percent_complete=100,
+                    completed_at=record.updated_at,
+                    terminal_error_code=record.failure_reason,
+                    created_at=progress.created_at,
+                )
+                await self.progress_store.set(application_id, synthesized)
+                return synthesized
             return progress
 
         return build_progress(

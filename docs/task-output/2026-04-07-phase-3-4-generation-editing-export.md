@@ -4,6 +4,8 @@
 **Status:** Implemented  
 **Phases:** Phase 3 (Generation, Validation, Assembly, Notifications, Workspace) and Phase 4 (Editing, Regeneration, PDF Export)
 
+> Note: The original multi-call generation and validator architecture documented here was later hardened and partially superseded by [2026-04-08-single-call-generation-privacy-hardening.md](./2026-04-08-single-call-generation-privacy-hardening.md).
+
 ## Phase 3 — Generation, Validation, Assembly
 
 ### Worker (agents/)

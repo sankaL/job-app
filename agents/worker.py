@@ -19,7 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
 from assembly import assemble_resume
-from generation import generate_sections, regenerate_single_section, _replace_section_in_draft, SECTION_DISPLAY_NAMES
+from generation import SECTION_DISPLAY_NAMES, _replace_section_in_draft, generate_sections, regenerate_single_section
 from validation import validate_resume
 
 
@@ -366,14 +366,28 @@ class BackendCallbackClient:
     async def post(self, payload: dict[str, Any], *, path: str = "/api/internal/worker/extraction-callback") -> None:
         if not self._settings.worker_callback_secret:
             raise RuntimeError("WORKER_CALLBACK_SECRET is not configured.")
+        last_error: Optional[Exception] = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.post(
+                        f"{self._settings.backend_api_url.rstrip('/')}{path}",
+                        json=payload,
+                        headers={"X-Worker-Secret": self._settings.worker_callback_secret},
+                    )
+                    response.raise_for_status()
+                    return
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if 400 <= exc.response.status_code < 500:
+                    raise
+            except httpx.HTTPError as exc:
+                last_error = exc
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                f"{self._settings.backend_api_url.rstrip('/')}{path}",
-                json=payload,
-                headers={"X-Worker-Secret": self._settings.worker_callback_secret},
-            )
-            response.raise_for_status()
+            if attempt < 2:
+                await asyncio.sleep(0.5 * (2**attempt))
+
+        raise RuntimeError("Worker callback failed after retries.") from last_error
 
 
 class OpenRouterExtractionAgent:
@@ -409,6 +423,7 @@ class OpenRouterExtractionAgent:
             api_key=self._settings.openrouter_api_key,
             base_url=self._settings.openrouter_base_url,
             temperature=0,
+            max_retries=0,
         ).with_structured_output(ExtractedJobPosting)
 
         prompt = [
@@ -530,18 +545,29 @@ async def set_progress(
     terminal_error_code: Optional[str] = None,
 ) -> JobProgress:
     existing = await writer.get(application_id)
+    if existing is not None and existing.job_id != job_id:
+        return existing
     progress = build_progress(
         job_id=job_id,
         workflow_kind=workflow_kind,
         state=state,
         message=message,
         percent_complete=percent_complete,
-        created_at=existing.created_at if existing else None,
+        created_at=existing.created_at if existing and existing.job_id == job_id else None,
         completed_at=completed_at,
         terminal_error_code=terminal_error_code,
     )
     await writer.set(application_id, progress)
     return progress
+
+
+async def is_current_job(
+    writer: RedisProgressWriter,
+    application_id: str,
+    job_id: str,
+) -> bool:
+    existing = await writer.get(application_id)
+    return existing is None or existing.job_id == job_id
 
 
 async def report_failure(
@@ -768,6 +794,9 @@ async def run_generation_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
+    public_generation_settings = {
+        key: value for key, value in generation_settings.items() if not str(key).startswith("_")
+    }
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
@@ -775,10 +804,6 @@ async def run_generation_job(
         raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
     if not settings.generation_agent_fallback_model:
         raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
-    if not settings.validation_agent_model:
-        raise RuntimeError("VALIDATION_AGENT_MODEL is not configured.")
-    if not settings.validation_agent_fallback_model:
-        raise RuntimeError("VALIDATION_AGENT_FALLBACK_MODEL is not configured.")
 
     async def on_generation_progress(percent: int, message: str) -> None:
         await set_progress(
@@ -820,7 +845,7 @@ async def run_generation_job(
                 company_name=company_name,
                 job_description=job_description,
                 section_preferences=section_preferences,
-                generation_settings=generation_settings,
+                generation_settings={**public_generation_settings, "_operation": "generation"},
                 model=settings.generation_agent_model,
                 fallback_model=settings.generation_agent_fallback_model,
                 api_key=settings.openrouter_api_key,
@@ -829,6 +854,8 @@ async def run_generation_job(
             ),
             timeout=FULL_GENERATION_MAX_TIMEOUT_SECONDS,
         )
+        if not await is_current_job(writer, application_id, job_id):
+            return
 
         generated_sections = gen_result["sections"]
 
@@ -847,11 +874,10 @@ async def run_generation_job(
             generated_sections=generated_sections,
             base_resume_content=base_resume_content,
             section_preferences=section_preferences,
-            model=settings.validation_agent_model,
-            fallback_model=settings.validation_agent_fallback_model,
-            api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_base_url,
+            generation_settings=public_generation_settings,
         )
+        if not await is_current_job(writer, application_id, job_id):
+            return
 
         if not validation_result["valid"]:
             await set_progress(
@@ -871,7 +897,7 @@ async def run_generation_job(
                     user_id=user_id,
                     job_id=job_id,
                     message="Resume validation failed.",
-                    terminal_error_code="generation_failed",
+                    terminal_error_code="validation_failed",
                     validation_errors=validation_result["errors"],
                 ),
                 path=GENERATION_CALLBACK_PATH,
@@ -893,6 +919,8 @@ async def run_generation_job(
             personal_info=personal_info,
             generated_sections=generated_sections,
         )
+        if not await is_current_job(writer, application_id, job_id):
+            return
 
         enabled_ordered = sorted(
             [s for s in section_preferences if s.get("enabled")],
@@ -916,7 +944,7 @@ async def run_generation_job(
                 user_id=user_id,
                 job_id=job_id,
                 content_md=content,
-                generation_params=generation_settings,
+                generation_params=public_generation_settings,
                 sections_snapshot={
                     "enabled_sections": [s["name"] for s in enabled_ordered],
                     "section_order": [s["name"] for s in enabled_ordered],
@@ -926,6 +954,8 @@ async def run_generation_job(
         )
 
     except asyncio.TimeoutError:
+        if not await is_current_job(writer, application_id, job_id):
+            return
         await set_progress(
             writer,
             application_id,
@@ -949,6 +979,8 @@ async def run_generation_job(
         )
         raise
     except Exception:
+        if not await is_current_job(writer, application_id, job_id):
+            return
         await set_progress(
             writer,
             application_id,
@@ -961,15 +993,15 @@ async def run_generation_job(
             terminal_error_code="generation_error",
         )
         await callback.post(
-            build_generation_failure_payload(
-                application_id=application_id,
-                user_id=user_id,
-                job_id=job_id,
-                message="Resume generation failed unexpectedly.",
-                terminal_error_code="generation_failed",
-            ),
-            path=GENERATION_CALLBACK_PATH,
-        )
+                build_generation_failure_payload(
+                    application_id=application_id,
+                    user_id=user_id,
+                    job_id=job_id,
+                    message="Resume generation failed unexpectedly.",
+                    terminal_error_code="generation_error",
+                ),
+                path=GENERATION_CALLBACK_PATH,
+            )
         raise
 
 
@@ -998,6 +1030,9 @@ async def run_regeneration_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
+    public_generation_settings = {
+        key: value for key, value in generation_settings.items() if not str(key).startswith("_")
+    }
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
@@ -1005,10 +1040,6 @@ async def run_regeneration_job(
         raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
     if not settings.generation_agent_fallback_model:
         raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
-    if not settings.validation_agent_model:
-        raise RuntimeError("VALIDATION_AGENT_MODEL is not configured.")
-    if not settings.validation_agent_fallback_model:
-        raise RuntimeError("VALIDATION_AGENT_FALLBACK_MODEL is not configured.")
 
     is_full_regen = regeneration_target == "full"
     workflow_kind = "regeneration_full" if is_full_regen else "regeneration_section"
@@ -1056,7 +1087,7 @@ async def run_regeneration_job(
                     company_name=company_name,
                     job_description=job_description,
                     section_preferences=section_preferences,
-                    generation_settings=generation_settings,
+                    generation_settings={**public_generation_settings, "_operation": "regeneration_full"},
                     model=settings.generation_agent_model,
                     fallback_model=settings.generation_agent_fallback_model,
                     api_key=settings.openrouter_api_key,
@@ -1065,6 +1096,8 @@ async def run_regeneration_job(
                 ),
                 timeout=FULL_GENERATION_MAX_TIMEOUT_SECONDS,
             )
+            if not await is_current_job(writer, application_id, job_id):
+                return
             generated_sections = gen_result["sections"]
 
             await set_progress(
@@ -1081,11 +1114,10 @@ async def run_regeneration_job(
                 generated_sections=generated_sections,
                 base_resume_content=base_resume_content,
                 section_preferences=section_preferences,
-                model=settings.validation_agent_model,
-                fallback_model=settings.validation_agent_fallback_model,
-                api_key=settings.openrouter_api_key,
-                base_url=settings.openrouter_base_url,
+                generation_settings=public_generation_settings,
             )
+            if not await is_current_job(writer, application_id, job_id):
+                return
 
             if not validation_result["valid"]:
                 await set_progress(
@@ -1105,7 +1137,7 @@ async def run_regeneration_job(
                         user_id=user_id,
                         job_id=job_id,
                         message="Regeneration validation failed.",
-                        terminal_error_code="regeneration_failed",
+                        terminal_error_code="validation_failed",
                         validation_errors=validation_result["errors"],
                     ),
                     path=REGENERATION_CALLBACK_PATH,
@@ -1116,6 +1148,8 @@ async def run_regeneration_job(
                 personal_info=personal_info,
                 generated_sections=generated_sections,
             )
+            if not await is_current_job(writer, application_id, job_id):
+                return
 
             enabled_ordered = sorted(
                 [s for s in section_preferences if s.get("enabled")],
@@ -1144,7 +1178,7 @@ async def run_regeneration_job(
                 percent_complete=20,
             )
 
-            new_section_content = await asyncio.wait_for(
+            regenerated_section = await asyncio.wait_for(
                 regenerate_single_section(
                     current_draft_content=current_draft_content,
                     section_name=section_name,
@@ -1153,7 +1187,7 @@ async def run_regeneration_job(
                     job_title=job_title,
                     company_name=company_name,
                     job_description=job_description,
-                    generation_settings=generation_settings,
+                    generation_settings=public_generation_settings,
                     model=settings.generation_agent_model,
                     fallback_model=settings.generation_agent_fallback_model,
                     api_key=settings.openrouter_api_key,
@@ -1161,6 +1195,8 @@ async def run_regeneration_job(
                 ),
                 timeout=SECTION_REGENERATION_TIMEOUT_SECONDS,
             )
+            if not await is_current_job(writer, application_id, job_id):
+                return
 
             # Validate just this section
             await set_progress(
@@ -1175,14 +1211,13 @@ async def run_regeneration_job(
 
             single_section_prefs = [{"name": section_name, "enabled": True, "order": 0}]
             validation_result = await validate_resume(
-                generated_sections=[{"name": section_name, "content": new_section_content}],
+                generated_sections=[regenerated_section],
                 base_resume_content=base_resume_content,
                 section_preferences=single_section_prefs,
-                model=settings.validation_agent_model,
-                fallback_model=settings.validation_agent_fallback_model,
-                api_key=settings.openrouter_api_key,
-                base_url=settings.openrouter_base_url,
+                generation_settings=public_generation_settings,
             )
+            if not await is_current_job(writer, application_id, job_id):
+                return
 
             if not validation_result["valid"]:
                 await set_progress(
@@ -1202,7 +1237,7 @@ async def run_regeneration_job(
                         user_id=user_id,
                         job_id=job_id,
                         message=f"Validation failed for regenerated {section_name} section.",
-                        terminal_error_code="regeneration_failed",
+                        terminal_error_code="validation_failed",
                         validation_errors=validation_result["errors"],
                     ),
                     path=REGENERATION_CALLBACK_PATH,
@@ -1214,7 +1249,7 @@ async def run_regeneration_job(
                 section_name, section_name.replace("_", " ").title()
             )
             content = _replace_section_in_draft(
-                current_draft_content, section_name, new_section_content, display_name
+                current_draft_content, section_name, regenerated_section["content"], display_name
             )
             sections_snapshot = {
                 "enabled_sections": [section_name],
@@ -1238,13 +1273,15 @@ async def run_regeneration_job(
                 user_id=user_id,
                 job_id=job_id,
                 content_md=content,
-                generation_params=generation_settings,
+                generation_params=public_generation_settings,
                 sections_snapshot=sections_snapshot,
             ),
             path=REGENERATION_CALLBACK_PATH,
         )
 
     except asyncio.TimeoutError:
+        if not await is_current_job(writer, application_id, job_id):
+            return
         await set_progress(
             writer,
             application_id,
@@ -1262,12 +1299,14 @@ async def run_regeneration_job(
                 user_id=user_id,
                 job_id=job_id,
                 message="Regeneration timed out. The LLM provider may be slow. Please try again.",
-                terminal_error_code="regeneration_failed",
+                terminal_error_code="regeneration_timeout",
             ),
             path=REGENERATION_CALLBACK_PATH,
         )
         raise
     except Exception:
+        if not await is_current_job(writer, application_id, job_id):
+            return
         await set_progress(
             writer,
             application_id,
@@ -1285,7 +1324,7 @@ async def run_regeneration_job(
                 user_id=user_id,
                 job_id=job_id,
                 message="Regeneration failed unexpectedly.",
-                terminal_error_code="regeneration_failed",
+                terminal_error_code="regeneration_error",
             ),
             path=REGENERATION_CALLBACK_PATH,
         )

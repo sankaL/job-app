@@ -8,9 +8,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from worker import (
+    BackendCallbackClient,
     ExtractedJobPosting,
+    JobProgress,
     OpenRouterExtractionAgent,
     PageContext,
+    RedisProgressWriter,
     SourceCapture,
     WorkerSettingsEnv,
     build_generation_failure_payload,
@@ -19,7 +22,9 @@ from worker import (
     detect_blocked_page,
     extract_reference_id,
     finalize_extracted_posting,
+    is_current_job,
     normalize_origin_from_url,
+    set_progress,
 )
 
 
@@ -162,3 +167,84 @@ def test_build_generation_failure_payload_normalizes_validation_errors():
         "summary: Invented employer",
         "Missing required section: skills",
     ]
+
+
+@pytest.mark.asyncio
+async def test_set_progress_ignores_stale_job_id():
+    existing = JobProgress(
+        job_id="job-current",
+        workflow_kind="generation",
+        state="generating",
+        message="Current job is running.",
+        percent_complete=50,
+        created_at="2026-04-08T00:00:00+00:00",
+        updated_at="2026-04-08T00:00:00+00:00",
+    )
+
+    class FakeWriter:
+        def __init__(self) -> None:
+            self.saved: list[JobProgress] = []
+
+        async def get(self, _application_id: str):
+            return existing
+
+        async def set(self, _application_id: str, progress: JobProgress, ttl_seconds: int = 86400):
+            del ttl_seconds
+            self.saved.append(progress)
+
+    writer = FakeWriter()
+    result = await set_progress(
+        writer,
+        "app-1",
+        job_id="job-stale",
+        workflow_kind="generation",
+        state="generation_failed",
+        message="Stale write should be ignored.",
+        percent_complete=100,
+    )
+
+    assert result == existing
+    assert writer.saved == []
+    assert await is_current_job(writer, "app-1", "job-stale") is False
+
+
+@pytest.mark.asyncio
+async def test_backend_callback_client_retries_transient_server_errors(monkeypatch):
+    attempts = {"count": 0}
+
+    class FakeResponse:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                import httpx
+
+                request = httpx.Request("POST", "https://example.com")
+                raise httpx.HTTPStatusError("server error", request=request, response=httpx.Response(self.status_code))
+
+    class FakeAsyncClient:
+        def __init__(self, timeout: float) -> None:
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, _url: str, *, json, headers):
+            del json, headers
+            attempts["count"] += 1
+            return FakeResponse(503 if attempts["count"] < 3 else 200)
+
+    monkeypatch.setattr("worker.httpx.AsyncClient", FakeAsyncClient)
+
+    settings = WorkerSettingsEnv(
+        backend_api_url="https://backend.example",
+        worker_callback_secret="secret",
+    )
+    client = BackendCallbackClient(settings)
+    await client.post({"ok": True})
+
+    assert attempts["count"] == 3

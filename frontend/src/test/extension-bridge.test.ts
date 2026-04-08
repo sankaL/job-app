@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { loadContentScript } from "./chrome-extension-test-helpers";
+
 type StorageState = {
   appUrl: string | null;
 };
@@ -32,7 +34,7 @@ describe("chrome extension bridge", () => {
   });
 
   it("ignores connect messages from untrusted origins", async () => {
-    await import("../../public/chrome-extension/content-script.js");
+    await loadContentScript();
 
     window.dispatchEvent(
       new MessageEvent("message", {
@@ -60,7 +62,7 @@ describe("chrome extension bridge", () => {
       callback?.({ ok: true });
     });
 
-    await import("../../public/chrome-extension/content-script.js");
+    await loadContentScript();
 
     window.dispatchEvent(
       new MessageEvent("message", {

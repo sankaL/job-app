@@ -943,6 +943,44 @@ async def test_get_progress_reconciles_terminal_generation_progress_without_time
 
 
 @pytest.mark.asyncio
+async def test_get_progress_prefers_terminal_application_state_over_stale_active_progress():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/6",
+        visible_status="needs_action",
+        internal_state="generation_pending",
+    )
+    repository.records[created.id] = created.model_copy(
+        update={
+            "failure_reason": "generation_cancelled",
+            "generation_failure_details": {"message": "Generation was cancelled by user."},
+            "updated_at": "2026-04-07T12:10:00+00:00",
+        }
+    )
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-6",
+            workflow_kind="generation",
+            state="generating",
+            message="Resume generation is running.",
+            percent_complete=40,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:05:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    progress = await service.get_progress(user_id="user-1", application_id=created.id)
+
+    assert progress.state == "generation_pending"
+    assert progress.terminal_error_code == "generation_cancelled"
+    assert progress.completed_at == "2026-04-07T12:10:00+00:00"
+
+
+@pytest.mark.asyncio
 async def test_terminal_progress_reconciliation_preserves_existing_validation_errors():
     service, repository, _, progress_store, _, _, _ = build_service()
     now = datetime.now(timezone.utc)

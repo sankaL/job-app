@@ -108,6 +108,14 @@ function applyTerminalGenerationProgress(
   };
 }
 
+function isAllowedPageLength(value: unknown): value is string {
+  return typeof value === "string" && PAGE_LENGTH_OPTIONS.some((option) => option.value === value);
+}
+
+function isAllowedAggressiveness(value: unknown): value is string {
+  return typeof value === "string" && AGGRESSIVENESS_OPTIONS.some((option) => option.value === value);
+}
+
 export function ApplicationDetailPage() {
   const navigate = useNavigate();
   const { applicationId } = useParams<{ applicationId: string }>();
@@ -176,6 +184,24 @@ export function ApplicationDetailPage() {
     setIsRegenerating(false);
     setIsCancelling(false);
     setShowOptimisticProgress(false);
+  }
+
+  function applyDraftState(response: ResumeDraft | null) {
+    setDraft(response);
+    if (!response) {
+      return;
+    }
+
+    const generationParams = response.generation_params ?? {};
+    if (isAllowedPageLength(generationParams.page_length)) {
+      setPageLength(generationParams.page_length);
+    }
+    if (isAllowedAggressiveness(generationParams.aggressiveness)) {
+      setAggressiveness(generationParams.aggressiveness);
+    }
+    setAdditionalInstructions(
+      typeof generationParams.additional_instructions === "string" ? generationParams.additional_instructions : "",
+    );
   }
 
   useEffect(() => {
@@ -265,7 +291,7 @@ export function ApplicationDetailPage() {
             if (!isCancelled) {
               applyDetailState(response);
               if (nextProgress.state === "resume_ready" && !nextProgress.terminal_error_code) {
-                void fetchDraft(applicationId).then(setDraft).catch(() => {});
+                void fetchDraft(applicationId).then(applyDraftState).catch(() => {});
               }
               setError(null);
             }
@@ -301,7 +327,7 @@ export function ApplicationDetailPage() {
     if (!["resume_ready", "regenerating_full", "regenerating_section"].includes(detail.internal_state)) {
       return;
     }
-    fetchDraft(applicationId).then(setDraft).catch(() => {});
+    fetchDraft(applicationId).then(applyDraftState).catch(() => {});
   }, [applicationId, detail?.internal_state]);
 
   useEffect(() => {
@@ -533,7 +559,7 @@ export function ApplicationDetailPage() {
 
     try {
       const updated = await saveDraft(activeApplicationId, editContent);
-      setDraft(updated);
+      applyDraftState(updated);
       setEditMode(false);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to save draft.");

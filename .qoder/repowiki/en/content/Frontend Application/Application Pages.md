@@ -15,7 +15,17 @@
 - [popup.js](file://frontend/public/chrome-extension/popup.js)
 - [content-script.js](file://frontend/public/chrome-extension/content-script.js)
 - [service-worker.js](file://frontend/public/chrome-extension/service-worker.js)
+- [application_manager.py](file://backend/app/services/application_manager.py)
+- [decisions-made-1.md](file://docs/decisions-made/decisions-made-1.md)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced ApplicationDetailPage with terminal progress reconciliation capabilities
+- Added applyTerminalGenerationProgress function for improved error handling
+- Implemented applyTerminalGenerationFallback function for graceful degradation
+- Added generation polling termination upon observing terminal progress
+- Improved mapping of terminal progress states to application details
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -31,16 +41,16 @@
 ## Introduction
 This document provides comprehensive documentation for all application pages and their functionality. It covers:
 - ApplicationsDashboardPage: job application listings with filtering and sorting
-- ApplicationDetailPage: individual application views including status tracking and progress indicators
+- ApplicationDetailPage: individual application views including status tracking, progress indicators, and enhanced terminal progress reconciliation
 - BaseResumeEditorPage: AI-generated resume editing with section-based content management
 - BaseResumesPage: managing existing base resumes
 - ProfilePage: user account settings and preferences
 - ExtensionPage: Chrome extension integration and job capture workflow
 
-It also documents page-specific state management, data fetching patterns, user interaction flows, and responsive/mobile optimization considerations.
+It also documents page-specific state management, data fetching patterns, user interaction flows, responsive/mobile optimization considerations, and the enhanced terminal progress reconciliation system.
 
 ## Project Structure
-The application pages live under the frontend routes directory and rely on a shared API client for authenticated requests. UI components include reusable badge and markdown preview utilities. The Chrome extension resides under public/chrome-extension and communicates via postMessage and storage APIs.
+The application pages live under the frontend routes directory and rely on a shared API client for authenticated requests. UI components include reusable badge and markdown preview utilities. The Chrome extension resides under public/chrome-extension and communicates via postMessage and storage APIs. The backend implements robust terminal progress reconciliation to prevent frontend polling loops.
 
 ```mermaid
 graph TB
@@ -48,17 +58,25 @@ subgraph "Frontend"
 Routes["Routes (Pages)"]
 UI["UI Components"]
 API["API Client"]
-end
+TermRec["Terminal Progress Reconciliation"]
+End
 subgraph "Chrome Extension"
 Popup["Popup Script"]
 Content["Content Script"]
 SW["Service Worker"]
 end
+subgraph "Backend"
+Manager["Application Manager"]
+ProgressStore["Progress Store"]
+end
 Routes --> API
 UI --> API
+TermRec --> Routes
 Popup --> Routes
 Content --> Routes
 SW --> Popup
+API --> Manager
+Manager --> ProgressStore
 ```
 
 **Diagram sources**
@@ -69,6 +87,7 @@ SW --> Popup
 - [ExtensionPage.tsx:1-200](file://frontend/src/routes/ExtensionPage.tsx#L1-L200)
 - [ProfilePage.tsx:1-264](file://frontend/src/routes/ProfilePage.tsx#L1-L264)
 - [api.ts:1-489](file://frontend/src/lib/api.ts#L1-L489)
+- [application_manager.py:567-643](file://backend/app/services/application_manager.py#L567-L643)
 - [popup.js:1-156](file://frontend/public/chrome-extension/popup.js#L1-L156)
 - [content-script.js:1-118](file://frontend/public/chrome-extension/content-script.js#L1-L118)
 - [service-worker.js:1-37](file://frontend/public/chrome-extension/service-worker.js#L1-L37)
@@ -86,22 +105,27 @@ SW --> Popup
 - StatusBadge: renders status labels with color-coded styles based on visible status.
 - MarkdownPreview: renders Markdown content with GitHub Flavored Markdown support.
 - API client: centralized authenticated requests for applications, base resumes, profile, and extension operations.
+- Terminal Progress Reconciliation: enhanced error handling and graceful degradation for generation workflows.
 
 Key responsibilities:
 - StatusBadge: maps status keys to labels and applies Tailwind classes for visual distinction.
 - MarkdownPreview: wraps react-markdown with remarkGfm for GFM compatibility.
 - API client: handles bearer token acquisition, request dispatch, error parsing, and upload flows.
+- Terminal Progress Reconciliation: prevents frontend polling loops by detecting terminal progress states and gracefully degrading when detail refresh fails.
 
 **Section sources**
 - [StatusBadge.tsx:1-23](file://frontend/src/components/StatusBadge.tsx#L1-L23)
 - [MarkdownPreview.tsx:1-16](file://frontend/src/components/MarkdownPreview.tsx#L1-L16)
 - [api.ts:177-238](file://frontend/src/lib/api.ts#L177-L238)
+- [ApplicationDetailPage.tsx:78-109](file://frontend/src/routes/ApplicationDetailPage.tsx#L78-L109)
+- [ApplicationDetailPage.tsx:173-179](file://frontend/src/routes/ApplicationDetailPage.tsx#L173-L179)
 
 ## Architecture Overview
-The pages follow a unidirectional data flow:
+The pages follow a unidirectional data flow with enhanced terminal progress reconciliation:
 - Pages fetch data via the API client and manage local state.
 - UI components render data and trigger actions that call API functions.
 - For long-running operations, pages poll progress endpoints and update state accordingly.
+- Terminal progress reconciliation prevents infinite polling loops by detecting terminal states.
 - The Chrome extension communicates via postMessage to the web app and backend.
 
 ```mermaid
@@ -110,21 +134,36 @@ participant User as "User"
 participant Dashboard as "ApplicationsDashboardPage"
 participant API as "API Client"
 participant Backend as "Backend"
+participant TermRec as "Terminal Reconciliation"
 User->>Dashboard : "Paste job URL and click New Application"
 Dashboard->>API : "POST /api/applications {job_url}"
 API->>Backend : "Authenticated request"
 Backend-->>API : "ApplicationDetail"
 API-->>Dashboard : "ApplicationDetail"
 Dashboard-->>User : "Navigate to ApplicationDetailPage"
+User->>Detail : "Trigger generation"
+Detail->>API : "POST generate"
+Detail->>Poll : "Start polling progress"
+loop Until terminal state
+Poll->>API : "GET progress"
+API->>TermRec : "Check terminal progress"
+TermRec-->>API : "Terminal state detected"
+API-->>Poll : "Terminal progress"
+end
+Poll->>API : "GET detail"
+API-->>Detail : "Updated ApplicationDetail"
 ```
 
 **Diagram sources**
 - [ApplicationsDashboardPage.tsx:46-59](file://frontend/src/routes/ApplicationsDashboardPage.tsx#L46-L59)
 - [api.ts:248-253](file://frontend/src/lib/api.ts#L248-L253)
+- [ApplicationDetailPage.tsx:237-294](file://frontend/src/routes/ApplicationDetailPage.tsx#L237-L294)
+- [application_manager.py:567-643](file://backend/app/services/application_manager.py#L567-L643)
 
 **Section sources**
 - [ApplicationsDashboardPage.tsx:1-264](file://frontend/src/routes/ApplicationsDashboardPage.tsx#L1-L264)
 - [api.ts:244-253](file://frontend/src/lib/api.ts#L244-L253)
+- [ApplicationDetailPage.tsx:237-294](file://frontend/src/routes/ApplicationDetailPage.tsx#L237-L294)
 
 ## Detailed Component Analysis
 
@@ -184,6 +223,7 @@ Purpose:
 - Manages job info editing, manual entry, duplicate review, generation, and PDF export.
 - Polls progress for extraction and generation/regeneration states.
 - Edits resume draft content and triggers targeted regeneration.
+- **Enhanced**: Implements terminal progress reconciliation to prevent infinite polling loops.
 
 State management:
 - Detail, progress, and draft state.
@@ -191,6 +231,7 @@ State management:
 - Settings for base resume selection, page length, aggressiveness, and additional instructions.
 - Edit mode for draft Markdown content.
 - Optimistic progress display during generation.
+- **Enhanced**: Terminal progress state management with graceful fallback.
 
 Data fetching:
 - fetchApplicationDetail on mount.
@@ -207,22 +248,36 @@ Actions:
 - Trigger generation/full regeneration/section regeneration.
 - Save draft and export PDF.
 
+**Enhanced** Terminal Progress Reconciliation:
+The ApplicationDetailPage now includes sophisticated terminal progress handling:
+
+- `applyTerminalGenerationProgress`: Maps terminal progress states to application details, converting progress states to appropriate internal states and failure reasons.
+- `applyTerminalGenerationFallback`: Gracefully degrades when detail refresh fails, stopping generation polling and clearing optimistic progress indicators.
+- Generation polling termination: Stops polling once terminal progress is observed, preventing infinite loops.
+- Proper state mapping: Converts terminal progress codes to meaningful failure reasons and internal states.
+
 ```mermaid
 sequenceDiagram
 participant User as "User"
 participant Detail as "ApplicationDetailPage"
 participant API as "API Client"
 participant Poll as "Progress Poller"
+participant TermRec as "Terminal Reconciliation"
 User->>Detail : "Open application detail"
 Detail->>API : "GET detail"
 alt Extraction or Generation pending
 Detail->>Poll : "Start polling"
 Poll->>API : "GET progress"
-API-->>Poll : "ExtractionProgress"
-Poll-->>Detail : "Update progress"
+API->>TermRec : "Check terminal progress"
 alt Terminal state reached
+TermRec-->>API : "Terminal progress detected"
+API-->>Poll : "Terminal progress"
 Poll->>API : "GET detail"
 API-->>Detail : "Updated ApplicationDetail"
+TermRec-->>Detail : "Apply terminal progress mapping"
+else Still generating
+TermRec-->>API : "Still active"
+API-->>Poll : "Progress update"
 end
 end
 User->>Detail : "Trigger generation"
@@ -232,11 +287,16 @@ Detail->>Poll : "Start polling"
 
 **Diagram sources**
 - [ApplicationDetailPage.tsx:89-154](file://frontend/src/routes/ApplicationDetailPage.tsx#L89-L154)
+- [ApplicationDetailPage.tsx:173-179](file://frontend/src/routes/ApplicationDetailPage.tsx#L173-L179)
+- [ApplicationDetailPage.tsx:260-281](file://frontend/src/routes/ApplicationDetailPage.tsx#L260-281)
 - [api.ts:255-300](file://frontend/src/lib/api.ts#L255-L300)
 - [api.ts:414-427](file://frontend/src/lib/api.ts#L414-L427)
 
 **Section sources**
 - [ApplicationDetailPage.tsx:1-800](file://frontend/src/routes/ApplicationDetailPage.tsx#L1-L800)
+- [ApplicationDetailPage.tsx:78-109](file://frontend/src/routes/ApplicationDetailPage.tsx#L78-L109)
+- [ApplicationDetailPage.tsx:173-179](file://frontend/src/routes/ApplicationDetailPage.tsx#L173-L179)
+- [ApplicationDetailPage.tsx:260-281](file://frontend/src/routes/ApplicationDetailPage.tsx#L260-281)
 - [api.ts:85-110](file://frontend/src/lib/api.ts#L85-L110)
 - [api.ts:255-300](file://frontend/src/lib/api.ts#L255-L300)
 - [api.ts:414-466](file://frontend/src/lib/api.ts#L414-L466)
@@ -378,6 +438,7 @@ Popup->>Web : "Open detail page"
 - ApplicationDetailPage depends on application-options for generation settings and status labels.
 - UI components (StatusBadge, MarkdownPreview) are reused across pages.
 - ExtensionPage coordinates with Chrome extension scripts via postMessage and storage.
+- **Enhanced**: Backend implements terminal progress reconciliation to support frontend improvements.
 
 ```mermaid
 graph LR
@@ -390,6 +451,7 @@ Prof["ProfilePage"] --> API
 Ext["ExtensionPage"] --> API
 SB["StatusBadge"] --> AO
 MP["MarkdownPreview"] --> ADet
+AM["ApplicationManager"] --> TermRec["Terminal Reconciliation"]
 ```
 
 **Diagram sources**
@@ -403,18 +465,21 @@ MP["MarkdownPreview"] --> ADet
 - [MarkdownPreview.tsx:1-7](file://frontend/src/components/MarkdownPreview.tsx#L1-L7)
 - [application-options.ts:1-31](file://frontend/src/lib/application-options.ts#L1-L31)
 - [api.ts:1-489](file://frontend/src/lib/api.ts#L1-L489)
+- [application_manager.py:567-643](file://backend/app/services/application_manager.py#L567-L643)
 
 **Section sources**
 - [api.ts:1-489](file://frontend/src/lib/api.ts#L1-L489)
 - [application-options.ts:1-31](file://frontend/src/lib/application-options.ts#L1-L31)
+- [application_manager.py:567-643](file://backend/app/services/application_manager.py#L567-L643)
 
 ## Performance Considerations
 - Deferred search: useDeferredValue reduces layout thrash during rapid typing in the dashboard.
 - Optimistic UI: immediate applied-state toggles improve perceived responsiveness; server responses reconcile state.
-- Polling intervals: progress polling runs at fixed intervals; stop polling when terminal states are reached.
+- **Enhanced**: Terminal progress reconciliation prevents infinite polling loops, reducing unnecessary API calls.
 - Debounced autosave: notes autosave uses a timeout to avoid frequent network requests.
 - Conditional rendering: skeleton loaders reduce layout shifts while data loads.
 - Mobile-first grids: responsive breakpoints ensure readable content on small screens.
+- **Enhanced**: Generation polling termination upon terminal progress observation improves performance for long-running jobs.
 
 ## Troubleshooting Guide
 Common issues and remedies:
@@ -422,12 +487,14 @@ Common issues and remedies:
 - Request errors: API client parses error details from JSON responses; display user-friendly messages.
 - Extension connectivity: verify token issuance, bridge detection, and trusted app URL checks.
 - Progress polling: ensure internal_state transitions out of pending/generating to stop polling.
+- **Enhanced**: Terminal progress reconciliation: if detail refresh fails after terminal progress is observed, the applyTerminalGenerationFallback function gracefully degrades the UI state.
 - PDF uploads: confirm file type and size constraints; optional LLM cleanup flag can be toggled.
 
 **Section sources**
 - [api.ts:177-238](file://frontend/src/lib/api.ts#L177-L238)
 - [ExtensionPage.tsx:35-72](file://frontend/src/routes/ExtensionPage.tsx#L35-L72)
 - [ApplicationDetailPage.tsx:102-154](file://frontend/src/routes/ApplicationDetailPage.tsx#L102-L154)
+- [ApplicationDetailPage.tsx:173-179](file://frontend/src/routes/ApplicationDetailPage.tsx#L173-L179)
 
 ## Conclusion
-The application pages implement a cohesive, authenticated frontend with robust state management and clear user workflows. Filtering and sorting in the dashboard streamline discovery, while the detail page provides comprehensive controls for progress tracking, generation, and export. The base resume management supports flexible authoring and AI-assisted cleanup. The Chrome extension integration enables seamless job capture and navigation to application detail pages. Responsive design and optimistic UI patterns contribute to a smooth user experience across devices.
+The application pages implement a cohesive, authenticated frontend with robust state management and clear user workflows. Filtering and sorting in the dashboard streamline discovery, while the detail page provides comprehensive controls for progress tracking, generation, and export. The enhanced terminal progress reconciliation system prevents infinite polling loops and improves reliability for long-running generation jobs. The base resume management supports flexible authoring and AI-assisted cleanup. The Chrome extension integration enables seamless job capture and navigation to application detail pages. Responsive design and optimistic UI patterns contribute to a smooth user experience across devices. The backend's terminal progress reconciliation ensures that frontend state management remains consistent even when detail refresh operations encounter temporary failures.

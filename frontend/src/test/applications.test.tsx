@@ -436,4 +436,72 @@ describe("phase 1 applications UI", () => {
     expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1);
     expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2);
   });
+
+  it("hydrates saved generation settings from the latest draft", async () => {
+    api.fetchApplicationDetail.mockResolvedValue({
+      id: "app-1",
+      job_url: "https://example.com/job",
+      job_title: "Backend Engineer",
+      company: "Acme",
+      job_description: "Build APIs",
+      extracted_reference_id: null,
+      job_posting_origin: "linkedin",
+      job_posting_origin_other_text: null,
+      base_resume_id: "resume-1",
+      base_resume_name: "Default Resume",
+      visible_status: "in_progress",
+      internal_state: "resume_ready",
+      failure_reason: null,
+      extraction_failure_details: null,
+      generation_failure_details: null,
+      applied: false,
+      duplicate_similarity_score: null,
+      duplicate_resolution_status: null,
+      duplicate_matched_application_id: null,
+      notes: null,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:05:00Z",
+      has_action_required_notification: false,
+      duplicate_warning: null,
+    });
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume",
+      generation_params: {
+        page_length: "3_page",
+        aggressiveness: "high",
+        additional_instructions: "Emphasize architecture leadership.",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:05:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:05:00Z",
+    });
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
+
+    render(
+      <MemoryRouter initialEntries={["/app/applications/app-1"]}>
+        <Routes>
+          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText("3 Pages")).toBeChecked();
+    expect(screen.getByRole("radio", { name: /high/i })).toBeChecked();
+    expect(screen.getByDisplayValue("Emphasize architecture leadership.")).toBeInTheDocument();
+  });
 });

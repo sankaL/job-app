@@ -20,12 +20,13 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced documentation of comprehensive resume generation system with detailed section-based generation capabilities
-- Added comprehensive coverage of hallucination detection mechanisms and ATS-safety compliance
-- Expanded validation service documentation with structured hallucination finding models
-- Updated worker orchestration capabilities documentation including regeneration workflows
-- Added detailed coverage of generation settings, aggressiveness levels, and target length guidance
-- Enhanced progress tracking and callback system documentation
+- Enhanced documentation of comprehensive resume generation system with detailed section-based generation capabilities and advanced configuration options
+- Added comprehensive coverage of hallucination detection mechanisms with structured finding models and detailed validation rules
+- Expanded validation service documentation with ATS-safety compliance features, auto-correction capabilities, and structured error reporting
+- Updated worker orchestration capabilities documentation including regeneration workflows with full and single-section regeneration modes
+- Added detailed coverage of generation settings including aggressiveness levels (low, medium, high), target page length settings (1_page, 2_page, 3_page), and additional instructions
+- Enhanced progress tracking and callback system documentation with comprehensive timeout management and error handling strategies
+- Updated backend integration documentation with explicit timeout contracts and retry strategies
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -247,14 +248,14 @@ end
 
 ### Validation Agent
 The validation agent enforces:
-- Hallucination detection across sections using structured LLM output
+- Hallucination detection across sections using structured LLM output with detailed finding models
 - Required sections presence
 - Correct ordering
 - ATS safety (no tables/images; auto-correct minor formatting)
 
 ```mermaid
 flowchart TD
-Start(["validate_resume"]) --> Hallu["LLM hallucination check<br/>Structured output"]
+Start(["validate_resume"]) --> Hallu["LLM hallucination check<br/>Structured output with findings"]
 Hallu --> Req["Required sections check"]
 Req --> Order["Section order check"]
 Order --> ATSSafe["ATS safety rules<br/>Auto-corrections"]
@@ -359,14 +360,14 @@ Map --> Status["Visible Statuses"]
 ### Generation Settings and Section Management
 The generation system supports advanced configuration including:
 - Aggressiveness levels (low, medium, high) for tailoring
-- Target length guidance (1_page, 2_page) for resume sizing
+- Target length guidance (1_page, 2_page, 3_page) for resume sizing
 - Section preferences with enabled status and ordering
 - Additional instructions for custom generation requirements
 
 ```mermaid
 flowchart TD
 Settings["Generation Settings"] --> Agg["Aggressiveness<br/>low/medium/high"]
-Settings --> Length["Target Length<br/>1_page/2_page"]
+Settings --> Length["Target Length<br/>1_page/2_page/3_page"]
 Settings --> Instructions["Additional Instructions"]
 Settings --> Sections["Section Preferences<br/>Enabled + Order"]
 Agg --> Prompt["Section Prompt"]
@@ -394,6 +395,35 @@ The system supports both full regeneration and single-section regeneration:
 **Section sources**
 - [worker.py:981-1292](file://agents/worker.py#L981-L1292)
 - [generation.py:280-351](file://agents/generation.py#L280-L351)
+
+### Advanced Validation Features
+The validation system implements comprehensive hallucination detection and ATS safety compliance:
+- LLM-based hallucination checking with structured output and detailed finding models
+- Detection of invented employers, titles, dates, credentials, and institutions
+- Cross-section consistency validation
+- ATS safety compliance with auto-correction capabilities for formatting issues
+- Structured error reporting with section-specific details
+
+**Section sources**
+- [validation.py:48-116](file://agents/validation.py#L48-L116)
+- [validation.py:231-292](file://agents/validation.py#L231-L292)
+- [AGENTS.md:23-31](file://agents/AGENTS.md#L23-L31)
+
+### Error Handling and Timeout Management
+The system implements comprehensive error handling and timeout management:
+- Extraction timeout: 30 seconds
+- Full generation timeout: 300 seconds (wall-clock) with 90 seconds idle timeout
+- Single-section regeneration timeout: 45 seconds
+- Export timeout: 20 seconds
+- Bounded retries: One fallback model retry per LLM call
+- Structured error reporting with normalized validation errors
+- Terminal error codes for different failure scenarios
+
+**Section sources**
+- [worker.py:52-53](file://agents/worker.py#L52-L53)
+- [worker.py:816-831](file://agents/worker.py#L816-L831)
+- [worker.py:1147-1163](file://agents/worker.py#L1147-L1163)
+- [backend/AGENTS.md:38-44](file://backend/AGENTS.md#L38-L44)
 
 ## Dependency Analysis
 The agents package depends on ARQ for task queueing, LangChain OpenAI for LLM calls, Playwright for browser automation, and Redis for progress storage. The backend consumes agent callbacks and derives application statuses from the shared workflow contract.
@@ -442,6 +472,8 @@ Common issues and remedies:
 - Validation failures: Review validation errors and auto-corrections; adjust generation settings.
 - Missing sections or wrong order: Ensure section preferences are enabled and ordered correctly.
 - Model failures: Primary/fallback model retry is automatic; confirm API keys and base URLs.
+- Hallucination detection failures: Check LLM model availability and retry with fallback model.
+- ATS safety violations: Review auto-corrections applied to fix formatting issues.
 
 **Section sources**
 - [worker.py:717-739](file://agents/worker.py#L717-L739)
@@ -496,7 +528,7 @@ The ARQ-based agent system provides a robust, asynchronous pipeline for extracti
 
 ### Hallucination Detection and Validation Rules
 The validation system implements comprehensive hallucination detection:
-- LLM-based hallucination checking with structured output
+- LLM-based hallucination checking with structured output and detailed finding models
 - Detection of invented employers, titles, dates, credentials, and institutions
 - Cross-section consistency validation
 - ATS safety compliance with auto-correction capabilities
@@ -505,3 +537,14 @@ The validation system implements comprehensive hallucination detection:
 - [validation.py:48-116](file://agents/validation.py#L48-L116)
 - [validation.py:231-292](file://agents/validation.py#L231-L292)
 - [AGENTS.md:23-31](file://agents/AGENTS.md#L23-L31)
+
+### Generation Settings Configuration
+Advanced generation settings for resume customization:
+- Aggressiveness levels: low (conservative), medium (balanced), high (aggressive tailoring)
+- Target length: 1_page (standard), 2_page (extended), 3_page (maximum)
+- Additional instructions: optional custom guidance for specific requirements
+- Section preferences: enable/disable sections and set generation order
+
+**Section sources**
+- [backend/AGENTS.md:46-52](file://backend/AGENTS.md#L46-L52)
+- [test_worker.py:131-144](file://agents/tests/test_worker.py#L131-L144)
