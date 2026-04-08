@@ -36,7 +36,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+    <div className="animate-fadeInUp relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
       <div className="absolute left-[-6rem] top-10 h-64 w-64 rounded-full bg-ember/10 blur-3xl" />
       <div className="absolute bottom-0 right-[-3rem] h-80 w-80 rounded-full bg-spruce/10 blur-3xl" />
       <Card className="relative w-full max-w-5xl overflow-hidden p-0">

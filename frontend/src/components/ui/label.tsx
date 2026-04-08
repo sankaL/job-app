@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
   return (
     <label
-      className={cn("mb-2 block text-sm font-semibold uppercase tracking-[0.16em] text-ink/60", className)}
+      className={cn("mb-1.5 block text-xs font-semibold uppercase tracking-[0.08em]", className)}
+      style={{ color: "var(--color-ink-50)" }}
       {...props}
     />
   );

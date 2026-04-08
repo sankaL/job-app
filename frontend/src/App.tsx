@@ -1,9 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/routes/AppShell";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
-import { ApplicationsDashboardPage } from "@/routes/ApplicationsDashboardPage";
+import { ApplicationsListPage } from "@/routes/ApplicationsListPage";
 import { BaseResumeEditorPage } from "@/routes/BaseResumeEditorPage";
 import { BaseResumesPage } from "@/routes/BaseResumesPage";
+import { DashboardPage } from "@/routes/DashboardPage";
 import { ExtensionPage } from "@/routes/ExtensionPage";
 import { LoginPage } from "@/routes/LoginPage";
 import { ProfilePage } from "@/routes/ProfilePage";
@@ -20,8 +21,9 @@ export default function App() {
             <AppShell />
           </ProtectedRoute>
         }
-        >
-        <Route index element={<ApplicationsDashboardPage />} />
+      >
+        <Route index element={<DashboardPage />} />
+        <Route path="applications" element={<ApplicationsListPage />} />
         <Route path="applications/:applicationId" element={<ApplicationDetailPage />} />
         <Route path="extension" element={<ExtensionPage />} />
         <Route path="profile" element={<ProfilePage />} />

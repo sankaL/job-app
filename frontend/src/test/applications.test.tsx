@@ -1,9 +1,13 @@
+import type { ReactNode } from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AppProvider } from "@/components/layout/AppContext";
+import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
-import { ApplicationsDashboardPage } from "@/routes/ApplicationsDashboardPage";
+import { ApplicationsListPage } from "@/routes/ApplicationsListPage";
+import { DashboardPage } from "@/routes/DashboardPage";
 import { ExtensionPage } from "@/routes/ExtensionPage";
 
 const api = vi.hoisted(() => ({
@@ -14,6 +18,7 @@ const api = vi.hoisted(() => ({
   fetchApplicationDetail: vi.fn(),
   fetchApplicationProgress: vi.fn(),
   fetchDraft: vi.fn(),
+  fetchSessionBootstrap: vi.fn(),
   issueExtensionToken: vi.fn(),
   listBaseResumes: vi.fn(),
   listApplications: vi.fn(),
@@ -31,28 +36,59 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => api);
 
+const defaultBootstrap = {
+  user: { id: "u1", email: "test@test.com", role: null },
+  profile: null,
+  workflow_contract_version: "1",
+};
+
+function renderWithAppProvider(
+  ui: ReactNode,
+  options?: {
+    initialEntries?: string[];
+  },
+) {
+  return render(
+    <MemoryRouter initialEntries={options?.initialEntries}>
+      <AppProvider>{ui}</AppProvider>
+    </MemoryRouter>,
+  );
+}
+
 describe("phase 1 applications UI", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     api.fetchDraft.mockResolvedValue(null);
+    api.fetchSessionBootstrap.mockResolvedValue(defaultBootstrap);
     api.listBaseResumes.mockResolvedValue([]);
+    api.listApplications.mockResolvedValue([]);
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("renders the dashboard empty state when there are no applications", async () => {
+  it("renders the applications empty state when there are no applications", async () => {
     api.listApplications.mockResolvedValue([]);
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    expect(await screen.findByText(/no applications yet/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /new application/i })).not.toHaveLength(0);
+  });
+
+  it("surfaces dashboard load failures instead of showing the empty state", async () => {
+    api.listApplications.mockRejectedValueOnce(new Error("Session expired."));
 
     render(
       <MemoryRouter>
-        <ApplicationsDashboardPage />
+        <DashboardPage />
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText(/paste a job url to start your first application/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /new application/i })).toBeInTheDocument();
+    expect(await screen.findByText(/dashboard unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText(/session expired/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no applications yet/i)).not.toBeInTheDocument();
   });
 
   it("shows conditional other-origin input on the manual entry form", async () => {
@@ -92,20 +128,19 @@ describe("phase 1 applications UI", () => {
       terminal_error_code: "extraction_failed",
     });
 
-    render(
-      <MemoryRouter initialEntries={["/app/applications/app-1"]}>
-        <Routes>
-          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
-        </Routes>
-      </MemoryRouter>,
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/extraction needs your help/i)).toBeInTheDocument();
+    expect(await screen.findByText(/manual entry required/i)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/other source label/i)).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(screen.getAllByRole("combobox")[1]!, "other");
+    await userEvent.selectOptions(screen.getByLabelText(/posting source/i), "other");
 
-    expect(await screen.findAllByPlaceholderText(/other source label/i)).toHaveLength(2);
+    expect(await screen.findByPlaceholderText(/other source label/i)).toBeInTheDocument();
   });
 
   it("renders duplicate review actions on the detail page", async () => {
@@ -156,17 +191,16 @@ describe("phase 1 applications UI", () => {
       terminal_error_code: null,
     });
 
-    render(
-      <MemoryRouter initialEntries={["/app/applications/app-1"]}>
-        <Routes>
-          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
-        </Routes>
-      </MemoryRouter>,
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/possible overlap detected/i)).toBeInTheDocument();
+    expect(await screen.findByText(/duplicate detected/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /proceed anyway/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open existing application/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open existing/i })).toBeInTheDocument();
   });
 
   it("shows blocked-source recovery details on the detail page", async () => {
@@ -212,17 +246,135 @@ describe("phase 1 applications UI", () => {
       terminal_error_code: "blocked_source",
     });
 
-    render(
-      <MemoryRouter initialEntries={["/app/applications/app-1"]}>
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(await screen.findByText(/blocked automated retrieval/i)).toBeInTheDocument();
+    expect(screen.getByText(/9e8afb060bd31117/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
+  });
+
+  it("refreshes shell breadcrumbs after saving job info on the detail page", async () => {
+    api.listApplications
+      .mockResolvedValueOnce([
+        {
+          id: "app-1",
+          job_url: "https://example.com/job",
+          job_title: "Backend Engineer",
+          company: "Acme",
+          job_posting_origin: "linkedin",
+          visible_status: "in_progress",
+          internal_state: "resume_ready",
+          failure_reason: null,
+          applied: false,
+          duplicate_similarity_score: null,
+          duplicate_resolution_status: null,
+          duplicate_matched_application_id: null,
+          created_at: "2026-04-07T12:00:00Z",
+          updated_at: "2026-04-07T12:05:00Z",
+          base_resume_name: "Default Resume",
+          has_action_required_notification: false,
+          has_unresolved_duplicate: false,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "app-1",
+          job_url: "https://example.com/job",
+          job_title: "Staff Backend Engineer",
+          company: "Beta Labs",
+          job_posting_origin: "linkedin",
+          visible_status: "in_progress",
+          internal_state: "resume_ready",
+          failure_reason: null,
+          applied: false,
+          duplicate_similarity_score: null,
+          duplicate_resolution_status: null,
+          duplicate_matched_application_id: null,
+          created_at: "2026-04-07T12:00:00Z",
+          updated_at: "2026-04-07T12:15:00Z",
+          base_resume_name: "Default Resume",
+          has_action_required_notification: false,
+          has_unresolved_duplicate: false,
+        },
+      ]);
+    api.fetchApplicationDetail.mockResolvedValue({
+      id: "app-1",
+      job_url: "https://example.com/job",
+      job_title: "Backend Engineer",
+      company: "Acme",
+      job_description: "Build APIs",
+      extracted_reference_id: null,
+      job_posting_origin: "linkedin",
+      job_posting_origin_other_text: null,
+      base_resume_id: "resume-1",
+      base_resume_name: "Default Resume",
+      visible_status: "in_progress",
+      internal_state: "resume_ready",
+      failure_reason: null,
+      extraction_failure_details: null,
+      generation_failure_details: null,
+      applied: false,
+      duplicate_similarity_score: null,
+      duplicate_resolution_status: null,
+      duplicate_matched_application_id: null,
+      notes: null,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:05:00Z",
+      has_action_required_notification: false,
+      duplicate_warning: null,
+    });
+    api.patchApplication.mockResolvedValue({
+      id: "app-1",
+      job_url: "https://example.com/job",
+      job_title: "Staff Backend Engineer",
+      company: "Beta Labs",
+      job_description: "Build APIs",
+      extracted_reference_id: null,
+      job_posting_origin: "linkedin",
+      job_posting_origin_other_text: null,
+      base_resume_id: "resume-1",
+      base_resume_name: "Default Resume",
+      visible_status: "in_progress",
+      internal_state: "resume_ready",
+      failure_reason: null,
+      extraction_failure_details: null,
+      generation_failure_details: null,
+      applied: false,
+      duplicate_similarity_score: null,
+      duplicate_resolution_status: null,
+      duplicate_matched_application_id: null,
+      notes: null,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:15:00Z",
+      has_action_required_notification: false,
+      duplicate_warning: null,
+    });
+
+    renderWithAppProvider(
+      <>
+        <AppBreadcrumbs />
         <Routes>
           <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
         </Routes>
-      </MemoryRouter>,
+      </>,
+      { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/the job site blocked automated retrieval/i)).toBeInTheDocument();
-    expect(screen.getByText(/9e8afb060bd31117/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /retry with pasted text/i })).toBeInTheDocument();
+    expect(await screen.findByText("Acme — Backend Engineer")).toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText(/job title/i));
+    await userEvent.type(screen.getByLabelText(/job title/i), "Staff Backend Engineer");
+    await userEvent.clear(screen.getByLabelText(/company/i));
+    await userEvent.type(screen.getByLabelText(/company/i), "Beta Labs");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText("Beta Labs — Staff Backend Engineer")).toBeInTheDocument();
+    await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(2));
   });
 
   it("renders extension onboarding status", async () => {
@@ -240,8 +392,8 @@ describe("phase 1 applications UI", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText(/current-tab capture/i)).toBeInTheDocument();
-    expect(screen.getByText(/no active extension token is connected/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /chrome extension/i })).toBeInTheDocument();
+    expect(screen.getByText(/no active token/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /connect extension/i })).toBeInTheDocument();
   });
 
@@ -276,16 +428,15 @@ describe("phase 1 applications UI", () => {
       duplicate_warning: null,
     });
 
-    render(
-      <MemoryRouter initialEntries={["/app/applications/app-1"]}>
-        <Routes>
-          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
-        </Routes>
-      </MemoryRouter>,
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/generation failed/i)).toBeInTheDocument();
-    expect(screen.queryByText(/generation progress/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /generation failed/i })).toBeInTheDocument();
+    expect(screen.queryByText(/resume generation/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /cancel generation/i })).not.toBeInTheDocument();
     expect(api.fetchApplicationProgress).not.toHaveBeenCalled();
   });
@@ -359,16 +510,15 @@ describe("phase 1 applications UI", () => {
       terminal_error_code: "generation_failed",
     });
 
-    render(
-      <MemoryRouter initialEntries={["/app/applications/app-1"]}>
-        <Routes>
-          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
-        </Routes>
-      </MemoryRouter>,
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
     );
 
     await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/resume generation failed unexpectedly/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /generation failed/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /cancel generation/i })).not.toBeInTheDocument();
   });
 
@@ -415,19 +565,18 @@ describe("phase 1 applications UI", () => {
     });
 
     await act(async () => {
-      render(
-        <MemoryRouter initialEntries={["/app/applications/app-1"]}>
-          <Routes>
-            <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
-          </Routes>
-        </MemoryRouter>,
+      renderWithAppProvider(
+        <Routes>
+          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        </Routes>,
+        { initialEntries: ["/app/applications/app-1"] },
       );
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/^Application request failed\.$/)).toBeInTheDocument();
+    expect(screen.getByText(/application request failed/i)).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8000);
@@ -491,12 +640,11 @@ describe("phase 1 applications UI", () => {
       },
     ]);
 
-    render(
-      <MemoryRouter initialEntries={["/app/applications/app-1"]}>
-        <Routes>
-          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
-        </Routes>
-      </MemoryRouter>,
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
     );
 
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledTimes(1));

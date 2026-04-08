@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -24,7 +24,6 @@ type BridgeStoredMessage = {
 };
 
 export function ExtensionPage() {
-  const navigate = useNavigate();
   const [status, setStatus] = useState<ExtensionConnectionStatus | null>(null);
   const [bridgeDetected, setBridgeDetected] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -34,16 +33,11 @@ export function ExtensionPage() {
 
   useEffect(() => {
     fetchExtensionStatus()
-      .then((response) => {
-        setStatus(response);
-        setError(null);
-      })
-      .catch((requestError: Error) => setError(requestError.message));
+      .then((response) => { setStatus(response); setError(null); })
+      .catch((err: Error) => setError(err.message));
 
     function handleMessage(event: MessageEvent<BridgeStatusMessage | BridgeStoredMessage>) {
-      if (event.data?.source !== "resume-builder-extension") {
-        return;
-      }
+      if (event.data?.source !== "resume-builder-extension") return;
       if (event.data.type === "EXTENSION_STATUS") {
         setBridgeDetected(true);
         setMessage(
@@ -60,14 +54,7 @@ export function ExtensionPage() {
     }
 
     window.addEventListener("message", handleMessage);
-    window.postMessage(
-      {
-        source: "resume-builder-web",
-        type: "REQUEST_EXTENSION_STATUS",
-      },
-      window.location.origin,
-    );
-
+    window.postMessage({ source: "resume-builder-web", type: "REQUEST_EXTENSION_STATUS" }, window.location.origin);
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
@@ -75,25 +62,17 @@ export function ExtensionPage() {
     setIsConnecting(true);
     setError(null);
     setMessage(null);
-
     try {
       const response = await issueExtensionToken();
       setStatus(response.status);
-      window.postMessage(
-        {
-          source: "resume-builder-web",
-          type: "CONNECT_EXTENSION_TOKEN",
-          payload: {
-            token: response.token,
-            appUrl: window.location.origin,
-            connectedAt: response.status.token_created_at,
-          },
-        },
-        window.location.origin,
-      );
+      window.postMessage({
+        source: "resume-builder-web",
+        type: "CONNECT_EXTENSION_TOKEN",
+        payload: { token: response.token, appUrl: window.location.origin, connectedAt: response.status.token_created_at },
+      }, window.location.origin);
       setMessage("Connection token issued. If the extension is installed, it should connect immediately.");
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to connect extension.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to connect extension.");
     } finally {
       setIsConnecting(false);
     }
@@ -102,96 +81,97 @@ export function ExtensionPage() {
   async function handleRevoke() {
     setIsRevoking(true);
     setError(null);
-
     try {
       const nextStatus = await revokeExtensionToken();
       setStatus(nextStatus);
-      window.postMessage(
-        {
-          source: "resume-builder-web",
-          type: "REVOKE_EXTENSION_TOKEN",
-          payload: {
-            appUrl: window.location.origin,
-          },
-        },
-        window.location.origin,
-      );
+      window.postMessage({ source: "resume-builder-web", type: "REVOKE_EXTENSION_TOKEN", payload: { appUrl: window.location.origin } }, window.location.origin);
       setMessage("Chrome extension access revoked.");
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to revoke extension access.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to revoke extension access.");
     } finally {
       setIsRevoking(false);
     }
   }
 
+  const steps = [
+    { num: 1, text: "Load the unpacked Chrome extension from the repo folder", detail: "frontend/public/chrome-extension" },
+    { num: 2, text: "Keep this app open in Chrome and connect the extension from this page" },
+    { num: 3, text: "Open a job posting tab and use the extension popup to create a new application" },
+    { num: 4, text: "The extension opens the application detail page for extraction, recovery, or manual entry" },
+  ];
+
   return (
-    <div className="flex flex-col gap-6">
-      <Button variant="secondary" className="w-fit" onClick={() => navigate("/app")}>
-        Back to dashboard
-      </Button>
+    <div className="page-enter space-y-5">
+      <PageHeader title="Chrome Extension" subtitle="Capture job postings directly from your browser" />
 
-      <Card className="bg-white/80">
-        <p className="text-sm uppercase tracking-[0.18em] text-ink/45">Chrome extension</p>
-        <h2 className="mt-2 font-display text-3xl text-ink">Current-tab capture</h2>
-        <p className="mt-3 max-w-3xl text-ink/65">
-          Connect the Chrome extension once, then create a new application from the page you already
-          have open. The extension stores only its scoped import token and never uses your Supabase
-          session directly.
-        </p>
-      </Card>
-
-      {error ? (
-        <Card className="border-ember/20 bg-ember/5 text-ember">
-          <p className="font-semibold">Extension request failed</p>
-          <p className="mt-2 text-base">{error}</p>
+      {error && (
+        <Card variant="danger">
+          <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>Error</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{error}</p>
         </Card>
-      ) : null}
+      )}
 
-      {message ? (
-        <Card className="border-spruce/20 bg-spruce/5 text-spruce">
-          <p className="font-semibold">Extension status</p>
-          <p className="mt-2 text-base">{message}</p>
+      {message && (
+        <Card variant="success">
+          <p className="text-sm" style={{ color: "var(--color-spruce)" }}>{message}</p>
         </Card>
-      ) : null}
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* Connection Status */}
         <Card>
-          <p className="text-sm uppercase tracking-[0.18em] text-ink/45">Connection</p>
-          <div className="mt-5 space-y-4 text-ink/70">
-            <p>{bridgeDetected ? "Extension bridge detected in Chrome." : "Extension bridge not detected yet."}</p>
-            <p>
-              {status?.connected
-                ? `Scoped import token issued ${status.token_created_at ? new Date(status.token_created_at).toLocaleString() : "recently"}.`
-                : "No active extension token is connected."}
-            </p>
-            <p>
-              {status?.token_last_used_at
-                ? `Last extension import ${new Date(status.token_last_used_at).toLocaleString()}.`
-                : "No extension import has been recorded yet."}
-            </p>
+          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Connection Status</h3>
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full" style={{ background: bridgeDetected ? "var(--color-spruce)" : "var(--color-ink-25)" }} />
+              <span className="text-sm" style={{ color: "var(--color-ink)" }}>
+                {bridgeDetected ? "Extension bridge detected" : "Extension bridge not detected"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full" style={{ background: status?.connected ? "var(--color-spruce)" : "var(--color-ink-25)" }} />
+              <span className="text-sm" style={{ color: "var(--color-ink)" }}>
+                {status?.connected
+                  ? `Token issued ${status.token_created_at ? new Date(status.token_created_at).toLocaleString() : "recently"}`
+                  : "No active token"}
+              </span>
+            </div>
+            {status?.token_last_used_at && (
+              <div className="text-xs" style={{ color: "var(--color-ink-40)" }}>
+                Last import: {new Date(status.token_last_used_at).toLocaleString()}
+              </div>
+            )}
           </div>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button onClick={() => void handleConnect()} disabled={isConnecting}>
-              {isConnecting ? "Connecting…" : status?.connected ? "Rotate Connection" : "Connect Extension"}
+          <div className="mt-5 flex gap-2">
+            <Button size="sm" loading={isConnecting} disabled={isConnecting} onClick={() => void handleConnect()}>
+              {status?.connected ? "Rotate Connection" : "Connect Extension"}
             </Button>
-            <Button variant="secondary" onClick={() => void handleRevoke()} disabled={isRevoking}>
-              {isRevoking ? "Revoking…" : "Revoke Access"}
+            <Button size="sm" variant="secondary" loading={isRevoking} disabled={isRevoking} onClick={() => void handleRevoke()}>
+              Revoke Access
             </Button>
           </div>
         </Card>
 
+        {/* Setup Steps */}
         <Card>
-          <p className="text-sm uppercase tracking-[0.18em] text-ink/45">How it works</p>
-          <ol className="mt-5 space-y-4 text-sm text-ink/70">
-            <li>
-              1. Load the unpacked Chrome extension from the repo folder
-              {" "}
-              <code>frontend/public/chrome-extension</code>.
-            </li>
-            <li>2. Keep this app open in Chrome and connect the extension from this page.</li>
-            <li>3. Open a job posting tab, use the extension popup, and create a new application from the current page.</li>
-            <li>4. The extension opens the application detail page so you can follow extraction, blocked-site recovery, or manual entry.</li>
-          </ol>
+          <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Setup Guide</h3>
+          <div className="mt-4 space-y-4">
+            {steps.map((step) => (
+              <div key={step.num} className="flex gap-3">
+                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold" style={{ background: "var(--color-spruce-10)", color: "var(--color-spruce)" }}>
+                  {step.num}
+                </span>
+                <div>
+                  <p className="text-sm" style={{ color: "var(--color-ink)" }}>{step.text}</p>
+                  {step.detail && (
+                    <code className="mt-1 inline-block rounded px-2 py-0.5 text-xs" style={{ background: "var(--color-ink-05)", color: "var(--color-ink-65)" }}>
+                      {step.detail}
+                    </code>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </Card>
       </div>
     </div>
