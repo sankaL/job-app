@@ -1,5 +1,6 @@
 import { FormEvent, useDeferredValue, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { CircleStop, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useAppContext } from "@/components/layout/AppContext";
 import { Button } from "@/components/ui/button";
@@ -12,15 +13,19 @@ import { AppliedToggleButton } from "@/components/AppliedToggleButton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { IconButton } from "@/components/ui/icon-button";
 import { useToast } from "@/components/ui/toast";
 import {
+  cancelExtraction,
   createApplication,
   deleteApplication,
   listApplications,
   patchApplication,
   type ApplicationSummary,
 } from "@/lib/api";
+import { NOTIFICATIONS_CLEARED_EVENT } from "@/lib/events";
 
+const ACTIVE_EXTRACTION_STATES = new Set(["extraction_pending", "extracting"]);
 const ACTIVE_DELETE_BLOCKING_STATES = new Set([
   "extraction_pending",
   "extracting",
@@ -28,6 +33,7 @@ const ACTIVE_DELETE_BLOCKING_STATES = new Set([
   "regenerating_full",
   "regenerating_section",
 ]);
+const ACTIVE_NON_EXTRACTION_DELETE_BLOCKING_STATES = new Set(["generating", "regenerating_full", "regenerating_section"]);
 
 function areIdsEqual(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -100,6 +106,11 @@ export function ApplicationsListPage() {
   const [isBulkApplying, setIsBulkApplying] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [rowActionTarget, setRowActionTarget] = useState<{
+    mode: "delete" | "cancel_extraction";
+    application: ApplicationSummary;
+  } | null>(null);
+  const [isRowActionSubmitting, setIsRowActionSubmitting] = useState(false);
 
   async function loadApplications() {
     try {
@@ -115,6 +126,15 @@ export function ApplicationsListPage() {
 
   useEffect(() => {
     void loadApplications();
+  }, []);
+
+  useEffect(() => {
+    function handleNotificationsCleared() {
+      void loadApplications();
+    }
+
+    window.addEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
+    return () => window.removeEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
   }, []);
 
   const sourceApplications = applications ?? [];
@@ -317,6 +337,36 @@ export function ApplicationsListPage() {
     }
   }
 
+  async function handleRowActionConfirm() {
+    if (!rowActionTarget) return;
+
+    setIsRowActionSubmitting(true);
+    setError(null);
+    try {
+      if (rowActionTarget.mode === "delete") {
+        await deleteApplication(rowActionTarget.application.id);
+        await syncApplicationLists();
+        toast("Application deleted.");
+      } else {
+        await cancelExtraction(rowActionTarget.application.id);
+        await syncApplicationLists();
+        toast("Extraction stopped.");
+      }
+      setRowActionTarget(null);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : rowActionTarget.mode === "delete"
+            ? "Unable to delete application."
+            : "Unable to stop extraction.";
+      setError(message);
+      toast(rowActionTarget.mode === "delete" ? "Failed to delete application" : "Failed to stop extraction", "error");
+    } finally {
+      setIsRowActionSubmitting(false);
+    }
+  }
+
   const STATUS_ORDER: Record<string, number> = {
     needs_action: 0,
     in_progress: 1,
@@ -430,10 +480,38 @@ export function ApplicationsListPage() {
     {
       key: "actions",
       header: "",
-      width: "148px",
+      width: "196px",
       render: (app: ApplicationSummary) => (
-        <div className="flex items-start justify-end pt-0.5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-end gap-2 pt-0.5" onClick={(e) => e.stopPropagation()}>
           <AppliedToggleButton applied={app.applied} compact onClick={(e) => handleAppliedClick(app, e)} />
+          {ACTIVE_EXTRACTION_STATES.has(app.internal_state) ? (
+            <IconButton
+              variant="danger"
+              aria-label={`Stop extraction for ${app.job_title ?? app.company ?? "application"}`}
+              title="Stop extraction"
+              onClick={() => setRowActionTarget({ mode: "cancel_extraction", application: app })}
+            >
+              <CircleStop size={16} aria-hidden="true" />
+            </IconButton>
+          ) : (
+            <IconButton
+              variant="danger"
+              aria-label={
+                ACTIVE_NON_EXTRACTION_DELETE_BLOCKING_STATES.has(app.internal_state)
+                  ? `Delete unavailable while ${app.job_title ?? app.company ?? "application"} is still processing`
+                  : `Delete ${app.job_title ?? app.company ?? "application"}`
+              }
+              title={
+                ACTIVE_NON_EXTRACTION_DELETE_BLOCKING_STATES.has(app.internal_state)
+                  ? "Delete unavailable while background work is still running."
+                  : "Delete application"
+              }
+              disabled={ACTIVE_NON_EXTRACTION_DELETE_BLOCKING_STATES.has(app.internal_state)}
+              onClick={() => setRowActionTarget({ mode: "delete", application: app })}
+            >
+              <Trash2 size={16} aria-hidden="true" />
+            </IconButton>
+          )}
         </div>
       ),
     },
@@ -632,6 +710,27 @@ export function ApplicationsListPage() {
         onCancel={() => {
           if (!isBulkDeleting) {
             setDeleteConfirmationOpen(false);
+          }
+        }}
+      />
+
+      <ConfirmModal
+        open={rowActionTarget !== null}
+        title={rowActionTarget?.mode === "cancel_extraction" ? "Stop extraction?" : "Delete application?"}
+        message={
+          rowActionTarget?.mode === "cancel_extraction"
+            ? "This will stop the active extraction and move the application into manual recovery so it can be retried or deleted."
+            : "This will permanently remove the selected application and its current draft. This action cannot be undone."
+        }
+        confirmLabel={rowActionTarget?.mode === "cancel_extraction" ? "Stop Extraction" : "Delete Application"}
+        variant="danger"
+        loading={isRowActionSubmitting}
+        onConfirm={() => {
+          void handleRowActionConfirm();
+        }}
+        onCancel={() => {
+          if (!isRowActionSubmitting) {
+            setRowActionTarget(null);
           }
         }}
       />

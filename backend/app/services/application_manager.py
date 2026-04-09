@@ -50,6 +50,7 @@ ACTIVE_GENERATION_PROGRESS_STATES = {
     "regenerating_full",
     "regenerating_section",
 }
+ACTIVE_EXTRACTION_STATES = {"extraction_pending", "extracting"}
 ACTIVE_DELETE_BLOCKING_STATES = {
     "extraction_pending",
     "extracting",
@@ -518,6 +519,45 @@ class ApplicationService:
             action_required=False,
         )
 
+        return self._detail_payload(updated)
+
+    async def cancel_extraction(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> ApplicationDetailPayload:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        current_progress = await self.progress_store.get(application_id)
+
+        if not self._is_extraction_active(record=record, progress=current_progress):
+            raise PermissionError("No active extraction to stop.")
+
+        failure_details = ExtractionFailureDetailsPayload(
+            kind="user_cancelled",
+            blocked_url=record.job_url,
+            detected_at=datetime.now(timezone.utc).isoformat(),
+        )
+        updated = self.repository.update_application(
+            application_id=application_id,
+            user_id=user_id,
+            updates=self._workflow_updates(
+                internal_state="manual_entry_required",
+                failure_reason="extraction_failed",
+                extraction_failure_details=failure_details.model_dump(),
+                duplicate_similarity_score=None,
+                duplicate_match_fields=None,
+                duplicate_resolution_status=None,
+                duplicate_matched_application_id=None,
+            ),
+        )
+        self.notification_repository.clear_action_required(user_id=user_id, application_id=application_id)
+        await self._set_terminal_extraction_progress(
+            record=updated,
+            previous_progress=current_progress,
+            message="Extraction was stopped. Retry or delete this application.",
+            terminal_error_code="extraction_failed",
+        )
         return self._detail_payload(updated)
 
     async def _detect_and_recover_stuck_generation(
@@ -992,7 +1032,7 @@ class ApplicationService:
             )
             await self._send_generation_email(
                 record=updated,
-                subject="Resume Builder: resume generated",
+                subject="Applix: resume generated",
                 body="Your tailored resume has been generated and is ready for review.",
             )
             return updated
@@ -1296,7 +1336,7 @@ class ApplicationService:
             )
             await self._send_generation_email(
                 record=updated,
-                subject="Resume Builder: resume regenerated",
+                subject="Applix: resume regenerated",
                 body="Your resume has been regenerated and is ready for review.",
             )
             return updated
@@ -1459,7 +1499,7 @@ class ApplicationService:
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
-                    subject="Resume Builder: PDF export failed",
+                    subject="Applix: PDF export failed",
                     text=(
                         f"{message}\n\n"
                         f"Open the application: {self._application_url(record.id)}"
@@ -1607,7 +1647,7 @@ class ApplicationService:
             notification_type="error",
             message=message,
             send_email=True,
-            email_subject=f"Resume Builder: {'regeneration' if 'regeneration' in failure_reason else 'generation'} failed",
+            email_subject=f"Applix: {'regeneration' if 'regeneration' in failure_reason else 'generation'} failed",
         )
         return updated
 
@@ -1653,7 +1693,7 @@ class ApplicationService:
             action_required=True,
         )
         if send_email:
-            subject = email_subject or "Resume Builder: extraction needs manual entry"
+            subject = email_subject or "Applix: extraction needs manual entry"
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
@@ -1797,6 +1837,8 @@ class ApplicationService:
         if record.failure_reason == "regeneration_failed":
             return "Regeneration failed. Review the errors and retry."
         if record.internal_state == "manual_entry_required":
+            if record.extraction_failure_details and record.extraction_failure_details.get("kind") == "user_cancelled":
+                return "Extraction was stopped. Retry or delete this application."
             if record.extraction_failure_details and record.extraction_failure_details.get("kind") == "blocked_source":
                 return "This source blocked automated retrieval. Paste the job text or complete manual entry."
             return "Extraction failed. Manual entry is required."
@@ -1944,6 +1986,23 @@ class ApplicationService:
             and progress.workflow_kind == "generation"
         )
 
+    def _is_extraction_active(
+        self,
+        *,
+        record: ApplicationRecord,
+        progress: Optional[ProgressRecord],
+    ) -> bool:
+        if record.failure_reason is not None:
+            return False
+
+        if record.internal_state not in ACTIVE_EXTRACTION_STATES:
+            return False
+
+        if progress is None:
+            return True
+
+        return progress.completed_at is None and progress.terminal_error_code is None
+
     async def _set_terminal_generation_progress(
         self,
         *,
@@ -1960,6 +2019,26 @@ class ApplicationService:
             message=message,
             percent_complete=100,
             terminal_error_code=terminal_error_code,
+        )
+        completed_progress.completed_at = completed_progress.updated_at
+        await self.progress_store.set(record.id, completed_progress)
+
+    async def _set_terminal_extraction_progress(
+        self,
+        *,
+        record: ApplicationRecord,
+        previous_progress: Optional[ProgressRecord],
+        message: str,
+        terminal_error_code: str,
+    ) -> None:
+        completed_progress = build_progress(
+            job_id=f"extraction-stopped-{record.id}-{int(datetime.now(timezone.utc).timestamp())}",
+            workflow_kind="extraction",
+            state="manual_entry_required",
+            message=message,
+            percent_complete=100,
+            terminal_error_code=terminal_error_code,
+            created_at=previous_progress.created_at if previous_progress is not None else record.created_at,
         )
         completed_progress.completed_at = completed_progress.updated_at
         await self.progress_store.set(record.id, completed_progress)

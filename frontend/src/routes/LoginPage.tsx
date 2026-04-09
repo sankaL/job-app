@@ -69,21 +69,15 @@ export function LoginPage() {
         <section className="flex min-h-screen items-center px-6 py-8 sm:px-10 sm:py-10 lg:px-16 lg:py-6 xl:px-20">
           <div className="mx-auto w-full max-w-xl">
             <div className="inline-flex items-center gap-3 rounded-full border border-black/5 bg-white/60 px-3 py-2 shadow-sm backdrop-blur-sm">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold text-white"
-                style={{
-                  background: "linear-gradient(145deg, var(--color-spruce-light), var(--color-spruce))",
-                  boxShadow: "0 10px 24px rgba(24, 74, 69, 0.18)",
-                }}
-              >
-                RB
+              <div className="flex h-12 w-12 items-center justify-center overflow-hidden">
+                <img src="/applix-logo.png" alt="Applix logo" className="h-10 w-10 object-contain" />
               </div>
               <div className="leading-tight">
                 <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-                  Resume Builder
+                  Applix
                 </p>
                 <p className="text-xs uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
-                  AI Workspace
+                  AI Job Applications
                 </p>
               </div>
             </div>
@@ -191,7 +185,7 @@ export function LoginPage() {
             <div className="relative z-10 max-h-[105%] w-full lg:absolute lg:bottom-[-8%] lg:left-[-20%] lg:h-[118%] lg:w-[118%]">
               <img
                 src={businessmanIllustration}
-                alt="Businessman seated with a laptop, representing the Resume Builder workspace"
+                alt="Businessman seated with a laptop, representing the Applix workspace"
                 className="h-full w-full object-contain drop-shadow-[0_28px_38px_rgba(16,24,40,0.18)] lg:object-cover lg:object-[78%_center]"
                 style={{ animation: "floatBlob1 10s ease-in-out infinite" }}
               />

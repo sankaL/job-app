@@ -22,6 +22,16 @@ export type SessionBootstrapResponse = {
   workflow_contract_version: string;
 };
 
+export type NotificationSummary = {
+  id: string;
+  application_id: string | null;
+  type: "info" | "success" | "warning" | "error";
+  message: string;
+  action_required: boolean;
+  read: boolean;
+  created_at: string;
+};
+
 export type MatchedApplication = {
   id: string;
   job_url: string;
@@ -243,6 +253,31 @@ export async function fetchSessionBootstrap(): Promise<SessionBootstrapResponse>
   return authenticatedRequest<SessionBootstrapResponse>("/api/session/bootstrap");
 }
 
+export async function listNotifications(): Promise<NotificationSummary[]> {
+  return authenticatedRequest<NotificationSummary[]>("/api/notifications");
+}
+
+export async function clearNotifications(): Promise<void> {
+  const token = await getAccessToken();
+  const response = await fetch(`${env.VITE_API_URL}/api/notifications`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    let detail = "Clear failed.";
+    try {
+      const payload = await response.json();
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = "Clear failed.";
+    }
+    throw new Error(detail);
+  }
+}
+
 export async function listApplications(): Promise<ApplicationSummary[]> {
   return authenticatedRequest<ApplicationSummary[]>("/api/applications");
 }
@@ -287,6 +322,12 @@ export async function deleteApplication(applicationId: string): Promise<void> {
     }
     throw new Error(detail);
   }
+}
+
+export async function cancelExtraction(applicationId: string): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/cancel-extraction`, {
+    method: "POST",
+  });
 }
 
 export async function retryExtraction(applicationId: string): Promise<ApplicationDetail> {

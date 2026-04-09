@@ -1,8 +1,11 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SkeletonCard } from "@/components/ui/skeleton";
@@ -39,6 +42,7 @@ export function BaseResumeEditorPage() {
   const [isSettingDefault, setIsSettingDefault] = useState(false);
   const [uploadedResume, setUploadedResume] = useState<BaseResumeDetail | null>(null);
   const [useLlmCleanup, setUseLlmCleanup] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (isNew || !resumeId) return;
@@ -116,15 +120,15 @@ export function BaseResumeEditorPage() {
 
   async function handleDelete() {
     if (!resume) return;
-    const confirmed = window.confirm(`Delete "${resume.name}"? This cannot be undone.`);
-    if (!confirmed) return;
     setIsDeleting(true);
     setError(null);
     try {
       await deleteBaseResume(resume.id);
+      setShowDeleteConfirm(false);
       navigate("/app/resumes");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete.");
+    } finally {
       setIsDeleting(false);
     }
   }
@@ -285,9 +289,15 @@ export function BaseResumeEditorPage() {
                     {isSettingDefault ? "Setting…" : "Set Default"}
                   </Button>
                 )}
-                <Button size="sm" variant="danger" disabled={isDeleting} onClick={() => void handleDelete()}>
-                  {isDeleting ? "Deleting…" : "Delete"}
-                </Button>
+                <IconButton
+                  variant="danger"
+                  aria-label="Delete resume"
+                  title="Delete resume"
+                  disabled={isDeleting}
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash2 size={16} aria-hidden="true" />
+                </IconButton>
               </div>
             }
           />
@@ -319,6 +329,23 @@ export function BaseResumeEditorPage() {
               </div>
             </form>
           </Card>
+
+          <ConfirmModal
+            open={showDeleteConfirm}
+            title="Delete resume?"
+            message={`This will permanently remove "${resume.name}". This action cannot be undone.`}
+            confirmLabel="Delete Resume"
+            variant="danger"
+            loading={isDeleting}
+            onConfirm={() => {
+              void handleDelete();
+            }}
+            onCancel={() => {
+              if (!isDeleting) {
+                setShowDeleteConfirm(false);
+              }
+            }}
+          />
         </>
       )}
     </div>

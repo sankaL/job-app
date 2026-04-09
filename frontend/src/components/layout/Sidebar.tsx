@@ -84,18 +84,15 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     >
       {/* Brand */}
       <div className="flex h-16 items-center gap-2.5 px-5" style={{ borderBottom: "1px solid var(--color-sidebar-border)" }}>
-        <div
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold"
-          style={{ background: "var(--color-spruce-light)", color: "#fff" }}
-        >
-          RB
+        <div className="flex h-10 w-10 items-center justify-center overflow-hidden">
+          <img src="/applix-logo.png" alt="Applix logo" className="h-8 w-8 object-contain" />
         </div>
         <div>
           <div className="text-sm font-semibold" style={{ color: "var(--color-sidebar-text-active)" }}>
-            Resume Builder
+            Applix
           </div>
           <div className="text-[11px]" style={{ color: "var(--color-sidebar-text)" }}>
-            AI Workspace
+            AI Job Applications
           </div>
         </div>
       </div>

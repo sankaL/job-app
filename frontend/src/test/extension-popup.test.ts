@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   buildImportRequest,
@@ -25,5 +26,12 @@ describe("chrome extension popup helpers", () => {
     expect(normalizeAppOrigin("http://localhost:5173/app/extension")).toBe("http://localhost:5173");
     expect(isTrustedAppUrl("http://localhost:5173/app/extension")).toBe(true);
     expect(isTrustedAppUrl("https://evil.example")).toBe(false);
+  });
+
+  it("keeps the branded popup logo inside the unpacked extension root", () => {
+    const popupHtml = readFileSync("public/chrome-extension/popup.html", "utf8");
+
+    expect(popupHtml).toContain('src="./applix-logo.png"');
+    expect(existsSync("public/chrome-extension/applix-logo.png")).toBe(true);
   });
 });

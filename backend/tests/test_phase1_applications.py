@@ -828,6 +828,71 @@ async def test_delete_application_blocks_active_async_states(internal_state: str
     assert repository.fetch_application("user-1", created.id) is not None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("internal_state", ["extraction_pending", "extracting"])
+async def test_cancel_extraction_moves_active_rows_to_manual_entry_required(internal_state: str):
+    service, repository, notifications, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/stop",
+        visible_status="draft",
+        internal_state=internal_state,
+    )
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-1",
+            workflow_kind="extraction",
+            state=internal_state,
+            message="Extraction is running.",
+            percent_complete=35,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:01:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    detail = await service.cancel_extraction(user_id="user-1", application_id=created.id)
+
+    assert detail.application.internal_state == "manual_entry_required"
+    assert detail.application.failure_reason == "extraction_failed"
+    assert detail.application.extraction_failure_details == {
+        "kind": "user_cancelled",
+        "provider": None,
+        "reference_id": None,
+        "blocked_url": "https://example.com/jobs/stop",
+        "detected_at": detail.application.extraction_failure_details["detected_at"],
+    }
+    progress = await progress_store.get(created.id)
+    assert progress is not None
+    assert progress.state == "manual_entry_required"
+    assert progress.terminal_error_code == "extraction_failed"
+    assert progress.completed_at is not None
+    assert progress.job_id != "job-1"
+    assert notifications.notifications == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "internal_state",
+    ["manual_entry_required", "generation_pending", "generating", "resume_ready"],
+)
+async def test_cancel_extraction_rejects_non_active_rows(internal_state: str):
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/idle",
+        visible_status="draft",
+        internal_state=internal_state,
+    )
+
+    with pytest.raises(PermissionError) as exc_info:
+        await service.cancel_extraction(user_id="user-1", application_id=created.id)
+
+    assert str(exc_info.value) == "No active extraction to stop."
+
+
 def test_delete_application_endpoint_returns_204_for_owned_idle_record():
     service, repository, _, _, _, _, _ = build_service()
     created = repository.create_application(
@@ -883,6 +948,84 @@ def test_delete_application_endpoint_returns_409_for_active_record():
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Application cannot be deleted while background work is still running."
+
+
+def test_cancel_extraction_endpoint_returns_200_for_owned_active_record():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/stop",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    import asyncio
+
+    asyncio.run(
+        progress_store.set(
+            created.id,
+            ProgressRecord(
+                job_id="job-1",
+                workflow_kind="extraction",
+                state="extracting",
+                message="Extraction is running.",
+                percent_complete=50,
+                created_at="2026-04-07T12:00:00+00:00",
+                updated_at="2026-04-07T12:01:00+00:00",
+                completed_at=None,
+                terminal_error_code=None,
+            ),
+        )
+    )
+
+    response = client.post(
+        f"/api/applications/{created.id}/cancel-extraction",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["internal_state"] == "manual_entry_required"
+    assert response.json()["failure_reason"] == "extraction_failed"
+    assert response.json()["extraction_failure_details"]["kind"] == "user_cancelled"
+
+
+def test_cancel_extraction_endpoint_returns_404_for_missing_record():
+    service, _, _, _, _, _, _ = build_service()
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/applications/missing-app/cancel-extraction",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Application not found."
+
+
+def test_cancel_extraction_endpoint_returns_409_for_idle_record():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/idle",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/applications/{created.id}/cancel-extraction",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "No active extraction to stop."
 
 
 @pytest.mark.asyncio
@@ -1163,7 +1306,59 @@ async def test_cancelled_generation_ignores_stale_success_callback():
     )
 
     assert updated.failure_reason == "generation_cancelled"
-    assert drafts.fetch_draft("user-1", created.id) is None
+
+
+@pytest.mark.asyncio
+async def test_cancelled_extraction_ignores_stale_success_callback():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-1",
+            workflow_kind="extraction",
+            state="extracting",
+            message="Extraction is running.",
+            percent_complete=50,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:00:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    detail = await service.cancel_extraction(user_id="user-1", application_id=created.id)
+
+    assert detail.application.failure_reason == "extraction_failed"
+    stopped_progress = await progress_store.get(created.id)
+    assert stopped_progress is not None
+    assert stopped_progress.terminal_error_code == "extraction_failed"
+    assert stopped_progress.job_id != "job-1"
+
+    updated = await service.handle_worker_callback(
+        WorkerCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "job-1",
+                "event": "succeeded",
+                "extracted": {
+                    "job_title": "Stale role",
+                    "company": "Stale Co",
+                    "job_description": "Stale description",
+                },
+            }
+        )
+    )
+
+    assert updated.failure_reason == "extraction_failed"
+    assert updated.internal_state == "manual_entry_required"
+    assert updated.job_title is None
 
 
 @pytest.mark.asyncio

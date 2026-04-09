@@ -190,6 +190,7 @@ The landing page shows a list of job applications for the logged-in user.
 - Filter by status
 - Sort by date updated (default: newest first)
 - Delete applications directly from the table
+- Stop active extractions directly from the table so stuck rows can be recovered or deleted
 - Multi-select applications for bulk delete and bulk mark-as-applied actions
 
 **UX requirements:**
@@ -261,6 +262,8 @@ Extraction failure is a high-priority failure state.
 - Notes (optional)
 
 **Retry:** Users must be able to retry extraction from the UI at any point.
+
+**User-stopped extraction:** Users must be able to stop an active extraction from the application detail page and the applications table. A user-stopped extraction should transition to the same recoverable manual-entry state as other extraction failures without creating an action-required notification, so the user can retry extraction, paste source text, complete manual entry, or delete the application.
 
 **Blocked-page handling:** If the captured page is a site block, challenge, or anti-bot notice instead of a real posting:
 - Detect the blocked page explicitly before LLM extraction
@@ -459,6 +462,7 @@ The main working page for a single application.
 - Clear visual distinction between the two modes
 
 **Action buttons:**
+- Delete Application
 - Generate Resume (pre-generation only)
 - Regenerate Section
 - Regenerate Full Resume
@@ -592,6 +596,8 @@ On submit, backend assembles form data into Markdown.
 ### 10.17 Notifications
 
 **In-app notifications** are used broadly for workflow awareness and stored in the `notifications` table.
+
+The top-bar notification bell opens a scrollable newest-first inbox dropdown. Notifications linked to an application must take the user directly to that application workspace when selected. Users can clear the inbox from that dropdown.
 
 Examples:
 - Extraction started

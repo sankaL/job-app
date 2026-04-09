@@ -1,11 +1,12 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
-import { FileText, Gauge, MessageSquare, Ruler, Sparkles } from "lucide-react";
+import { CircleStop, FileText, Gauge, MessageSquare, Ruler, Sparkles, Trash2 } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,6 +19,8 @@ import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { GenerationProgress, ResumeSkeleton } from "@/components/ui/generation-progress";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import {
+  cancelExtraction,
+  deleteApplication,
   fetchApplicationDetail,
   fetchApplicationProgress,
   fetchDraft,
@@ -39,6 +42,7 @@ import {
   type ResumeDraft,
 } from "@/lib/api";
 import { AGGRESSIVENESS_OPTIONS, jobPostingOriginOptions, PAGE_LENGTH_OPTIONS } from "@/lib/application-options";
+import { NOTIFICATIONS_CLEARED_EVENT } from "@/lib/events";
 
 type JobFormState = {
   job_title: string;
@@ -162,7 +166,11 @@ export function ApplicationDetailPage() {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showOptimisticProgress, setShowOptimisticProgress] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isCancellingExtraction, setIsCancellingExtraction] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [showAppliedConfirm, setShowAppliedConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelExtractionConfirm, setShowCancelExtractionConfirm] = useState(false);
   const leftColumnRef = useRef<HTMLDivElement>(null);
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
 
@@ -252,6 +260,23 @@ export function ApplicationDetailPage() {
     fetchApplicationDetail(applicationId)
       .then((response) => { applyDetailState(response); setError(null); })
       .catch((err: Error) => setError(err.message));
+  }, [applicationId]);
+
+  useEffect(() => {
+    if (!applicationId) return;
+    const currentApplicationId = applicationId;
+
+    function handleNotificationsCleared() {
+      fetchApplicationDetail(currentApplicationId)
+        .then((response) => {
+          applyDetailState(response);
+          setError(null);
+        })
+        .catch((err: Error) => setError(err.message));
+    }
+
+    window.addEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
+    return () => window.removeEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
   }, [applicationId]);
 
   useEffect(() => {
@@ -421,6 +446,40 @@ export function ApplicationDetailPage() {
       setProgress(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to retry extraction.");
+    }
+  }
+
+  async function handleCancelExtraction() {
+    setIsCancellingExtraction(true);
+    setError(null);
+    try {
+      const response = await cancelExtraction(activeApplicationId);
+      applyDetailState(response, { refreshShell: true });
+      setProgress(null);
+      setShowCancelExtractionConfirm(false);
+      toast("Extraction stopped.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to stop extraction.");
+      toast("Failed to stop extraction", "error");
+    } finally {
+      setIsCancellingExtraction(false);
+    }
+  }
+
+  async function handleDeleteApplication() {
+    setIsDeleting(true);
+    setError(null);
+    try {
+      await deleteApplication(activeApplicationId);
+      void refreshApplications();
+      setShowDeleteConfirm(false);
+      toast("Application deleted.");
+      navigate("/app/applications");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete application.");
+      toast("Failed to delete application", "error");
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -614,6 +673,8 @@ export function ApplicationDetailPage() {
   const isPastExtraction =
     detail && !["extraction_pending", "extracting", "manual_entry_required"].includes(detail.internal_state);
   const generationActive = isGenerationWorkflowActive(detail);
+  const extractionActive = detail ? EXTRACTION_POLL_STATES.includes(detail.internal_state) : false;
+  const deleteBlocked = detail ? ACTIVE_GENERATION_STATES.includes(detail.internal_state) : false;
   const workspaceCardClass = "flex min-h-[32rem] flex-col overflow-hidden";
   const workspaceCardStyle = leftColumnHeight ? { height: `${leftColumnHeight}px` } : undefined;
 
@@ -692,6 +753,29 @@ export function ApplicationDetailPage() {
                     {isExporting ? "Exporting…" : "Export PDF"}
                   </Button>
                 )}
+                {extractionActive ? (
+                  <IconButton
+                    variant="danger"
+                    aria-label="Stop extraction"
+                    title="Stop extraction"
+                    disabled={isCancellingExtraction}
+                    onClick={() => setShowCancelExtractionConfirm(true)}
+                  >
+                    <CircleStop size={16} aria-hidden="true" />
+                  </IconButton>
+                ) : (
+                  <IconButton
+                    variant="danger"
+                    aria-label={
+                      deleteBlocked ? "Delete unavailable while background work is still running" : "Delete application"
+                    }
+                    title={deleteBlocked ? "Delete unavailable while background work is still running." : "Delete application"}
+                    disabled={deleteBlocked || isDeleting}
+                    onClick={() => setShowDeleteConfirm(true)}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </IconButton>
+                )}
                 <AppliedToggleButton applied={detail.applied} onClick={() => handleAppliedButtonClick()} />
                 <a
                   className="inline-flex h-9 items-center justify-center rounded-lg border px-3.5 text-xs font-semibold transition-colors"
@@ -729,6 +813,15 @@ export function ApplicationDetailPage() {
                 <div><span className="font-semibold" style={{ color: "var(--color-ink)" }}>Ref ID:</span> {detail.extraction_failure_details.reference_id ?? "N/A"}</div>
                 <div className="sm:col-span-2 break-all"><span className="font-semibold" style={{ color: "var(--color-ink)" }}>URL:</span> {detail.extraction_failure_details.blocked_url ?? detail.job_url}</div>
               </div>
+            </Card>
+          )}
+
+          {detail.extraction_failure_details?.kind === "user_cancelled" && (
+            <Card variant="warning" density="compact" className="p-4">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--color-amber)" }}>Extraction Stopped</h3>
+              <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
+                Extraction was stopped. Retry from the URL, retry with pasted text, or delete this application.
+              </p>
             </Card>
           )}
 
@@ -844,7 +937,9 @@ export function ApplicationDetailPage() {
                   <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
                     {detail.extraction_failure_details?.kind === "blocked_source"
                       ? "Source blocked. Paste text or enter details manually."
-                      : "Extraction incomplete. Paste text or fill in details."}
+                      : detail.extraction_failure_details?.kind === "user_cancelled"
+                        ? "Extraction was stopped. Retry with text, retry the URL, or delete this application."
+                        : "Extraction incomplete. Paste text or fill in details."}
                   </p>
                   <form className="mt-3 space-y-3" onSubmit={handleRecoverFromSource}>
                     <Textarea className="min-h-24" placeholder="Paste job posting text to retry extraction…" value={sourceTextDraft} onChange={(e) => setSourceTextDraft(e.target.value)} />
@@ -1151,6 +1246,40 @@ export function ApplicationDetailPage() {
               setShowAppliedConfirm(false);
             }}
             onCancel={() => setShowAppliedConfirm(false)}
+          />
+
+          <ConfirmModal
+            open={showDeleteConfirm}
+            title="Delete application?"
+            message="This will permanently remove this application and its current draft. This action cannot be undone."
+            confirmLabel="Delete Application"
+            variant="danger"
+            loading={isDeleting}
+            onConfirm={() => {
+              void handleDeleteApplication();
+            }}
+            onCancel={() => {
+              if (!isDeleting) {
+                setShowDeleteConfirm(false);
+              }
+            }}
+          />
+
+          <ConfirmModal
+            open={showCancelExtractionConfirm}
+            title="Stop extraction?"
+            message="This will stop the active extraction and move the application into manual recovery so it can be retried or deleted."
+            confirmLabel="Stop Extraction"
+            variant="danger"
+            loading={isCancellingExtraction}
+            onConfirm={() => {
+              void handleCancelExtraction();
+            }}
+            onCancel={() => {
+              if (!isCancellingExtraction) {
+                setShowCancelExtractionConfirm(false);
+              }
+            }}
           />
 
           {/* Section Regeneration Modal */}

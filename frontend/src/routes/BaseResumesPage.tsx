@@ -1,10 +1,13 @@
 import { useDeferredValue, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
+import { IconButton } from "@/components/ui/icon-button";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -20,6 +23,7 @@ export function BaseResumesPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<BaseResumeSummary | null>(null);
   const { toast } = useToast();
   const deferredSearch = useDeferredValue(search);
 
@@ -50,15 +54,15 @@ export function BaseResumesPage() {
     }
   }
 
-  async function handleDelete(resume: BaseResumeSummary) {
-    const confirmed = window.confirm(`Are you sure you want to delete "${resume.name}"? This action cannot be undone.`);
-    if (!confirmed) return;
-    setActionInProgress(resume.id);
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setActionInProgress(deleteTarget.id);
     setError(null);
     try {
-      await deleteBaseResume(resume.id);
-      toast(`"${resume.name}" deleted`);
+      await deleteBaseResume(deleteTarget.id);
+      toast(`"${deleteTarget.name}" deleted`);
       loadResumes();
+      setDeleteTarget(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete resume.");
       toast("Failed to delete resume", "error");
@@ -147,16 +151,22 @@ export function BaseResumesPage() {
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
                       <Button size="sm" variant="secondary" onClick={() => navigate(`/app/resumes/${resume.id}`)}>Edit</Button>
                       {!resume.is_default && (
                         <Button size="sm" variant="secondary" disabled={actionInProgress === resume.id} onClick={() => void handleSetDefault(resume.id)}>
                           Set Default
                         </Button>
                       )}
-                      <Button size="sm" variant="danger" disabled={actionInProgress === resume.id} onClick={() => void handleDelete(resume)}>
-                        Delete
-                      </Button>
+                      <IconButton
+                        variant="danger"
+                        aria-label={`Delete ${resume.name}`}
+                        title="Delete resume"
+                        disabled={actionInProgress === resume.id}
+                        onClick={() => setDeleteTarget(resume)}
+                      >
+                        <Trash2 size={16} aria-hidden="true" />
+                      </IconButton>
                     </div>
                   </div>
                 </Card>
@@ -165,6 +175,23 @@ export function BaseResumesPage() {
           )}
         </>
       )}
+
+      <ConfirmModal
+        open={deleteTarget !== null}
+        title="Delete resume?"
+        message={`This will permanently remove "${deleteTarget?.name ?? "this resume"}". This action cannot be undone.`}
+        confirmLabel="Delete Resume"
+        variant="danger"
+        loading={deleteTarget !== null && actionInProgress === deleteTarget.id}
+        onConfirm={() => {
+          void handleDelete();
+        }}
+        onCancel={() => {
+          if (deleteTarget === null || actionInProgress !== deleteTarget.id) {
+            setDeleteTarget(null);
+          }
+        }}
+      />
     </div>
   );
 }
