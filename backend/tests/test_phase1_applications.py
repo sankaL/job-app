@@ -131,7 +131,17 @@ class FakeProfileRepository:
 
     def fetch_profile(self, user_id: str):
         class Profile:
+            name = "Test User"
             email = "invite-only@example.com"
+            phone = "555-0100"
+            address = "Toronto, ON"
+            section_preferences = {
+                "summary": True,
+                "professional_experience": True,
+                "education": True,
+                "skills": True,
+            }
+            section_order = ["summary", "professional_experience", "education", "skills"]
 
         return Profile()
 
@@ -295,6 +305,43 @@ class FakeDraftRepository:
         return draft
 
 
+class FakeBaseResumeRepository:
+    def __init__(self) -> None:
+        self.resumes: dict[str, Any] = {}
+
+    def add_resume(self, *, user_id: str, resume_id: str, content_md: str) -> None:
+        self.resumes[resume_id] = type(
+            "Resume",
+            (),
+            {
+                "id": resume_id,
+                "user_id": user_id,
+                "name": "Base Resume",
+                "content_md": content_md,
+            },
+        )()
+
+    def fetch_resume(self, user_id: str, resume_id: str):
+        resume = self.resumes.get(resume_id)
+        if resume is None or resume.user_id != user_id:
+            return None
+        return resume
+
+
+class FakeGenerationJobQueue:
+    def __init__(self) -> None:
+        self.enqueued: list[dict[str, Any]] = []
+        self.regenerations: list[dict[str, Any]] = []
+
+    async def enqueue(self, **kwargs) -> str:
+        self.enqueued.append(kwargs)
+        return f"gen-job-{len(self.enqueued)}"
+
+    async def enqueue_regeneration(self, **kwargs) -> str:
+        self.regenerations.append(kwargs)
+        return f"regen-job-{len(self.regenerations)}"
+
+
 def build_service(
     *,
     queue_should_fail: bool = False,
@@ -315,15 +362,17 @@ def build_service(
     email = FakeEmailSender()
     profiles = FakeProfileRepository()
     drafts = draft_repository or FakeDraftRepository()
+    base_resumes = FakeBaseResumeRepository()
+    generation_queue = FakeGenerationJobQueue()
     service = ApplicationService(
         repository=repository,
-        base_resume_repository=None,
+        base_resume_repository=base_resumes,
         draft_repository=drafts,
         profile_repository=profiles,
         notification_repository=notifications,
         progress_store=progress,
         extraction_job_queue=queue,
-        generation_job_queue=None,
+        generation_job_queue=generation_queue,
         email_sender=email,
         settings=type(
             "Settings",
@@ -738,6 +787,151 @@ async def test_generation_success_callback_persists_draft_and_marks_resume_ready
     assert drafts.fetch_draft("user-1", created.id).content_md == "# Resume"
     assert (await progress_store.get(created.id)).state == "resume_ready"
     assert notifications.notifications[-1]["notification_type"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_trigger_generation_routes_blocked_placeholder_back_to_manual_entry():
+    service, repository, notifications, _, _, _, _ = build_service()
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://www.indeed.com/viewjob?jk=abc123",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Blocked - Indeed.com",
+            "job_description": (
+                "Indeed page showing a request blocked notice. "
+                "You have been blocked. Your Ray ID for this request is 9e8afb060bd31117."
+            ),
+            "job_posting_origin": "indeed",
+        },
+    )
+
+    detail = await service.trigger_generation(
+        user_id="user-1",
+        application_id=created.id,
+        base_resume_id="resume-1",
+        target_length="1_page",
+        aggressiveness="low",
+        additional_instructions=None,
+    )
+
+    assert detail.application.internal_state == "manual_entry_required"
+    assert detail.application.failure_reason == "extraction_failed"
+    assert detail.application.extraction_failure_details is not None
+    assert detail.application.extraction_failure_details["kind"] == "blocked_source"
+    assert detail.application.extraction_failure_details["provider"] == "indeed"
+    assert notifications.notifications[-1]["action_required"] is True
+    assert service.generation_job_queue.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_routes_blocked_placeholder_back_to_manual_entry():
+    drafts = FakeDraftRepository()
+    service, repository, notifications, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://www.indeed.com/viewjob?jk=abc123",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Blocked - Indeed.com",
+            "job_description": "You have been blocked. Please go to support.indeed.com for help.",
+            "job_posting_origin": "indeed",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Draft",
+        generation_params={"page_length": "1_page", "aggressiveness": "low"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    detail = await service.trigger_full_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        target_length="1_page",
+        aggressiveness="low",
+        additional_instructions=None,
+    )
+
+    assert detail.application.internal_state == "manual_entry_required"
+    assert detail.application.failure_reason == "extraction_failed"
+    assert detail.application.extraction_failure_details is not None
+    assert detail.application.extraction_failure_details["kind"] == "blocked_source"
+    assert notifications.notifications[-1]["action_required"] is True
+    assert service.generation_job_queue.regenerations == []
+
+
+@pytest.mark.asyncio
+async def test_section_regeneration_routes_blocked_placeholder_back_to_manual_entry():
+    drafts = FakeDraftRepository()
+    service, repository, notifications, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://www.indeed.com/viewjob?jk=abc123",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": (
+                "Request blocked notice. You have been blocked. "
+                "Ray ID for this request is 9e8afb060bd31117."
+            ),
+            "job_posting_origin": "indeed",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Draft",
+        generation_params={"page_length": "1_page", "aggressiveness": "low"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    detail = await service.trigger_section_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        section_name="summary",
+        instructions="Tighten it.",
+    )
+
+    assert detail.application.internal_state == "manual_entry_required"
+    assert detail.application.failure_reason == "extraction_failed"
+    assert detail.application.extraction_failure_details is not None
+    assert detail.application.extraction_failure_details["kind"] == "blocked_source"
+    assert notifications.notifications[-1]["action_required"] is True
+    assert service.generation_job_queue.regenerations == []
 
 
 @pytest.mark.asyncio

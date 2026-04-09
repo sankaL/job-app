@@ -98,7 +98,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | P4-T02 | Implement single-section regeneration with required instructions and deterministic validation | AI | DONE | 2026-04-08 08:39:33 EDT | Section regeneration now uses one sanitized model call for the selected section, validates deterministically, and updates only that section in the draft. |
 | P4-T03 | Implement full regeneration with prefilled prior settings and overwrite of the current draft | AI | DONE | 2026-04-08 08:39:33 EDT | Full regeneration reuses saved draft settings from `generation_params`, runs the single-call JSON pipeline, and overwrites the current draft on success. |
 | P4-T04 | Build on-demand PDF export from the latest draft content without persistent PDF storage | BE | DONE | 2026-04-07 | WeasyPrint-based PDF export with ATS-safe CSS, thread pool execution with 20s timeout, no persistent storage. |
-| P4-T05 | Return status to In Progress after edits or regeneration and handle regen or export notifications | BE | DONE | 2026-04-07 | Post-export edits/regeneration return status to in_progress; export and regeneration notifications implemented. |
+| P4-T05 | Return status to Needs Action after edits or regeneration and handle regen or export notifications | BE | DONE | 2026-04-08 | Post-export edits/regeneration return status to needs_action (resume ready but export stale); export and regeneration notifications implemented. |
 
 ### Phase 5 Tasks
 
@@ -114,6 +114,8 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B4-T15 | Block generation and regeneration when stored job data is a blocked-source placeholder | BE | DONE | 2026-04-08 20:06:08 EDT | Generation, full regeneration, and section regeneration now fail closed before queueing if the stored job title or description still looks like blocked-page placeholder text, moving the application back to `manual_entry_required` with blocked-source diagnostics and an action-required recovery notification instead of sending bad input to the LLM. |
+| B4-T14 | Align full-draft generation timeouts with the PRD and preserve timeout failures through model fallback | AI/BE | DONE | 2026-04-08 19:54:26 EDT | Full generation and full regeneration now use a `90s` per-attempt LLM timeout instead of the section-level `45s` limit, single-section regeneration remains at `45s`, and provider timeouts now propagate as timeout-classified failures so the worker can surface `generation_timeout` or `regeneration_timeout` instead of a generic unexpected error. |
 | B4-T13 | Fix dashboard load failures, shared-table paging/sort regressions, and stale shell application state after detail mutations | FE | DONE | 2026-04-08 16:17:58 EDT | Dashboard load errors now render a recovery state instead of the empty workspace, the shared data table clamps page state and applies sortable header ordering, and detail-page mutations plus terminal polling refresh the shell application cache so breadcrumbs and attention badges stay current. |
 | B4-T12 | Tighten multi-line instruction screening and align low-aggressiveness length rules with minimal-change behavior | AI/BE | DONE | 2026-04-08 14:05:00 EDT | Generation instruction screening now normalizes textarea whitespace before policy checks, still blocks newline-separated override or fact-injection attempts, allows grounded title or company emphasis requests, and low aggressiveness no longer applies pruning-oriented bullet or skills caps that conflict with its preserve-the-source contract. |
 | B4-T11 | Emit generation heartbeats during long reasoning calls so idle-timeout recovery does not fire on healthy runs | AI/BE | DONE | 2026-04-08 13:35:00 EDT | Full generation and full regeneration now emit periodic in-flight progress heartbeats while waiting on structured-output model calls, preventing the 90-second idle timeout from marking healthy long-running reasoning requests as stalled. |
@@ -346,7 +348,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 - A user can generate an ATS-friendly Markdown resume from a selected base resume and job posting.
 - Validation failures leave a recoverable `Needs Action` state with notifications.
-- Successful generation lands the application in `In Progress`.
+- Successful generation lands the application in `Needs Action` (ready for review).
 - The preview mode reflects the latest saved Markdown draft.
 
 **PRD Acceptance Coverage**
@@ -365,7 +367,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Support single-section regeneration with required instructions.
 - Support full regeneration with pre-filled prior settings and overwrite of the current draft.
 - Implement on-demand PDF export from the latest draft content with ATS-safe formatting.
-- Preserve the PRD rule that editing or regenerating after export returns the visible status to `In Progress`.
+- Preserve the PRD rule that editing or regenerating after export returns the visible status to `Needs Action` (resume ready but export stale).
 - Handle regeneration and export failures with recoverable status changes and notifications.
 
 **Dependencies**
@@ -390,7 +392,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Section regeneration rejects blank instructions and updates only the selected section.
 - Full regeneration reuses and updates prior settings appropriately.
 - PDF export produces a fresh file from the latest saved draft and does not persist the PDF.
-- Editing or regeneration after export returns the application to `In Progress`.
+- Editing or regeneration after export returns the application to `Needs Action`.
 
 **PRD Acceptance Coverage**
 
@@ -398,7 +400,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Regenerate a single section with required instructions.
 - Regenerate the full resume with updated settings and optional instructions.
 - Export the current draft as a PDF download.
-- See status return to `In Progress` after editing or regenerating a previously exported resume.
+- See status return to `Needs Action` after editing or regenerating a previously exported resume.
 
 ## Phase 5 — Hardening, Recovery, and MVP Acceptance
 
@@ -453,7 +455,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | Regenerate a single section with required instructions | Phase 4 |
 | Regenerate the full resume with updated settings and optional instructions | Phase 4 |
 | Export the current draft as a PDF download | Phase 4 |
-| See status return to `In Progress` after editing or regenerating a previously exported resume | Phase 4 |
+| See status return to `Needs Action` after editing or regenerating a previously exported resume | Phase 4 |
 | Toggle the Applied flag independently of the primary status | Phase 1 and Phase 3 |
 | Receive in-app notifications for all workflow events | Phase 1, Phase 3, and Phase 4 |
 | Receive email notifications for high-signal events | Phase 1, Phase 3, and Phase 4 |

@@ -10,6 +10,8 @@ import { DataTable } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonTable } from "@/components/ui/skeleton";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { useToast } from "@/components/ui/toast";
 import {
   createApplication,
   listApplications,
@@ -17,11 +19,10 @@ import {
   type ApplicationSummary,
 } from "@/lib/api";
 
-type SortMode = "newest" | "oldest";
-
 export function ApplicationsListPage() {
   const navigate = useNavigate();
   const { refreshApplications } = useAppContext();
+  const { toast } = useToast();
   const [applications, setApplications] = useState<ApplicationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -30,8 +31,8 @@ export function ApplicationsListPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [appliedFilter, setAppliedFilter] = useState("all");
-  const [sortMode, setSortMode] = useState<SortMode>("newest");
   const deferredSearch = useDeferredValue(search);
+  const [confirmAppliedId, setConfirmAppliedId] = useState<string | null>(null);
 
   useEffect(() => {
     listApplications()
@@ -52,9 +53,6 @@ export function ApplicationsListPage() {
     return matchesSearch && matchesStatus && matchesApplied;
   });
 
-  const sortedApplications =
-    sortMode === "oldest" ? [...filteredApplications].reverse() : filteredApplications;
-
   async function handleCreateApplication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -62,9 +60,11 @@ export function ApplicationsListPage() {
     try {
       const detail = await createApplication(jobUrl);
       refreshApplications();
+      toast("Application created successfully");
       navigate(`/app/applications/${detail.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create application.");
+      toast(err instanceof Error ? err.message : "Failed to create application", "error");
       setIsCreating(false);
     }
   }
@@ -95,17 +95,39 @@ export function ApplicationsListPage() {
         ),
       );
       refreshApplications();
+      toast(applied ? "Marked as applied" : "Unmarked as applied");
     } catch (err) {
       setApplications(previous);
       setError(err instanceof Error ? err.message : "Unable to update applied state.");
+      toast("Failed to update applied status", "error");
     }
   }
+
+  function handleAppliedClick(app: ApplicationSummary, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (app.applied) {
+      // Un-marking doesn't need confirmation
+      void handleAppliedToggle(app.id, false);
+    } else {
+      // Marking as applied needs confirmation
+      setConfirmAppliedId(app.id);
+    }
+  }
+
+  const STATUS_ORDER: Record<string, number> = {
+    needs_action: 0,
+    in_progress: 1,
+    draft: 2,
+    complete: 3,
+  };
 
   const columns = [
     {
       key: "status",
       header: "Status",
       width: "120px",
+      sortable: true,
+      sortValue: (app: ApplicationSummary) => STATUS_ORDER[app.visible_status] ?? 99,
       render: (app: ApplicationSummary) => (
         <div className="flex flex-col gap-1">
           <StatusBadge status={app.visible_status} size="sm" />
@@ -120,6 +142,8 @@ export function ApplicationsListPage() {
     {
       key: "title",
       header: "Job Title",
+      sortable: true,
+      sortValue: (app: ApplicationSummary) => app.job_title?.toLowerCase() ?? "",
       render: (app: ApplicationSummary) => (
         <div className="min-w-0">
           <div className="truncate text-sm font-medium" style={{ color: "var(--color-ink)" }}>
@@ -136,6 +160,8 @@ export function ApplicationsListPage() {
     {
       key: "company",
       header: "Company",
+      sortable: true,
+      sortValue: (app: ApplicationSummary) => app.company?.toLowerCase() ?? "zzz",
       render: (app: ApplicationSummary) => (
         <span className="text-sm" style={{ color: "var(--color-ink-65)" }}>
           {app.company ?? "—"}
@@ -143,30 +169,10 @@ export function ApplicationsListPage() {
       ),
     },
     {
-      key: "applied",
-      header: "Applied",
-      width: "80px",
-      render: (app: ApplicationSummary) => (
-        <label
-          className="inline-flex cursor-pointer items-center gap-1.5"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            type="checkbox"
-            checked={app.applied}
-            onChange={(e) => void handleAppliedToggle(app.id, e.target.checked)}
-            className="h-3.5 w-3.5 rounded"
-            style={{ accentColor: "var(--color-spruce)" }}
-          />
-          <span className="text-xs" style={{ color: "var(--color-ink-50)" }}>
-            {app.applied ? "Yes" : "No"}
-          </span>
-        </label>
-      ),
-    },
-    {
       key: "resume",
       header: "Base Resume",
+      sortable: true,
+      sortValue: (app: ApplicationSummary) => app.base_resume_name?.toLowerCase() ?? "zzz",
       render: (app: ApplicationSummary) => (
         <span className="text-xs" style={{ color: "var(--color-ink-40)" }}>
           {app.base_resume_name ?? "—"}
@@ -183,6 +189,47 @@ export function ApplicationsListPage() {
         <span className="text-xs tabular-nums" style={{ color: "var(--color-ink-40)" }}>
           {new Date(app.updated_at).toLocaleDateString()}
         </span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      width: "140px",
+      render: (app: ApplicationSummary) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={(e) => handleAppliedClick(app, e)}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all"
+            style={{
+              background: app.applied ? "var(--color-spruce)" : "transparent",
+              color: app.applied ? "#fff" : "var(--color-ink-50)",
+              border: app.applied ? "1px solid var(--color-spruce)" : "1px solid var(--color-border)",
+            }}
+            onMouseEnter={(e) => {
+              if (!app.applied) {
+                e.currentTarget.style.borderColor = "var(--color-spruce)";
+                e.currentTarget.style.color = "var(--color-spruce)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!app.applied) {
+                e.currentTarget.style.borderColor = "var(--color-border)";
+                e.currentTarget.style.color = "var(--color-ink-50)";
+              }
+            }}
+          >
+            {app.applied ? (
+              <>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2.5 6.5l2.5 2.5 4.5-5" />
+                </svg>
+                Applied
+              </>
+            ) : (
+              "Mark Applied"
+            )}
+          </button>
+        </div>
       ),
     },
   ];
@@ -245,11 +292,8 @@ export function ApplicationsListPage() {
         </Card>
       )}
 
-      {/* Filters */}
-      <div
-        className="flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3"
-        style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
-      >
+      {/* Filters — aligned inline */}
+      <div className="flex flex-wrap items-center gap-3">
         <Input
           aria-label="Search applications"
           placeholder="Search title or company…"
@@ -279,15 +323,6 @@ export function ApplicationsListPage() {
           <option value="applied">Applied</option>
           <option value="not_applied">Not Applied</option>
         </Select>
-        <Select
-          aria-label="Sort applications"
-          value={sortMode}
-          onChange={(e) => setSortMode(e.target.value as SortMode)}
-          className="w-40"
-        >
-          <option value="newest">Recently updated</option>
-          <option value="oldest">Oldest updated</option>
-        </Select>
       </div>
 
       {/* Table / Loading / Empty */}
@@ -296,7 +331,7 @@ export function ApplicationsListPage() {
       ) : (
         <DataTable
           columns={columns}
-          data={sortedApplications}
+          data={filteredApplications}
           getRowKey={(app) => app.id}
           onRowClick={(app) => navigate(`/app/applications/${app.id}`)}
           pageSize={25}
@@ -317,6 +352,21 @@ export function ApplicationsListPage() {
           }
         />
       )}
+
+      {/* Confirmation modal for marking as applied */}
+      <ConfirmModal
+        open={confirmAppliedId !== null}
+        title="Mark as Applied?"
+        message="This will mark the application as submitted. You can always change this later."
+        confirmLabel="Yes, Mark Applied"
+        onConfirm={() => {
+          if (confirmAppliedId) {
+            void handleAppliedToggle(confirmAppliedId, true);
+          }
+          setConfirmAppliedId(null);
+        }}
+        onCancel={() => setConfirmAppliedId(null)}
+      />
     </div>
   );
 }

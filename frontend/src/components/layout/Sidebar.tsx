@@ -47,7 +47,11 @@ const IconSignOut = () => (
   </svg>
 );
 
-export function Sidebar() {
+type SidebarProps = {
+  onNavigate?: () => void;
+};
+
+export function Sidebar({ onNavigate }: SidebarProps) {
   const navigate = useNavigate();
   const { needsActionCount } = useAppContext();
 
@@ -115,6 +119,7 @@ export function Sidebar() {
                 background: isActive ? "var(--color-sidebar-bg-active)" : "transparent",
                 color: isActive ? "var(--color-sidebar-text-active)" : "var(--color-sidebar-text)",
               })}
+              onClick={onNavigate}
             >
               <span className="flex-shrink-0 transition-colors">{item.icon}</span>
               <span className="flex-1">{item.label}</span>

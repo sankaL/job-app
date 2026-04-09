@@ -7,18 +7,6 @@ type ButtonProps = PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>> & 
   loading?: boolean;
 };
 
-const VARIANT_CLASSES: Record<string, string> = {
-  primary: "bg-ink text-white hover:bg-spruce",
-  secondary: "border bg-white text-ink hover:text-spruce",
-  danger: "border text-ember hover:bg-ember/5",
-};
-
-const SIZE_CLASSES: Record<string, string> = {
-  sm: "px-3 py-1.5 text-xs gap-1.5",
-  md: "px-4 py-2 text-sm gap-2",
-  lg: "px-5 py-2.5 text-sm gap-2",
-};
-
 export function Button({
   className,
   variant = "primary",
@@ -34,13 +22,39 @@ export function Button({
     <button
       className={cn(
         "inline-flex items-center justify-center rounded-lg font-semibold transition-all",
-        VARIANT_CLASSES[variant],
-        SIZE_CLASSES[size],
+        variant === "primary" && "text-white",
+        variant === "secondary" && "border bg-white hover:bg-gray-50",
+        variant === "danger" && "border hover:bg-red-50",
+        size === "sm" && "px-3 py-1.5 text-xs gap-1.5",
+        size === "md" && "px-4 py-2 text-sm gap-2",
+        size === "lg" && "px-5 py-2.5 text-sm gap-2",
         isDisabled ? "cursor-not-allowed opacity-50" : "",
         className,
       )}
       style={{
-        borderColor: variant !== "primary" ? "var(--color-border)" : undefined,
+        ...(variant === "primary"
+          ? { background: "var(--color-ink)" }
+          : variant === "secondary"
+          ? { borderColor: "var(--color-border)", color: "var(--color-ink)" }
+          : { borderColor: "var(--color-ember)", color: "var(--color-ember)" }),
+      }}
+      onMouseEnter={(e) => {
+        if (variant === "primary" && !isDisabled) {
+          (e.currentTarget as HTMLButtonElement).style.background = "var(--color-spruce)";
+        }
+        if (variant === "secondary" && !isDisabled) {
+          (e.currentTarget as HTMLButtonElement).style.color = "var(--color-spruce)";
+        }
+        props.onMouseEnter?.(e);
+      }}
+      onMouseLeave={(e) => {
+        if (variant === "primary" && !isDisabled) {
+          (e.currentTarget as HTMLButtonElement).style.background = "var(--color-ink)";
+        }
+        if (variant === "secondary" && !isDisabled) {
+          (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink)";
+        }
+        props.onMouseLeave?.(e);
       }}
       disabled={isDisabled}
       {...props}

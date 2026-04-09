@@ -116,16 +116,43 @@ export function DataTable<T>({
                     }}
                     onClick={col.sortable ? () => handleSort(col.key) : undefined}
                   >
-                    <span className="flex items-center gap-1">
+                    <span className="flex items-center gap-1.5">
                       {col.header}
-                      {col.sortable && sortKey === col.key && (
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                          {sortDir === "asc" ? (
-                            <path d="M6 3l3.5 5H2.5L6 3z" />
-                          ) : (
-                            <path d="M6 9l3.5-5H2.5L6 9z" />
-                          )}
-                        </svg>
+                      {col.sortable && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            flexDirection: "column",
+                            gap: "1px",
+                            opacity: sortKey === col.key ? 1 : 0.35,
+                            transition: "opacity 150ms",
+                          }}
+                        >
+                          {/* Up arrow */}
+                          <svg
+                            width="8"
+                            height="5"
+                            viewBox="0 0 8 5"
+                            fill="currentColor"
+                            style={{
+                              opacity: sortKey === col.key && sortDir === "desc" ? 0.3 : 1,
+                            }}
+                          >
+                            <path d="M4 0l4 5H0L4 0z" />
+                          </svg>
+                          {/* Down arrow */}
+                          <svg
+                            width="8"
+                            height="5"
+                            viewBox="0 0 8 5"
+                            fill="currentColor"
+                            style={{
+                              opacity: sortKey === col.key && sortDir === "asc" ? 0.3 : 1,
+                            }}
+                          >
+                            <path d="M4 5L0 0h8L4 5z" />
+                          </svg>
+                        </span>
                       )}
                     </span>
                   </th>

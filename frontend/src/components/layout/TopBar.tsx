@@ -4,7 +4,7 @@ import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { useAppContext } from "@/components/layout/AppContext";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 
-export function TopBar() {
+export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const navigate = useNavigate();
   const { bootstrap, needsActionCount } = useAppContext();
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -48,8 +48,22 @@ export function TopBar() {
         borderColor: "var(--color-border)",
       }}
     >
-      {/* Left: Breadcrumbs */}
-      <div className="min-w-0 flex-1">
+      {/* Left: Mobile hamburger + Breadcrumbs */}
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        {onMenuToggle && (
+          <button
+            onClick={onMenuToggle}
+            className="sidebar-mobile-toggle flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+            style={{ color: "var(--color-ink-50)" }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-ink-05)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+            aria-label="Toggle sidebar"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M3 5h14M3 10h14M3 15h14" />
+            </svg>
+          </button>
+        )}
         <AppBreadcrumbs />
       </div>
 

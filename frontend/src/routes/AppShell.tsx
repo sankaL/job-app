@@ -1,21 +1,37 @@
+import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { AppProvider, useAppContext } from "@/components/layout/AppContext";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
+import { ToastProvider } from "@/components/ui/toast";
 
 function ShellContent() {
   const { bootstrapError } = useAppContext();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
+      {/* Desktop sidebar */}
+      <div className="sidebar-desktop">
+        <Sidebar />
+      </div>
 
-      <div className="flex flex-1 flex-col" style={{ marginLeft: "var(--sidebar-width)" }}>
-        <TopBar />
+      {/* Mobile sidebar overlay */}
+      {mobileSidebarOpen && (
+        <>
+          <div className="sidebar-overlay" onClick={() => setMobileSidebarOpen(false)} />
+          <div className="sidebar-mobile">
+            <Sidebar onNavigate={() => setMobileSidebarOpen(false)} />
+          </div>
+        </>
+      )}
 
-        <main className="flex-1 px-6 py-6">
-          <div className="mx-auto max-w-[1200px]">
+      <div className="main-with-sidebar flex flex-1 flex-col" style={{ marginLeft: "var(--sidebar-width)" }}>
+        <TopBar onMenuToggle={() => setMobileSidebarOpen((v) => !v)} />
+
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 xl:px-12">
+          <div className="mx-auto max-w-[1440px]">
             {bootstrapError ? (
               <Card variant="danger" className="mb-6">
                 <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>
@@ -38,7 +54,9 @@ function ShellContent() {
 export function AppShell() {
   return (
     <AppProvider>
-      <ShellContent />
+      <ToastProvider>
+        <ShellContent />
+      </ToastProvider>
     </AppProvider>
   );
 }

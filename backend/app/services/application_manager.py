@@ -50,6 +50,16 @@ ACTIVE_GENERATION_PROGRESS_STATES = {
     "regenerating_full",
     "regenerating_section",
 }
+BLOCKED_PLACEHOLDER_TITLE_PREFIXES = ("blocked - ",)
+BLOCKED_PLACEHOLDER_TITLE_VALUES = {"you have been blocked", "access denied", "attention required"}
+BLOCKED_PLACEHOLDER_DESCRIPTION_MARKERS = (
+    "you have been blocked",
+    "ray id for this request",
+    "request blocked notice",
+    "support.indeed.com",
+    "access denied",
+    "attention required",
+)
 
 
 class DuplicateWarningPayload(BaseModel):
@@ -770,6 +780,9 @@ class ApplicationService:
         if not record.job_title or not record.job_description:
             raise ValueError("Job title and description are required before generation.")
 
+        if self._looks_like_blocked_source_placeholder(record):
+            return await self._route_blocked_job_data_to_manual_entry(record)
+
         if record.duplicate_resolution_status == "pending":
             raise PermissionError("Unresolved duplicate must be resolved before generation.")
 
@@ -987,6 +1000,9 @@ class ApplicationService:
         if not record.job_title or not record.job_description:
             raise ValueError("Job title and description are required for regeneration.")
 
+        if self._looks_like_blocked_source_placeholder(record):
+            return await self._route_blocked_job_data_to_manual_entry(record)
+
         base_resume_id = record.base_resume_id
         if not base_resume_id:
             raise ValueError("A base resume must be linked to the application for regeneration.")
@@ -1082,6 +1098,9 @@ class ApplicationService:
 
         if not record.job_title or not record.job_description:
             raise ValueError("Job title and description are required for regeneration.")
+
+        if self._looks_like_blocked_source_placeholder(record):
+            return await self._route_blocked_job_data_to_manual_entry(record)
 
         base_resume_id = record.base_resume_id
         if not base_resume_id:
@@ -1626,11 +1645,69 @@ class ApplicationService:
                 )
             )
 
+    async def _route_blocked_job_data_to_manual_entry(
+        self,
+        record: ApplicationRecord,
+    ) -> ApplicationDetailPayload:
+        failure_details = self._blocked_source_failure_details(record)
+        updated = self.repository.update_application(
+            application_id=record.id,
+            user_id=record.user_id,
+            updates=self._workflow_updates(
+                internal_state="manual_entry_required",
+                failure_reason="extraction_failed",
+                extraction_failure_details=failure_details,
+                generation_failure_details=None,
+                duplicate_similarity_score=None,
+                duplicate_match_fields=None,
+                duplicate_resolution_status=None,
+                duplicate_matched_application_id=None,
+            ),
+        )
+        await self._set_action_required(
+            record=updated,
+            notification_type="error",
+            message=(
+                "Stored job details look like a blocked-source placeholder. "
+                "Paste the job text or complete manual entry."
+            ),
+            send_email=False,
+        )
+        return self._detail_payload(updated)
+
     def _recipient_email(self, record: ApplicationRecord) -> str:
         profile = self.profile_repository.fetch_profile(record.user_id)
         if profile is None:
             raise ValueError("Authenticated profile is unavailable.")
         return profile.email
+
+    @staticmethod
+    def _looks_like_blocked_source_placeholder(record: ApplicationRecord) -> bool:
+        failure_details = record.extraction_failure_details or {}
+        if failure_details.get("kind") == "blocked_source":
+            return True
+
+        title = (record.job_title or "").strip().lower()
+        description = (record.job_description or "").strip().lower()
+
+        if title in BLOCKED_PLACEHOLDER_TITLE_VALUES:
+            return True
+        if any(title.startswith(prefix) for prefix in BLOCKED_PLACEHOLDER_TITLE_PREFIXES):
+            return True
+        return any(marker in description for marker in BLOCKED_PLACEHOLDER_DESCRIPTION_MARKERS)
+
+    @staticmethod
+    def _blocked_source_failure_details(record: ApplicationRecord) -> dict[str, Any]:
+        existing = record.extraction_failure_details or {}
+        if existing.get("kind") == "blocked_source":
+            return existing
+        return {
+            "kind": "blocked_source",
+            "provider": record.job_posting_origin,
+            "reference_id": None,
+            "blocked_url": record.job_url,
+            "detected_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     @staticmethod
     def _build_section_preferences(profile) -> list[dict[str, Any]]:

@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import {
   createBaseResume,
   deleteBaseResume,
@@ -24,6 +24,7 @@ export function BaseResumeEditorPage() {
   const { resumeId } = useParams<{ resumeId: string }>();
   const [searchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const isNew = resumeId === undefined || resumeId === "new";
   const mode = searchParams.get("mode");
@@ -54,6 +55,7 @@ export function BaseResumeEditorPage() {
       const response = await updateBaseResume(resumeId, { name, content_md: contentMd });
       setResume(response);
       setSaveState("saved");
+      toast("Resume saved");
       setTimeout(() => setSaveState("idle"), 2000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
@@ -68,9 +70,11 @@ export function BaseResumeEditorPage() {
     setError(null);
     try {
       const response = await createBaseResume(name, contentMd);
+      toast("Resume created");
       navigate(`/app/resumes/${response.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create.");
+      toast("Failed to create resume", "error");
       setSaveState("idle");
     }
   }
@@ -86,8 +90,10 @@ export function BaseResumeEditorPage() {
       const response = await uploadBaseResume(file, name, useLlmCleanup);
       setUploadedResume(response);
       setContentMd(response.content_md);
+      toast("Resume uploaded and parsed");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload.");
+      toast("Upload failed", "error");
     } finally {
       setIsUploading(false);
     }
@@ -99,9 +105,11 @@ export function BaseResumeEditorPage() {
     setError(null);
     try {
       const response = await updateBaseResume(uploadedResume.id, { name, content_md: contentMd });
+      toast("Resume saved");
       navigate(`/app/resumes/${response.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
+      toast("Failed to save resume", "error");
       setSaveState("idle");
     }
   }
@@ -193,7 +201,16 @@ export function BaseResumeEditorPage() {
             </div>
             <div>
               <Label htmlFor="content">Content (Markdown)</Label>
-              <Textarea id="content" className="min-h-[500px] font-mono text-sm" value={contentMd} onChange={(e) => setContentMd(e.target.value)} />
+              <textarea
+                id="content"
+                className="markdown-editor no-bottom-radius min-h-[500px]"
+                value={contentMd}
+                onChange={(e) => setContentMd(e.target.value)}
+              />
+              <div className="markdown-editor-footer">
+                <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
+                <span>Tab = 2 spaces</span>
+              </div>
             </div>
             <div className="flex gap-2">
               <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">
@@ -221,7 +238,17 @@ export function BaseResumeEditorPage() {
             </div>
             <div>
               <Label htmlFor="content">Content (Markdown)</Label>
-              <Textarea id="content" className="min-h-[500px] font-mono text-sm" placeholder={"# Your Name\n\n## Summary\nProfessional summary…\n\n## Experience\n\n### Job Title — Company\n- Accomplishment 1\n- Accomplishment 2\n\n## Skills\n- Skill 1\n- Skill 2"} value={contentMd} onChange={(e) => setContentMd(e.target.value)} />
+              <textarea
+                id="content"
+                className="markdown-editor no-bottom-radius min-h-[500px]"
+                placeholder={"# Your Name\n\n## Summary\nProfessional summary…\n\n## Experience\n\n### Job Title — Company\n- Accomplishment 1\n- Accomplishment 2\n\n## Skills\n- Skill 1\n- Skill 2"}
+                value={contentMd}
+                onChange={(e) => setContentMd(e.target.value)}
+              />
+              <div className="markdown-editor-footer">
+                <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
+                <span>Tab = 2 spaces</span>
+              </div>
             </div>
             <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">
               {saveState === "saving" ? "Creating…" : "Create Resume"}
@@ -273,7 +300,16 @@ export function BaseResumeEditorPage() {
               </div>
               <div>
                 <Label htmlFor="content">Content (Markdown)</Label>
-                <Textarea id="content" className="min-h-[500px] font-mono text-sm" value={contentMd} onChange={(e) => setContentMd(e.target.value)} />
+                <textarea
+                  id="content"
+                  className="markdown-editor no-bottom-radius min-h-[500px]"
+                  value={contentMd}
+                  onChange={(e) => setContentMd(e.target.value)}
+                />
+                <div className="markdown-editor-footer">
+                  <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
+                  <span>Tab = 2 spaces</span>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">

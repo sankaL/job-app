@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "@/components/layout/AppContext";
+import { ToastProvider } from "@/components/ui/toast";
 import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
 import { ApplicationsListPage } from "@/routes/ApplicationsListPage";
@@ -50,7 +51,9 @@ function renderWithAppProvider(
 ) {
   return render(
     <MemoryRouter initialEntries={options?.initialEntries}>
-      <AppProvider>{ui}</AppProvider>
+      <AppProvider>
+        <ToastProvider>{ui}</ToastProvider>
+      </AppProvider>
     </MemoryRouter>,
   );
 }
@@ -201,6 +204,8 @@ describe("phase 1 applications UI", () => {
     expect(await screen.findByText(/duplicate detected/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /proceed anyway/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open existing/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/job title/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/company/i)).toBeInTheDocument();
   });
 
   it("shows blocked-source recovery details on the detail page", async () => {

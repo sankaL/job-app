@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import {
   deleteBaseResume,
   listBaseResumes,
@@ -17,6 +18,7 @@ export function BaseResumesPage() {
   const [resumes, setResumes] = useState<BaseResumeSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     loadResumes();
@@ -35,9 +37,11 @@ export function BaseResumesPage() {
     setError(null);
     try {
       await setDefaultBaseResume(resumeId);
+      toast("Default resume updated");
       loadResumes();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set default resume.");
+      toast("Failed to set default", "error");
     } finally {
       setActionInProgress(null);
     }
@@ -50,9 +54,11 @@ export function BaseResumesPage() {
     setError(null);
     try {
       await deleteBaseResume(resume.id);
+      toast(`"${resume.name}" deleted`);
       loadResumes();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete resume.");
+      toast("Failed to delete resume", "error");
     } finally {
       setActionInProgress(null);
     }

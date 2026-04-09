@@ -190,7 +190,7 @@ Single current Markdown draft for one application.
 **Behavior notes**
 
 - MVP overwrites the current draft on full regeneration.
-- Editing or regeneration after export returns the application to `in_progress`, but historical export timestamps may remain populated.
+- Editing or regeneration after export returns the application to `needs_action` (resume ready but export stale), but historical export timestamps may remain populated.
 - `applications.exported_at` and `resume_drafts.last_exported_at` must be updated together on successful export while MVP keeps a single current draft.
 
 **RLS requirements**

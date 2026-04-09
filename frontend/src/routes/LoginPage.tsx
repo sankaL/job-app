@@ -37,30 +37,65 @@ export function LoginPage() {
 
   return (
     <div className="animate-fadeInUp relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-      <div className="absolute left-[-6rem] top-10 h-64 w-64 rounded-full bg-ember/10 blur-3xl" />
-      <div className="absolute bottom-0 right-[-3rem] h-80 w-80 rounded-full bg-spruce/10 blur-3xl" />
+      {/* Animated gradient blobs */}
+      <div
+        className="absolute left-[-6rem] top-10 h-64 w-64 rounded-full blur-3xl"
+        style={{
+          background: "linear-gradient(135deg, rgba(159, 58, 22, 0.12), rgba(180, 83, 9, 0.08))",
+          animation: "floatBlob1 8s ease-in-out infinite",
+        }}
+      />
+      <div
+        className="absolute bottom-0 right-[-3rem] h-80 w-80 rounded-full blur-3xl"
+        style={{
+          background: "linear-gradient(225deg, rgba(24, 74, 69, 0.12), rgba(31, 95, 89, 0.06))",
+          animation: "floatBlob2 10s ease-in-out infinite",
+        }}
+      />
+
       <Card className="relative w-full max-w-5xl overflow-hidden p-0">
         <div className="grid md:grid-cols-[1.15fr_0.85fr]">
-          <div className="bg-ink px-8 py-10 text-white md:px-12 md:py-14">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
-              Invite-only MVP
-            </p>
-            <h1 className="font-display text-4xl leading-tight md:text-5xl">
-              Tailored resumes without breaking the source of truth.
-            </h1>
-            <p className="mt-6 max-w-xl text-lg text-white/75">
-              Sign in to capture job postings, recover failed extraction, and review duplicate
-              overlap before resume generation starts.
-            </p>
-            <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-5">
-              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/50">
-                Current environment
+          {/* Dark panel */}
+          <div
+            className="relative overflow-hidden px-8 py-10 text-white md:px-12 md:py-14"
+            style={{
+              background: "linear-gradient(160deg, #0e2f2c 0%, #101828 60%, #1a1a2e 100%)",
+            }}
+          >
+            {/* Subtle animated gradient overlay */}
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "radial-gradient(ellipse at 30% 20%, rgba(24, 74, 69, 0.3) 0%, transparent 60%)",
+                animation: "floatBlob1 12s ease-in-out infinite",
+                pointerEvents: "none",
+              }}
+            />
+            <div style={{ position: "relative" }}>
+              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-white/60">
+                Invite-only MVP
               </p>
-              <p className="mt-2 text-lg text-white/85">
-                {env.VITE_APP_DEV_MODE ? "Local Dockerized dev mode" : "Hosted configuration"}
+              <h1 className="font-display text-4xl leading-tight md:text-5xl">
+                AI-Powered Resume Tailoring
+              </h1>
+              <p className="mt-6 max-w-xl text-lg text-white/75">
+                Sign in to manage your job applications, generate tailored resumes, and track your progress.
               </p>
+              {env.VITE_APP_DEV_MODE && (
+                <div className="mt-8 rounded-3xl border border-white/10 bg-white/5 p-5">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-white/50">
+                    Current environment
+                  </p>
+                  <p className="mt-2 text-lg text-white/85">
+                    Local Dockerized dev mode
+                  </p>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Form panel */}
           <div className="px-8 py-10 md:px-10 md:py-14">
             <form className="space-y-5" onSubmit={handleSubmit}>
               <div>
@@ -105,6 +140,20 @@ export function LoginPage() {
           </div>
         </div>
       </Card>
+
+      {/* Floating blob animation keyframes */}
+      <style>{`
+        @keyframes floatBlob1 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          33% { transform: translate(10px, -15px) scale(1.05); }
+          66% { transform: translate(-8px, 10px) scale(0.97); }
+        }
+        @keyframes floatBlob2 {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          33% { transform: translate(-12px, 12px) scale(1.03); }
+          66% { transform: translate(8px, -8px) scale(0.98); }
+        }
+      `}</style>
     </div>
   );
 }

@@ -49,6 +49,8 @@ PROMPT_TRUNCATION_LIMITS = {
 GENERATION_HEARTBEAT_INTERVAL_SECONDS = 20.0
 GENERATION_HEARTBEAT_PERCENT = 45
 GENERATION_HEARTBEAT_MESSAGE = "Waiting for structured resume output"
+FULL_DRAFT_LLM_TIMEOUT_SECONDS = 90.0
+SECTION_REGENERATION_LLM_TIMEOUT_SECONDS = 45.0
 
 TARGET_LENGTH_GUIDANCE: dict[str, dict[str, Any]] = {
     "1_page": {
@@ -625,6 +627,17 @@ def _looks_like_reasoning_error(error: Exception) -> bool:
     return "reasoning" in message and any(token in message for token in ("unknown", "unsupported", "invalid", "field"))
 
 
+def _is_timeout_error(error: Optional[BaseException]) -> bool:
+    seen: set[int] = set()
+    current = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (TimeoutError, asyncio.TimeoutError)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 async def _invoke_structured_output(
     *,
     prompt: list[tuple[str, str]],
@@ -758,6 +771,8 @@ async def _call_json_with_fallback(
                 except Exception as inner_exc:
                     last_error = inner_exc
 
+    if _is_timeout_error(last_error):
+        raise asyncio.TimeoutError("LLM generation timed out on both primary and fallback models.") from last_error
     raise RuntimeError("LLM generation failed on both primary and fallback models.") from last_error
 
 
@@ -868,7 +883,7 @@ async def generate_sections(
             fallback_model=fallback_model,
             api_key=api_key,
             base_url=base_url,
-            timeout=45.0,
+            timeout=FULL_DRAFT_LLM_TIMEOUT_SECONDS,
         ),
         on_progress=on_progress,
         percent=GENERATION_HEARTBEAT_PERCENT,
@@ -955,7 +970,7 @@ async def regenerate_single_section(
         fallback_model=fallback_model,
         api_key=api_key,
         base_url=base_url,
-        timeout=45.0,
+        timeout=SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
     )
 
     return {

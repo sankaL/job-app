@@ -23,7 +23,9 @@ This document records the latest live prompt definitions in the repository. The 
 - Full regeneration and single-section regeneration use OpenRouter reasoning with `effort=high`.
 - Reasoning is requested only on generation calls and is sent through the provider-specific request body; reasoning is excluded from returned content.
 - While a full generation or full regeneration call is still waiting on the model, the worker emits periodic heartbeat progress updates so the backend idle-timeout monitor does not misclassify an in-flight reasoning call as stalled.
+- Full generation and full regeneration allow up to `90s` per LLM attempt within the worker's `300s` wall-clock cap; single-section regeneration keeps the stricter `45s` per-attempt timeout.
 - Generation first attempts schema-enforced structured output. If that fails, the same model falls back to the strict prompt-level JSON contract. If the provider appears to reject the reasoning parameter, the same model is retried once without reasoning before moving on.
+- If every attempt times out, the generation layer preserves the timeout classification so the worker can surface `generation_timeout` or `regeneration_timeout` instead of a generic unexpected failure.
 - Extraction and upload cleanup do not enable reasoning.
 
 ### Shared system prompt template

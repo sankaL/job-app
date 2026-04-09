@@ -384,6 +384,115 @@ async def test_generate_sections_emits_progress_heartbeat_while_waiting_for_mode
     assert progress_updates[-1] == (70, "Parsing structured resume output")
 
 
+@pytest.mark.asyncio
+async def test_generate_sections_uses_full_draft_timeout(monkeypatch):
+    observed_timeouts: list[float] = []
+
+    async def fake_call_json_with_fallback(**kwargs):
+        observed_timeouts.append(kwargs["timeout"])
+        return (
+            generation.GeneratedResumePayload.model_validate(
+                {
+                    "sections": [
+                        {
+                            "id": "summary",
+                            "heading": "Summary",
+                            "markdown": "## Summary\nBuilt backend systems.",
+                            "supporting_snippets": ["Built backend systems.", "Build APIs."],
+                        }
+                    ]
+                }
+            ),
+            "primary-model",
+        )
+
+    monkeypatch.setattr(generation, "_call_json_with_fallback", fake_call_json_with_fallback)
+
+    async def on_progress(_percent: int, _message: str) -> None:
+        return None
+
+    await generation.generate_sections(
+        base_resume_content="## Summary\nBuilt backend systems.\n",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs.",
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium", "_operation": "regeneration_full"},
+        model="primary-model",
+        fallback_model="fallback-model",
+        api_key="test-key",
+        base_url="https://example.com",
+        on_progress=on_progress,
+    )
+
+    assert observed_timeouts == [generation.FULL_DRAFT_LLM_TIMEOUT_SECONDS]
+
+
+@pytest.mark.asyncio
+async def test_regenerate_single_section_uses_section_timeout(monkeypatch):
+    observed_timeouts: list[float] = []
+
+    async def fake_call_json_with_fallback(**kwargs):
+        observed_timeouts.append(kwargs["timeout"])
+        return (
+            generation.RegeneratedSectionPayload.model_validate(
+                {
+                    "section": {
+                        "id": "summary",
+                        "heading": "Summary",
+                        "markdown": "## Summary\nBuilt backend systems for APIs.",
+                        "supporting_snippets": ["Built backend systems", "APIs"],
+                    }
+                }
+            ),
+            "primary-model",
+        )
+
+    monkeypatch.setattr(generation, "_call_json_with_fallback", fake_call_json_with_fallback)
+
+    await generation.regenerate_single_section(
+        current_draft_content="## Summary\n- Built backend systems.\n\n## Skills\n- Python\n- FastAPI\n",
+        section_name="summary",
+        instructions="Focus more on API scale.",
+        base_resume_content="## Summary\nBuilt backend systems\n\n## Skills\nPython\nFastAPI\n",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs.",
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+        model="primary-model",
+        fallback_model="fallback-model",
+        api_key="test-key",
+        base_url="https://example.com",
+    )
+
+    assert observed_timeouts == [generation.SECTION_REGENERATION_LLM_TIMEOUT_SECONDS]
+
+
+@pytest.mark.asyncio
+async def test_call_json_with_fallback_preserves_timeout_error(monkeypatch):
+    async def fake_invoke_structured_output(**_kwargs):
+        raise asyncio.TimeoutError("primary timed out")
+
+    async def fake_invoke_prompt_json(**_kwargs):
+        raise asyncio.TimeoutError("prompt fallback timed out")
+
+    monkeypatch.setattr(generation, "_invoke_structured_output", fake_invoke_structured_output)
+    monkeypatch.setattr(generation, "_invoke_prompt_json", fake_invoke_prompt_json)
+
+    with pytest.raises(asyncio.TimeoutError, match="timed out"):
+        await generation._call_json_with_fallback(
+            prompt=[("system", "test"), ("human", "{}")],
+            response_model=generation.GeneratedResumePayload,
+            expected_section_ids=["summary"],
+            operation="generation",
+            model="primary-model",
+            fallback_model="fallback-model",
+            api_key="test-key",
+            base_url="https://example.com",
+            timeout=12.0,
+        )
+
+
 def test_generation_prompt_includes_expert_role_no_em_dash_and_length_budget():
     prompt = generation._build_generation_prompt(
         operation="generation",
