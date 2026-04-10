@@ -23,8 +23,14 @@ describe("frontend phase 0 auth shell", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { name: /tailored resumes without breaking the source of truth/i })).toBeInTheDocument();
+    expect(screen.getByText("Applix")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /ai-powered resume tailoring/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeInTheDocument();
+    expect(screen.getByText(/local dev/i)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /applix logo/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /businessman seated with a laptop, representing the applix workspace/i }),
+    ).toBeInTheDocument();
   });
 
   it("uses sessionStorage instead of localStorage for Supabase session persistence", () => {

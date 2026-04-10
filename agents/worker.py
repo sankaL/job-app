@@ -49,8 +49,10 @@ REFERENCE_PATTERNS = (
     re.compile(r"/jobs/(?:view/)?([0-9]{4,})", re.I),
     re.compile(r"/job/([A-Za-z0-9_-]{6,})", re.I),
 )
-FULL_GENERATION_MAX_TIMEOUT_SECONDS = 300.0
-SECTION_REGENERATION_TIMEOUT_SECONDS = 45.0
+FULL_GENERATION_MAX_TIMEOUT_SECONDS = 540.0
+SECTION_REGENERATION_TIMEOUT_SECONDS = 280.0
+EXTRACTION_TEXT_LIMIT = 40_000
+EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT = 8_000
 
 
 class WorkerSettingsEnv(BaseSettings):
@@ -122,8 +124,18 @@ class ExtractionFailureDetails(BaseModel):
 
 class ExtractedJobPosting(BaseModel):
     job_title: str = Field(description="Required non-empty job title.")
-    job_description: str = Field(description="Required non-empty job description.")
+    job_description: str = Field(
+        description="Required non-empty full primary job posting text, including responsibilities, qualifications, compensation, and other role details when present.",
+    )
     company: Optional[str] = Field(default=None, description="Optional company name.")
+    job_location_text: Optional[str] = Field(
+        default=None,
+        description="Optional raw location text copied from the posting when clearly present.",
+    )
+    compensation_text: Optional[str] = Field(
+        default=None,
+        description="Optional raw salary or compensation text copied from the posting when clearly present.",
+    )
     job_posting_origin: Optional[str] = Field(
         default=None,
         description=(
@@ -148,7 +160,7 @@ class ExtractedJobPosting(BaseModel):
             raise ValueError("Field cannot be blank.")
         return stripped
 
-    @field_validator("company", "job_posting_origin_other_text", "extracted_reference_id")
+    @field_validator("company", "job_location_text", "compensation_text", "job_posting_origin_other_text", "extracted_reference_id")
     @classmethod
     def normalize_optional_value(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
@@ -274,7 +286,7 @@ def detect_blocked_page(context: PageContext) -> Optional[ExtractionFailureDetai
             context.page_title,
             context.final_url,
             " ".join(f"{key} {value}" for key, value in context.meta.items()),
-            context.visible_text[:5000],
+            context.visible_text[:EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT],
         ]
     ).lower()
 
@@ -434,7 +446,15 @@ class OpenRouterExtractionAgent:
                     "Rules:\n"
                     "- Do not invent facts. job_title and job_description are required.\n"
                     "- Use json_ld for structured metadata when it is coherent.\n"
-                    "- Use visible_text for the job description body.\n"
+                    "- Use visible_text for the full primary job posting body, not just the responsibilities excerpt.\n"
+                    "- job_description must include the complete posting content for the primary role when present: responsibilities, qualifications, requirements, benefits, compensation, and any other role-specific sections.\n"
+                    "- Set job_location_text to the raw location text when the posting clearly states where the role can be hired, worked, or based.\n"
+                    "- Keep compensation text inside job_description when it appears in the posting.\n"
+                    "- Separate job_location_text and compensation_text even when they appear on the same line, in the same table, or in the same paragraph.\n"
+                    "- Use meaning, labels, and surrounding context to decide what belongs to location versus compensation. Do not rely on brittle line-splitting assumptions.\n"
+                    "- If the posting includes both a hiring region and a separate office list, prefer the most role-specific location text and keep it concise.\n"
+                    "- If location is absent or ambiguous, leave job_location_text null.\n"
+                    "- Also set compensation_text to the raw salary or compensation snippet when it is clearly stated. If compensation is absent or ambiguous, leave compensation_text null.\n"
                     "- Use page_title, meta, final_url, detected_origin, and extracted_reference_id only to disambiguate or fill structured fields already supported by the page.\n"
                     "- Ignore navigation, sign-in prompts, cookie banners, related-job cards, footers, and other page chrome.\n"
                     "- If multiple jobs are present, extract the primary posting that best matches the page title, URL, and reference id.\n"
@@ -452,7 +472,7 @@ class OpenRouterExtractionAgent:
                         "page_title": context.page_title,
                         "meta": context.meta,
                         "json_ld": context.json_ld,
-                        "visible_text": context.visible_text[:15000],
+                        "visible_text": context.visible_text,
                         "detected_origin": context.detected_origin,
                         "extracted_reference_id": context.extracted_reference_id,
                     }
@@ -471,7 +491,7 @@ async def scrape_page_context(job_url: str) -> PageContext:
             await page.wait_for_load_state("networkidle", timeout=10_000)
             page_title = await page.title()
             final_url = page.url
-            visible_text = await page.locator("body").inner_text(timeout=5_000)
+            visible_text = await _extract_primary_visible_text(page)
             meta_pairs = await page.locator("meta").evaluate_all(
                 """
                 (nodes) => nodes
@@ -496,7 +516,7 @@ async def scrape_page_context(job_url: str) -> PageContext:
         page_title=page_title or "",
         meta=meta,
         json_ld=json_ld_entries[:10],
-        visible_text=visible_text[:25000],
+        visible_text=visible_text[:EXTRACTION_TEXT_LIMIT],
         detected_origin=normalize_origin_from_url(final_url),
         extracted_reference_id=reference_id,
     )
@@ -511,7 +531,7 @@ def build_page_context_from_capture(job_url: str, capture: SourceCapture) -> Pag
         page_title=(capture.page_title or "").strip(),
         meta=dict(list(capture.meta.items())[:50]),
         json_ld=capture.json_ld[:10],
-        visible_text=capture.source_text[:25000],
+        visible_text=capture.source_text[:EXTRACTION_TEXT_LIMIT],
         detected_origin=normalize_origin_from_url(final_url),
         extracted_reference_id=reference_id,
     )
@@ -532,10 +552,32 @@ def finalize_extracted_posting(
         job_title=extracted.job_title,
         job_description=extracted.job_description,
         company=extracted.company,
+        job_location_text=extracted.job_location_text,
+        compensation_text=extracted.compensation_text,
         job_posting_origin=origin,
         job_posting_origin_other_text=other_text,
         extracted_reference_id=extracted.extracted_reference_id or context.extracted_reference_id,
     )
+
+
+async def _extract_primary_visible_text(page) -> str:
+    selectors = ("main", "article", "[role='main']", "body")
+    best_text = ""
+
+    for selector in selectors:
+        try:
+            text = await page.locator(selector).first.inner_text(timeout=5_000)
+        except Exception:
+            continue
+        normalized = text.strip()
+        if not normalized:
+            continue
+        if len(normalized) > len(best_text):
+            best_text = normalized
+        if selector != "body" and len(normalized) >= 500:
+            return normalized
+
+    return best_text
 
 
 async def set_progress(
@@ -830,7 +872,7 @@ async def run_generation_job(
             job_id=job_id,
             workflow_kind="generation",
             state="generating",
-            message="Starting resume generation",
+            message="Preparing generation inputs and section plan",
             percent_complete=5,
         )
         await callback.post(
@@ -872,7 +914,7 @@ async def run_generation_job(
             job_id=job_id,
             workflow_kind="generation",
             state="generating",
-            message="Validating generated resume",
+            message="Running deterministic validation and structure checks",
             percent_complete=85,
         )
 
@@ -881,6 +923,7 @@ async def run_generation_job(
             base_resume_content=base_resume_content,
             section_preferences=section_preferences,
             generation_settings=public_generation_settings,
+            professional_experience_anchors=gen_result.get("professional_experience_anchors"),
         )
         if not await is_current_job(writer, application_id, job_id):
             return
@@ -917,7 +960,7 @@ async def run_generation_job(
             job_id=job_id,
             workflow_kind="generation",
             state="generating",
-            message="Assembling final resume",
+            message="Assembling final resume draft",
             percent_complete=95,
         )
 
@@ -1060,7 +1103,7 @@ async def run_regeneration_job(
             job_id=job_id,
             workflow_kind=workflow_kind,
             state=workflow_state,
-            message="Starting regeneration",
+            message="Preparing regeneration inputs and section plan",
             percent_complete=5,
         )
         await callback.post(
@@ -1112,7 +1155,7 @@ async def run_regeneration_job(
                 job_id=job_id,
                 workflow_kind=workflow_kind,
                 state=workflow_state,
-                message="Validating regenerated resume",
+                message="Running deterministic validation and structure checks",
                 percent_complete=85,
             )
 
@@ -1121,6 +1164,7 @@ async def run_regeneration_job(
                 base_resume_content=base_resume_content,
                 section_preferences=section_preferences,
                 generation_settings=public_generation_settings,
+                professional_experience_anchors=gen_result.get("professional_experience_anchors"),
             )
             if not await is_current_job(writer, application_id, job_id):
                 return
@@ -1149,6 +1193,16 @@ async def run_regeneration_job(
                     path=REGENERATION_CALLBACK_PATH,
                 )
                 return
+
+            await set_progress(
+                writer,
+                application_id,
+                job_id=job_id,
+                workflow_kind=workflow_kind,
+                state=workflow_state,
+                message="Assembling regenerated resume draft",
+                percent_complete=95,
+            )
 
             content = assemble_resume(
                 personal_info=personal_info,
@@ -1180,9 +1234,20 @@ async def run_regeneration_job(
                 job_id=job_id,
                 workflow_kind=workflow_kind,
                 state=workflow_state,
-                message=f"Regenerating {section_name} section",
+                message=f"Preparing {section_name} section regeneration",
                 percent_complete=20,
             )
+
+            async def on_section_regen_progress(percent: int, message: str) -> None:
+                await set_progress(
+                    writer,
+                    application_id,
+                    job_id=job_id,
+                    workflow_kind=workflow_kind,
+                    state=workflow_state,
+                    message=message,
+                    percent_complete=percent,
+                )
 
             regenerated_section = await asyncio.wait_for(
                 regenerate_single_section(
@@ -1198,6 +1263,7 @@ async def run_regeneration_job(
                     fallback_model=settings.generation_agent_fallback_model,
                     api_key=settings.openrouter_api_key,
                     base_url=settings.openrouter_base_url,
+                    on_progress=on_section_regen_progress,
                 ),
                 timeout=SECTION_REGENERATION_TIMEOUT_SECONDS,
             )
@@ -1211,7 +1277,7 @@ async def run_regeneration_job(
                 job_id=job_id,
                 workflow_kind=workflow_kind,
                 state=workflow_state,
-                message=f"Validating regenerated {section_name} section",
+                message=f"Running deterministic validation for regenerated {section_name} section",
                 percent_complete=70,
             )
 
@@ -1221,6 +1287,7 @@ async def run_regeneration_job(
                 base_resume_content=base_resume_content,
                 section_preferences=single_section_prefs,
                 generation_settings=public_generation_settings,
+                professional_experience_anchors=regenerated_section.get("professional_experience_anchors"),
             )
             if not await is_current_job(writer, application_id, job_id):
                 return
@@ -1249,6 +1316,16 @@ async def run_regeneration_job(
                     path=REGENERATION_CALLBACK_PATH,
                 )
                 return
+
+            await set_progress(
+                writer,
+                application_id,
+                job_id=job_id,
+                workflow_kind=workflow_kind,
+                state=workflow_state,
+                message=f"Merging regenerated {section_name} section into draft",
+                percent_complete=90,
+            )
 
             # Replace section in draft
             display_name = SECTION_DISPLAY_NAMES.get(

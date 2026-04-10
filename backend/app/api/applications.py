@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
-from app.core.auth import AuthenticatedUser, get_current_user
+from app.core.access import get_current_active_user
+from app.core.auth import AuthenticatedUser
 from app.db.applications import ApplicationListRecord, ApplicationRecord, MatchedApplicationRecord
 from app.db.resume_drafts import ResumeDraftRecord
 from app.services.application_manager import (
@@ -66,6 +67,15 @@ def _validate_generation_instruction_text(value: Optional[str], *, required: boo
 
 class CreateApplicationRequest(BaseModel):
     job_url: HttpUrl
+    source_text: Optional[str] = None
+
+    @field_validator("source_text")
+    @classmethod
+    def normalize_source_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class UpdateApplicationRequest(BaseModel):
@@ -74,11 +84,13 @@ class UpdateApplicationRequest(BaseModel):
     job_title: Optional[str] = None
     company: Optional[str] = None
     job_description: Optional[str] = None
+    job_location_text: Optional[str] = None
+    compensation_text: Optional[str] = None
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
     base_resume_id: Optional[str] = None
 
-    @field_validator("notes", "job_title", "company", "job_description", "job_posting_origin_other_text")
+    @field_validator("notes", "job_title", "company", "job_description", "job_location_text", "compensation_text", "job_posting_origin_other_text")
     @classmethod
     def normalize_string(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
@@ -91,6 +103,8 @@ class ManualEntryRequest(BaseModel):
     job_title: str
     company: str
     job_description: str
+    job_location_text: Optional[str] = None
+    compensation_text: Optional[str] = None
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
     notes: Optional[str] = None
@@ -103,7 +117,7 @@ class ManualEntryRequest(BaseModel):
             raise ValueError("Field cannot be blank.")
         return stripped
 
-    @field_validator("job_posting_origin_other_text", "notes")
+    @field_validator("job_location_text", "compensation_text", "job_posting_origin_other_text", "notes")
     @classmethod
     def normalize_optional_string(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
@@ -185,6 +199,8 @@ class ApplicationDetail(BaseModel):
     job_title: Optional[str]
     company: Optional[str]
     job_description: Optional[str]
+    job_location_text: Optional[str]
+    compensation_text: Optional[str]
     extracted_reference_id: Optional[str]
     job_posting_origin: Optional[str]
     job_posting_origin_other_text: Optional[str]
@@ -409,7 +425,7 @@ def _map_service_error(error: Exception) -> HTTPException:
 
 @router.get("", response_model=list[ApplicationSummary])
 async def list_applications(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
     search: Optional[str] = Query(default=None),
     visible_status: Optional[str] = Query(default=None),
@@ -425,14 +441,24 @@ async def list_applications(
 @router.post("", response_model=ApplicationDetail, status_code=status.HTTP_201_CREATED)
 async def create_application(
     request: CreateApplicationRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
-        record = await service.create_application(
-            user_id=current_user.id,
-            job_url=str(request.job_url),
-        )
+        if request.source_text:
+            record = await service.create_application_from_capture(
+                user_id=current_user.id,
+                job_url=str(request.job_url),
+                capture=SourceCapturePayload(
+                    source_text=request.source_text,
+                    source_url=str(request.job_url),
+                ),
+            )
+        else:
+            record = await service.create_application(
+                user_id=current_user.id,
+                job_url=str(request.job_url),
+            )
         return to_application_detail(
             await service.get_application_detail(
                 user_id=current_user.id,
@@ -446,7 +472,7 @@ async def create_application(
 @router.get("/{application_id}", response_model=ApplicationDetail)
 async def get_application_detail(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -464,7 +490,7 @@ async def get_application_detail(
 async def patch_application(
     application_id: str,
     request: UpdateApplicationRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     updates = request.model_dump(exclude_unset=True)
@@ -482,10 +508,44 @@ async def patch_application(
         raise _map_service_error(error) from error
 
 
+@router.delete("/{application_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+async def delete_application(
+    application_id: str,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> Response:
+    try:
+        await service.delete_application(
+            user_id=current_user.id,
+            application_id=application_id,
+        )
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{application_id}/cancel-extraction", response_model=ApplicationDetail)
+async def cancel_extraction(
+    application_id: str,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> ApplicationDetail:
+    try:
+        return to_application_detail(
+            await service.cancel_extraction(
+                user_id=current_user.id,
+                application_id=application_id,
+            )
+        )
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+
 @router.post("/{application_id}/retry-extraction", response_model=ApplicationDetail)
 async def retry_extraction(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -503,7 +563,7 @@ async def retry_extraction(
 async def submit_manual_entry(
     application_id: str,
     request: ManualEntryRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -522,7 +582,7 @@ async def submit_manual_entry(
 async def recover_from_source(
     application_id: str,
     request: RecoverFromSourceRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -549,7 +609,7 @@ async def recover_from_source(
 async def resolve_duplicate(
     application_id: str,
     request: DuplicateResolutionRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -567,7 +627,7 @@ async def resolve_duplicate(
 @router.get("/{application_id}/progress", response_model=WorkflowProgress)
 async def get_progress(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> WorkflowProgress:
     try:
@@ -583,7 +643,7 @@ async def get_progress(
 @router.get("/{application_id}/draft", response_model=Optional[ResumeDraftResponse])
 async def get_draft(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> Optional[ResumeDraftResponse]:
     try:
@@ -602,7 +662,7 @@ async def get_draft(
 async def generate_resume(
     application_id: str,
     request: GenerateResumeRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -624,7 +684,7 @@ async def generate_resume(
 async def regenerate_full(
     application_id: str,
     request: FullRegenerationRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -645,7 +705,7 @@ async def regenerate_full(
 async def regenerate_section(
     application_id: str,
     request: SectionRegenerationRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -664,7 +724,7 @@ async def regenerate_section(
 @router.post("/{application_id}/cancel-generation", response_model=ApplicationDetail)
 async def cancel_generation(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -682,7 +742,7 @@ async def cancel_generation(
 async def save_draft(
     application_id: str,
     request: SaveDraftRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ResumeDraftResponse:
     try:
@@ -699,7 +759,7 @@ async def save_draft(
 @router.get("/{application_id}/export-pdf")
 async def export_pdf(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> Response:
     try:

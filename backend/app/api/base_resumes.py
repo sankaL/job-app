@@ -5,7 +5,8 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, status, UploadFile
 from pydantic import BaseModel, field_validator
 
-from app.core.auth import AuthenticatedUser, get_current_user
+from app.core.access import get_current_active_user
+from app.core.auth import AuthenticatedUser
 from app.services.base_resumes import BaseResumeService, get_base_resume_service
 from app.services.resume_parser import ResumeParserService
 
@@ -86,7 +87,7 @@ def _map_service_error(error: Exception) -> HTTPException:
 
 @router.get("", response_model=list[BaseResumeSummary])
 async def list_base_resumes(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
 ) -> list[BaseResumeSummary]:
     records = service.list_resumes(user_id=current_user.id)
@@ -96,7 +97,7 @@ async def list_base_resumes(
 @router.post("", response_model=BaseResumeDetail, status_code=status.HTTP_201_CREATED)
 async def create_base_resume(
     request: CreateBaseResumeRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
 ) -> BaseResumeDetail:
     try:
@@ -114,7 +115,7 @@ async def create_base_resume(
 async def upload_base_resume(
     file: Annotated[UploadFile, File(...)],
     name: Annotated[str, Form(...)],
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
     parser: Annotated[ResumeParserService, Depends(get_resume_parser)],
     use_llm_cleanup: Annotated[bool, Form()] = False,
@@ -184,7 +185,7 @@ async def upload_base_resume(
 @router.get("/{resume_id}", response_model=BaseResumeDetail)
 async def get_base_resume(
     resume_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
 ) -> BaseResumeDetail:
     try:
@@ -201,7 +202,7 @@ async def get_base_resume(
 async def update_base_resume(
     resume_id: str,
     request: UpdateBaseResumeRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
 ) -> BaseResumeDetail:
     updates = request.model_dump(exclude_unset=True)
@@ -224,7 +225,7 @@ async def update_base_resume(
 @router.delete("/{resume_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_base_resume(
     resume_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
     force: bool = Query(default=False),
 ) -> None:
@@ -241,7 +242,7 @@ async def delete_base_resume(
 @router.post("/{resume_id}/set-default", response_model=BaseResumeSummary)
 async def set_default_resume(
     resume_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
 ) -> BaseResumeSummary:
     try:

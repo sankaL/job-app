@@ -15,8 +15,8 @@ from app.main import app
 
 
 class StubProfileRepository(ProfileRepository):
-    def __init__(self) -> None:
-        pass
+    def __init__(self, *, is_active: bool = True) -> None:
+        self.is_active = is_active
 
     def fetch_profile(self, user_id: str) -> Optional[ProfileRecord]:
         return ProfileRecord(
@@ -25,6 +25,7 @@ class StubProfileRepository(ProfileRepository):
             name=None,
             phone=None,
             address=None,
+            linkedin_url=None,
             default_base_resume_id=None,
             section_preferences={
                 "summary": True,
@@ -33,6 +34,7 @@ class StubProfileRepository(ProfileRepository):
                 "skills": True,
             },
             section_order=["summary", "professional_experience", "education", "skills"],
+            is_active=self.is_active,
             created_at="2026-04-07T00:00:00+00:00",
             updated_at="2026-04-07T00:00:00+00:00",
         )
@@ -121,3 +123,17 @@ def test_valid_token_without_profile_fails_closed():
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Authenticated profile is unavailable."
+
+
+def test_deactivated_profile_blocks_session_bootstrap():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_active=False)
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/session/bootstrap",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Account is deactivated. Contact an administrator."

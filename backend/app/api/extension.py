@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from app.api.applications import ApplicationDetail, to_application_detail
-from app.core.auth import AuthenticatedUser, get_current_user
+from app.core.access import get_current_active_user
+from app.core.auth import AuthenticatedUser
 from app.core.security import (
     ExtensionAuthenticatedUser,
     hash_extension_token,
@@ -78,7 +79,7 @@ def _map_error(error: Exception) -> HTTPException:
 
 @router.get("/status", response_model=ExtensionConnectionStatus)
 def extension_status(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     repository: Annotated[ProfileRepository, Depends(get_profile_repository)],
 ) -> ExtensionConnectionStatus:
     record = repository.fetch_extension_connection(current_user.id)
@@ -92,7 +93,7 @@ def extension_status(
 
 @router.post("/token", response_model=ExtensionTokenResponse)
 def issue_extension_token(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     repository: Annotated[ProfileRepository, Depends(get_profile_repository)],
 ) -> ExtensionTokenResponse:
     token = f"jabr_ext_{secrets.token_urlsafe(32)}"
@@ -105,7 +106,7 @@ def issue_extension_token(
 
 @router.delete("/token", response_model=ExtensionConnectionStatus)
 def revoke_extension_token(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     repository: Annotated[ProfileRepository, Depends(get_profile_repository)],
 ) -> ExtensionConnectionStatus:
     return _to_status(repository.clear_extension_token(user_id=current_user.id))

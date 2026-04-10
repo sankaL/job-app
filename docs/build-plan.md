@@ -1,12 +1,12 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-04-08  
-**Implementation status:** Phases 0 through 4 implemented; Phase 5 pending  
+**Last updated:** 2026-04-10  
+**Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
-This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening remains unimplemented.
+This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
 ## Planning Defaults
 
@@ -30,7 +30,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 | Phase 2 | Implemented | Base resumes, profile data, section preferences, PDF upload with optional LLM cleanup, and pre-generation configuration surface |
 | Phase 3 | Implemented | Generation, validation, assembly, notifications, and application workspace |
 | Phase 4 | Implemented | Editing, regeneration, and PDF export |
-| Phase 5 | Planned | Hardening, recovery, and end-to-end MVP acceptance |
+| Phase 5 | In Progress | Invite onboarding and admin operations shipped; hardening, recovery, and end-to-end MVP acceptance remaining |
 
 ## Task Tracking
 
@@ -98,7 +98,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | P4-T02 | Implement single-section regeneration with required instructions and deterministic validation | AI | DONE | 2026-04-08 08:39:33 EDT | Section regeneration now uses one sanitized model call for the selected section, validates deterministically, and updates only that section in the draft. |
 | P4-T03 | Implement full regeneration with prefilled prior settings and overwrite of the current draft | AI | DONE | 2026-04-08 08:39:33 EDT | Full regeneration reuses saved draft settings from `generation_params`, runs the single-call JSON pipeline, and overwrites the current draft on success. |
 | P4-T04 | Build on-demand PDF export from the latest draft content without persistent PDF storage | BE | DONE | 2026-04-07 | WeasyPrint-based PDF export with ATS-safe CSS, thread pool execution with 20s timeout, no persistent storage. |
-| P4-T05 | Return status to In Progress after edits or regeneration and handle regen or export notifications | BE | DONE | 2026-04-07 | Post-export edits/regeneration return status to in_progress; export and regeneration notifications implemented. |
+| P4-T05 | Return status to Needs Action after edits or regeneration and handle regen or export notifications | BE | DONE | 2026-04-08 | Post-export edits/regeneration return status to needs_action (resume ready but export stale); export and regeneration notifications implemented. |
 
 ### Phase 5 Tasks
 
@@ -109,11 +109,26 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | P5-T03 | Validate recoverable failure paths for extraction, manual entry, generation, regeneration, and export | Other | TODO | 2026-04-07 | |
 | P5-T04 | Verify structured logging remains sanitized and free of sensitive user content in production paths | Infra | TODO | 2026-04-07 | |
 | P5-T05 | Run MVP acceptance verification and align supporting docs, schema guidance, and migration runbook updates | Docs | TODO | 2026-04-07 | |
+| P5-T06 | Implement invite-link signup onboarding, admin metrics dashboard, and admin user-management controls | BE/FE/Docs | DONE | 2026-04-10 10:42:00 EDT | Added Supabase invite provisioning plus Resend invite emails, tokenized signup acceptance with mandatory onboarding fields and password policy, admin metrics + user management APIs/UI, and aligned schema/runbook/PRD docs. |
 
 ### Bug Fixes
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T03 | Reduce full-regeneration timeout risk by lowering reasoning effort while keeping section regeneration high-reasoning | AI/Docs | DONE | 2026-04-10 15:03:36 EDT | Updated generation orchestration so initial generation and full regeneration use `medium` OpenRouter reasoning, while single-section regeneration stays on `high`; this preserves section-level depth but reduces full-regeneration timeout risk on slower models. Added regression coverage and updated prompt catalog docs accordingly. |
+| B5-T02 | Enforce deterministic Professional Experience regeneration structure, longer generation timeouts, and full-regeneration caps | AI/BE/FE/Docs | DONE | 2026-04-10 13:30:00 EDT | Added deterministic Professional Experience anchors plus normalization and contract validation so company/date cannot drift, moved generation timeout contracts to 240s full and 120s section with stage-based progress messaging, switched generation model defaults to `z-ai/glm-5.1` with `anthropic/claude-sonnet-4.6` fallback, and enforced a non-admin cap of three full regenerations per application with admin bypass and contact-admin conflict guidance. |
+| B5-T01 | Fail closed for admin invites when email delivery is disabled and surface Resend delivery failures | BE | DONE | 2026-04-10 11:52:07 EDT | Admin invite creation now blocks immediately when backend email notifications are disabled, and invite sends now record `invite_sent` failure metrics and return a clear actionable error when provider delivery fails instead of silently skipping email delivery. |
+| B4-T23 | Add conditional section-spacing relief for one-page PDF readability | BE/Docs | DONE | 2026-04-10 10:30:10 EDT | One-page export validation now first attempts section-only spacing relief (section-to-section and heading-to-content separation) and keeps those readability gains only when the PDF still fits on one page. |
+| B4-T22 | Improve one-page PDF page-fill efficiency with pre-export roominess validation | BE/Docs | DONE | 2026-04-10 10:18:18 EDT | Export now starts from larger density-first presets and, for `1_page` targets, validates roomier typography or spacing variants before finalizing so the PDF uses one page more evenly without spilling to page two. |
+| B4-T21 | Rebalance one-page PDF fit density and emphasize Professional Experience role titles | BE/Docs | DONE | 2026-04-10 09:59:28 EDT | PDF export now uses a density-first preset ladder that tightens spacing before reducing font size, restores larger baseline readability when one-page content has room, and bolds only Professional Experience role-title split rows when the right column is a date range. |
+| B4-T19 | Fix PDF export spacing and header replacement regressions, and warn more clearly about high aggressiveness | BE/FE/Docs | DONE | 2026-04-09 22:08:23 EDT | PDF export now keeps typography-derived spacing in physical print units instead of oversized `rem` values, export normalization replaces plain-text profile headers instead of duplicating them, and the Generation Settings UI plus PRD now warn more explicitly that High aggressiveness can make substantial changes and should be reviewed carefully. |
+| B4-T20 | Tighten PDF export vertical spacing and extend autofit compression for true one-page outputs | BE/Docs | DONE | 2026-04-09 22:19:08 EDT | The export renderer now removes most top margins between stacked blocks, eliminates extra first-section offset, tightens list and split-row spacing, and adds deeper fallback presets with smaller print margins so one-page resumes are more likely to stay on a single actual PDF page. |
+| B4-T18 | Fix profile PATCH JSONB binding and add sanitized diagnostics for profile-save failures | BE | DONE | 2026-04-09 21:29:34 EDT | `profiles.update_profile()` now wraps `section_preferences` and `section_order` values with psycopg `Jsonb` before `%s::jsonb` updates, preventing 500s when saving profile/preferences; the profile API now logs only exception class and attempted update field names on failure, and backend regression tests cover both JSONB wrapping and sanitized error logging. |
+| B4-T17 | Increase base resume Markdown editor height to use 50% of viewport for easier long-form editing | FE | DONE | 2026-04-09 20:16:19 EDT | Updated base resume editor textareas in upload-review, blank-create, and existing-edit flows from `min-h-[500px]` to `min-h-[50vh]` so the Markdown editor uses more vertical screen space and reduces scrolling while editing. |
+| B4-T16 | Fix dashboard monthly analytics labeling and aggregate low-volume job sources consistently | FE | DONE | 2026-04-09 10:32:47 EDT | The dashboard monthly chart now labels the second series as applications created in that month that are currently marked applied, and the job-sources card now rolls excess origins into an `Other` bucket so the list, percentages, pie slices, and total stay consistent. |
+| B4-T15 | Block generation and regeneration when stored job data is a blocked-source placeholder | BE | DONE | 2026-04-08 20:06:08 EDT | Generation, full regeneration, and section regeneration now fail closed before queueing if the stored job title or description still looks like blocked-page placeholder text, moving the application back to `manual_entry_required` with blocked-source diagnostics and an action-required recovery notification instead of sending bad input to the LLM. |
+| B4-T14 | Align full-draft generation timeouts with the PRD and preserve timeout failures through model fallback | AI/BE | DONE | 2026-04-08 19:54:26 EDT | Full generation and full regeneration now use a `90s` per-attempt LLM timeout instead of the section-level `45s` limit, single-section regeneration remains at `45s`, and provider timeouts now propagate as timeout-classified failures so the worker can surface `generation_timeout` or `regeneration_timeout` instead of a generic unexpected error. |
+| B4-T13 | Fix dashboard load failures, shared-table paging/sort regressions, and stale shell application state after detail mutations | FE | DONE | 2026-04-08 16:17:58 EDT | Dashboard load errors now render a recovery state instead of the empty workspace, the shared data table clamps page state and applies sortable header ordering, and detail-page mutations plus terminal polling refresh the shell application cache so breadcrumbs and attention badges stay current. |
 | B4-T12 | Tighten multi-line instruction screening and align low-aggressiveness length rules with minimal-change behavior | AI/BE | DONE | 2026-04-08 14:05:00 EDT | Generation instruction screening now normalizes textarea whitespace before policy checks, still blocks newline-separated override or fact-injection attempts, allows grounded title or company emphasis requests, and low aggressiveness no longer applies pruning-oriented bullet or skills caps that conflict with its preserve-the-source contract. |
 | B4-T11 | Emit generation heartbeats during long reasoning calls so idle-timeout recovery does not fire on healthy runs | AI/BE | DONE | 2026-04-08 13:35:00 EDT | Full generation and full regeneration now emit periodic in-flight progress heartbeats while waiting on structured-output model calls, preventing the 90-second idle timeout from marking healthy long-running reasoning requests as stalled. |
 | B4-T10 | Redesign prompts, enable generation-only OpenRouter reasoning, and add upload review warnings | AI/BE/FE | DONE | 2026-04-08 12:55:00 EDT | Resume generation now uses expert resume-writer prompts with section-specific aggressiveness and word budgets, generation-only reasoning through OpenRouter with structured-output fallback, stricter instruction validation, draft-context-aware section regeneration, extraction prompt hardening, and upload cleanup review warnings surfaced in the UI. |
@@ -133,6 +148,24 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| A0-T19 | Add semantic job-location extraction alongside compensation and expose it in the detail workspace | AI/BE/FE/Docs | DONE | 2026-04-09 20:56:55 EDT | Extraction now persists optional raw `job_location_text` separately from `compensation_text`, the prompt contract requires semantic separation even when both appear on the same rendered line, the detail workspace exposes Location for review and editing, and duplicate-review behavior remains unchanged when only location text changes. |
+| A0-T18 | Make Markdown edit mode visually structured with highlighted headers in both resume editors | FE | DONE | 2026-04-09 20:42:10 EDT | Added a shared highlighted Markdown editor that keeps plain Markdown as the saved value, color-codes and bolds `#`, `##`, and `###` lines while editing, and wired it into both base-resume editing and application draft edit mode. |
+| A0-T17 | Replace inline new-application intake with a modal and allow optional pasted-text creation | FE/BE/Docs | DONE | 2026-04-09 20:22:31 EDT | The applications page now opens a URL-first modal instead of an inline card, reveals pasted job text only when the user asks for it, and extends `POST /api/applications` so URL plus pasted source text can create and queue extraction directly from the modal. |
+| A0-T17 | Fix resume export header duplication, add profile LinkedIn support, and tighten PDF page-fit behavior | AI/BE/FE/Docs | DONE | 2026-04-09 20:18:29 EDT | Resume assembly and export now use one profile-driven header with location plus LinkedIn support, initial generation and full regeneration or export fail closed when profile `name` is missing, and PDF export retries tighter WeasyPrint presets to better match the saved `page_length` target. |
+| A0-T16 | Allow high-aggressiveness professional-experience title rewrites while keeping low and medium title-fixed | AI/FE/Docs | DONE | 2026-04-09 20:00:24 EDT | High aggressiveness now allows truthful role-title rewrites inside Professional Experience only, low and medium explicitly keep source role titles unchanged, the validator honors that high-only carveout, and the settings UI plus prompt catalog explain the rule clearly. |
+| A0-T15 | Capture full posting text plus compensation and clarify aggressiveness settings in the detail workspace | AI/BE/FE/Docs | DONE | 2026-04-09 19:36:58 EDT | Extraction now stores the full primary posting body instead of a narrowed responsibilities excerpt, applications can persist optional raw `compensation_text`, the detail workspace exposes that field for review and editing, and the compact Generation Settings card now uses inline popovers to explain exactly what low, medium, and high will change. |
+| A0-T14 | Keep attention-required notifications pinned when using inbox clear-all | FE/BE | DONE | 2026-04-09 19:17:57 EDT | Refined inbox clear-all so it deletes only non-action-required notifications, keeps attention items visible until the underlying issue is resolved, and updated backend plus frontend regression coverage to reflect the pinned-attention behavior. |
+| A0-T13 | Refresh open application views after inbox clear and keep popup branding assets inside the extension root | FE | DONE | 2026-04-09 14:28:00 EDT | Clear-all inbox now broadcasts a frontend refresh event so the applications list and detail page immediately drop stale action-required UI, and the Chrome extension popup now loads its logo from an asset bundled inside `frontend/public/chrome-extension/` with regression coverage for both fixes. |
+| A0-T12 | Align resume delete affordances with the shared icon-only destructive action pattern | FE | DONE | 2026-04-09 14:18:43 EDT | Replaced resume-card and resume-detail text delete buttons with the shared icon-only delete control, swapped browser confirms for the shared confirmation modal, and kept the existing resume delete flow plus regression coverage intact. |
+| A0-T11 | Add clear-all inbox controls for top-bar notifications | FE/BE | DONE | 2026-04-09 14:15:55 EDT | Added a user-scoped clear-all notifications endpoint, wired a `Clear all` action into the top-bar inbox dropdown, refreshed shell attention state after clearing, and added backend plus frontend regression coverage for success and failure handling. |
+| A0-T10 | Turn the top-bar notification bell into a scrollable inbox dropdown with linked application navigation | FE/BE | DONE | 2026-04-09 14:04:05 EDT | Added a user-scoped notifications inbox API, converted the bell into a dropdown that fetches newest-first notifications on open, keeps the existing attention badge semantics, scrolls for long lists, and routes linked notifications directly to their application detail page with frontend and backend regression coverage. |
+| A0-T09 | Rebrand the user-facing app and extension surfaces to Applix with the new folder logo | FE/BE | DONE | 2026-04-09 14:00:11 EDT | Added the supplied folder logo as the canonical public asset, replaced login/sidebar/browser/extension branding with Applix, and updated user-facing backend email subjects plus the exposed API title while leaving internal bridge identifiers unchanged. |
+| A0-T08 | Add icon-based application delete controls and user-triggered extraction stop recovery | FE/BE | DONE | 2026-04-09 13:59:38 EDT | Added icon-only delete controls in the applications table and detail header, introduced authenticated extraction-stop recovery with stale-callback fencing and no action-required notification, and updated the detail recovery UI so stuck extraction rows can be stopped, retried, or deleted safely. |
+| A0-T06 | Rebuild the dashboard analytics layout around a full-width monthly activity area chart and compact quarter-row summary cards | FE | DONE | 2026-04-09 09:44:31 EDT | Dashboard analytics now place a full-width monthly activity card directly below the KPI row, render the yearly created-versus-applied trend with a `recharts` area chart and shared chart UI wrapper, convert job sources into a compact pie chart, and rebalance job sources, top companies, and status breakdown into a responsive equal-width row. |
+| A0-T05 | Redesign the invite-only login page into a full-bleed branded auth surface with illustration-led composition | FE | DONE | 2026-04-08 22:18:41 EDT | Replaced the boxed login card with a full-viewport split layout, reused the existing Resume Builder / AI Workspace branding and theme fonts, added the businessman illustration as a frontend-served asset, and kept the existing auth flow, dev-mode messaging, and MVP signup restrictions intact. |
+| A0-T07 | Add application-table delete, bulk apply or delete selection, and row-alignment fixes | FE/BE | DONE | 2026-04-09 09:25:55 EDT | Added user-scoped application deletion with active-work blocking and progress cleanup, introduced current-page selection with bulk mark-as-applied and bulk delete actions in the applications table, and top-aligned the compact row layout so status badges and row text share the same visual baseline. |
+| A0-T04 | Tighten dashboard, applications, resumes, and extension UI density while normalizing status affordances | FE | DONE | 2026-04-08 22:16:10 EDT | Added compact card density primitives, normalized status badge sizing, unified the applied toggle treatment, stabilized application row heights with truncation, moved detail-page PDF export into the header action cluster, refreshed dashboard analytics visuals, added resume search, and tightened card spacing across the main frontend surfaces. |
+| A0-T03 | Rework the authenticated frontend shell and primary pages to use a fluid full-width responsive layout | FE | DONE | 2026-04-08 21:14:34 EDT | Removed the authenticated shell max-width cap, added shared responsive gutters, expanded list and card layouts to use wide screens more effectively, and converted the application detail workspace to a responsive grid with a compact sticky settings rail and independent resume pane scrolling. |
 | A0-T02 | Document the latest live prompt catalog and variant permutations under `docs/prompts.md` | Docs | DONE | 2026-04-08 10:00:39 EDT | Added a code-derived prompt catalog covering extraction, resume generation, section regeneration, and upload cleanup, including the current prompt text, variant matrix, and dynamic section-permutation rules. |
 | A0-T01 | Simplify the local env contract, disable local auth emails, and add the backend Resend send gate | Infra | DONE | 2026-04-07 12:06:48 EDT | Root env is now canonical, local GoTrue mail delivery is disabled, and backend email sending is gated by `EMAIL_NOTIFICATIONS_ENABLED`. |
 
@@ -199,7 +232,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 **Scope**
 
 - Build the applications dashboard with loading, empty-state, search, filter, sort, and inline `applied` toggle support.
-- Implement the New Application flow with URL-only submission.
+- Implement the New Application flow as a URL-first intake with optional pasted-text submission.
 - Create draft applications immediately, then launch async job extraction with progress feedback.
 - Support extraction success, extraction failure, retry extraction, and manual entry fallback, including normalized job posting origin capture.
 - Allow job posting origin to be auto-populated when extractable, edited later from the application detail view, and manually selected during manual entry.
@@ -345,7 +378,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 - A user can generate an ATS-friendly Markdown resume from a selected base resume and job posting.
 - Validation failures leave a recoverable `Needs Action` state with notifications.
-- Successful generation lands the application in `In Progress`.
+- Successful generation lands the application in `Needs Action` (ready for review).
 - The preview mode reflects the latest saved Markdown draft.
 
 **PRD Acceptance Coverage**
@@ -364,7 +397,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Support single-section regeneration with required instructions.
 - Support full regeneration with pre-filled prior settings and overwrite of the current draft.
 - Implement on-demand PDF export from the latest draft content with ATS-safe formatting.
-- Preserve the PRD rule that editing or regenerating after export returns the visible status to `In Progress`.
+- Preserve the PRD rule that editing or regenerating after export returns the visible status to `Needs Action` (resume ready but export stale).
 - Handle regeneration and export failures with recoverable status changes and notifications.
 
 **Dependencies**
@@ -389,7 +422,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Section regeneration rejects blank instructions and updates only the selected section.
 - Full regeneration reuses and updates prior settings appropriately.
 - PDF export produces a fresh file from the latest saved draft and does not persist the PDF.
-- Editing or regeneration after export returns the application to `In Progress`.
+- Editing or regeneration after export returns the application to `Needs Action`.
 
 **PRD Acceptance Coverage**
 
@@ -397,7 +430,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Regenerate a single section with required instructions.
 - Regenerate the full resume with updated settings and optional instructions.
 - Export the current draft as a PDF download.
-- See status return to `In Progress` after editing or regenerating a previously exported resume.
+- See status return to `Needs Action` after editing or regenerating a previously exported resume.
 
 ## Phase 5 — Hardening, Recovery, and MVP Acceptance
 
@@ -452,7 +485,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | Regenerate a single section with required instructions | Phase 4 |
 | Regenerate the full resume with updated settings and optional instructions | Phase 4 |
 | Export the current draft as a PDF download | Phase 4 |
-| See status return to `In Progress` after editing or regenerating a previously exported resume | Phase 4 |
+| See status return to `Needs Action` after editing or regenerating a previously exported resume | Phase 4 |
 | Toggle the Applied flag independently of the primary status | Phase 1 and Phase 3 |
 | Receive in-app notifications for all workflow events | Phase 1, Phase 3, and Phase 4 |
 | Receive email notifications for high-signal events | Phase 1, Phase 3, and Phase 4 |

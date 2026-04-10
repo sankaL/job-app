@@ -1,5 +1,5 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "visible_statuses": [
     { "id": "draft", "label": "Draft" },
     { "id": "needs_action", "label": "Needs Action" },
@@ -64,16 +64,24 @@
       }
     },
     {
-      "name": "resume_ready_without_fresh_export_is_in_progress",
+      "name": "resume_ready_without_fresh_export_is_needs_action",
+      "status": "needs_action",
+      "when": {
+        "internal_state_in": [
+          "resume_ready"
+        ],
+        "has_successful_export": false
+      }
+    },
+    {
+      "name": "regenerating_and_export_states_are_in_progress",
       "status": "in_progress",
       "when": {
         "internal_state_in": [
-          "resume_ready",
           "regenerating_section",
           "regenerating_full",
           "export_in_progress"
-        ],
-        "has_successful_export": false
+        ]
       }
     },
     {

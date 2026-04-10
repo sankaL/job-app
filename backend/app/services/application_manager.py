@@ -9,6 +9,7 @@ from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import Settings, get_settings
+from app.db.admin import AdminRepository, get_admin_repository
 from app.db.applications import (
     ApplicationListRecord,
     ApplicationRecord,
@@ -39,10 +40,11 @@ from app.services.workflow import derive_visible_status
 
 logger = logging.getLogger(__name__)
 
-FULL_GENERATION_IDLE_TIMEOUT_SECONDS = 90
-FULL_GENERATION_MAX_TIMEOUT_SECONDS = 300
-SECTION_REGENERATION_IDLE_TIMEOUT_SECONDS = 45
-SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 90
+FULL_GENERATION_IDLE_TIMEOUT_SECONDS = 240
+FULL_GENERATION_MAX_TIMEOUT_SECONDS = 540
+SECTION_REGENERATION_IDLE_TIMEOUT_SECONDS = 120
+SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 280
+FULL_REGENERATION_LIMIT_PER_APPLICATION = 3
 ACTIVE_GENERATION_STATES = {"generating", "regenerating_full", "regenerating_section"}
 ACTIVE_GENERATION_PROGRESS_STATES = {
     "generation_pending",
@@ -50,6 +52,24 @@ ACTIVE_GENERATION_PROGRESS_STATES = {
     "regenerating_full",
     "regenerating_section",
 }
+ACTIVE_EXTRACTION_STATES = {"extraction_pending", "extracting"}
+ACTIVE_DELETE_BLOCKING_STATES = {
+    "extraction_pending",
+    "extracting",
+    "generating",
+    "regenerating_full",
+    "regenerating_section",
+}
+BLOCKED_PLACEHOLDER_TITLE_PREFIXES = ("blocked - ",)
+BLOCKED_PLACEHOLDER_TITLE_VALUES = {"you have been blocked", "access denied", "attention required"}
+BLOCKED_PLACEHOLDER_DESCRIPTION_MARKERS = (
+    "you have been blocked",
+    "ray id for this request",
+    "request blocked notice",
+    "support.indeed.com",
+    "access denied",
+    "attention required",
+)
 
 
 class DuplicateWarningPayload(BaseModel):
@@ -76,6 +96,8 @@ class WorkerSuccessPayload(BaseModel):
     job_title: str
     job_description: str
     company: Optional[str] = None
+    job_location_text: Optional[str] = None
+    compensation_text: Optional[str] = None
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
     extracted_reference_id: Optional[str] = None
@@ -166,6 +188,7 @@ class ApplicationService:
         generation_job_queue: GenerationJobQueue,
         email_sender: EmailSender,
         settings: Settings,
+        admin_repository: Optional[AdminRepository] = None,
     ) -> None:
         self.repository = repository
         self.base_resume_repository = base_resume_repository
@@ -177,6 +200,7 @@ class ApplicationService:
         self.generation_job_queue = generation_job_queue
         self.email_sender = email_sender
         self.settings = settings
+        self.admin_repository = admin_repository
         self.duplicate_detector = DuplicateDetector(settings.duplicate_similarity_threshold)
 
     async def list_applications(
@@ -298,6 +322,19 @@ class ApplicationService:
             updated = self._refresh(user_id=user_id, application_id=application_id)
 
         return self._detail_payload(updated)
+
+    async def delete_application(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> None:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        if record.internal_state in ACTIVE_DELETE_BLOCKING_STATES:
+            raise PermissionError("Application cannot be deleted while background work is still running.")
+
+        await self.progress_store.delete(application_id)
+        self.repository.delete_application(application_id=application_id, user_id=user_id)
 
     async def complete_manual_entry(
         self,
@@ -488,6 +525,45 @@ class ApplicationService:
             action_required=False,
         )
 
+        return self._detail_payload(updated)
+
+    async def cancel_extraction(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> ApplicationDetailPayload:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        current_progress = await self.progress_store.get(application_id)
+
+        if not self._is_extraction_active(record=record, progress=current_progress):
+            raise PermissionError("No active extraction to stop.")
+
+        failure_details = ExtractionFailureDetailsPayload(
+            kind="user_cancelled",
+            blocked_url=record.job_url,
+            detected_at=datetime.now(timezone.utc).isoformat(),
+        )
+        updated = self.repository.update_application(
+            application_id=application_id,
+            user_id=user_id,
+            updates=self._workflow_updates(
+                internal_state="manual_entry_required",
+                failure_reason="extraction_failed",
+                extraction_failure_details=failure_details.model_dump(),
+                duplicate_similarity_score=None,
+                duplicate_match_fields=None,
+                duplicate_resolution_status=None,
+                duplicate_matched_application_id=None,
+            ),
+        )
+        self.notification_repository.clear_action_required(user_id=user_id, application_id=application_id)
+        await self._set_terminal_extraction_progress(
+            record=updated,
+            previous_progress=current_progress,
+            message="Extraction was stopped. Retry or delete this application.",
+            terminal_error_code="extraction_failed",
+        )
         return self._detail_payload(updated)
 
     async def _detect_and_recover_stuck_generation(
@@ -734,6 +810,8 @@ class ApplicationService:
                     "job_title": payload.extracted.job_title,
                     "company": payload.extracted.company,
                     "job_description": payload.extracted.job_description,
+                    "job_location_text": payload.extracted.job_location_text,
+                    "compensation_text": payload.extracted.compensation_text,
                     "extracted_reference_id": payload.extracted.extracted_reference_id,
                     "job_posting_origin": payload.extracted.job_posting_origin,
                     "job_posting_origin_other_text": payload.extracted.job_posting_origin_other_text,
@@ -747,6 +825,12 @@ class ApplicationService:
                         duplicate_matched_application_id=None,
                     ),
                 },
+            )
+            self._record_usage_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                event_type="extraction",
+                event_status="success",
             )
             return await self._run_duplicate_resolution_flow(updated)
 
@@ -770,6 +854,9 @@ class ApplicationService:
         if not record.job_title or not record.job_description:
             raise ValueError("Job title and description are required before generation.")
 
+        if self._looks_like_blocked_source_placeholder(record):
+            return await self._route_blocked_job_data_to_manual_entry(record)
+
         if record.duplicate_resolution_status == "pending":
             raise PermissionError("Unresolved duplicate must be resolved before generation.")
 
@@ -777,16 +864,9 @@ class ApplicationService:
         if base_resume is None:
             raise LookupError("Base resume not found.")
 
-        profile = self.profile_repository.fetch_profile(user_id)
-        if profile is None:
-            raise ValueError("User profile is required for generation.")
-
-        personal_info = {
-            "name": profile.name,
-            "email": profile.email,
-            "phone": profile.phone,
-            "address": profile.address,
-        }
+        profile = self._require_profile(user_id=user_id, action="generating a resume")
+        self._require_profile_name(profile, action="generating a resume")
+        personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
 
@@ -959,8 +1039,14 @@ class ApplicationService:
             )
             await self._send_generation_email(
                 record=updated,
-                subject="Resume Builder: resume generated",
+                subject="Applix: resume generated",
                 body="Your tailored resume has been generated and is ready for review.",
+            )
+            self._record_usage_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                event_type="generation",
+                event_status="success",
             )
             return updated
 
@@ -987,6 +1073,9 @@ class ApplicationService:
         if not record.job_title or not record.job_description:
             raise ValueError("Job title and description are required for regeneration.")
 
+        if self._looks_like_blocked_source_placeholder(record):
+            return await self._route_blocked_job_data_to_manual_entry(record)
+
         base_resume_id = record.base_resume_id
         if not base_resume_id:
             raise ValueError("A base resume must be linked to the application for regeneration.")
@@ -995,16 +1084,18 @@ class ApplicationService:
         if base_resume is None:
             raise LookupError("Linked base resume not found.")
 
-        profile = self.profile_repository.fetch_profile(user_id)
-        if profile is None:
-            raise ValueError("User profile is required for regeneration.")
-
-        personal_info = {
-            "name": profile.name,
-            "email": profile.email,
-            "phone": profile.phone,
-            "address": profile.address,
-        }
+        profile = self._require_profile(user_id=user_id, action="regenerating the full resume")
+        self._require_profile_name(profile, action="regenerating the full resume")
+        is_admin_profile = self._profile_is_admin(profile)
+        if (
+            not is_admin_profile
+            and record.full_regeneration_count >= FULL_REGENERATION_LIMIT_PER_APPLICATION
+        ):
+            raise PermissionError(
+                "You have reached the full regeneration limit for this resume. "
+                "Please contact an administrator for additional regenerations."
+            )
+        personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
         generation_settings = {
@@ -1041,6 +1132,14 @@ class ApplicationService:
                 regeneration_target="full",
                 regeneration_instructions=additional_instructions,
             )
+            if not is_admin_profile:
+                updated = self.repository.update_application(
+                    application_id=application_id,
+                    user_id=user_id,
+                    updates={
+                        "full_regeneration_count": updated.full_regeneration_count + 1,
+                    },
+                )
             await self.progress_store.set(
                 application_id,
                 build_progress(
@@ -1083,6 +1182,9 @@ class ApplicationService:
         if not record.job_title or not record.job_description:
             raise ValueError("Job title and description are required for regeneration.")
 
+        if self._looks_like_blocked_source_placeholder(record):
+            return await self._route_blocked_job_data_to_manual_entry(record)
+
         base_resume_id = record.base_resume_id
         if not base_resume_id:
             raise ValueError("A base resume must be linked to the application for regeneration.")
@@ -1095,12 +1197,7 @@ class ApplicationService:
         if profile is None:
             raise ValueError("User profile is required for regeneration.")
 
-        personal_info = {
-            "name": profile.name,
-            "email": profile.email,
-            "phone": profile.phone,
-            "address": profile.address,
-        }
+        personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
         generation_settings = draft.generation_params
@@ -1257,8 +1354,14 @@ class ApplicationService:
             )
             await self._send_generation_email(
                 record=updated,
-                subject="Resume Builder: resume regenerated",
+                subject="Applix: resume regenerated",
                 body="Your resume has been regenerated and is ready for review.",
+            )
+            self._record_usage_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                event_type="regeneration",
+                event_status="success",
             )
             return updated
 
@@ -1330,17 +1433,10 @@ class ApplicationService:
         if draft is None:
             raise PermissionError("No draft exists. Generation must happen first.")
 
-        profile = self.profile_repository.fetch_profile(user_id)
-        personal_info = None
-        full_name = "resume"
-        if profile:
-            personal_info = {
-                "name": profile.name,
-                "email": profile.email,
-                "phone": profile.phone,
-                "address": profile.address,
-            }
-            full_name = (profile.name or "resume").replace(" ", "_")
+        profile = self._require_profile(user_id=user_id, action="exporting a PDF")
+        self._require_profile_name(profile, action="exporting a PDF")
+        personal_info = self._build_personal_info(profile)
+        full_name = (self._clean_profile_value(profile.name) or "resume").replace(" ", "_")
 
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"{full_name}_resume_{timestamp}.pdf"
@@ -1349,6 +1445,7 @@ class ApplicationService:
             pdf_bytes = await generate_pdf(
                 markdown_content=draft.content_md,
                 personal_info=personal_info,
+                page_length=str(draft.generation_params.get("page_length") or "1_page"),
             )
         except asyncio.TimeoutError:
             await self._handle_export_failure(
@@ -1392,6 +1489,12 @@ class ApplicationService:
             message="PDF export completed successfully.",
             action_required=False,
         )
+        self._record_usage_event(
+            user_id=user_id,
+            application_id=application_id,
+            event_type="export",
+            event_status="success",
+        )
 
         return pdf_bytes, filename
 
@@ -1416,11 +1519,17 @@ class ApplicationService:
             message=message,
             action_required=True,
         )
+        self._record_usage_event(
+            user_id=record.user_id,
+            application_id=record.id,
+            event_type="export",
+            event_status="failure",
+        )
         try:
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
-                    subject="Resume Builder: PDF export failed",
+                    subject="Applix: PDF export failed",
                     text=(
                         f"{message}\n\n"
                         f"Open the application: {self._application_url(record.id)}"
@@ -1539,6 +1648,12 @@ class ApplicationService:
             message=message,
             send_email=True,
         )
+        self._record_usage_event(
+            user_id=record.user_id,
+            application_id=record.id,
+            event_type="extraction",
+            event_status="failure",
+        )
         return updated
 
     async def _mark_generation_failure(
@@ -1568,7 +1683,13 @@ class ApplicationService:
             notification_type="error",
             message=message,
             send_email=True,
-            email_subject=f"Resume Builder: {'regeneration' if 'regeneration' in failure_reason else 'generation'} failed",
+            email_subject=f"Applix: {'regeneration' if 'regeneration' in failure_reason else 'generation'} failed",
+        )
+        self._record_usage_event(
+            user_id=record.user_id,
+            application_id=record.id,
+            event_type="regeneration" if "regeneration" in failure_reason else "generation",
+            event_status="failure",
         )
         return updated
 
@@ -1614,7 +1735,7 @@ class ApplicationService:
             action_required=True,
         )
         if send_email:
-            subject = email_subject or "Resume Builder: extraction needs manual entry"
+            subject = email_subject or "Applix: extraction needs manual entry"
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
@@ -1626,11 +1747,99 @@ class ApplicationService:
                 )
             )
 
+    async def _route_blocked_job_data_to_manual_entry(
+        self,
+        record: ApplicationRecord,
+    ) -> ApplicationDetailPayload:
+        failure_details = self._blocked_source_failure_details(record)
+        updated = self.repository.update_application(
+            application_id=record.id,
+            user_id=record.user_id,
+            updates=self._workflow_updates(
+                internal_state="manual_entry_required",
+                failure_reason="extraction_failed",
+                extraction_failure_details=failure_details,
+                generation_failure_details=None,
+                duplicate_similarity_score=None,
+                duplicate_match_fields=None,
+                duplicate_resolution_status=None,
+                duplicate_matched_application_id=None,
+            ),
+        )
+        await self._set_action_required(
+            record=updated,
+            notification_type="error",
+            message=(
+                "Stored job details look like a blocked-source placeholder. "
+                "Paste the job text or complete manual entry."
+            ),
+            send_email=False,
+        )
+        return self._detail_payload(updated)
+
     def _recipient_email(self, record: ApplicationRecord) -> str:
         profile = self.profile_repository.fetch_profile(record.user_id)
         if profile is None:
             raise ValueError("Authenticated profile is unavailable.")
         return profile.email
+
+    @staticmethod
+    def _clean_profile_value(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = str(value).strip()
+        return stripped or None
+
+    def _require_profile(self, *, user_id: str, action: str):
+        profile = self.profile_repository.fetch_profile(user_id)
+        if profile is None:
+            raise ValueError(f"Complete your profile before {action}.")
+        return profile
+
+    @staticmethod
+    def _profile_is_admin(profile: Any) -> bool:
+        return bool(getattr(profile, "is_admin", False))
+
+    def _require_profile_name(self, profile, *, action: str) -> None:
+        if not self._clean_profile_value(getattr(profile, "name", None)):
+            raise ValueError(f"Complete your profile name before {action}.")
+
+    def _build_personal_info(self, profile) -> dict[str, Optional[str]]:
+        return {
+            "name": self._clean_profile_value(getattr(profile, "name", None)),
+            "email": self._clean_profile_value(getattr(profile, "email", None)),
+            "phone": self._clean_profile_value(getattr(profile, "phone", None)),
+            "address": self._clean_profile_value(getattr(profile, "address", None)),
+            "linkedin_url": self._clean_profile_value(getattr(profile, "linkedin_url", None)),
+        }
+
+    @staticmethod
+    def _looks_like_blocked_source_placeholder(record: ApplicationRecord) -> bool:
+        failure_details = record.extraction_failure_details or {}
+        if failure_details.get("kind") == "blocked_source":
+            return True
+
+        title = (record.job_title or "").strip().lower()
+        description = (record.job_description or "").strip().lower()
+
+        if title in BLOCKED_PLACEHOLDER_TITLE_VALUES:
+            return True
+        if any(title.startswith(prefix) for prefix in BLOCKED_PLACEHOLDER_TITLE_PREFIXES):
+            return True
+        return any(marker in description for marker in BLOCKED_PLACEHOLDER_DESCRIPTION_MARKERS)
+
+    @staticmethod
+    def _blocked_source_failure_details(record: ApplicationRecord) -> dict[str, Any]:
+        existing = record.extraction_failure_details or {}
+        if existing.get("kind") == "blocked_source":
+            return existing
+        return {
+            "kind": "blocked_source",
+            "provider": record.job_posting_origin,
+            "reference_id": None,
+            "blocked_url": record.job_url,
+            "detected_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     @staticmethod
     def _build_section_preferences(profile) -> list[dict[str, Any]]:
@@ -1700,6 +1909,8 @@ class ApplicationService:
         if record.failure_reason == "regeneration_failed":
             return "Regeneration failed. Review the errors and retry."
         if record.internal_state == "manual_entry_required":
+            if record.extraction_failure_details and record.extraction_failure_details.get("kind") == "user_cancelled":
+                return "Extraction was stopped. Retry or delete this application."
             if record.extraction_failure_details and record.extraction_failure_details.get("kind") == "blocked_source":
                 return "This source blocked automated retrieval. Paste the job text or complete manual entry."
             return "Extraction failed. Manual entry is required."
@@ -1847,6 +2058,23 @@ class ApplicationService:
             and progress.workflow_kind == "generation"
         )
 
+    def _is_extraction_active(
+        self,
+        *,
+        record: ApplicationRecord,
+        progress: Optional[ProgressRecord],
+    ) -> bool:
+        if record.failure_reason is not None:
+            return False
+
+        if record.internal_state not in ACTIVE_EXTRACTION_STATES:
+            return False
+
+        if progress is None:
+            return True
+
+        return progress.completed_at is None and progress.terminal_error_code is None
+
     async def _set_terminal_generation_progress(
         self,
         *,
@@ -1867,8 +2095,55 @@ class ApplicationService:
         completed_progress.completed_at = completed_progress.updated_at
         await self.progress_store.set(record.id, completed_progress)
 
+    async def _set_terminal_extraction_progress(
+        self,
+        *,
+        record: ApplicationRecord,
+        previous_progress: Optional[ProgressRecord],
+        message: str,
+        terminal_error_code: str,
+    ) -> None:
+        completed_progress = build_progress(
+            job_id=f"extraction-stopped-{record.id}-{int(datetime.now(timezone.utc).timestamp())}",
+            workflow_kind="extraction",
+            state="manual_entry_required",
+            message=message,
+            percent_complete=100,
+            terminal_error_code=terminal_error_code,
+            created_at=previous_progress.created_at if previous_progress is not None else record.created_at,
+        )
+        completed_progress.completed_at = completed_progress.updated_at
+        await self.progress_store.set(record.id, completed_progress)
+
     def _application_url(self, application_id: str) -> str:
         return f"{self.settings.app_url.rstrip('/')}/app/applications/{application_id}"
+
+    def _record_usage_event(
+        self,
+        *,
+        user_id: str,
+        event_type: str,
+        event_status: str,
+        application_id: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        if self.admin_repository is None:
+            return
+        try:
+            self.admin_repository.create_usage_event(
+                user_id=user_id,
+                application_id=application_id,
+                event_type=event_type,
+                event_status=event_status,
+                metadata=metadata,
+            )
+        except Exception:
+            logger.exception(
+                "Failed recording usage event. type=%s status=%s app_id=%s",
+                event_type,
+                event_status,
+                application_id,
+            )
 
     def _refresh(self, *, user_id: str, application_id: str) -> ApplicationRecord:
         refreshed = self.repository.fetch_application(user_id, application_id)
@@ -1931,6 +2206,7 @@ def get_application_service(
     progress_store: RedisProgressStore = Depends(get_progress_store),
     extraction_job_queue: ExtractionJobQueue = Depends(get_extraction_job_queue),
     generation_job_queue: GenerationJobQueue = Depends(get_generation_job_queue),
+    admin_repository: AdminRepository = Depends(get_admin_repository),
     settings: Settings = Depends(get_settings),
 ) -> ApplicationService:
     return ApplicationService(
@@ -1944,4 +2220,5 @@ def get_application_service(
         generation_job_queue=generation_job_queue,
         email_sender=build_email_sender(settings),
         settings=settings,
+        admin_repository=admin_repository,
     )

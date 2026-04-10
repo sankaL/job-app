@@ -37,8 +37,8 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 
 ## Async and Timeout Contract
 - Extraction must enforce a `30s` timeout.
-- Full resume generation must enforce a `90s` idle timeout with a `300s` maximum wall-clock window.
-- Single-section regeneration must enforce a `45s` timeout.
+- Full resume generation and full regeneration must enforce a `240s` idle timeout with a `240s` maximum wall-clock window.
+- Single-section regeneration must enforce a `120s` idle timeout with a `120s` maximum wall-clock window.
 - PDF export must enforce a `20s` timeout.
 - Background work must use bounded retries, explicit cancellation behavior, and clear terminal failure handling.
 - OpenRouter integration must support a configurable primary model and configurable fallback model, with one retry against the fallback only after primary-model failure or invalid structured output.
@@ -47,7 +47,8 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Initial generation and full regeneration must use one LLM request that returns structured JSON for all enabled sections in order.
 - Respect the user's enabled sections, section order, target length, aggressiveness setting, and additional instructions where applicable.
 - Strip personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
-- Never generate personal information or invent credentials, employers, titles, dates, or educational institutions.
+- Never generate personal information or invent credentials, employers, dates, or educational institutions. High aggressiveness may retitle Professional Experience role names only when the new title remains a truthful reframing of the same source role and keeps employer and dates unchanged.
+- Full regeneration must enforce a per-application cap of three queued attempts for non-admin users; admin users bypass the cap.
 - Run deterministic schema and rule validation over generated content before assembly.
 - Validator outcomes are limited to approve or fail.
 - Validation failure must block assembly and follow the generation failure path defined by the PRD.

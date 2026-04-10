@@ -2,20 +2,552 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Design System — CSS Custom Properties
+   ============================================================ */
 :root {
+  /* ---- Color Palette ---- */
+  --color-ink:        #101828;
+  --color-ink-75:     rgba(16, 24, 40, 0.75);
+  --color-ink-65:     rgba(16, 24, 40, 0.65);
+  --color-ink-50:     rgba(16, 24, 40, 0.50);
+  --color-ink-40:     rgba(16, 24, 40, 0.40);
+  --color-ink-25:     rgba(16, 24, 40, 0.25);
+  --color-ink-10:     rgba(16, 24, 40, 0.10);
+  --color-ink-05:     rgba(16, 24, 40, 0.05);
+
+  --color-canvas:     #f5f3ee;
+  --color-sand:       #e6dccd;
+  --color-spruce:     #184a45;
+  --color-spruce-light: #1f5f59;
+  --color-spruce-10:  rgba(24, 74, 69, 0.10);
+  --color-spruce-05:  rgba(24, 74, 69, 0.05);
+  --color-ember:      #9f3a16;
+  --color-ember-light: #C4501E;
+  --color-ember-10:   rgba(159, 58, 22, 0.10);
+  --color-ember-05:   rgba(159, 58, 22, 0.05);
+  --color-amber:      #b45309;
+  --color-amber-10:   rgba(180, 83, 9, 0.10);
+
+  --color-white:      #ffffff;
+  --color-surface:    rgba(255, 255, 255, 0.92);
+  --color-border:     rgba(16, 24, 40, 0.08);
+  --color-border-hover: rgba(16, 24, 40, 0.16);
+
+  /* ---- Sidebar ---- */
+  --color-sidebar-bg:       #0e2f2c;
+  --color-sidebar-bg-hover: #143b37;
+  --color-sidebar-bg-active: var(--color-spruce);
+  --color-sidebar-text:     rgba(255, 255, 255, 0.72);
+  --color-sidebar-text-active: #ffffff;
+  --color-sidebar-border:   rgba(255, 255, 255, 0.06);
+  --sidebar-width:          256px;
+  --sidebar-collapsed-width: 68px;
+
+  /* ---- TopBar ---- */
+  --topbar-height:    64px;
+  --app-shell-inline-pad: 1rem;
+
+  /* ---- Radius ---- */
+  --radius-xs:  4px;
+  --radius-sm:  6px;
+  --radius-md:  8px;
+  --radius-lg:  12px;
+  --radius-xl:  16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
+
+  /* ---- Shadows ---- */
+  --shadow-xs:    0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-sm:    0 2px 6px rgba(16, 24, 40, 0.06);
+  --shadow-md:    0 4px 16px rgba(16, 24, 40, 0.08);
+  --shadow-lg:    0 8px 32px rgba(16, 24, 40, 0.10);
+  --shadow-panel: 0 24px 60px rgba(16, 24, 40, 0.12);
+
+  /* ---- Transitions ---- */
+  --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast:   120ms;
+  --duration-normal: 200ms;
+  --duration-slow:   350ms;
+
+  /* ---- Typography ---- */
   font-family: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
-  color: #101828;
-  background:
-    radial-gradient(circle at top left, rgba(24, 74, 69, 0.12), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(159, 58, 22, 0.12), transparent 28%),
-    #f5f3ee;
+  color: var(--color-ink);
+}
+
+/* ============================================================
+   Base / Reset
+   ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  background: var(--color-canvas);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-* {
-  box-sizing: border-box;
+/* ============================================================
+   Scrollbar (subtle)
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-25);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-40);
+}
+
+/* ============================================================
+   Keyframe Animations
+   ============================================================ */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes skeletonPulse {
+  0%   { opacity: 0.5; }
+  50%  { opacity: 0.8; }
+  100% { opacity: 0.5; }
+}
+
+@keyframes progressPulse {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gen-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gen-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.3); opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ============================================================
+   Utility Classes
+   ============================================================ */
+.animate-fadeIn {
+  animation: fadeIn var(--duration-normal) var(--ease-out) both;
+}
+
+.animate-fadeInUp {
+  animation: fadeInUp var(--duration-slow) var(--ease-out) both;
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft var(--duration-slow) var(--ease-out) both;
+}
+
+.animate-slideInRight {
+  animation: slideInRight var(--duration-slow) var(--ease-out) both;
+}
+
+.animate-scaleIn {
+  animation: scaleIn var(--duration-normal) var(--ease-out) both;
+}
+
+.animate-skeleton {
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+  background: var(--color-ink-10);
+  border-radius: var(--radius-md);
+}
+
+.animate-spin {
+  animation: spin 0.7s linear infinite;
+}
+
+/* Stagger children using CSS custom property */
+.stagger-children > * {
+  animation: fadeInUp var(--duration-slow) var(--ease-out) both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+
+/* ============================================================
+   Prose / Markdown Preview Styling
+   ============================================================ */
+.prose {
+  line-height: 1.7;
+  color: var(--color-ink);
+}
+.prose h1 { font-size: 1.75rem; font-weight: 700; margin: 1.2em 0 0.5em; }
+.prose h2 { font-size: 1.35rem; font-weight: 700; margin: 1.1em 0 0.4em; border-bottom: 1px solid var(--color-border); padding-bottom: 0.3em; }
+.prose h3 { font-size: 1.1rem;  font-weight: 600; margin: 1em 0 0.3em; }
+.prose p  { margin: 0.5em 0; }
+.prose ul, .prose ol { margin: 0.5em 0; padding-left: 1.5em; }
+.prose li { margin: 0.2em 0; }
+.prose code {
+  background: var(--color-ink-05);
+  padding: 0.15em 0.4em;
+  border-radius: var(--radius-xs);
+  font-size: 0.88em;
+}
+.prose pre {
+  background: var(--color-ink);
+  color: #e0e0e0;
+  padding: 1em;
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+.prose a {
+  color: var(--color-spruce);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose a:hover {
+  color: var(--color-ink);
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
+.prose th, .prose td {
+  border: 1px solid var(--color-border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+  font-size: 0.9em;
+}
+.prose th {
+  background: var(--color-ink-05);
+  font-weight: 600;
+}
+
+.resume-preview-markdown h1 {
+  color: var(--color-spruce);
+  letter-spacing: -0.02em;
+}
+
+.resume-preview-markdown h2 {
+  color: var(--color-ember);
+  border-bottom-color: var(--color-sand);
+}
+
+.resume-preview-markdown h3 {
+  color: var(--color-spruce-light);
+}
+
+/* ============================================================
+   Page Transition Wrapper
+   ============================================================ */
+.page-enter {
+  animation: fadeInUp var(--duration-slow) var(--ease-out) both;
+}
+
+.app-shell-header {
+  padding-inline: var(--app-shell-inline-pad);
+}
+
+.app-shell-main {
+  padding: 1.5rem var(--app-shell-inline-pad) 2rem;
+}
+
+.app-shell-content {
+  width: 100%;
+  min-width: 0;
+}
+
+/* ============================================================
+   Toast Animations
+   ============================================================ */
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes toastSlideOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(8px) scale(0.96); }
+}
+
+/* ============================================================
+   Markdown Editor — Highlighted Markdown Surface
+   ============================================================ */
+.markdown-editor {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(27, 34, 41, 0.98) 0%, rgba(16, 20, 25, 0.98) 100%);
+  font-family: "JetBrains Mono", "Fira Code", "Source Code Pro", "Menlo", monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  tab-size: 2;
+  overflow: hidden;
+  transition: border-color var(--duration-normal) var(--ease-out),
+              box-shadow var(--duration-normal) var(--ease-out);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.markdown-editor-highlight,
+.markdown-editor-input {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  padding: 20px 24px;
+  font: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  tab-size: inherit;
+}
+
+.markdown-editor-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: auto;
+  pointer-events: none;
+  color: #c5c8c6;
+  scrollbar-width: none;
+}
+
+.markdown-editor-highlight::-webkit-scrollbar {
+  display: none;
+}
+
+.markdown-editor-line {
+  display: inline;
+}
+
+.markdown-editor-line.heading-1 {
+  color: #76d9cc;
+  font-weight: 800;
+}
+
+.markdown-editor-line.heading-2 {
+  color: #f4a781;
+  font-weight: 800;
+}
+
+.markdown-editor-line.heading-3 {
+  color: #d8c69d;
+  font-weight: 700;
+}
+
+.markdown-editor-input {
+  position: relative;
+  z-index: 2;
+  display: block;
+  border: none;
+  background: transparent;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: #e2e8e3;
+  resize: none;
+  outline: none;
+}
+
+.markdown-editor-input::selection {
+  background: rgba(118, 217, 204, 0.25);
+}
+
+.markdown-editor-input::-moz-selection {
+  background: rgba(118, 217, 204, 0.25);
+}
+
+.markdown-editor-placeholder {
+  position: absolute;
+  inset: 20px 24px auto;
+  z-index: 1;
+  color: rgba(197, 200, 198, 0.35);
+  font: inherit;
+  line-height: inherit;
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+.markdown-editor:focus-within {
+  border-color: var(--color-spruce);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.25),
+              0 0 0 2px var(--color-spruce-10);
+}
+
+.markdown-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: #0a0e12;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: none;
+  font-size: 11px;
+  color: rgba(197, 200, 198, 0.5);
+}
+
+.markdown-editor-footer kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 10px;
+  font-family: inherit;
+}
+
+/* When the editor is in a rounded card, remove the redundant border-bottom radius */
+.markdown-editor.no-bottom-radius {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* ============================================================
+   Responsive Sidebar
+   ============================================================ */
+@media (max-width: 767px) {
+  .sidebar-desktop {
+    display: none !important;
+  }
+
+  .main-with-sidebar {
+    margin-left: 0 !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .sidebar-mobile-toggle {
+    display: none !important;
+  }
+}
+
+@media (min-width: 640px) {
+  :root {
+    --app-shell-inline-pad: clamp(1.25rem, 1rem + 0.8vw, 1.75rem);
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --app-shell-inline-pad: clamp(1.75rem, 0.75rem + 1.8vw, 2.75rem);
+  }
+}
+
+@media (min-width: 1536px) {
+  :root {
+    --app-shell-inline-pad: clamp(2.25rem, 0.5rem + 2vw, 4rem);
+  }
+}
+
+/* Sidebar overlay for mobile */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: rgba(16, 24, 40, 0.4);
+  backdrop-filter: blur(4px);
+  animation: fadeIn var(--duration-normal) var(--ease-out) both;
+}
+
+.sidebar-mobile {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 30;
+  height: 100vh;
+  animation: slideInLeft var(--duration-slow) var(--ease-out) both;
+}
+
+/* ============================================================
+   AI Button Shimmer Animation
+   ============================================================ */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.ai-button {
+  position: relative;
+  background: linear-gradient(135deg, #184a45, #1a6b5a, #1f5f59, #184a45);
+  background-size: 200% 100%;
+  color: white;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(24, 74, 69, 0.4), 0 1px 3px rgba(0, 0, 0, 0.1);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.ai-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+  90deg,
+  transparent,
+  rgba(255, 255, 255, 0.3),
+  transparent
+);
+  background-size: 200% 100%;
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--ease-out);
+}
+
+.ai-button:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(24, 74, 69, 0.5), 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.ai-button:hover::before {
+  opacity: 1;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.ai-button:disabled::before {
+  animation: none;
+  opacity: 0;
 }

@@ -39,6 +39,8 @@ class ApplicationRecord(BaseModel):
     job_title: Optional[str]
     company: Optional[str]
     job_description: Optional[str]
+    job_location_text: Optional[str] = None
+    compensation_text: Optional[str] = None
     extracted_reference_id: Optional[str] = None
     job_posting_origin: Optional[str]
     job_posting_origin_other_text: Optional[str]
@@ -55,6 +57,7 @@ class ApplicationRecord(BaseModel):
     duplicate_resolution_status: Optional[str]
     duplicate_matched_application_id: Optional[str]
     notes: Optional[str]
+    full_regeneration_count: int = 0
     exported_at: Optional[str]
     created_at: str
     updated_at: str
@@ -88,6 +91,8 @@ select
   a.job_title,
   a.company,
   a.job_description,
+  a.job_location_text,
+  a.compensation_text,
   a.extracted_reference_id,
   a.job_posting_origin::text,
   a.job_posting_origin_other_text,
@@ -104,6 +109,7 @@ select
   a.duplicate_resolution_status::text,
   a.duplicate_matched_application_id::text,
   a.notes,
+  a.full_regeneration_count,
   a.exported_at::text,
   a.created_at::text,
   a.updated_at::text,
@@ -307,6 +313,26 @@ class ApplicationRepository:
         if updated is None:
             raise LookupError("Application not found.")
         return updated
+
+    def delete_application(
+        self,
+        *,
+        application_id: str,
+        user_id: str,
+    ) -> None:
+        query = """
+        delete from public.applications
+        where id = %s and user_id = %s
+        returning id::text
+        """
+
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (application_id, user_id))
+            row = cursor.fetchone()
+            connection.commit()
+
+        if row is None or row.get("id") is None:
+            raise LookupError("Application not found.")
 
     def _prepare_value(self, field_name: str, value: Any) -> Any:
         if value is None:

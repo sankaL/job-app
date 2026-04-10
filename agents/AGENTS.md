@@ -20,11 +20,11 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 - Use prompt variants that explicitly reflect the selected page-length target and aggressiveness level.
 - Section regeneration requires explicit user instructions and must reject blank instruction input.
 - Do not generate or rewrite personal information such as name, email, phone number, or address.
-- Tailoring may reorder, rephrase, and prioritize grounded source content, but it must not invent employers, titles, dates, credentials, or institutions.
+- Tailoring may reorder, rephrase, and prioritize grounded source content, but it must not invent employers, dates, credentials, or institutions. High aggressiveness may retitle Professional Experience role names only when the new title remains a truthful reframing of the same source role and keeps employer and dates unchanged.
 
 ## Validation Rules
 - Validate structured output deterministically with schema checks plus rule-based grounding, ATS-safety, section presence, section order, and cross-section consistency checks.
-- Detect contact leakage and hallucinated content, including invented employers, job titles, dates, credentials, or educational institutions not supported by the sanitized source resume.
+- Detect contact leakage and hallucinated content, including invented employers, dates, credentials, or educational institutions not supported by the sanitized source resume. High-aggressiveness Professional Experience role-title rewrites are allowed only inside that narrow product rule.
 - Validator outcomes are limited to:
   - approve
   - fail

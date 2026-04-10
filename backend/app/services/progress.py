@@ -73,6 +73,9 @@ class RedisProgressStore:
     ) -> None:
         await self._redis.set(self._key(application_id), progress.model_dump_json(), ex=ttl_seconds)
 
+    async def delete(self, application_id: str) -> None:
+        await self._redis.delete(self._key(application_id))
+
 
 def get_progress_store() -> RedisProgressStore:
     return RedisProgressStore(get_settings().redis_url)

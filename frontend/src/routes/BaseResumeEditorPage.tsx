@@ -1,9 +1,16 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
+import { SkeletonCard } from "@/components/ui/skeleton";
+import { useToast } from "@/components/ui/toast";
 import {
   createBaseResume,
   deleteBaseResume,
@@ -21,6 +28,7 @@ export function BaseResumeEditorPage() {
   const { resumeId } = useParams<{ resumeId: string }>();
   const [searchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const isNew = resumeId === undefined || resumeId === "new";
   const mode = searchParams.get("mode");
@@ -35,265 +43,185 @@ export function BaseResumeEditorPage() {
   const [isSettingDefault, setIsSettingDefault] = useState(false);
   const [uploadedResume, setUploadedResume] = useState<BaseResumeDetail | null>(null);
   const [useLlmCleanup, setUseLlmCleanup] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Load existing resume
   useEffect(() => {
     if (isNew || !resumeId) return;
-
     fetchBaseResume(resumeId)
-      .then((response) => {
-        setResume(response);
-        setName(response.name);
-        setContentMd(response.content_md);
-        setError(null);
-      })
-      .catch((requestError: Error) => setError(requestError.message));
+      .then((response) => { setResume(response); setName(response.name); setContentMd(response.content_md); setError(null); })
+      .catch((err: Error) => setError(err.message));
   }, [isNew, resumeId]);
 
-  // Handle save for existing resume
   async function handleSave() {
     if (!resumeId || isNew) return;
-
     setSaveState("saving");
     setError(null);
     try {
       const response = await updateBaseResume(resumeId, { name, content_md: contentMd });
       setResume(response);
       setSaveState("saved");
+      toast("Resume saved");
       setTimeout(() => setSaveState("idle"), 2000);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to save resume.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
       setSaveState("idle");
     }
   }
 
-  // Handle create for blank mode
   async function handleCreateBlank(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim()) {
-      setError("Please enter a name for the resume.");
-      return;
-    }
-
+    if (!name.trim()) { setError("Please enter a name."); return; }
     setSaveState("saving");
     setError(null);
     try {
       const response = await createBaseResume(name, contentMd);
+      toast("Resume created");
       navigate(`/app/resumes/${response.id}`);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to create resume.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create.");
+      toast("Failed to create resume", "error");
       setSaveState("idle");
     }
   }
 
-  // Handle upload
   async function handleUpload(event: FormEvent) {
     event.preventDefault();
-
     const file = fileInputRef.current?.files?.[0];
-    if (!file) {
-      setError("Please select a PDF file to upload.");
-      return;
-    }
-    if (!name.trim()) {
-      setError("Please enter a name for the resume.");
-      return;
-    }
-
+    if (!file) { setError("Please select a PDF file."); return; }
+    if (!name.trim()) { setError("Please enter a name."); return; }
     setIsUploading(true);
     setError(null);
     try {
       const response = await uploadBaseResume(file, name, useLlmCleanup);
       setUploadedResume(response);
       setContentMd(response.content_md);
-      setError(null);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to upload resume.");
+      toast("Resume uploaded and parsed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload.");
+      toast("Upload failed", "error");
     } finally {
       setIsUploading(false);
     }
   }
 
-  // Handle save after upload review
   async function handleSaveUploaded() {
     if (!uploadedResume) return;
-
     setSaveState("saving");
     setError(null);
     try {
       const response = await updateBaseResume(uploadedResume.id, { name, content_md: contentMd });
+      toast("Resume saved");
       navigate(`/app/resumes/${response.id}`);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to save resume.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
+      toast("Failed to save resume", "error");
       setSaveState("idle");
     }
   }
 
-  // Handle delete
   async function handleDelete() {
     if (!resume) return;
-
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${resume.name}"? This action cannot be undone.`
-    );
-    if (!confirmed) return;
-
     setIsDeleting(true);
     setError(null);
     try {
       await deleteBaseResume(resume.id);
+      setShowDeleteConfirm(false);
       navigate("/app/resumes");
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to delete resume.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete.");
+    } finally {
       setIsDeleting(false);
     }
   }
 
-  // Handle set as default
   async function handleSetDefault() {
     if (!resume) return;
-
     setIsSettingDefault(true);
     setError(null);
     try {
       await setDefaultBaseResume(resume.id);
       setResume({ ...resume, is_default: true });
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to set as default.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to set default.");
     } finally {
       setIsSettingDefault(false);
     }
   }
 
-  // Render upload mode (new with mode=upload)
+  const errorBanner = error ? (
+    <Card variant="danger">
+      <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>Error</p>
+      <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{error}</p>
+    </Card>
+  ) : null;
+
+  // Upload mode (new)
   if (isNew && mode === "upload" && !uploadedResume) {
     return (
-      <div className="flex flex-col gap-6">
-        <Button variant="secondary" className="w-fit" onClick={() => navigate("/app/resumes")}>
-          Back to Resumes
-        </Button>
-
-        {error ? (
-          <Card className="border-ember/20 bg-ember/5 text-ember">
-            <p className="font-semibold">Upload failed</p>
-            <p className="mt-2 text-base">{error}</p>
-          </Card>
-        ) : null}
-
+      <div className="page-enter space-y-5">
+        <PageHeader title="Upload Resume" subtitle="Upload an existing resume PDF for extraction" />
+        {errorBanner}
         <Card>
-          <p className="text-sm uppercase tracking-[0.18em] text-ink/45">New Resume</p>
-          <h2 className="mt-3 font-display text-3xl text-ink">Upload PDF</h2>
-          <p className="mt-3 text-ink/65">
-            Upload an existing resume in PDF format. The content will be extracted and converted to
-            Markdown for editing.
-          </p>
-
-          <form className="mt-6 space-y-5" onSubmit={handleUpload}>
+          <form className="space-y-4" onSubmit={handleUpload}>
             <div>
               <Label htmlFor="name">Resume Name</Label>
-              <Input
-                id="name"
-                placeholder="e.g., Senior Engineer Resume"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
+              <Input id="name" placeholder="e.g., Senior Engineer Resume" value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
-
             <div>
               <Label htmlFor="file">PDF File</Label>
-              <input
-                ref={fileInputRef}
-                accept=".pdf,application/pdf"
-                className="mt-2 block w-full text-sm text-ink file:mr-4 file:rounded-full file:border-0 file:bg-spruce/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-spruce hover:file:bg-spruce/20"
-                id="file"
-                type="file"
-              />
-              <p className="mt-2 text-xs text-ink/50">Only PDF files are supported.</p>
+              <input ref={fileInputRef} accept=".pdf,application/pdf" className="mt-1 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:px-3 file:py-1.5 file:text-sm file:font-semibold" style={{ color: "var(--color-ink)" }} id="file" type="file" />
+              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-40)" }}>PDF files only.</p>
             </div>
-
-            <label className="inline-flex items-center gap-2">
-              <input
-                checked={useLlmCleanup}
-                className="rounded border-ink/20 text-spruce focus:ring-spruce/15"
-                type="checkbox"
-                onChange={(e) => setUseLlmCleanup(e.target.checked)}
-              />
-              <span className="text-sm text-ink">Improve with AI (sanitized)</span>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input checked={useLlmCleanup} type="checkbox" onChange={(e) => setUseLlmCleanup(e.target.checked)} style={{ accentColor: "var(--color-spruce)" }} />
+              Improve with AI (sanitized)
             </label>
-            <p className="text-xs text-ink/50">
-              AI cleanup removes the contact header before sending content externally, improves the body formatting, restores the stripped header locally, and flags uploads that still need manual review.
-            </p>
-
-            <div className="flex gap-3">
-              <Button disabled={isUploading} type="submit">
-                {isUploading ? "Uploading…" : "Upload & Parse"}
-              </Button>
-            </div>
+            <p className="text-xs" style={{ color: "var(--color-ink-40)" }}>AI cleanup removes contact info before external processing, improves formatting, restores header locally.</p>
+            <Button loading={isUploading} disabled={isUploading} type="submit">
+              {isUploading ? "Uploading…" : "Upload & Parse"}
+            </Button>
           </form>
         </Card>
       </div>
     );
   }
 
-  // Render upload review mode (after upload)
+  // Upload review mode
   if (isNew && mode === "upload" && uploadedResume) {
     return (
-      <div className="flex flex-col gap-6">
-        <Button variant="secondary" className="w-fit" onClick={() => navigate("/app/resumes")}>
-          Back to Resumes
-        </Button>
-
-        {error ? (
-          <Card className="border-ember/20 bg-ember/5 text-ember">
-            <p className="font-semibold">Save failed</p>
-            <p className="mt-2 text-base">{error}</p>
+      <div className="page-enter space-y-5">
+        <PageHeader title="Review Upload" subtitle={name} />
+        {errorBanner}
+        {uploadedResume.needs_review && (
+          <Card variant="warning">
+            <p className="text-sm font-semibold" style={{ color: "var(--color-amber)" }}>Review recommended</p>
+            <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{uploadedResume.import_warning ?? "This upload may need manual cleanup."}</p>
           </Card>
-        ) : null}
-
-        {uploadedResume?.needs_review ? (
-          <Card className="border-amber-300/40 bg-amber-50 text-amber-900">
-            <p className="font-semibold">Review recommended</p>
-            <p className="mt-2 text-base">
-              {uploadedResume.import_warning ?? "This upload may need manual cleanup before you use it for generation."}
-            </p>
-          </Card>
-        ) : null}
-
+        )}
         <Card>
-          <p className="text-sm uppercase tracking-[0.18em] text-ink/45">Review & Save</p>
-          <h2 className="mt-3 font-display text-3xl text-ink">{name}</h2>
-          <p className="mt-3 text-ink/65">
-            Review the extracted content below. You can edit the name and content before saving.
-          </p>
-
-          <form className="mt-6 space-y-5" onSubmit={(e) => { e.preventDefault(); void handleSaveUploaded(); }}>
+          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void handleSaveUploaded(); }}>
             <div>
               <Label htmlFor="name">Resume Name</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
+              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-
             <div>
               <Label htmlFor="content">Content (Markdown)</Label>
-              <textarea
-                className="mt-2 min-h-[500px] w-full rounded-[24px] border border-black/10 bg-white px-4 py-3 font-mono text-sm text-ink outline-none transition focus:border-spruce focus:ring-2 focus:ring-spruce/15"
+              <MarkdownEditor
                 id="content"
+                className="no-bottom-radius min-h-[50vh]"
                 value={contentMd}
                 onChange={(e) => setContentMd(e.target.value)}
               />
+              <div className="markdown-editor-footer">
+                <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
+                <span>Tab = 2 spaces</span>
+              </div>
             </div>
-
-            <div className="flex gap-3">
-              <Button disabled={saveState === "saving"} type="submit">
-                {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save Resume"}
+            <div className="flex gap-2">
+              <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">
+                {saveState === "saving" ? "Saving…" : "Save Resume"}
               </Button>
-              <Button variant="secondary" onClick={() => setUploadedResume(null)}>
-                Re-upload
-              </Button>
+              <Button variant="secondary" onClick={() => setUploadedResume(null)}>Re-upload</Button>
             </div>
           </form>
         </Card>
@@ -301,179 +229,125 @@ export function BaseResumeEditorPage() {
     );
   }
 
-  // Render blank mode (new with mode=blank)
+  // Blank mode (new)
   if (isNew && mode === "blank") {
     return (
-      <div className="flex flex-col gap-6">
-        <Button variant="secondary" className="w-fit" onClick={() => navigate("/app/resumes")}>
-          Back to Resumes
-        </Button>
-
-        {error ? (
-          <Card className="border-ember/20 bg-ember/5 text-ember">
-            <p className="font-semibold">Create failed</p>
-            <p className="mt-2 text-base">{error}</p>
-          </Card>
-        ) : null}
-
+      <div className="page-enter space-y-5">
+        <PageHeader title="New Resume" subtitle="Create from scratch using Markdown" />
+        {errorBanner}
         <Card>
-          <p className="text-sm uppercase tracking-[0.18em] text-ink/45">New Resume</p>
-          <h2 className="mt-3 font-display text-3xl text-ink">Start from Scratch</h2>
-          <p className="mt-3 text-ink/65">
-            Create a new resume from scratch using Markdown. Add your work history, skills, and
-            achievements.
-          </p>
-
-          <form className="mt-6 space-y-5" onSubmit={handleCreateBlank}>
+          <form className="space-y-4" onSubmit={handleCreateBlank}>
             <div>
               <Label htmlFor="name">Resume Name</Label>
-              <Input
-                id="name"
-                placeholder="e.g., Senior Engineer Resume"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
+              <Input id="name" placeholder="e.g., Senior Engineer Resume" value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
-
             <div>
               <Label htmlFor="content">Content (Markdown)</Label>
-              <textarea
-                className="mt-2 min-h-[500px] w-full rounded-[24px] border border-black/10 bg-white px-4 py-3 font-mono text-sm text-ink outline-none transition placeholder:text-ink/40 focus:border-spruce focus:ring-2 focus:ring-spruce/15"
+              <MarkdownEditor
                 id="content"
-                placeholder="# Your Name
-
-## Summary
-Brief professional summary...
-
-## Experience
-
-### Job Title - Company
-- Accomplishment 1
-- Accomplishment 2
-
-## Skills
-- Skill 1
-- Skill 2"
+                className="no-bottom-radius min-h-[50vh]"
+                placeholder={"# Your Name\n\n## Summary\nProfessional summary…\n\n## Experience\n\n### Job Title — Company\n- Accomplishment 1\n- Accomplishment 2\n\n## Skills\n- Skill 1\n- Skill 2"}
                 value={contentMd}
                 onChange={(e) => setContentMd(e.target.value)}
               />
+              <div className="markdown-editor-footer">
+                <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
+                <span>Tab = 2 spaces</span>
+              </div>
             </div>
-
-            <div className="flex gap-3">
-              <Button disabled={saveState === "saving"} type="submit">
-                {saveState === "saving" ? "Creating…" : "Create Resume"}
-              </Button>
-            </div>
+            <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">
+              {saveState === "saving" ? "Creating…" : "Create Resume"}
+            </Button>
           </form>
         </Card>
       </div>
     );
   }
 
-  // Render existing resume editor
+  // Existing resume editor
   return (
-    <div className="flex flex-col gap-6">
-      <Button variant="secondary" className="w-fit" onClick={() => navigate("/app/resumes")}>
-        Back to Resumes
-      </Button>
-
-      {error ? (
-        <Card className="border-ember/20 bg-ember/5 text-ember">
-          <p className="font-semibold">Request failed</p>
-          <p className="mt-2 text-base">{error}</p>
-        </Card>
-      ) : null}
-
+    <div className="page-enter space-y-5">
+      {errorBanner}
       {!resume ? (
-        <Card className="animate-pulse">
-          <div className="h-4 w-32 rounded bg-black/10" />
-          <div className="mt-4 h-10 w-3/4 rounded bg-black/10" />
-          <div className="mt-4 h-4 w-full rounded bg-black/10" />
-        </Card>
+        <SkeletonCard />
       ) : (
-        <Card>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-sm uppercase tracking-[0.18em] text-ink/45">Edit Resume</p>
-              <div className="mt-3 flex items-center gap-3">
-                <h2 className="font-display text-3xl text-ink">{resume.name}</h2>
-                {resume.is_default ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-spruce/10 px-3 py-1 text-xs font-semibold text-spruce">
-                    <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                    Default
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-2 text-sm text-ink/65">
-                Created {new Date(resume.created_at).toLocaleDateString()} · Updated{" "}
-                {new Date(resume.updated_at).toLocaleString()}
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {!resume.is_default ? (
-                <Button
-                  variant="secondary"
-                  disabled={isSettingDefault}
-                  onClick={() => void handleSetDefault()}
+        <>
+          <PageHeader
+            title={resume.name}
+            subtitle={`Created ${new Date(resume.created_at).toLocaleDateString()} · Updated ${new Date(resume.updated_at).toLocaleString()}`}
+            badge={
+              resume.is_default ? (
+                <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase" style={{ background: "var(--color-spruce-10)", color: "var(--color-spruce)" }}>
+                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                  Default
+                </span>
+              ) : undefined
+            }
+            actions={
+              <div className="flex gap-2">
+                {!resume.is_default && (
+                  <Button size="sm" variant="secondary" disabled={isSettingDefault} onClick={() => void handleSetDefault()}>
+                    {isSettingDefault ? "Setting…" : "Set Default"}
+                  </Button>
+                )}
+                <IconButton
+                  variant="danger"
+                  aria-label="Delete resume"
+                  title="Delete resume"
+                  disabled={isDeleting}
+                  onClick={() => setShowDeleteConfirm(true)}
                 >
-                  {isSettingDefault ? "Setting…" : "Set as Default"}
+                  <Trash2 size={16} aria-hidden="true" />
+                </IconButton>
+              </div>
+            }
+          />
+
+          <Card>
+            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
+              <div>
+                <Label htmlFor="name">Resume Name</Label>
+                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="content">Content (Markdown)</Label>
+                <MarkdownEditor
+                  id="content"
+                  className="no-bottom-radius min-h-[50vh]"
+                  value={contentMd}
+                  onChange={(e) => setContentMd(e.target.value)}
+                />
+                <div className="markdown-editor-footer">
+                  <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
+                  <span>Tab = 2 spaces</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">
+                  {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save Changes"}
                 </Button>
-              ) : null}
-              <Button
-                variant="secondary"
-                className="border-ember/30 text-ember hover:bg-ember/5 hover:border-ember"
-                disabled={isDeleting}
-                onClick={() => void handleDelete()}
-              >
-                {isDeleting ? "Deleting…" : "Delete"}
-              </Button>
-            </div>
-          </div>
+                {saveState === "saved" && <span className="text-xs" style={{ color: "var(--color-spruce)" }}>Changes saved.</span>}
+              </div>
+            </form>
+          </Card>
 
-          <form
-            className="mt-6 space-y-5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void handleSave();
+          <ConfirmModal
+            open={showDeleteConfirm}
+            title="Delete resume?"
+            message={`This will permanently remove "${resume.name}". This action cannot be undone.`}
+            confirmLabel="Delete Resume"
+            variant="danger"
+            loading={isDeleting}
+            onConfirm={() => {
+              void handleDelete();
             }}
-          >
-            <div>
-              <Label htmlFor="name">Resume Name</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="content">Content (Markdown)</Label>
-              <textarea
-                className="mt-2 min-h-[500px] w-full rounded-[24px] border border-black/10 bg-white px-4 py-3 font-mono text-sm text-ink outline-none transition focus:border-spruce focus:ring-2 focus:ring-spruce/15"
-                id="content"
-                value={contentMd}
-                onChange={(e) => setContentMd(e.target.value)}
-              />
-            </div>
-
-            <div className="flex items-center gap-4">
-              <Button disabled={saveState === "saving"} type="submit">
-                {saveState === "saving"
-                  ? "Saving…"
-                  : saveState === "saved"
-                    ? "Saved"
-                    : "Save Changes"}
-              </Button>
-              {saveState === "saved" ? (
-                <span className="text-sm text-spruce">Your changes have been saved.</span>
-              ) : null}
-            </div>
-          </form>
-        </Card>
+            onCancel={() => {
+              if (!isDeleting) {
+                setShowDeleteConfirm(false);
+              }
+            }}
+          />
+        </>
       )}
     </div>
   );

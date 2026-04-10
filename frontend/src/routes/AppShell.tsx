@@ -1,88 +1,62 @@
-import { Outlet, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { Outlet } from "react-router-dom";
+import { AppProvider, useAppContext } from "@/components/layout/AppContext";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { TopBar } from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
-import { fetchSessionBootstrap, type SessionBootstrapResponse } from "@/lib/api";
-import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { ToastProvider } from "@/components/ui/toast";
 
-export function AppShell() {
-  const navigate = useNavigate();
-  const [bootstrap, setBootstrap] = useState<SessionBootstrapResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchSessionBootstrap()
-      .then((response) => {
-        setBootstrap(response);
-        setError(null);
-      })
-      .catch((bootstrapError: Error) => {
-        setError(bootstrapError.message);
-      });
-  }, []);
-
-  async function handleSignOut() {
-    const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    window.location.assign("/login");
-  }
+function ShellContent() {
+  const { bootstrapError } = useAppContext();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen px-4 py-8 md:px-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <div className="flex flex-col gap-4 rounded-[32px] bg-ink p-8 text-white shadow-panel md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.18em] text-white/90">AI Resume Builder</p>
-            <h1 className="mt-3 font-display text-4xl">Application intake workspace</h1>
-            <p className="mt-4 max-w-3xl text-lg text-white">
-              Capture job postings, recover failed extraction, and resolve duplicates before
-              generation starts.
-            </p>
-          </div>
-          <div className="flex flex-col items-start gap-3 md:items-end">
-            <div className="text-sm text-white/95">{bootstrap?.user.email ?? "Loading session…"}</div>
-            <div className="flex flex-wrap gap-3">
-              <Button
-                variant="secondary"
-                className="border-white/30 bg-white/15 text-white hover:bg-white/25"
-                onClick={() => navigate("/app/resumes")}
-              >
-                Resumes
-              </Button>
-              <Button
-                variant="secondary"
-                className="border-white/30 bg-white/15 text-white hover:bg-white/25"
-                onClick={() => navigate("/app/profile")}
-              >
-                Profile
-              </Button>
-              <Button
-                variant="secondary"
-                className="border-white/30 bg-white/15 text-white hover:bg-white/25"
-                onClick={() => navigate("/app/extension")}
-              >
-                Chrome Extension
-              </Button>
-              <Button
-                variant="secondary"
-                className="border-white/30 bg-white/15 text-white hover:bg-white/25"
-                onClick={handleSignOut}
-              >
-                Sign out
-              </Button>
-            </div>
-          </div>
-        </div>
+    <div className="flex min-h-screen">
+      {/* Desktop sidebar */}
+      <div className="sidebar-desktop">
+        <Sidebar />
+      </div>
 
-        {error ? (
-          <Card className="border-ember/20 bg-ember/5 text-ember">
-            <p className="font-semibold">Session bootstrap failed</p>
-            <p className="mt-2 text-base">{error}</p>
-          </Card>
-        ) : null}
+      {/* Mobile sidebar overlay */}
+      {mobileSidebarOpen && (
+        <>
+          <div className="sidebar-overlay" onClick={() => setMobileSidebarOpen(false)} />
+          <div className="sidebar-mobile">
+            <Sidebar onNavigate={() => setMobileSidebarOpen(false)} />
+          </div>
+        </>
+      )}
 
-        <Outlet />
+      <div className="main-with-sidebar flex flex-1 flex-col" style={{ marginLeft: "var(--sidebar-width)" }}>
+        <TopBar onMenuToggle={() => setMobileSidebarOpen((v) => !v)} />
+
+        <main className="app-shell-main flex-1">
+          <div className="app-shell-content">
+            {bootstrapError ? (
+              <Card variant="danger" className="mb-6">
+                <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>
+                  Session bootstrap failed
+                </p>
+                <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
+                  {bootstrapError}
+                </p>
+              </Card>
+            ) : null}
+
+            <Outlet />
+          </div>
+        </main>
       </div>
     </div>
+  );
+}
+
+export function AppShell() {
+  return (
+    <AppProvider>
+      <ToastProvider>
+        <ShellContent />
+      </ToastProvider>
+    </AppProvider>
   );
 }

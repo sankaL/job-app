@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from experience_contract import validate_professional_experience_contract
 from privacy import EMAIL_RE, PHONE_RE, URL_RE, sanitize_resume_markdown
 
 SECTION_DISPLAY_NAMES: dict[str, str] = {
@@ -99,31 +100,39 @@ def _normalized_claim(value: str) -> str:
     return _normalize_search_text(_strip_markdown_formatting(value))
 
 
-def _collect_claim_candidates(content: str) -> list[str]:
+def _collect_claim_candidates(content: str) -> list[dict[str, str]]:
     plain_content = _strip_markdown_formatting(content)
-    candidates: list[str] = []
+    candidates: list[dict[str, str]] = []
 
     for title, company in ROLE_AT_CLAIM_RE.findall(plain_content):
-        candidates.extend([title, company])
+        candidates.extend(
+            [
+                {"kind": "role_title", "value": title.strip()},
+                {"kind": "company", "value": company.strip()},
+            ]
+        )
 
     for match in ROLE_COMPANY_LINE_RE.finditer(plain_content):
         title = match.group(1).strip()
         company = match.group(2).strip()
         if title and not title.startswith("## "):
-            candidates.append(title)
+            candidates.append({"kind": "role_title", "value": title})
         if company:
-            candidates.append(company)
+            candidates.append({"kind": "company", "value": company})
 
     for match in CREDENTIAL_CLAIM_RE.finditer(plain_content):
-        candidates.append(match.group(0).strip())
+        candidates.append({"kind": "credential", "value": match.group(0).strip()})
 
-    deduped: list[str] = []
-    seen: set[str] = set()
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for candidate in candidates:
-        normalized = _normalized_claim(candidate)
-        if not normalized or normalized in seen:
+        normalized = _normalized_claim(candidate["value"])
+        if not normalized:
             continue
-        seen.add(normalized)
+        dedupe_key = (candidate["kind"], normalized)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
         deduped.append(candidate)
     return deduped
 
@@ -132,20 +141,32 @@ def _check_claim_grounding(
     *,
     generated_sections: list[dict[str, Any]],
     sanitized_base_resume_content: str,
+    generation_settings: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     searchable_source = _normalize_search_text(sanitized_base_resume_content)
     errors: list[dict[str, Any]] = []
+    aggressiveness = (
+        str(generation_settings.get("aggressiveness", "medium")).lower()
+        if generation_settings
+        else "medium"
+    )
 
     for section in generated_sections:
         content = str(section.get("content") or "")
         for claim in _collect_claim_candidates(content):
-            normalized_claim = _normalized_claim(claim)
+            normalized_claim = _normalized_claim(claim["value"])
+            if (
+                claim["kind"] == "role_title"
+                and section["name"] == "professional_experience"
+                and aggressiveness == "high"
+            ):
+                continue
             if normalized_claim and normalized_claim not in searchable_source:
                 errors.append(
                     {
                         "type": "unsupported_claim",
                         "section": section["name"],
-                        "detail": f"Claim is not grounded in the sanitized base resume: {claim}",
+                        "detail": f"Claim is not grounded in the sanitized base resume: {claim['value']}",
                     }
                 )
 
@@ -440,6 +461,43 @@ def _check_date_grounding(
     return errors
 
 
+def _check_professional_experience_structure(
+    *,
+    generated_sections: list[dict[str, Any]],
+    generation_settings: Optional[dict[str, Any]],
+    professional_experience_anchors: Optional[list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    if not professional_experience_anchors:
+        return []
+
+    aggressiveness = (
+        str(generation_settings.get("aggressiveness", "medium")).lower()
+        if generation_settings
+        else "medium"
+    )
+    errors: list[dict[str, Any]] = []
+
+    for section in generated_sections:
+        if section.get("name") != "professional_experience":
+            continue
+
+        contract_errors = validate_professional_experience_contract(
+            section_markdown=str(section.get("content") or ""),
+            anchors=professional_experience_anchors,
+            aggressiveness=aggressiveness,
+        )
+        for detail in contract_errors:
+            errors.append(
+                {
+                    "type": "experience_structure_violation",
+                    "section": "professional_experience",
+                    "detail": detail,
+                }
+            )
+
+    return errors
+
+
 def _check_length_guidance(
     *,
     generated_sections: list[dict[str, Any]],
@@ -472,6 +530,7 @@ async def validate_resume(
     base_resume_content: str,
     section_preferences: list[dict[str, Any]],
     generation_settings: Optional[dict[str, Any]] = None,
+    professional_experience_anchors: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     sanitized_base_resume = sanitize_resume_markdown(base_resume_content).sanitized_markdown
 
@@ -507,6 +566,7 @@ async def validate_resume(
         _check_claim_grounding(
             generated_sections=generated_sections,
             sanitized_base_resume_content=sanitized_base_resume,
+            generation_settings=generation_settings,
         )
     )
     all_errors.extend(_check_contact_leakage(generated_sections=generated_sections))
@@ -514,6 +574,13 @@ async def validate_resume(
         _check_date_grounding(
             generated_sections=generated_sections,
             sanitized_base_resume_content=sanitized_base_resume,
+        )
+    )
+    all_errors.extend(
+        _check_professional_experience_structure(
+            generated_sections=generated_sections,
+            generation_settings=generation_settings,
+            professional_experience_anchors=professional_experience_anchors,
         )
     )
 

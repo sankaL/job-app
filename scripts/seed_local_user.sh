@@ -17,12 +17,14 @@ if [ -f "$ENV_FILE" ]; then
   SERVICE_ROLE_KEY="$(load_env_value SERVICE_ROLE_KEY "$ENV_FILE")"
   LOCAL_DEV_USER_EMAIL="$(load_env_value LOCAL_DEV_USER_EMAIL "$ENV_FILE")"
   LOCAL_DEV_USER_PASSWORD="$(load_env_value LOCAL_DEV_USER_PASSWORD "$ENV_FILE")"
+  LOCAL_DEV_USER_IS_ADMIN="$(load_env_value LOCAL_DEV_USER_IS_ADMIN "$ENV_FILE")"
 fi
 
 SUPABASE_URL="${SUPABASE_URL:-http://localhost:54421}"
 SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}"
 EMAIL="${LOCAL_DEV_USER_EMAIL:?LOCAL_DEV_USER_EMAIL is required}"
 PASSWORD="${LOCAL_DEV_USER_PASSWORD:?LOCAL_DEV_USER_PASSWORD is required}"
+LOCAL_DEV_USER_IS_ADMIN="${LOCAL_DEV_USER_IS_ADMIN:-true}"
 
 payload=$(printf '{"email":"%s","password":"%s","email_confirm":true}' "$EMAIL" "$PASSWORD")
 
@@ -58,3 +60,37 @@ case "$status_code" in
     exit 1
     ;;
 esac
+
+if [ "$LOCAL_DEV_USER_IS_ADMIN" = "true" ]; then
+  escaped_email="$(printf '%s' "$EMAIL" | sed 's/@/%40/g')"
+  admin_payload='{"is_admin":true}'
+  admin_attempts=0
+
+  while :; do
+    admin_status_code="$(
+      curl -sS -o /tmp/seed-local-admin-response.json -w '%{http_code}' \
+        -X PATCH "${SUPABASE_URL}/rest/v1/profiles?email=eq.${escaped_email}" \
+        -H "apikey: ${SERVICE_ROLE_KEY}" \
+        -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
+        -H "Content-Type: application/json" \
+        -H "Prefer: return=minimal" \
+        -d "$admin_payload"
+    )"
+
+    case "$admin_status_code" in
+      200|204)
+        echo "Ensured local user ${EMAIL} is admin"
+        break
+        ;;
+      *)
+        admin_attempts=$((admin_attempts + 1))
+        if [ "$admin_attempts" -ge 20 ]; then
+          echo "Failed to promote local user ${EMAIL} to admin (status ${admin_status_code})"
+          cat /tmp/seed-local-admin-response.json
+          exit 1
+        fi
+        sleep 1
+        ;;
+    esac
+  done
+fi

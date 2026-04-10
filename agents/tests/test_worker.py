@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from worker import (
     BackendCallbackClient,
+    EXTRACTION_TEXT_LIMIT,
     ExtractedJobPosting,
     JobProgress,
     OpenRouterExtractionAgent,
@@ -56,6 +57,8 @@ def test_finalize_extracted_posting_uses_detected_origin_and_reference_id():
         job_title="Senior Backend Engineer",
         job_description="Build APIs and background systems.",
         company=None,
+        job_location_text="British Columbia/Ontario",
+        compensation_text="$150,000 - $180,000 per year",
         job_posting_origin=None,
         job_posting_origin_other_text=None,
         extracted_reference_id=None,
@@ -63,6 +66,8 @@ def test_finalize_extracted_posting_uses_detected_origin_and_reference_id():
     finalized = finalize_extracted_posting(posting, build_context())
     assert finalized.job_posting_origin == "linkedin"
     assert finalized.extracted_reference_id == "1234567890"
+    assert finalized.job_location_text == "British Columbia/Ontario"
+    assert finalized.compensation_text == "$150,000 - $180,000 per year"
 
 
 def test_detect_blocked_page_extracts_provider_and_ray_id():
@@ -102,6 +107,16 @@ def test_build_page_context_from_capture_uses_source_text_and_origin():
     assert context.extracted_reference_id == "req-42"
 
 
+def test_build_page_context_from_capture_preserves_longer_source_text_up_to_new_limit():
+    long_text = "Qualifications\n" + ("Python APIs and distributed systems.\n" * 4000)
+    capture = SourceCapture(source_text=long_text)
+
+    context = build_page_context_from_capture("https://example.com/jobs/role", capture)
+
+    assert len(context.visible_text) == EXTRACTION_TEXT_LIMIT
+    assert context.visible_text.startswith("Qualifications")
+
+
 class FakeExtractionAgent(OpenRouterExtractionAgent):
     def __init__(self) -> None:
         settings = WorkerSettingsEnv(
@@ -120,6 +135,8 @@ class FakeExtractionAgent(OpenRouterExtractionAgent):
             job_title="Senior Backend Engineer",
             job_description="Build APIs and background systems.",
             company="Acme",
+            job_location_text="Toronto, ON",
+            compensation_text="$140,000 - $170,000",
             job_posting_origin="company_website",
             extracted_reference_id="REQ-42",
         )
@@ -130,6 +147,8 @@ async def test_extraction_agent_uses_fallback_model_after_primary_failure():
     agent = FakeExtractionAgent()
     result = await agent.extract(build_context())
     assert result.company == "Acme"
+    assert result.job_location_text == "Toronto, ON"
+    assert result.compensation_text == "$140,000 - $170,000"
     assert agent.calls == ["primary-model", "fallback-model"]
 
 

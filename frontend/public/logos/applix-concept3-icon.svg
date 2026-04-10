@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-labelledby="c3-title c3-desc">
+  <title id="c3-title">Applix Logo</title>
+  <desc id="c3-desc">Overlapping rounded squares forming an abstract connection pattern with an ember accent, symbolizing applications linking to opportunities</desc>
+  <defs>
+    <linearGradient id="c3-grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1f5f59;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#184a45;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="c3-grad2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#267a72;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1f5f59;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect x="10" y="10" width="100" height="100" rx="24" fill="#0e2f2c" />
+  <!-- Back square (resume) -->
+  <rect x="24" y="28" width="44" height="56" rx="10" fill="url(#c3-grad1)" stroke="rgba(255,255,255,0.12)" stroke-width="1" />
+  <!-- Front square (opportunity) -->
+  <rect x="52" y="36" width="44" height="56" rx="10" fill="url(#c3-grad2)" stroke="rgba(255,255,255,0.15)" stroke-width="1" />
+  <!-- Connection lines on back square -->
+  <line x1="32" y1="44" x2="52" y2="44" stroke="rgba(255,255,255,0.35)" stroke-width="2" stroke-linecap="round" />
+  <line x1="32" y1="52" x2="48" y2="52" stroke="rgba(255,255,255,0.25)" stroke-width="2" stroke-linecap="round" />
+  <line x1="32" y1="60" x2="44" y2="60" stroke="rgba(255,255,255,0.2)" stroke-width="2" stroke-linecap="round" />
+  <!-- Checkmark on front square -->
+  <path d="M66 60 L72 68 L86 52" fill="none" stroke="#c4501e" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- AI sparkle -->
+  <circle cx="88" cy="40" r="3" fill="#c4501e" opacity="0.8" />
+  <circle cx="92" cy="34" r="1.5" fill="#c4501e" opacity="0.5" />
+</svg>

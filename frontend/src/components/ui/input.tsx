@@ -1,14 +1,26 @@
-import type { InputHTMLAttributes } from "react";
+import { forwardRef, type InputHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(
+  { className, ...props },
+  ref,
+) {
   return (
     <input
+      ref={ref}
       className={cn(
-        "w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-base text-ink outline-none transition placeholder:text-ink/40 focus:border-spruce focus:ring-2 focus:ring-spruce/15",
+        "w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none transition",
+        "placeholder:text-[var(--color-ink-40)]",
+        "focus:ring-2",
         className,
       )}
+      style={{
+        borderColor: "var(--color-border)",
+        color: "var(--color-ink)",
+        // @ts-expect-error CSS custom properties
+        "--tw-ring-color": "var(--color-spruce-10)",
+      }}
       {...props}
     />
   );
-}
+});

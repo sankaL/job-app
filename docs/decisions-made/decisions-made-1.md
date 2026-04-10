@@ -1,5 +1,86 @@
 # Decisions Made
 
+## 2026-04-10 13:30:00 EDT — Make regeneration structure deterministic, cap non-admin full regenerations, and move generation to slower higher-quality defaults
+
+- Status: Accepted
+- Context: Full and section regeneration occasionally returned Professional Experience output that dropped or altered company/date lines, creating structural drift that deterministic validation could miss when model output was inconsistent. The team also needed longer async windows for slower higher-quality models and explicit cost controls for repeated full regenerations.
+- Decision:
+  1. Add deterministic Professional Experience source anchors (`title`, `company`, `date_range`, source order) extracted from sanitized base resume content and pass them into full and section regeneration prompts as explicit invariants.
+  2. Add a deterministic post-LLM normalization pass that rehydrates Professional Experience company/date from source anchors before validation and assembly; low/medium also force source-exact titles while high preserves generated titles only when company/date stay source-exact.
+  3. Strengthen deterministic validation to fail closed when Professional Experience role blocks cannot satisfy the structure contract after normalization.
+  4. Enforce a hard per-application cap of three full regenerations for non-admin users, consume a slot only when queueing succeeds, and allow admin bypass.
+  5. Increase generation timeout profiles to `240s` full generation/full regeneration and `120s` section regeneration, and surface section-aware stage messages through progress updates.
+  6. Set generation model defaults to `z-ai/glm-5.1` primary and `anthropic/claude-sonnet-4.6` fallback, while leaving extraction defaults unchanged.
+- Consequences: Regeneration output stays structurally stable for Professional Experience across retries, user-facing progress becomes clearer for longer-running models, full-regeneration spend is bounded for non-admin users, and admin workflows retain operational override capability.
+
+## 2026-04-10 10:42:00 EDT — Keep onboarding invite-only via tokenized signup, and scope admin to metrics plus user lifecycle controls
+
+- Status: Accepted
+- Context: The product needed account creation for new users without opening public registration. Admin users also needed operational visibility and user lifecycle controls before launch, with reliable invite delivery through Resend and clear onboarding requirements.
+- Decision:
+  1. Keep signup invite-only by introducing tokenized invite links and dedicated unauthenticated invite preview/accept endpoints, while keeping all other application APIs JWT-protected.
+  2. Pre-provision invited users in Supabase Auth at invite-send time, then complete onboarding on invite acceptance by setting password and mandatory profile fields.
+  3. Require invite-signup profile fields `first_name`, `last_name`, `location`, `phone`, and `email`; keep LinkedIn optional.
+  4. Enforce password confirmation and a minimum password policy of 12+ characters with uppercase, lowercase, number, and symbol.
+  5. Scope admin MVP responsibilities to exactly two surfaces: a metrics dashboard (invite funnel plus extraction/generation/regeneration/export outcomes) and user management (invite, edit, deactivate/reactivate, delete).
+- Consequences: The app remains private and invite-gated, onboarding becomes deterministic and auditable, and admins can operate user access and monitor core workflow health without adding non-actionable vanity analytics.
+
+## 2026-04-09 20:56:55 EDT — Add semantic job-location extraction separate from compensation
+
+- Status: Accepted
+- Context: Live testing against an Accenture posting showed that a single rendered line could contain both location text and salary text, which caused `compensation_text` to absorb location data when extraction treated the line as one compensation snippet. The product also needed users to be able to review and edit location separately in the application detail workspace.
+- Decision:
+  1. Add a nullable `applications.job_location_text` field that stores raw location or hiring-region text exactly as shown in the posting or manual entry.
+  2. Keep the separation between `job_location_text` and `compensation_text` model-driven: extraction should use labels, surrounding context, and page meaning rather than brittle deterministic splitting rules.
+  3. Leave `job_location_text` or `compensation_text` null when the page does not support a clear distinction, instead of forcing a guess.
+  4. Expose `job_location_text` in manual entry and the application detail Job Information card, but keep duplicate-review behavior unchanged when only that field changes.
+- Consequences: Accenture-style postings where location and salary share a line can still produce clean structured fields, the schema remains additive and backward compatible, and the extraction contract stays robust across employers that render location and compensation differently.
+
+## 2026-04-09 20:18:29 EDT — Keep export header profile-driven, add LinkedIn explicitly, and let PDF export tighten to the saved page target
+
+- Status: Accepted
+- Context: PDF export was rendering a second header on top of the assembled Markdown header, existing drafts could still contain the legacy `# (Name)` placeholder block, and the profile contract had no first-class LinkedIn field even though the desired resume format required one. Export also ignored the saved `page_length` target, so the final PDF page count could drift more than necessary from the user’s configured length.
+- Decision:
+  1. Keep the user profile as the single source of truth for export header data and add `profiles.linkedin_url` as an additive nullable field.
+  2. Continue storing `profiles.address`, but treat it as the short location line shown in resume assembly and export rather than a mailing-address-specific requirement.
+  3. Remove the export-time duplicate-header prepend and normalize only known legacy or assembly-style header blocks during export so broken drafts recover without forcing regeneration.
+  4. Require a non-blank profile `name` before initial generation, full regeneration, and PDF export, with actionable fail-closed errors instead of emitting the `# (Name)` placeholder.
+  5. Read the saved draft `generation_params.page_length` during export and retry progressively tighter layout presets until the PDF fits the target page count or the minimum preset is reached.
+- Consequences: Exported PDFs now stay closer to the intended reference format, profile-managed contact fields remain outside the model boundary, old broken drafts recover on export, and users get clearer recovery guidance when mandatory profile data is missing.
+
+## 2026-04-09 20:22:31 EDT — Make new-application intake modal-based and allow optional pasted-text creation from the applications page
+
+- Status: Accepted
+- Context: The applications page still created new applications through an inline top-of-page card that accepted only a URL, while the better-looking modal intake the product needed also had to support the already-available pasted-text extraction path without forcing users through a failure-recovery detour first.
+- Decision:
+  1. Replace the inline applications-page intake card with a dedicated modal that matches the existing spruce/ink/ember visual language.
+  2. Keep the modal URL-first: the job URL is always required and visible when the modal opens.
+  3. Reveal the pasted job-description textarea only after the user explicitly clicks the secondary paste option, rather than showing it by default.
+  4. Extend `POST /api/applications` so the applications page can create directly from `{ job_url, source_text }`, reusing the existing capture-backed extraction path instead of inventing a separate intake workflow.
+- Consequences: New-application intake becomes more intentional and visually polished, pasted source text can improve extraction from the first submit instead of only during recovery, the database contract remains unchanged because `job_url` stays required, and the PRD plus roadmap now need to describe the dashboard flow as URL-first rather than URL-only.
+
+## 2026-04-09 20:00:24 EDT — Allow high-only professional-experience title rewrites while keeping low and medium title-fixed
+
+- Status: Accepted
+- Context: Users wanted the highest aggressiveness setting to go beyond bullet reframing and allow professional-experience role titles to be rewritten for target-role alignment. The existing prompt contract, validator, and agent guidance treated any rewritten job title as unsupported hallucination, so the feature could not work without a coordinated rules change.
+- Decision:
+  1. Keep low and medium aggressiveness title-fixed: Professional Experience role titles must remain exactly as they appear in the source resume.
+  2. Allow high aggressiveness to retitle Professional Experience role names only when the new title is a truthful reframing of the same source role.
+  3. Preserve employer and dates exactly when role titles are rewritten, and explicitly forbid seniority inflation or invented scope through the prompt contract.
+  4. Update deterministic validation so the high-aggressiveness carveout applies only to Professional Experience role-title claims; employers, dates, credentials, and other unsupported claims remain blocked.
+- Consequences: High aggressiveness becomes materially more assertive for experience positioning, low and medium remain conservative, and the validator still fail-closes on invented employers, dates, credentials, or broader hallucinations.
+
+## 2026-04-09 19:36:58 EDT — Store full posting bodies, add raw compensation text, and keep aggressiveness help compact
+
+- Status: Accepted
+- Context: Extraction was stopping at partial job-description content on some postings, which caused lower-page sections like qualifications and compensation to be dropped. The application detail page also exposed low, medium, and high aggressiveness settings without clearly showing which sections each level rewrites.
+- Decision:
+  1. Treat `applications.job_description` as the full primary posting body rather than a narrowed duties excerpt, and preserve more captured page text so lower-page sections remain available to extraction.
+  2. Add a nullable `applications.compensation_text` field that stores raw compensation text exactly as shown in the posting or manual entry, without attempting MVP normalization into min/max or currency fields.
+  3. Prefer main-content extraction targets (`main`, `article`, `[role="main"]`) before falling back to the page body, while still excluding obvious page chrome and blocked-page noise.
+  4. Keep the Generation Settings card compact and expose the complete low, medium, and high behavior contract through inline popovers instead of permanently expanded copy.
+- Consequences: Existing rows remain compatible without backfill, extraction gets better coverage of full postings, compensation becomes reviewable and user-editable in the detail workspace, and aggressiveness choices become clearer without making the settings rail materially taller.
+
 ## 2026-04-08 12:55:00 EDT — Make resume prompts operational, enable generation-only reasoning, and surface low-confidence upload cleanup
 
 - Status: Accepted

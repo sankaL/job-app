@@ -5,18 +5,32 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#101828",
-        canvas: "#f5f3ee",
-        sand: "#e6dccd",
-        spruce: "#184a45",
-        ember: "#9f3a16",
+        ink: "var(--color-ink)",
+        canvas: "var(--color-canvas)",
+        sand: "var(--color-sand)",
+        spruce: "var(--color-spruce)",
+        ember: "var(--color-ember)",
+        amber: "var(--color-amber)",
+        surface: "var(--color-surface)",
       },
       fontFamily: {
         sans: ["'Source Sans 3'", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["'Bricolage Grotesque'", "'Source Sans 3'", "sans-serif"],
       },
       boxShadow: {
-        panel: "0 24px 60px rgba(16, 24, 40, 0.12)",
+        xs: "var(--shadow-xs)",
+        sm: "var(--shadow-sm)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
+        panel: "var(--shadow-panel)",
+      },
+      borderRadius: {
+        xs: "var(--radius-xs)",
+        sm: "var(--radius-sm)",
+        md: "var(--radius-md)",
+        lg: "var(--radius-lg)",
+        xl: "var(--radius-xl)",
+        "2xl": "var(--radius-2xl)",
       },
     },
   },
