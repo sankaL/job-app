@@ -57,6 +57,7 @@ class ApplicationRecord(BaseModel):
     duplicate_resolution_status: Optional[str]
     duplicate_matched_application_id: Optional[str]
     notes: Optional[str]
+    full_regeneration_count: int = 0
     exported_at: Optional[str]
     created_at: str
     updated_at: str
@@ -108,6 +109,7 @@ select
   a.duplicate_resolution_status::text,
   a.duplicate_matched_application_id::text,
   a.notes,
+  a.full_regeneration_count,
   a.exported_at::text,
   a.created_at::text,
   a.updated_at::text,

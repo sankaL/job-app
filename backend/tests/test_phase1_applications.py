@@ -17,6 +17,7 @@ from app.db.applications import (
     DuplicateCandidateRecord,
     MatchedApplicationRecord,
 )
+from app.db.profiles import get_profile_repository
 from app.db.resume_drafts import ResumeDraftRecord
 from app.main import app
 from app.services import application_manager as application_manager_service
@@ -73,6 +74,7 @@ class FakeApplicationRepository:
             duplicate_resolution_status=None,
             duplicate_matched_application_id=None,
             notes=None,
+            full_regeneration_count=0,
             exported_at=None,
             created_at="2026-04-07T12:00:00+00:00",
             updated_at="2026-04-07T12:00:00+00:00",
@@ -151,6 +153,8 @@ class FakeProfileRepository:
             "skills": True,
         }
         self.section_order = ["summary", "professional_experience", "education", "skills"]
+        self.is_admin = False
+        self.is_active = True
 
     def fetch_profile(self, user_id: str):
         class Profile:
@@ -164,6 +168,8 @@ class FakeProfileRepository:
         profile.linkedin_url = self.linkedin_url
         profile.section_preferences = self.section_preferences
         profile.section_order = self.section_order
+        profile.is_admin = self.is_admin
+        profile.is_active = self.is_active
 
         return profile
 
@@ -392,6 +398,7 @@ class StubVerifier(AuthVerifier):
 @pytest.fixture(autouse=True)
 def clear_dependency_overrides():
     original = copy.copy(app.dependency_overrides)
+    app.dependency_overrides[get_profile_repository] = lambda: FakeProfileRepository()
     yield
     app.dependency_overrides = original
 
@@ -1157,6 +1164,55 @@ def test_cancel_extraction_endpoint_returns_409_for_idle_record():
     assert response.json()["detail"] == "No active extraction to stop."
 
 
+def test_full_regeneration_endpoint_returns_409_when_limit_is_reached():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/cap-endpoint",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+            "full_regeneration_count": 3,
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Draft\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/applications/{created.id}/regenerate",
+        headers={"Authorization": "Bearer valid-token"},
+        json={
+            "target_length": "1_page",
+            "aggressiveness": "medium",
+            "additional_instructions": None,
+        },
+    )
+
+    assert response.status_code == 409
+    assert "Please contact an administrator" in response.json()["detail"]
+
+
 @pytest.mark.asyncio
 async def test_generation_success_callback_persists_draft_and_marks_resume_ready():
     service, repository, notifications, progress_store, _, _, drafts = build_service()
@@ -1379,6 +1435,203 @@ async def test_full_regeneration_requires_profile_name():
         )
 
     assert service.generation_job_queue.regenerations == []
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_consumes_slot_for_non_admin_when_queued():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/slot",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+            "full_regeneration_count": 1,
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Test User\ninvite-only@example.com | 555-0100 | Toronto, ON\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    detail = await service.trigger_full_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        target_length="1_page",
+        aggressiveness="medium",
+        additional_instructions=None,
+    )
+
+    updated = repository.fetch_application("user-1", created.id)
+    assert updated is not None
+    assert detail.application.internal_state == "regenerating_full"
+    assert updated.full_regeneration_count == 2
+    assert len(service.generation_job_queue.regenerations) == 1
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_blocks_non_admin_after_limit_reached():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/cap",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+            "full_regeneration_count": 3,
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Draft\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    with pytest.raises(
+        PermissionError,
+        match="You have reached the full regeneration limit for this resume. Please contact an administrator",
+    ):
+        await service.trigger_full_regeneration(
+            user_id="user-1",
+            application_id=created.id,
+            target_length="1_page",
+            aggressiveness="medium",
+            additional_instructions=None,
+        )
+
+    assert len(service.generation_job_queue.regenerations) == 0
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_allows_admin_bypass_past_limit():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.profile_repository.is_admin = True
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/admin-bypass",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+            "full_regeneration_count": 3,
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Draft\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    detail = await service.trigger_full_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        target_length="1_page",
+        aggressiveness="medium",
+        additional_instructions=None,
+    )
+
+    updated = repository.fetch_application("user-1", created.id)
+    assert updated is not None
+    assert detail.application.internal_state == "regenerating_full"
+    assert updated.full_regeneration_count == 3
+    assert len(service.generation_job_queue.regenerations) == 1
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_queue_failure_does_not_consume_slot():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/queue-failure",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+            "full_regeneration_count": 2,
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Draft\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    async def fail_queue(**_kwargs):
+        raise RuntimeError("queue unavailable")
+
+    service.generation_job_queue.enqueue_regeneration = fail_queue  # type: ignore[method-assign]
+
+    detail = await service.trigger_full_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        target_length="1_page",
+        aggressiveness="medium",
+        additional_instructions=None,
+    )
+
+    updated = repository.fetch_application("user-1", created.id)
+    assert updated is not None
+    assert detail.application.failure_reason == "regeneration_failed"
+    assert updated.full_regeneration_count == 2
 
 
 @pytest.mark.asyncio
@@ -1647,8 +1900,8 @@ async def test_stuck_generation_recovery_marks_timeout_and_terminal_progress():
 async def test_get_progress_recovers_stalled_generation_before_returning_progress():
     service, repository, _, progress_store, _, _, _ = build_service()
     now = datetime.now(timezone.utc)
-    started_at = (now - timedelta(seconds=120)).isoformat()
-    stalled_at = (now - timedelta(seconds=95)).isoformat()
+    started_at = (now - timedelta(seconds=320)).isoformat()
+    stalled_at = (now - timedelta(seconds=250)).isoformat()
     created = repository.create_application(
         user_id="user-1",
         job_url="https://example.com/jobs/2",

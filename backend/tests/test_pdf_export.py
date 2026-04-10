@@ -58,17 +58,18 @@ def test_normalize_markdown_replaces_plain_text_header_matching_profile():
 
 
 def test_build_html_uses_point_spacing_units():
+    preset = pdf_export.LAYOUT_PRESETS[0]
     html = pdf_export._build_html(
         "## Summary\nBuilt backend systems.\n",
-        pdf_export.LAYOUT_PRESETS[0],
+        preset,
     )
 
-    assert "margin-top: 3.2pt;" in html
-    assert "margin-bottom: 2.2pt;" in html
-    assert "margin: 0 0 0.8pt 0;" in html
+    assert f"margin-top: {preset.section_margin_top}pt;" in html
+    assert f"margin: 0 0 {preset.section_margin_bottom}pt 0;" in html
+    assert f"margin: 0 0 {preset.paragraph_margin}pt 0;" in html
     assert "margin-top: 0;" in html
-    assert "3.2rem" not in html
-    assert "2.2rem" not in html
+    assert f"{preset.section_margin_top}rem" not in html
+    assert f"{preset.section_margin_bottom}rem" not in html
 
 
 def test_generate_pdf_autofit_retries_until_target_page_count_is_met(monkeypatch):
@@ -78,7 +79,7 @@ def test_generate_pdf_autofit_retries_until_target_page_count_is_met(monkeypatch
         preset_index = int(re.search(r'data-preset="(\d+)"', html_content).group(1))
         seen_presets.append(preset_index)
         page_counts = {0: 3, 1: 2, 2: 1}
-        return (f"preset-{preset_index}".encode(), page_counts[preset_index])
+        return (f"preset-{preset_index}".encode(), page_counts.get(preset_index, 1))
 
     monkeypatch.setattr(pdf_export, "_render_html_to_pdf", fake_render_html_to_pdf)
 
@@ -89,7 +90,30 @@ def test_generate_pdf_autofit_retries_until_target_page_count_is_met(monkeypatch
     )
 
     assert pdf_bytes == b"preset-2"
-    assert seen_presets == [0, 1, 2]
+    assert seen_presets[:3] == [0, 1, 2]
+    assert all(index == 2 for index in seen_presets[3:])
+
+
+def test_generate_pdf_autofit_prefers_tighter_density_before_smaller_font(monkeypatch):
+    seen_presets: list[int] = []
+
+    def fake_render_html_to_pdf(html_content: str) -> tuple[bytes, int]:
+        preset_index = int(re.search(r'data-preset="(\d+)"', html_content).group(1))
+        seen_presets.append(preset_index)
+        page_counts = {0: 2, 1: 1, 2: 1}
+        return (f"preset-{preset_index}".encode(), page_counts.get(preset_index, 1))
+
+    monkeypatch.setattr(pdf_export, "_render_html_to_pdf", fake_render_html_to_pdf)
+
+    pdf_bytes = pdf_export._generate_pdf_with_autofit_sync(
+        "## Summary\nBuilt backend systems.\n",
+        _personal_info(),
+        "1_page",
+    )
+
+    assert pdf_bytes == b"preset-1"
+    assert seen_presets[:2] == [0, 1]
+    assert all(index == 1 for index in seen_presets[2:])
 
 
 def test_generate_pdf_autofit_stops_at_minimum_preset(monkeypatch):
@@ -108,5 +132,96 @@ def test_generate_pdf_autofit_stops_at_minimum_preset(monkeypatch):
         "1_page",
     )
 
-    assert pdf_bytes == b"preset-5"
-    assert seen_presets == [0, 1, 2, 3, 4, 5]
+    min_preset_index = len(pdf_export.LAYOUT_PRESETS) - 1
+    assert pdf_bytes == f"preset-{min_preset_index}".encode()
+    assert seen_presets == list(range(len(pdf_export.LAYOUT_PRESETS)))
+
+
+def test_generate_pdf_one_page_validation_tries_roomier_variant_before_export(monkeypatch):
+    seen_fonts: list[float] = []
+
+    monkeypatch.setattr(
+        pdf_export,
+        "LAYOUT_PRESETS",
+        [pdf_export.LayoutPreset(body_font_size=10.0, line_height=1.08, page_margin=0.3, spacing_scale=0.7)],
+    )
+
+    def fake_render_html_to_pdf(html_content: str) -> tuple[bytes, int]:
+        body_font_size = float(re.search(r"font-size:\s*([0-9.]+)pt;", html_content).group(1))
+        seen_fonts.append(body_font_size)
+        page_count = 1 if body_font_size <= 10.22 else 2
+        return (f"font-{body_font_size:.2f}".encode(), page_count)
+
+    monkeypatch.setattr(pdf_export, "_render_html_to_pdf", fake_render_html_to_pdf)
+
+    pdf_bytes = pdf_export._generate_pdf_with_autofit_sync(
+        "## Summary\nBuilt backend systems.\n",
+        _personal_info(),
+        "1_page",
+    )
+
+    assert pdf_bytes == b"font-10.22"
+    assert seen_fonts[0] == 10.0
+    assert 10.22 in seen_fonts
+    assert 10.44 in seen_fonts
+    assert len(seen_fonts) >= 3
+
+
+def test_generate_pdf_one_page_validation_adds_section_spacing_when_room_exists(monkeypatch):
+    seen_section_tops: list[float] = []
+    accepted_section_tops: list[float] = []
+
+    monkeypatch.setattr(
+        pdf_export,
+        "LAYOUT_PRESETS",
+        [pdf_export.LayoutPreset(body_font_size=10.0, line_height=1.08, page_margin=0.3, spacing_scale=0.7)],
+    )
+
+    def fake_render_html_to_pdf(html_content: str) -> tuple[bytes, int]:
+        section_margin_top = float(re.search(r"\.resume-section \{\s*margin-top: ([0-9.]+)pt;", html_content).group(1))
+        body_font_size = float(re.search(r"font-size:\s*([0-9.]+)pt;", html_content).group(1))
+        seen_section_tops.append(section_margin_top)
+        # Allow section spacing growth, but force any font growth to overflow.
+        page_count = 1 if body_font_size <= 10.0 else 2
+        if page_count == 1:
+            accepted_section_tops.append(section_margin_top)
+        return (f"section-top-{section_margin_top:.2f}".encode(), page_count)
+
+    monkeypatch.setattr(pdf_export, "_render_html_to_pdf", fake_render_html_to_pdf)
+
+    pdf_bytes = pdf_export._generate_pdf_with_autofit_sync(
+        "## Summary\nBuilt backend systems.\n",
+        _personal_info(),
+        "1_page",
+    )
+
+    assert seen_section_tops[0] > 0
+    assert max(accepted_section_tops) > seen_section_tops[0]
+    assert pdf_bytes == f"section-top-{max(accepted_section_tops):.2f}".encode()
+
+
+def test_build_html_bolds_only_professional_experience_role_title_split_rows():
+    html = pdf_export._build_html(
+        (
+            "## Professional Experience\n"
+            "Senior Data Architect | Jan 2020 - Present\n"
+            "Acme Corp | Toronto, ON\n"
+        ),
+        pdf_export.LAYOUT_PRESETS[0],
+    )
+
+    assert html.count("split-left split-left-strong") == 1
+    assert "Senior Data Architect" in html
+    assert "Acme Corp" in html
+
+
+def test_build_html_does_not_bold_date_split_rows_outside_professional_experience():
+    html = pdf_export._build_html(
+        (
+            "## Summary\n"
+            "Program Timeline | Jan 2020 - Present\n"
+        ),
+        pdf_export.LAYOUT_PRESETS[0],
+    )
+
+    assert "split-left split-left-strong" not in html

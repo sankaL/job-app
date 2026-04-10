@@ -48,6 +48,11 @@ def verify_extension_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid extension token.",
         )
+    if not owner.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated. Contact an administrator.",
+        )
 
     repository.touch_extension_token(user_id=owner.id)
     return ExtensionAuthenticatedUser(id=owner.id, email=owner.email)

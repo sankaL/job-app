@@ -77,7 +77,9 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const menusRef = useRef<HTMLDivElement>(null);
 
   const userEmail = bootstrap?.user.email ?? "";
-  const userName = bootstrap?.profile?.name ?? "";
+  const userName =
+    bootstrap?.profile?.name ??
+    [bootstrap?.profile?.first_name, bootstrap?.profile?.last_name].filter(Boolean).join(" ");
   const initials = userName
     ? userName
         .split(" ")

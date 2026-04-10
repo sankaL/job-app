@@ -30,8 +30,96 @@ Opus
 - [x] add the things that will change in the configuration when the user is selecting low, medium, high so that they know exactly what is what will be affected If it's too much information to put, make the configuration card smaller with a tooltip that shows all the details. 
 - [x] In the aggressiveness high, I wanted to even change the professional experience titles. Not the dates of the titles, but the actual title name to change it to match whatever experience that I'm putting in. low and medium mode do not touch the titles of any of my roles 
 
-- [] fix the resume output pdf issues - too small now use the latest example. make the job experience bold on pdf.
-- [] seems like companies are striped away from the experience section - test first before fixing to see if its one off thing
+- [x] fix the resume output pdf issues - too small now use the latest example. make the job experience bold on pdf.
+- [x] Add sign up flow when only invite only. Where is the invite triggered and what is the flow to sign up for new users and make their account and then log in. Test that out before launch. z-ai/glm-5.1 or 
 
+- [x] seems like companies are striped away from the experience section - test first before fixing to see if its one off thing - maybe change modal
 - [] Create a test suite integration in pytest with reporting request library - i make the scenarios sanity test suite
-- [] Add sign up flow when only invite only. Where is the invite triggered and what is the flow to sign up for new users and make their account and then log in. Test that out before launch. 
+
+
+ERROR WHEN DOING HIGH AGRESSIVE GEN - app thought model was too slow.
+
+
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/asyncio/tasks.py", line 519, in wait_for
+
+    async with timeouts.timeout(timeout):
+
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/asyncio/timeouts.py", line 115, in __aexit__
+
+    raise TimeoutError from exc_val
+
+TimeoutError
+
+17:14:38: 240.47s ! bea6f29790fb4fb5a620000e7b473ee3:run_regeneration_job failed, TimeoutError: 
+
+Traceback (most recent call last):
+
+  File "/usr/local/lib/python3.12/asyncio/tasks.py", line 520, in wait_for
+
+    return await fut
+
+           ^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/site-packages/generation.py", line 943, in generate_sections
+
+    payload, model_used = await _await_with_progress_heartbeat(
+
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/site-packages/generation.py", line 828, in _await_with_progress_heartbeat
+
+    done, _pending = await asyncio.wait({task}, timeout=heartbeat_interval)
+
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/asyncio/tasks.py", line 464, in wait
+
+    return await _wait(fs, timeout, return_when, loop)
+
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/asyncio/tasks.py", line 550, in _wait
+
+    await waiter
+
+asyncio.exceptions.CancelledError
+
+
+The above exception was the direct cause of the following exception:
+
+
+Traceback (most recent call last):
+
+  File "/usr/local/lib/python3.12/site-packages/arq/worker.py", line 595, in run_job
+
+    result = await asyncio.wait_for(task, timeout_s)
+
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/asyncio/tasks.py", line 520, in wait_for
+
+    return await fut
+
+           ^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/site-packages/worker.py", line 1132, in run_regeneration_job
+
+    gen_result = await asyncio.wait_for(
+
+                 ^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/asyncio/tasks.py", line 519, in wait_for
+
+    async with timeouts.timeout(timeout):
+
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "/usr/local/lib/python3.12/asyncio/timeouts.py", line 115, in __aexit__
+
+    raise TimeoutError from exc_val
+
+TimeoutError

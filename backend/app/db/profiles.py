@@ -15,10 +15,15 @@ from app.core.config import get_settings
 class ProfileRecord(BaseModel):
     id: str
     email: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     name: Optional[str]
     phone: Optional[str]
     address: Optional[str]
     linkedin_url: Optional[str]
+    is_admin: bool = False
+    is_active: bool = True
+    onboarding_completed_at: Optional[str] = None
     default_base_resume_id: Optional[str]
     section_preferences: dict[str, bool]
     section_order: list[str]
@@ -35,6 +40,7 @@ class ExtensionConnectionRecord(BaseModel):
 class ExtensionTokenOwnerRecord(BaseModel):
     id: str
     email: str
+    is_active: bool
 
 
 class ProfileRepository:
@@ -51,10 +57,15 @@ class ProfileRepository:
         select
           id::text,
           email,
+          first_name,
+          last_name,
           name,
           phone,
           address,
           linkedin_url,
+          is_admin,
+          is_active,
+          onboarding_completed_at::text,
           default_base_resume_id::text,
           section_preferences,
           section_order,
@@ -90,7 +101,8 @@ class ProfileRepository:
         query = """
         select
           id::text,
-          email
+          email,
+          is_active
         from public.profiles
         where extension_token_hash = %s
         """
@@ -100,6 +112,35 @@ class ProfileRepository:
             row = cursor.fetchone()
 
         return ExtensionTokenOwnerRecord.model_validate(row) if row else None
+
+    def fetch_profile_by_email(self, email: str) -> Optional[ProfileRecord]:
+        query = """
+        select
+          id::text,
+          email,
+          first_name,
+          last_name,
+          name,
+          phone,
+          address,
+          linkedin_url,
+          is_admin,
+          is_active,
+          onboarding_completed_at::text,
+          default_base_resume_id::text,
+          section_preferences,
+          section_order,
+          created_at::text,
+          updated_at::text
+        from public.profiles
+        where lower(email) = lower(%s)
+        """
+
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (email,))
+            row = cursor.fetchone()
+
+        return ProfileRecord.model_validate(row) if row else None
 
     def upsert_extension_token(self, *, user_id: str, token_hash: str) -> ExtensionConnectionRecord:
         query = """

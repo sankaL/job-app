@@ -1,7 +1,7 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-04-09  
+**Last updated:** 2026-04-10  
 **Sources:** `agents/generation.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
@@ -19,14 +19,15 @@ This document records the latest live prompt definitions in the repository. The 
 
 ### Generation runtime behavior
 
-- Initial full generation uses OpenRouter reasoning with `effort=medium`.
-- Full regeneration and single-section regeneration use OpenRouter reasoning with `effort=high`.
+- Initial full generation and full regeneration use OpenRouter reasoning with `effort=medium`.
+- Single-section regeneration uses OpenRouter reasoning with `effort=high`.
 - Reasoning is requested only on generation calls and is sent through the provider-specific request body; reasoning is excluded from returned content.
 - While a full generation or full regeneration call is still waiting on the model, the worker emits periodic heartbeat progress updates so the backend idle-timeout monitor does not misclassify an in-flight reasoning call as stalled.
-- Full generation and full regeneration allow up to `90s` per LLM attempt within the worker's `300s` wall-clock cap; single-section regeneration keeps the stricter `45s` per-attempt timeout.
+- Full generation and full regeneration allow up to `240s` per LLM attempt and use a `240s` stalled-recovery profile; single-section regeneration allows `120s` per attempt with a `120s` stalled-recovery profile.
 - Generation first attempts schema-enforced structured output. If that fails, the same model falls back to the strict prompt-level JSON contract. If the provider appears to reject the reasoning parameter, the same model is retried once without reasoning before moving on.
 - If every attempt times out, the generation layer preserves the timeout classification so the worker can surface `generation_timeout` or `regeneration_timeout` instead of a generic unexpected failure.
 - Extraction and upload cleanup do not enable reasoning.
+- Generation and section regeneration include a deterministic Professional Experience anchor contract in the prompt payload and apply a deterministic post-LLM normalization pass that rehydrates source company/date values before validation and assembly.
 - After generation or full regeneration, local assembly reattaches the profile-driven header with name, email, phone, location text (stored in `address`), and optional `linkedin_url`. Those fields never enter the model prompt payload.
 
 ### Shared system prompt template
@@ -44,7 +45,7 @@ Non-negotiables:
 - Use only facts grounded in the sanitized base resume source.
 - Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.
 - Do not invent employers, dates, institutions, credentials, awards, metrics, scope, or technologies.
-- Role-title exception: only in high aggressiveness, and only inside Professional Experience, you may retitle the role name when it remains a truthful reframing of the same source role. Keep employer and dates unchanged and do not inflate seniority.
+- Professional Experience structure contract: preserve source company and date range for every role. Low and medium must preserve role titles exactly; high may retitle only while keeping company and dates unchanged.
 - User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.
 - If the source does not support a stronger claim, keep the weaker truthful version.
 - Use only standard Markdown inside markdown fields. No HTML, tables, images, columns, code fences, commentary, or em dashes.
@@ -187,6 +188,21 @@ Used for both initial generation and full regeneration.
   "section_rules": {
     "{{section_id}}": "{{section_rule}}"
   },
+  "professional_experience_structure_contract": {
+    "anchors": [
+      {
+        "role_index": "{{index}}",
+        "source_title": "{{source_title}}",
+        "source_company": "{{source_company}}",
+        "source_date_range": "{{source_date_range}}"
+      }
+    ],
+    "invariants": {
+      "company_and_dates_must_match_source_for_every_role": true,
+      "low_and_medium_titles_must_match_source_exactly": true,
+      "high_titles_may_retitle_but_company_and_dates_must_stay_source_exact": true
+    }
+  },
   "job_description": "{{normalized_job_description}}",
   "sanitized_base_resume_markdown": "{{normalized_sanitized_base_resume}}",
   "response_contract": {
@@ -241,6 +257,21 @@ Human payload:
     "target_length": "{{target_length}}",
     "target_range": "{{target_range}}",
     "hard_cap_words": "{{hard_cap_words}}"
+  },
+  "professional_experience_structure_contract": {
+    "anchors": [
+      {
+        "role_index": "{{index}}",
+        "source_title": "{{source_title}}",
+        "source_company": "{{source_company}}",
+        "source_date_range": "{{source_date_range}}"
+      }
+    ],
+    "invariants": {
+      "company_and_dates_must_match_source_for_every_role": true,
+      "low_and_medium_titles_must_match_source_exactly": true,
+      "high_titles_may_retitle_but_company_and_dates_must_stay_source_exact": true
+    }
   },
   "job_description": "{{normalized_job_description}}",
   "sanitized_base_resume_markdown": "{{normalized_sanitized_base_resume}}",

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.core.auth import AuthVerifier, AuthenticatedUser, get_auth_verifier
 from app.db.notifications import NotificationRecord, NotificationRepository, get_notification_repository
+from app.db.profiles import get_profile_repository
 from app.main import app
 
 
@@ -75,9 +76,23 @@ class StubNotificationRepository(NotificationRepository):
         ]
 
 
+class StubProfileRepository:
+    def fetch_profile(self, user_id: str):
+        class Profile:
+            pass
+
+        profile = Profile()
+        profile.id = user_id
+        profile.email = "invite-only@example.com"
+        profile.is_active = True
+        profile.is_admin = False
+        return profile
+
+
 @pytest.fixture(autouse=True)
 def clear_dependency_overrides():
     original = copy.copy(app.dependency_overrides)
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository()
     yield
     app.dependency_overrides = original
 

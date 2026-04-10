@@ -49,8 +49,8 @@ REFERENCE_PATTERNS = (
     re.compile(r"/jobs/(?:view/)?([0-9]{4,})", re.I),
     re.compile(r"/job/([A-Za-z0-9_-]{6,})", re.I),
 )
-FULL_GENERATION_MAX_TIMEOUT_SECONDS = 300.0
-SECTION_REGENERATION_TIMEOUT_SECONDS = 45.0
+FULL_GENERATION_MAX_TIMEOUT_SECONDS = 540.0
+SECTION_REGENERATION_TIMEOUT_SECONDS = 280.0
 EXTRACTION_TEXT_LIMIT = 40_000
 EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT = 8_000
 
@@ -872,7 +872,7 @@ async def run_generation_job(
             job_id=job_id,
             workflow_kind="generation",
             state="generating",
-            message="Starting resume generation",
+            message="Preparing generation inputs and section plan",
             percent_complete=5,
         )
         await callback.post(
@@ -914,7 +914,7 @@ async def run_generation_job(
             job_id=job_id,
             workflow_kind="generation",
             state="generating",
-            message="Validating generated resume",
+            message="Running deterministic validation and structure checks",
             percent_complete=85,
         )
 
@@ -923,6 +923,7 @@ async def run_generation_job(
             base_resume_content=base_resume_content,
             section_preferences=section_preferences,
             generation_settings=public_generation_settings,
+            professional_experience_anchors=gen_result.get("professional_experience_anchors"),
         )
         if not await is_current_job(writer, application_id, job_id):
             return
@@ -959,7 +960,7 @@ async def run_generation_job(
             job_id=job_id,
             workflow_kind="generation",
             state="generating",
-            message="Assembling final resume",
+            message="Assembling final resume draft",
             percent_complete=95,
         )
 
@@ -1102,7 +1103,7 @@ async def run_regeneration_job(
             job_id=job_id,
             workflow_kind=workflow_kind,
             state=workflow_state,
-            message="Starting regeneration",
+            message="Preparing regeneration inputs and section plan",
             percent_complete=5,
         )
         await callback.post(
@@ -1154,7 +1155,7 @@ async def run_regeneration_job(
                 job_id=job_id,
                 workflow_kind=workflow_kind,
                 state=workflow_state,
-                message="Validating regenerated resume",
+                message="Running deterministic validation and structure checks",
                 percent_complete=85,
             )
 
@@ -1163,6 +1164,7 @@ async def run_regeneration_job(
                 base_resume_content=base_resume_content,
                 section_preferences=section_preferences,
                 generation_settings=public_generation_settings,
+                professional_experience_anchors=gen_result.get("professional_experience_anchors"),
             )
             if not await is_current_job(writer, application_id, job_id):
                 return
@@ -1191,6 +1193,16 @@ async def run_regeneration_job(
                     path=REGENERATION_CALLBACK_PATH,
                 )
                 return
+
+            await set_progress(
+                writer,
+                application_id,
+                job_id=job_id,
+                workflow_kind=workflow_kind,
+                state=workflow_state,
+                message="Assembling regenerated resume draft",
+                percent_complete=95,
+            )
 
             content = assemble_resume(
                 personal_info=personal_info,
@@ -1222,9 +1234,20 @@ async def run_regeneration_job(
                 job_id=job_id,
                 workflow_kind=workflow_kind,
                 state=workflow_state,
-                message=f"Regenerating {section_name} section",
+                message=f"Preparing {section_name} section regeneration",
                 percent_complete=20,
             )
+
+            async def on_section_regen_progress(percent: int, message: str) -> None:
+                await set_progress(
+                    writer,
+                    application_id,
+                    job_id=job_id,
+                    workflow_kind=workflow_kind,
+                    state=workflow_state,
+                    message=message,
+                    percent_complete=percent,
+                )
 
             regenerated_section = await asyncio.wait_for(
                 regenerate_single_section(
@@ -1240,6 +1263,7 @@ async def run_regeneration_job(
                     fallback_model=settings.generation_agent_fallback_model,
                     api_key=settings.openrouter_api_key,
                     base_url=settings.openrouter_base_url,
+                    on_progress=on_section_regen_progress,
                 ),
                 timeout=SECTION_REGENERATION_TIMEOUT_SECONDS,
             )
@@ -1253,7 +1277,7 @@ async def run_regeneration_job(
                 job_id=job_id,
                 workflow_kind=workflow_kind,
                 state=workflow_state,
-                message=f"Validating regenerated {section_name} section",
+                message=f"Running deterministic validation for regenerated {section_name} section",
                 percent_complete=70,
             )
 
@@ -1263,6 +1287,7 @@ async def run_regeneration_job(
                 base_resume_content=base_resume_content,
                 section_preferences=single_section_prefs,
                 generation_settings=public_generation_settings,
+                professional_experience_anchors=regenerated_section.get("professional_experience_anchors"),
             )
             if not await is_current_job(writer, application_id, job_id):
                 return
@@ -1291,6 +1316,16 @@ async def run_regeneration_job(
                     path=REGENERATION_CALLBACK_PATH,
                 )
                 return
+
+            await set_progress(
+                writer,
+                application_id,
+                job_id=job_id,
+                workflow_kind=workflow_kind,
+                state=workflow_state,
+                message=f"Merging regenerated {section_name} section into draft",
+                percent_complete=90,
+            )
 
             # Replace section in draft
             display_name = SECTION_DISPLAY_NAMES.get(

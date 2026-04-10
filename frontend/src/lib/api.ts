@@ -10,10 +10,15 @@ export type SessionBootstrapResponse = {
   profile: {
     id: string;
     email: string;
+    first_name: string | null;
+    last_name: string | null;
     name: string | null;
     phone: string | null;
     address: string | null;
     linkedin_url: string | null;
+    is_admin: boolean;
+    is_active: boolean;
+    onboarding_completed_at: string | null;
     default_base_resume_id: string | null;
     section_preferences: Record<string, boolean>;
     section_order: string[];
@@ -167,10 +172,15 @@ export type BaseResumeDetail = {
 export type ProfileData = {
   id: string;
   email: string;
+  first_name: string | null;
+  last_name: string | null;
   name: string | null;
   phone: string | null;
   address: string | null;
   linkedin_url: string | null;
+  is_admin: boolean;
+  is_active: boolean;
+  onboarding_completed_at: string | null;
   default_base_resume_id: string | null;
   section_preferences: Record<string, boolean>;
   section_order: string[];
@@ -185,6 +195,91 @@ export type ProfileUpdatePayload = {
   linkedin_url?: string | null;
   section_preferences?: Record<string, boolean>;
   section_order?: string[];
+};
+
+export type InvitePreview = {
+  invited_email: string;
+  expires_at: string;
+};
+
+export type AcceptInvitePayload = {
+  token: string;
+  email: string;
+  password: string;
+  confirm_password: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  address: string;
+  linkedin_url?: string | null;
+};
+
+export type AcceptInviteResponse = {
+  user_id: string;
+  email: string;
+};
+
+export type AdminOperationMetric = {
+  total: number;
+  success_count: number;
+  failure_count: number;
+  success_rate: number;
+};
+
+export type AdminMetrics = {
+  total_users: number;
+  active_users: number;
+  deactivated_users: number;
+  invited_users: number;
+  total_applications: number;
+  invites_sent: number;
+  invites_accepted: number;
+  invites_pending: number;
+  extraction: AdminOperationMetric;
+  generation: AdminOperationMetric;
+  regeneration: AdminOperationMetric;
+  export: AdminOperationMetric;
+};
+
+export type AdminUser = {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  name: string | null;
+  phone: string | null;
+  address: string | null;
+  linkedin_url: string | null;
+  is_admin: boolean;
+  is_active: boolean;
+  onboarding_completed_at: string | null;
+  latest_invite_status: string | null;
+  latest_invite_sent_at: string | null;
+  latest_invite_expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InviteUserPayload = {
+  email: string;
+  first_name?: string | null;
+  last_name?: string | null;
+};
+
+export type InviteUserResponse = {
+  invite_id: string;
+  invitee_user_id: string;
+  invited_email: string;
+  expires_at: string;
+};
+
+export type UpdateAdminUserPayload = {
+  email?: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  linkedin_url?: string | null;
 };
 
 type RequestOptions = Omit<RequestInit, "body"> & {
@@ -247,6 +342,30 @@ async function authenticatedUpload<T>(path: string, formData: FormData): Promise
       detail = payload.detail ?? detail;
     } catch {
       detail = "Upload failed.";
+    }
+    throw new Error(detail);
+  }
+
+  return response.json();
+}
+
+async function unauthenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await fetch(`${env.VITE_API_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers ?? {}),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+
+  if (!response.ok) {
+    let detail = "Request failed.";
+    try {
+      const payload = await response.json();
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = "Request failed.";
     }
     throw new Error(detail);
   }
@@ -481,6 +600,84 @@ export async function updateProfile(updates: ProfileUpdatePayload): Promise<Prof
     method: "PATCH",
     body: updates,
   });
+}
+
+// Invite Onboarding
+
+export async function fetchInvitePreview(token: string): Promise<InvitePreview> {
+  const params = new URLSearchParams({ token });
+  return unauthenticatedRequest<InvitePreview>(`/api/public/invites/preview?${params.toString()}`);
+}
+
+export async function acceptInvite(payload: AcceptInvitePayload): Promise<AcceptInviteResponse> {
+  return unauthenticatedRequest<AcceptInviteResponse>("/api/public/invites/accept", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+// Admin
+
+export async function fetchAdminMetrics(): Promise<AdminMetrics> {
+  return authenticatedRequest<AdminMetrics>("/api/admin/metrics");
+}
+
+export async function listAdminUsers(params?: {
+  search?: string;
+  status?: "active" | "invited" | "deactivated";
+}): Promise<AdminUser[]> {
+  const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
+  if (params?.status) query.set("status", params.status);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return authenticatedRequest<AdminUser[]>(`/api/admin/users${suffix}`);
+}
+
+export async function inviteAdminUser(payload: InviteUserPayload): Promise<InviteUserResponse> {
+  return authenticatedRequest<InviteUserResponse>("/api/admin/users/invite", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updateAdminUser(userId: string, updates: UpdateAdminUserPayload): Promise<AdminUser> {
+  return authenticatedRequest<AdminUser>(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    body: updates,
+  });
+}
+
+export async function deactivateAdminUser(userId: string): Promise<AdminUser> {
+  return authenticatedRequest<AdminUser>(`/api/admin/users/${userId}/deactivate`, {
+    method: "POST",
+  });
+}
+
+export async function reactivateAdminUser(userId: string): Promise<AdminUser> {
+  return authenticatedRequest<AdminUser>(`/api/admin/users/${userId}/reactivate`, {
+    method: "POST",
+  });
+}
+
+export async function deleteAdminUser(userId: string): Promise<void> {
+  const token = await getAccessToken();
+  const response = await fetch(`${env.VITE_API_URL}/api/admin/users/${userId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    let detail = "Delete failed.";
+    try {
+      const payload = await response.json();
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = "Delete failed.";
+    }
+    throw new Error(detail);
+  }
 }
 
 // Generation

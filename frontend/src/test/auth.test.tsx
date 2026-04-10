@@ -26,7 +26,7 @@ describe("frontend phase 0 auth shell", () => {
     expect(screen.getByText("Applix")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /ai-powered resume tailoring/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeInTheDocument();
-    expect(screen.getByText(/local dockerized dev mode/i)).toBeInTheDocument();
+    expect(screen.getByText(/local dev/i)).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /applix logo/i })).toBeInTheDocument();
     expect(
       screen.getByRole("img", { name: /businessman seated with a laptop, representing the applix workspace/i }),

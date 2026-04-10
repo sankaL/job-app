@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from experience_contract import validate_professional_experience_contract
 from privacy import EMAIL_RE, PHONE_RE, URL_RE, sanitize_resume_markdown
 
 SECTION_DISPLAY_NAMES: dict[str, str] = {
@@ -460,6 +461,43 @@ def _check_date_grounding(
     return errors
 
 
+def _check_professional_experience_structure(
+    *,
+    generated_sections: list[dict[str, Any]],
+    generation_settings: Optional[dict[str, Any]],
+    professional_experience_anchors: Optional[list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    if not professional_experience_anchors:
+        return []
+
+    aggressiveness = (
+        str(generation_settings.get("aggressiveness", "medium")).lower()
+        if generation_settings
+        else "medium"
+    )
+    errors: list[dict[str, Any]] = []
+
+    for section in generated_sections:
+        if section.get("name") != "professional_experience":
+            continue
+
+        contract_errors = validate_professional_experience_contract(
+            section_markdown=str(section.get("content") or ""),
+            anchors=professional_experience_anchors,
+            aggressiveness=aggressiveness,
+        )
+        for detail in contract_errors:
+            errors.append(
+                {
+                    "type": "experience_structure_violation",
+                    "section": "professional_experience",
+                    "detail": detail,
+                }
+            )
+
+    return errors
+
+
 def _check_length_guidance(
     *,
     generated_sections: list[dict[str, Any]],
@@ -492,6 +530,7 @@ async def validate_resume(
     base_resume_content: str,
     section_preferences: list[dict[str, Any]],
     generation_settings: Optional[dict[str, Any]] = None,
+    professional_experience_anchors: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     sanitized_base_resume = sanitize_resume_markdown(base_resume_content).sanitized_markdown
 
@@ -535,6 +574,13 @@ async def validate_resume(
         _check_date_grounding(
             generated_sections=generated_sections,
             sanitized_base_resume_content=sanitized_base_resume,
+        )
+    )
+    all_errors.extend(
+        _check_professional_experience_structure(
+            generated_sections=generated_sections,
+            generation_settings=generation_settings,
+            professional_experience_anchors=professional_experience_anchors,
         )
     )
 

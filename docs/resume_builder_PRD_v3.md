@@ -49,19 +49,26 @@ All LLM calls are routed through **OpenRouter** via LangChain's provider-agnosti
 
 A fallback model should be configurable via a second environment variable (e.g., `OPENROUTER_FALLBACK_MODEL`) for resilience. If the primary model call fails, the system retries once with the fallback before treating the job as failed.
 
+Current default generation models:
+- Primary: `z-ai/glm-5.1`
+- Fallback: `anthropic/claude-sonnet-4.6`
+
 ---
 
 ## 4. Access and Authentication
 
 This is an **invite-only** application.
 
-- No public sign-up in MVP
-- Users are provisioned by an admin directly via Supabase
+- No open public sign-up in MVP
+- Admins invite users by email from an admin users screen
+- Sending an invite pre-provisions the user in Supabase Auth and sends an invite link by email
+- Invite links open a dedicated signup page (not a public signup page) where the invited user completes onboarding
 - Authentication: Supabase Auth — **email + password only**
+- Invite signup requires password confirmation and password complexity: at least 12 characters with uppercase, lowercase, number, and symbol
 - Password reset via Supabase's built-in email flow
 - All application data is private to the authenticated user
 - Supabase Row Level Security (RLS) must enforce per-user data isolation on all tables
-- All API routes require a valid Supabase JWT; no unauthenticated endpoints except the login page
+- All application APIs require a valid Supabase JWT. Unauthenticated endpoints are limited to login and invite-link preview/accept endpoints.
 
 ---
 
@@ -158,11 +165,11 @@ Async operations must enforce timeouts to prevent silent hangs. These are the re
 | Operation | Timeout |
 |---|---|
 | Playwright extraction | 30 seconds |
-| Full resume generation (all sections) | 90 seconds without progress, with a 5 minute maximum wall-clock window |
-| Single section regeneration | 45 seconds |
+| Full resume generation and full regeneration (all sections) | 240 seconds without progress, with a 240 second maximum wall-clock window |
+| Single section regeneration | 120 seconds without progress, with a 120 second maximum wall-clock window |
 | PDF export | 20 seconds |
 
-On timeout, the operation is treated as a failure and follows the failure handling path defined for that operation. For full generation, meaningful progress updates from the active job should extend the remaining processing window until the 5 minute cap is reached, but the workflow must still fail once it stalls for 90 seconds without progress. Engineers may tune these values during implementation, but must have explicit timeouts in place. "Reasonable for MVP" is not sufficient — every async operation must have a defined failure boundary.
+On timeout, the operation is treated as a failure and follows the failure handling path defined for that operation. For generation and regeneration, meaningful progress updates from the active job should extend the remaining processing window until the maximum cap is reached, but the workflow must still fail once it stalls past the idle boundary. Engineers may tune these values during implementation, but must have explicit timeouts in place. "Reasonable for MVP" is not sufficient — every async operation must have a defined failure boundary.
 
 ---
 
@@ -384,6 +391,10 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - Do not generate personal information
 - Use one LLM request for initial generation and one LLM request for full regeneration
 - Use one LLM request for single-section regeneration of the selected section
+- Professional Experience must use deterministic source anchors (`title`, `company`, `date_range`, source order) extracted from the sanitized base resume
+- Low and medium aggressiveness must keep Professional Experience titles source-exact; high may retitle only when truthful to the same role
+- Company and date range for every Professional Experience role are deterministic invariants and must remain source-exact for all aggressiveness levels
+- Apply a deterministic post-LLM normalization pass that rehydrates Professional Experience company and date values from anchors before validation or assembly
 - The model must return a strict JSON envelope that includes ordered sections and per-section grounding snippets copied from the sanitized base resume
 - Prompt variants must explicitly reflect the selected page target and aggressiveness level
 - A second model request is allowed only when the first request fails at the provider or transport level, or returns invalid structured output
@@ -411,6 +422,7 @@ After generation returns structured JSON, the application validates it locally b
 - ATS-safe structure (no tables, no columns, no special characters)
 - Valid Markdown formatting
 - Hallucinated content not present in the base resume — specifically: invented employers, dates, credentials, or educational institutions, plus invented job titles outside the high-aggressiveness professional-experience title-rewrite allowance
+- Professional Experience structure contract enforcement after deterministic normalization: same role-block count as source anchors, source-exact company and date per role, and source-exact titles in low or medium aggressiveness
 - Consistency across sections (no conflicting dates, duplicate entries)
 - All enabled sections are present and in the correct order
 - Personal or contact information leakage in generated sections
@@ -502,8 +514,11 @@ The main working page for a single application.
 1. User opens full regeneration
 2. Existing generation settings are pre-filled
 3. User may update: page length, aggressiveness, additional instructions
-4. Full single-call generation pipeline reruns (§10.7 → §10.8 → §10.9)
-5. Latest draft is overwritten
+4. System enforces a cap of 3 full regenerations per application for non-admin users; admin users bypass this limit
+5. Full single-call generation pipeline reruns (§10.7 → §10.8 → §10.9)
+6. Latest draft is overwritten
+
+When the non-admin cap is reached, the API returns a conflict response with user-safe guidance to contact an administrator.
 
 **Draft versioning:** Each full regeneration overwrites the current draft. No resume version history UI is required for MVP. The `last_generated_at` timestamp on `resume_drafts` should be updated.
 
@@ -634,6 +649,52 @@ All emails must include a direct link to the relevant application.
 
 ---
 
+### 10.18 Invite Onboarding
+
+- Admin can create a new invite from an admin users screen by entering email (first and last name optional).
+- Invite creation immediately:
+  - creates or reuses a Supabase Auth user
+  - creates a pending invite record with expiry
+  - revokes previous pending invites for that user
+  - sends a branded invite email through Resend with a signup link
+- Signup page behavior:
+  - loads invite metadata from token preview
+  - locks email to the invited address
+  - requires first name, last name, location, phone, email, password, and password confirmation
+  - treats LinkedIn as optional
+  - rejects mismatched or weak passwords
+- Accepting invite:
+  - validates token status and expiry
+  - validates invited email match
+  - sets the account password
+  - marks onboarding complete on profile
+  - marks invite as accepted
+  - signs the user in and redirects to the authenticated app shell
+
+### 10.19 Admin Persona and Surfaces
+
+Admin has exactly two product responsibilities in MVP:
+
+1. Metrics dashboard
+2. User management
+
+**Admin metrics dashboard must show meaningful usage metrics only:**
+
+- total users, active users, deactivated users, invited (not yet onboarded) users
+- invites sent, accepted, pending
+- total applications
+- workflow operation totals and success/failure rates for extraction, generation, regeneration, and export
+
+**Admin user management page must support:**
+
+- list users with search and status filters (active, invited, deactivated)
+- invite new users (triggering Resend email)
+- edit user profile fields (email, first name, last name, location, phone, LinkedIn)
+- deactivate/reactivate users
+- delete users
+
+---
+
 ## 11. Data Model (Logical)
 
 ### `users` / `profiles`
@@ -641,10 +702,15 @@ All emails must include a direct link to the relevant application.
 |---|---|---|
 | id | UUID | Supabase auth user ID |
 | email | string | Read-only from auth |
+| first_name | string | nullable; required during invite signup completion |
+| last_name | string | nullable; required during invite signup completion |
 | name | string | |
 | phone | string | |
 | address | string | Stored as the user's short location text for resume assembly/export |
 | linkedin_url | string | nullable; optional LinkedIn URL for resume assembly/export |
+| is_admin | boolean | default false |
+| is_active | boolean | default true; false blocks application access |
+| onboarding_completed_at | timestamp | nullable; set after invite signup completion |
 | default_base_resume_id | UUID FK | nullable |
 | section_preferences | JSONB | Map of section_id → enabled boolean |
 | section_order | JSONB | Ordered array of section identifiers |
@@ -689,6 +755,7 @@ All emails must include a direct link to the relevant application.
 | duplicate_match_fields | JSONB | nullable |
 | duplicate_resolution_status | enum | `pending`, `dismissed`, `redirected`; nullable |
 | notes | text | nullable |
+| full_regeneration_count | integer | non-null, default 0; per-application counter used to enforce non-admin full-regeneration cap |
 | exported_at | timestamp | nullable |
 | created_at | timestamp | |
 | updated_at | timestamp | |
@@ -716,6 +783,32 @@ All emails must include a direct link to the relevant application.
 | message | text | |
 | action_required | boolean | Drives dashboard/card attention indicators |
 | read | boolean | |
+| created_at | timestamp | |
+
+### `user_invites`
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | |
+| invitee_user_id | UUID FK | Invited user in auth |
+| invited_by_user_id | UUID FK | Admin inviter |
+| invited_email | string | Normalized invited email |
+| token_hash | string | Stored hash only; invite token is never stored plaintext |
+| status | enum | `pending`, `accepted`, `revoked`, `expired` |
+| expires_at | timestamp | |
+| sent_at | timestamp | |
+| accepted_at | timestamp | nullable |
+| created_at | timestamp | |
+| updated_at | timestamp | |
+
+### `usage_events`
+| Field | Type | Notes |
+|---|---|---|
+| id | UUID | |
+| user_id | UUID FK | Event owner |
+| application_id | UUID FK | nullable |
+| event_type | string | e.g. extraction, generation, regeneration, export, invite lifecycle |
+| event_status | enum | `success`, `failure`, `info` |
+| metadata | JSONB | Sanitized event context |
 | created_at | timestamp | |
 
 ---
@@ -783,6 +876,10 @@ These are implementation decisions, not product decisions:
 The MVP is successful if a user can:
 
 - [ ] Log in to an invite-only app with email and password
+- [ ] Admin can invite a user by email and trigger a Resend invite email
+- [ ] Invite link opens signup page with locked invited email and required onboarding fields
+- [ ] Invite signup enforces password confirmation and password complexity rules
+- [ ] Invite acceptance completes profile onboarding and signs the user in
 - [ ] Create a new application from a job link
 - [ ] Create a new application from a connected Chrome current-tab capture
 - [ ] Receive automatic extraction or be routed to manual entry on failure
@@ -801,5 +898,7 @@ The MVP is successful if a user can:
 - [ ] Toggle the Applied flag independently of the primary status
 - [ ] Receive in-app notifications for all workflow events
 - [ ] Receive email notifications for high-signal events (extraction failed, generation complete, export failed)
+- [ ] Admin can view invite and workflow metrics from an admin dashboard
+- [ ] Admin can manage users (search/filter, edit, deactivate/reactivate, delete, invite)
 - [ ] Manage base resumes (create via file upload or form, edit, delete, set default)
 - [ ] Configure section preferences (toggle and reorder) in their profile

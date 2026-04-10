@@ -1,12 +1,12 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-04-09  
-**Implementation status:** Phases 0 through 4 implemented; Phase 5 pending  
+**Last updated:** 2026-04-10  
+**Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
-This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening remains unimplemented.
+This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
 ## Planning Defaults
 
@@ -30,7 +30,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 | Phase 2 | Implemented | Base resumes, profile data, section preferences, PDF upload with optional LLM cleanup, and pre-generation configuration surface |
 | Phase 3 | Implemented | Generation, validation, assembly, notifications, and application workspace |
 | Phase 4 | Implemented | Editing, regeneration, and PDF export |
-| Phase 5 | Planned | Hardening, recovery, and end-to-end MVP acceptance |
+| Phase 5 | In Progress | Invite onboarding and admin operations shipped; hardening, recovery, and end-to-end MVP acceptance remaining |
 
 ## Task Tracking
 
@@ -109,11 +109,18 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | P5-T03 | Validate recoverable failure paths for extraction, manual entry, generation, regeneration, and export | Other | TODO | 2026-04-07 | |
 | P5-T04 | Verify structured logging remains sanitized and free of sensitive user content in production paths | Infra | TODO | 2026-04-07 | |
 | P5-T05 | Run MVP acceptance verification and align supporting docs, schema guidance, and migration runbook updates | Docs | TODO | 2026-04-07 | |
+| P5-T06 | Implement invite-link signup onboarding, admin metrics dashboard, and admin user-management controls | BE/FE/Docs | DONE | 2026-04-10 10:42:00 EDT | Added Supabase invite provisioning plus Resend invite emails, tokenized signup acceptance with mandatory onboarding fields and password policy, admin metrics + user management APIs/UI, and aligned schema/runbook/PRD docs. |
 
 ### Bug Fixes
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T03 | Reduce full-regeneration timeout risk by lowering reasoning effort while keeping section regeneration high-reasoning | AI/Docs | DONE | 2026-04-10 15:03:36 EDT | Updated generation orchestration so initial generation and full regeneration use `medium` OpenRouter reasoning, while single-section regeneration stays on `high`; this preserves section-level depth but reduces full-regeneration timeout risk on slower models. Added regression coverage and updated prompt catalog docs accordingly. |
+| B5-T02 | Enforce deterministic Professional Experience regeneration structure, longer generation timeouts, and full-regeneration caps | AI/BE/FE/Docs | DONE | 2026-04-10 13:30:00 EDT | Added deterministic Professional Experience anchors plus normalization and contract validation so company/date cannot drift, moved generation timeout contracts to 240s full and 120s section with stage-based progress messaging, switched generation model defaults to `z-ai/glm-5.1` with `anthropic/claude-sonnet-4.6` fallback, and enforced a non-admin cap of three full regenerations per application with admin bypass and contact-admin conflict guidance. |
+| B5-T01 | Fail closed for admin invites when email delivery is disabled and surface Resend delivery failures | BE | DONE | 2026-04-10 11:52:07 EDT | Admin invite creation now blocks immediately when backend email notifications are disabled, and invite sends now record `invite_sent` failure metrics and return a clear actionable error when provider delivery fails instead of silently skipping email delivery. |
+| B4-T23 | Add conditional section-spacing relief for one-page PDF readability | BE/Docs | DONE | 2026-04-10 10:30:10 EDT | One-page export validation now first attempts section-only spacing relief (section-to-section and heading-to-content separation) and keeps those readability gains only when the PDF still fits on one page. |
+| B4-T22 | Improve one-page PDF page-fill efficiency with pre-export roominess validation | BE/Docs | DONE | 2026-04-10 10:18:18 EDT | Export now starts from larger density-first presets and, for `1_page` targets, validates roomier typography or spacing variants before finalizing so the PDF uses one page more evenly without spilling to page two. |
+| B4-T21 | Rebalance one-page PDF fit density and emphasize Professional Experience role titles | BE/Docs | DONE | 2026-04-10 09:59:28 EDT | PDF export now uses a density-first preset ladder that tightens spacing before reducing font size, restores larger baseline readability when one-page content has room, and bolds only Professional Experience role-title split rows when the right column is a date range. |
 | B4-T19 | Fix PDF export spacing and header replacement regressions, and warn more clearly about high aggressiveness | BE/FE/Docs | DONE | 2026-04-09 22:08:23 EDT | PDF export now keeps typography-derived spacing in physical print units instead of oversized `rem` values, export normalization replaces plain-text profile headers instead of duplicating them, and the Generation Settings UI plus PRD now warn more explicitly that High aggressiveness can make substantial changes and should be reviewed carefully. |
 | B4-T20 | Tighten PDF export vertical spacing and extend autofit compression for true one-page outputs | BE/Docs | DONE | 2026-04-09 22:19:08 EDT | The export renderer now removes most top margins between stacked blocks, eliminates extra first-section offset, tightens list and split-row spacing, and adds deeper fallback presets with smaller print margins so one-page resumes are more likely to stay on a single actual PDF page. |
 | B4-T18 | Fix profile PATCH JSONB binding and add sanitized diagnostics for profile-save failures | BE | DONE | 2026-04-09 21:29:34 EDT | `profiles.update_profile()` now wraps `section_preferences` and `section_order` values with psycopg `Jsonb` before `%s::jsonb` updates, preventing 500s when saving profile/preferences; the profile API now logs only exception class and attempted update field names on failure, and backend regression tests cover both JSONB wrapping and sanitized error logging. |

@@ -5,7 +5,8 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
 
-from app.core.auth import AuthenticatedUser, get_current_user
+from app.core.access import get_current_active_user
+from app.core.auth import AuthenticatedUser
 from app.db.notifications import NotificationRepository, get_notification_repository
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -23,7 +24,7 @@ class NotificationSummary(BaseModel):
 
 @router.get("", response_model=list[NotificationSummary])
 def list_notifications(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     repository: Annotated[NotificationRepository, Depends(get_notification_repository)],
 ) -> list[NotificationSummary]:
     return [
@@ -34,7 +35,7 @@ def list_notifications(
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
 def clear_notifications(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     repository: Annotated[NotificationRepository, Depends(get_notification_repository)],
 ) -> Response:
     repository.clear_notifications(current_user.id)

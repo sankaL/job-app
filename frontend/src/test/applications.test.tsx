@@ -1884,6 +1884,87 @@ describe("phase 1 applications UI", () => {
     expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2);
   });
 
+  it("shows contact-administrator guidance when full regeneration is capped", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.triggerFullRegeneration.mockRejectedValue(
+      new Error(
+        "You have reached the full regeneration limit for this resume. Please contact an administrator for additional regenerations.",
+      ),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(await screen.findByRole("button", { name: /full regen/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /full regen/i }));
+
+    await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/please contact an administrator for additional regenerations/i)).toBeInTheDocument();
+  });
+
+  it("shows backend generation stage messages while progress polling is active", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "draft",
+        internal_state: "generating",
+        failure_reason: null,
+      }),
+    );
+    api.fetchApplicationProgress.mockResolvedValue({
+      job_id: "job-2",
+      workflow_kind: "generation",
+      state: "generating",
+      message: "Applying deterministic Professional Experience structure checks",
+      percent_complete: 62,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:01:00Z",
+      completed_at: null,
+      terminal_error_code: null,
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/applying deterministic professional experience structure checks/i)).toBeInTheDocument();
+  });
+
   it("hydrates saved generation settings from the latest draft", async () => {
     api.fetchApplicationDetail.mockResolvedValue({
       id: "app-1",

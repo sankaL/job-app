@@ -12,6 +12,7 @@ from app.db.applications import ApplicationRecord
 from app.db.profiles import (
     ExtensionConnectionRecord,
     ExtensionTokenOwnerRecord,
+    ProfileRecord,
     ProfileRepository,
     get_profile_repository,
 )
@@ -45,6 +46,27 @@ class StubProfileRepository(ProfileRepository):
         self.token_created_at: Optional[str] = None
         self.token_last_used_at: Optional[str] = None
 
+    def fetch_profile(self, user_id: str):
+        return ProfileRecord(
+            id=user_id,
+            email="invite-only@example.com",
+            name="Invite User",
+            phone=None,
+            address=None,
+            linkedin_url=None,
+            is_active=True,
+            default_base_resume_id=None,
+            section_preferences={
+                "summary": True,
+                "professional_experience": True,
+                "education": True,
+                "skills": True,
+            },
+            section_order=["summary", "professional_experience", "education", "skills"],
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:00:00+00:00",
+        )
+
     def fetch_extension_connection(self, user_id: str) -> Optional[ExtensionConnectionRecord]:
         return ExtensionConnectionRecord(
             connected=self.token_hash is not None,
@@ -67,7 +89,7 @@ class StubProfileRepository(ProfileRepository):
     def fetch_extension_owner_by_token_hash(self, token_hash: str) -> Optional[ExtensionTokenOwnerRecord]:
         if token_hash != self.token_hash:
             return None
-        return ExtensionTokenOwnerRecord(id="user-1", email="invite-only@example.com")
+        return ExtensionTokenOwnerRecord(id="user-1", email="invite-only@example.com", is_active=True)
 
     def touch_extension_token(self, *, user_id: str) -> None:
         self.token_last_used_at = "2026-04-07T12:05:00+00:00"

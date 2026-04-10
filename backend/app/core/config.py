@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     supabase_external_url: str = Field(
         default="http://localhost:54321", alias="SUPABASE_EXTERNAL_URL"
     )
+    supabase_service_role_key: Optional[str] = Field(default=None, alias="SERVICE_ROLE_KEY")
     supabase_auth_jwks_url: str = Field(
         default="http://localhost:54321/auth/v1/.well-known/jwks.json",
         alias="SUPABASE_AUTH_JWKS_URL",
@@ -72,6 +73,8 @@ class Settings(BaseSettings):
     openrouter_cleanup_model: str = Field(
         default="openai/gpt-4o-mini", alias="OPENROUTER_CLEANUP_MODEL"
     )
+    admin_emails: str = Field(default="", alias="ADMIN_EMAILS")
+    invite_link_expiry_hours: int = Field(default=168, alias="INVITE_LINK_EXPIRY_HOURS")
 
     @property
     def email(self) -> EmailSettings:
@@ -89,6 +92,14 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def admin_email_list(self) -> list[str]:
+        return [
+            email.strip().lower()
+            for email in self.admin_emails.split(",")
+            if email.strip()
+        ]
 
 
 @lru_cache

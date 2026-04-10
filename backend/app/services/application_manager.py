@@ -9,6 +9,7 @@ from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import Settings, get_settings
+from app.db.admin import AdminRepository, get_admin_repository
 from app.db.applications import (
     ApplicationListRecord,
     ApplicationRecord,
@@ -39,10 +40,11 @@ from app.services.workflow import derive_visible_status
 
 logger = logging.getLogger(__name__)
 
-FULL_GENERATION_IDLE_TIMEOUT_SECONDS = 90
-FULL_GENERATION_MAX_TIMEOUT_SECONDS = 300
-SECTION_REGENERATION_IDLE_TIMEOUT_SECONDS = 45
-SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 90
+FULL_GENERATION_IDLE_TIMEOUT_SECONDS = 240
+FULL_GENERATION_MAX_TIMEOUT_SECONDS = 540
+SECTION_REGENERATION_IDLE_TIMEOUT_SECONDS = 120
+SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 280
+FULL_REGENERATION_LIMIT_PER_APPLICATION = 3
 ACTIVE_GENERATION_STATES = {"generating", "regenerating_full", "regenerating_section"}
 ACTIVE_GENERATION_PROGRESS_STATES = {
     "generation_pending",
@@ -186,6 +188,7 @@ class ApplicationService:
         generation_job_queue: GenerationJobQueue,
         email_sender: EmailSender,
         settings: Settings,
+        admin_repository: Optional[AdminRepository] = None,
     ) -> None:
         self.repository = repository
         self.base_resume_repository = base_resume_repository
@@ -197,6 +200,7 @@ class ApplicationService:
         self.generation_job_queue = generation_job_queue
         self.email_sender = email_sender
         self.settings = settings
+        self.admin_repository = admin_repository
         self.duplicate_detector = DuplicateDetector(settings.duplicate_similarity_threshold)
 
     async def list_applications(
@@ -822,6 +826,12 @@ class ApplicationService:
                     ),
                 },
             )
+            self._record_usage_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                event_type="extraction",
+                event_status="success",
+            )
             return await self._run_duplicate_resolution_flow(updated)
 
         raise ValueError("Unsupported worker event.")
@@ -1032,6 +1042,12 @@ class ApplicationService:
                 subject="Applix: resume generated",
                 body="Your tailored resume has been generated and is ready for review.",
             )
+            self._record_usage_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                event_type="generation",
+                event_status="success",
+            )
             return updated
 
         raise ValueError("Unsupported generation callback event.")
@@ -1070,6 +1086,15 @@ class ApplicationService:
 
         profile = self._require_profile(user_id=user_id, action="regenerating the full resume")
         self._require_profile_name(profile, action="regenerating the full resume")
+        is_admin_profile = self._profile_is_admin(profile)
+        if (
+            not is_admin_profile
+            and record.full_regeneration_count >= FULL_REGENERATION_LIMIT_PER_APPLICATION
+        ):
+            raise PermissionError(
+                "You have reached the full regeneration limit for this resume. "
+                "Please contact an administrator for additional regenerations."
+            )
         personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
@@ -1107,6 +1132,14 @@ class ApplicationService:
                 regeneration_target="full",
                 regeneration_instructions=additional_instructions,
             )
+            if not is_admin_profile:
+                updated = self.repository.update_application(
+                    application_id=application_id,
+                    user_id=user_id,
+                    updates={
+                        "full_regeneration_count": updated.full_regeneration_count + 1,
+                    },
+                )
             await self.progress_store.set(
                 application_id,
                 build_progress(
@@ -1324,6 +1357,12 @@ class ApplicationService:
                 subject="Applix: resume regenerated",
                 body="Your resume has been regenerated and is ready for review.",
             )
+            self._record_usage_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                event_type="regeneration",
+                event_status="success",
+            )
             return updated
 
         raise ValueError("Unsupported regeneration callback event.")
@@ -1450,6 +1489,12 @@ class ApplicationService:
             message="PDF export completed successfully.",
             action_required=False,
         )
+        self._record_usage_event(
+            user_id=user_id,
+            application_id=application_id,
+            event_type="export",
+            event_status="success",
+        )
 
         return pdf_bytes, filename
 
@@ -1473,6 +1518,12 @@ class ApplicationService:
             notification_type="error",
             message=message,
             action_required=True,
+        )
+        self._record_usage_event(
+            user_id=record.user_id,
+            application_id=record.id,
+            event_type="export",
+            event_status="failure",
         )
         try:
             await self.email_sender.send(
@@ -1597,6 +1648,12 @@ class ApplicationService:
             message=message,
             send_email=True,
         )
+        self._record_usage_event(
+            user_id=record.user_id,
+            application_id=record.id,
+            event_type="extraction",
+            event_status="failure",
+        )
         return updated
 
     async def _mark_generation_failure(
@@ -1627,6 +1684,12 @@ class ApplicationService:
             message=message,
             send_email=True,
             email_subject=f"Applix: {'regeneration' if 'regeneration' in failure_reason else 'generation'} failed",
+        )
+        self._record_usage_event(
+            user_id=record.user_id,
+            application_id=record.id,
+            event_type="regeneration" if "regeneration" in failure_reason else "generation",
+            event_status="failure",
         )
         return updated
 
@@ -1732,6 +1795,10 @@ class ApplicationService:
         if profile is None:
             raise ValueError(f"Complete your profile before {action}.")
         return profile
+
+    @staticmethod
+    def _profile_is_admin(profile: Any) -> bool:
+        return bool(getattr(profile, "is_admin", False))
 
     def _require_profile_name(self, profile, *, action: str) -> None:
         if not self._clean_profile_value(getattr(profile, "name", None)):
@@ -2051,6 +2118,33 @@ class ApplicationService:
     def _application_url(self, application_id: str) -> str:
         return f"{self.settings.app_url.rstrip('/')}/app/applications/{application_id}"
 
+    def _record_usage_event(
+        self,
+        *,
+        user_id: str,
+        event_type: str,
+        event_status: str,
+        application_id: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        if self.admin_repository is None:
+            return
+        try:
+            self.admin_repository.create_usage_event(
+                user_id=user_id,
+                application_id=application_id,
+                event_type=event_type,
+                event_status=event_status,
+                metadata=metadata,
+            )
+        except Exception:
+            logger.exception(
+                "Failed recording usage event. type=%s status=%s app_id=%s",
+                event_type,
+                event_status,
+                application_id,
+            )
+
     def _refresh(self, *, user_id: str, application_id: str) -> ApplicationRecord:
         refreshed = self.repository.fetch_application(user_id, application_id)
         if refreshed is None:
@@ -2112,6 +2206,7 @@ def get_application_service(
     progress_store: RedisProgressStore = Depends(get_progress_store),
     extraction_job_queue: ExtractionJobQueue = Depends(get_extraction_job_queue),
     generation_job_queue: GenerationJobQueue = Depends(get_generation_job_queue),
+    admin_repository: AdminRepository = Depends(get_admin_repository),
     settings: Settings = Depends(get_settings),
 ) -> ApplicationService:
     return ApplicationService(
@@ -2125,4 +2220,5 @@ def get_application_service(
         generation_job_queue=generation_job_queue,
         email_sender=build_email_sender(settings),
         settings=settings,
+        admin_repository=admin_repository,
     )

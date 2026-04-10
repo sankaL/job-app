@@ -109,6 +109,50 @@ async def test_generate_sections_uses_structured_output_sanitized_prompt_and_rea
 
 
 @pytest.mark.asyncio
+async def test_generate_sections_uses_medium_reasoning_for_full_regeneration(monkeypatch):
+    calls: list[dict[str, Any]] = []
+
+    def callback(kwargs, _prompt, structured, response_model):
+        assert kwargs["model"] == "primary-model"
+        assert kwargs["extra_body"] == {"reasoning": {"effort": "medium", "exclude": True}}
+        assert structured is True
+        return response_model.model_validate(
+            {
+                "sections": [
+                    {
+                        "id": "summary",
+                        "heading": "Summary",
+                        "markdown": "## Summary\nReframed for target role fit.",
+                        "supporting_snippets": ["Built backend systems.", "APIs"],
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(generation, "ChatOpenAI", build_fake_chat(callback, calls))
+
+    async def on_progress(_percent: int, _message: str) -> None:
+        return None
+
+    result = await generation.generate_sections(
+        base_resume_content="## Summary\nBuilt backend systems.\n",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs.",
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "high", "_operation": "regeneration_full"},
+        model="primary-model",
+        fallback_model="fallback-model",
+        api_key="test-key",
+        base_url="https://example.com",
+        on_progress=on_progress,
+    )
+
+    assert len(calls) == 1
+    assert result["model_used"] == "primary-model"
+
+
+@pytest.mark.asyncio
 async def test_generate_sections_falls_back_to_prompt_json_on_same_model_when_structured_output_fails(monkeypatch):
     calls: list[dict[str, Any]] = []
 
@@ -379,8 +423,13 @@ async def test_generate_sections_emits_progress_heartbeat_while_waiting_for_mode
     )
 
     assert result["model_used"] == "primary-model"
-    assert progress_updates[0] == (35, "Generating structured resume content")
-    assert (generation.GENERATION_HEARTBEAT_PERCENT, generation.GENERATION_HEARTBEAT_MESSAGE) in progress_updates
+    assert progress_updates[0] == (20, "Preparing generation plan for Summary")
+    assert progress_updates[1] == (35, "Generating Summary with structured output")
+    assert any(
+        percent == generation.GENERATION_HEARTBEAT_PERCENT and message.startswith("Generating sections:")
+        for percent, message in progress_updates
+    )
+    assert (60, "Normalizing structured section output") in progress_updates
     assert progress_updates[-1] == (70, "Parsing structured resume output")
 
 
@@ -504,6 +553,7 @@ def test_generation_prompt_includes_expert_role_no_em_dash_and_length_budget():
         aggressiveness="low",
         target_length="1_page",
         additional_instructions="Keep it concise.",
+        professional_experience_anchors=[],
     )
 
     system_prompt = prompt[0][1]
@@ -525,6 +575,7 @@ def test_medium_generation_prompt_keeps_length_caps():
         aggressiveness="medium",
         target_length="1_page",
         additional_instructions="Keep it concise.",
+        professional_experience_anchors=[],
     )
 
     system_prompt = prompt[0][1]
@@ -544,6 +595,14 @@ def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_expe
         aggressiveness="high",
         target_length="1_page",
         additional_instructions="Match the target role.",
+        professional_experience_anchors=[
+            {
+                "role_index": 0,
+                "source_title": "Backend Engineer",
+                "source_company": "Acme",
+                "source_date_range": "2022 - Present",
+            }
+        ],
     )
 
     system_prompt = prompt[0][1]

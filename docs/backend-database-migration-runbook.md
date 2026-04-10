@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-04-09
+**Last updated:** 2026-04-10
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -212,3 +212,40 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - profile GET and PATCH return `linkedin_url` correctly for authenticated owners only
   - initial generation, full regeneration, and PDF export fail closed with actionable guidance when profile `name` is blank
   - PDF export produces one normalized header only and uses the stored draft `page_length` target to tighten layout when pagination overflows
+
+## Current Additive Change Note: Invite Onboarding, Admin Controls, and Usage Metrics
+
+- Add the additive migration `supabase/migrations/20260410_000010_phase_5_invites_admin_metrics.sql`.
+- This migration adds:
+  - profile fields `first_name`, `last_name`, `is_admin`, `is_active`, and `onboarding_completed_at`
+  - `user_invites` table plus `invite_status_enum`
+  - `usage_events` table plus `usage_event_status_enum`
+- Rollout order for this change:
+  1. Apply the additive migration.
+  2. Deploy backend invite/admin APIs, Supabase admin provisioning integration, and usage-event writes.
+  3. Deploy frontend invite signup page and admin dashboard/user-management screens.
+- No backfill is required. Existing users remain active and non-admin by default unless promoted through config or admin actions.
+- Read paths and admin metrics must stay compatible while `usage_events` is still sparse immediately after rollout.
+- Post-deploy verification should confirm:
+  - admin invite creation pre-provisions Supabase Auth users, creates pending invite rows, and sends Resend emails
+  - invite preview and accept flows enforce token validity, expiry, email match, and password policy
+  - invite acceptance marks `user_invites.status = accepted` and sets `profiles.onboarding_completed_at`
+  - deactivated users are blocked from authenticated bootstrap and extension-token issuance
+  - admin metrics endpoints return coherent totals for invites and workflow operations without exposing cross-user private content
+
+## Current Additive Change Note: Full Regeneration Cap and Deterministic Regeneration Hardening
+
+- Add the additive migration `supabase/migrations/20260410_000011_phase_5_full_regeneration_cap.sql`.
+- This migration adds `applications.full_regeneration_count integer not null default 0` with a non-negative check constraint.
+- Rollout order for this change:
+  1. Apply the additive migration.
+  2. Deploy backend service changes that enforce a non-admin cap of three full regenerations per application, with admin bypass.
+  3. Deploy agents and worker changes for deterministic Professional Experience normalization and validation plus updated timeout and progress-stage messaging.
+  4. Deploy frontend handling that surfaces the conflict-path contact-admin guidance.
+- No backfill is required. Existing rows default to `0`.
+- Post-deploy verification should confirm:
+  - successful queueing of full regeneration increments `full_regeneration_count` for non-admin users
+  - non-admin users are blocked once count reaches `3` with user-safe guidance to contact an administrator
+  - admin users can queue full regeneration when count is already `3` or greater
+  - queue failures do not consume a full-regeneration slot
+  - stalled-job recovery and worker timeouts match the `240s` full-generation/full-regeneration and `120s` section-regeneration contract

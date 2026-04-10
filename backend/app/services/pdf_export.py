@@ -25,6 +25,16 @@ BULLET_RE = re.compile(r"^\s*[-*+]\s+(.*)$")
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
 PHONE_RE = re.compile(r"(?:\+\d[\d\s().-]{6,}|\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})")
 LINKEDIN_RE = re.compile(r"linkedin\.com/|(?:^|[\s|])(?:in|pub|company)/", re.I)
+MONTH_YEAR_RE = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{4}\b",
+    re.I,
+)
+YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+PRESENT_RE = re.compile(r"\b(?:present|current)\b", re.I)
+DATE_RANGE_SEPARATOR_RE = re.compile(r"\bto\b|[-/–—]", re.I)
+PROFESSIONAL_EXPERIENCE_HEADING = "professional experience"
+ONE_PAGE_VALIDATION_ROOMIER_STEPS = 4
 
 
 @dataclass(frozen=True)
@@ -32,47 +42,66 @@ class LayoutPreset:
     body_font_size: float
     line_height: float
     page_margin: float
+    spacing_scale: float = 1.0
+    section_spacing_scale: float = 1.0
 
     @property
     def name_font_size(self) -> float:
-        return round(self.body_font_size * 1.42, 2)
+        return round(self.body_font_size * 1.58, 2)
 
     @property
     def contact_font_size(self) -> float:
-        return round(self.body_font_size * 0.78, 2)
+        return round(self.body_font_size * 0.83, 2)
 
     @property
     def section_heading_size(self) -> float:
-        return round(self.body_font_size * 0.9, 2)
+        return round(self.body_font_size * 0.95, 2)
 
     @property
     def section_margin_top(self) -> float:
-        return round(self.body_font_size * 0.32, 2)
+        return round(self.body_font_size * 0.58 * self.spacing_scale * self.section_spacing_scale, 2)
 
     @property
     def section_margin_bottom(self) -> float:
-        return round(self.body_font_size * 0.14, 2)
+        return round(self.body_font_size * 0.24 * self.spacing_scale * self.section_spacing_scale, 2)
 
     @property
     def paragraph_margin(self) -> float:
-        return round(self.body_font_size * 0.08, 2)
+        return round(self.body_font_size * 0.16 * self.spacing_scale, 2)
 
     @property
     def split_row_gap(self) -> float:
-        return round(self.body_font_size * 0.28, 2)
+        return round(self.body_font_size * 0.52 * self.spacing_scale, 2)
 
     @property
     def header_margin_bottom(self) -> float:
-        return round(self.body_font_size * 0.22, 2)
+        return round(self.body_font_size * 0.42 * self.spacing_scale, 2)
+
+    @property
+    def subheading_margin_bottom(self) -> float:
+        return round(max(0.55, self.paragraph_margin * 0.75), 2)
+
+    @property
+    def split_group_margin(self) -> float:
+        return round(max(0.55, self.paragraph_margin * 0.82), 2)
+
+    @property
+    def list_item_margin_bottom(self) -> float:
+        return round(max(0.16, self.paragraph_margin * 0.22), 2)
 
 
 LAYOUT_PRESETS = [
-    LayoutPreset(body_font_size=10.0, line_height=1.12, page_margin=0.42),
-    LayoutPreset(body_font_size=9.6, line_height=1.09, page_margin=0.36),
-    LayoutPreset(body_font_size=9.2, line_height=1.06, page_margin=0.3),
-    LayoutPreset(body_font_size=8.9, line_height=1.04, page_margin=0.24),
-    LayoutPreset(body_font_size=8.6, line_height=1.02, page_margin=0.2),
-    LayoutPreset(body_font_size=8.3, line_height=1.0, page_margin=0.16),
+    # Density-first ladder: tighten spacing before shrinking fonts.
+    LayoutPreset(body_font_size=11.8, line_height=1.24, page_margin=0.56, spacing_scale=1.12),
+    LayoutPreset(body_font_size=11.8, line_height=1.18, page_margin=0.48, spacing_scale=0.90),
+    LayoutPreset(body_font_size=11.2, line_height=1.20, page_margin=0.52, spacing_scale=1.04),
+    LayoutPreset(body_font_size=11.2, line_height=1.14, page_margin=0.44, spacing_scale=0.84),
+    LayoutPreset(body_font_size=10.6, line_height=1.16, page_margin=0.46, spacing_scale=0.94),
+    LayoutPreset(body_font_size=10.6, line_height=1.10, page_margin=0.38, spacing_scale=0.74),
+    LayoutPreset(body_font_size=10.0, line_height=1.12, page_margin=0.34, spacing_scale=0.86),
+    LayoutPreset(body_font_size=10.0, line_height=1.06, page_margin=0.28, spacing_scale=0.68),
+    LayoutPreset(body_font_size=9.4, line_height=1.08, page_margin=0.24, spacing_scale=0.74),
+    LayoutPreset(body_font_size=8.8, line_height=1.02, page_margin=0.18, spacing_scale=0.62),
 ]
 
 
@@ -224,18 +253,36 @@ def _render_markdown_block(text: str) -> str:
     return markdown.markdown(text, extensions=["extra", "sane_lists"]).strip()
 
 
-def _render_split_row(left: str, right: str) -> str:
+def _is_professional_experience_section(section_heading: Optional[str]) -> bool:
+    return bool(section_heading and section_heading.strip().lower() == PROFESSIONAL_EXPERIENCE_HEADING)
+
+
+def _looks_like_experience_date_range(value: str) -> bool:
+    normalized = re.sub(r"\s+", " ", value).strip()
+    if not normalized:
+        return False
+    has_month_year = bool(MONTH_YEAR_RE.search(normalized))
+    has_year = bool(YEAR_RE.search(normalized))
+    has_present = bool(PRESENT_RE.search(normalized))
+    has_range_separator = bool(DATE_RANGE_SEPARATOR_RE.search(normalized))
+    return (has_month_year or has_year) and (has_range_separator or has_present)
+
+
+def _render_split_row(left: str, right: str, *, emphasize_left: bool = False) -> str:
+    row_class = "split-row split-row-role-title" if emphasize_left else "split-row"
+    left_class = "split-left split-left-strong" if emphasize_left else "split-left"
     return (
-        "<div class='split-row'>"
-        f"<span class='split-left'>{_render_inline_markdown(left)}</span>"
+        f"<div class='{row_class}'>"
+        f"<span class='{left_class}'>{_render_inline_markdown(left)}</span>"
         f"<span class='split-right'>{_render_inline_markdown(right)}</span>"
         "</div>"
     )
 
 
-def _render_content_blocks(lines: list[str]) -> str:
+def _render_content_blocks(lines: list[str], *, section_heading: Optional[str] = None) -> str:
     blocks: list[str] = []
     index = 0
+    in_professional_experience = _is_professional_experience_section(section_heading)
 
     while index < len(lines):
         stripped = lines[index].strip()
@@ -258,7 +305,17 @@ def _render_content_blocks(lines: list[str]) -> str:
                     current_match = PIPE_ROW_RE.match(current)
                     if not current or BULLET_RE.match(current) or current_match is None:
                         break
-                    rows.append(_render_split_row(current_match.group(1).strip(), current_match.group(2).strip()))
+                    right_column = current_match.group(2).strip()
+                    rows.append(
+                        _render_split_row(
+                            current_match.group(1).strip(),
+                            right_column,
+                            emphasize_left=(
+                                in_professional_experience
+                                and _looks_like_experience_date_range(right_column)
+                            ),
+                        )
+                    )
                     index += 1
                 if rows:
                     blocks.append(f"<div class='split-group'>{''.join(rows)}</div>")
@@ -345,7 +402,7 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
         (
             "<section class='resume-section'>"
             f"<h2>{html.escape(heading)}</h2>"
-            f"{_render_content_blocks(section_lines)}"
+            f"{_render_content_blocks(section_lines, section_heading=heading)}"
             "</section>"
         )
         for heading, section_lines in sections
@@ -411,7 +468,7 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
       border-bottom: 0.8pt solid #111111;
     }}
     h3 {{
-      margin: 0 0 0.75pt 0;
+      margin: 0 0 {preset.subheading_margin_bottom}pt 0;
       font-size: {preset.body_font_size}pt;
       font-weight: 700;
       line-height: 1.05;
@@ -424,11 +481,11 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
       padding-left: 4pt;
     }}
     li {{
-      margin: 0 0 0.2pt 0;
+      margin: 0 0 {preset.list_item_margin_bottom}pt 0;
       padding-left: 0;
     }}
     .split-group {{
-      margin: 0 0 0.75pt 0;
+      margin: 0 0 {preset.split_group_margin}pt 0;
     }}
     .split-row {{
       display: flex;
@@ -447,11 +504,14 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
       text-align: right;
       white-space: nowrap;
     }}
+    .split-left-strong {{
+      font-weight: 700;
+    }}
     .split-group + ul {{
       margin-top: 0;
     }}
     .split-group + .split-group {{
-      margin-top: 0.75pt;
+      margin-top: {preset.split_group_margin}pt;
     }}
     .resume-section > :last-child {{
       margin-bottom: 0;
@@ -482,6 +542,60 @@ def _render_html_to_pdf(html_content: str) -> tuple[bytes, int]:
     return document.write_pdf(), len(document.pages)
 
 
+def _build_roomier_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
+    return LayoutPreset(
+        body_font_size=round(min(12.8, preset.body_font_size + 0.22), 2),
+        line_height=round(min(1.32, preset.line_height + 0.02), 2),
+        page_margin=preset.page_margin,
+        spacing_scale=round(min(1.35, preset.spacing_scale + 0.07), 2),
+        section_spacing_scale=round(min(1.75, preset.section_spacing_scale + 0.08), 2),
+    )
+
+
+def _build_section_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
+    """Increase section readability spacing without changing typography size."""
+    return LayoutPreset(
+        body_font_size=preset.body_font_size,
+        line_height=preset.line_height,
+        page_margin=preset.page_margin,
+        spacing_scale=preset.spacing_scale,
+        section_spacing_scale=round(min(1.9, preset.section_spacing_scale + 0.14), 2),
+    )
+
+
+def _validate_roomier_one_page_fit(
+    markdown_content: str,
+    *,
+    base_pdf: bytes,
+    base_preset: LayoutPreset,
+    base_index: int,
+) -> bytes:
+    """Try readability variants and keep the roomiest one that still fits on one page."""
+    best_pdf = base_pdf
+    best_preset = base_preset
+
+    for _step in range(ONE_PAGE_VALIDATION_ROOMIER_STEPS):
+        improved = False
+        for build_candidate in (
+            _build_section_relief_one_page_variant,
+            _build_roomier_one_page_variant,
+        ):
+            candidate_preset = build_candidate(best_preset)
+            if candidate_preset == best_preset:
+                continue
+            html_content = _build_html(markdown_content, candidate_preset, preset_index=base_index)
+            pdf_bytes, page_count = _render_html_to_pdf(html_content)
+            if page_count > 1:
+                continue
+            best_preset = candidate_preset
+            best_pdf = pdf_bytes
+            improved = True
+        if not improved:
+            break
+
+    return best_pdf
+
+
 def _generate_pdf_with_autofit_sync(
     markdown_content: str,
     personal_info: Optional[dict] = None,
@@ -496,6 +610,13 @@ def _generate_pdf_with_autofit_sync(
         pdf_bytes, page_count = _render_html_to_pdf(html_content)
         last_pdf = pdf_bytes
         if page_count <= target_pages:
+            if target_pages == 1:
+                return _validate_roomier_one_page_fit(
+                    normalized_markdown,
+                    base_pdf=pdf_bytes,
+                    base_preset=preset,
+                    base_index=preset_index,
+                )
             return pdf_bytes
 
     return last_pdf

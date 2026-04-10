@@ -15,6 +15,8 @@ const DEFAULT_LABELS: Record<string, string> = {
   resumes: "Resumes",
   extension: "Extension",
   profile: "Profile",
+  admin: "Admin",
+  users: "User Management",
   new: "New",
   dashboard: "Dashboard",
 };

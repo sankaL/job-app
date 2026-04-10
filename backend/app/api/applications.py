@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
-from app.core.auth import AuthenticatedUser, get_current_user
+from app.core.access import get_current_active_user
+from app.core.auth import AuthenticatedUser
 from app.db.applications import ApplicationListRecord, ApplicationRecord, MatchedApplicationRecord
 from app.db.resume_drafts import ResumeDraftRecord
 from app.services.application_manager import (
@@ -424,7 +425,7 @@ def _map_service_error(error: Exception) -> HTTPException:
 
 @router.get("", response_model=list[ApplicationSummary])
 async def list_applications(
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
     search: Optional[str] = Query(default=None),
     visible_status: Optional[str] = Query(default=None),
@@ -440,7 +441,7 @@ async def list_applications(
 @router.post("", response_model=ApplicationDetail, status_code=status.HTTP_201_CREATED)
 async def create_application(
     request: CreateApplicationRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -471,7 +472,7 @@ async def create_application(
 @router.get("/{application_id}", response_model=ApplicationDetail)
 async def get_application_detail(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -489,7 +490,7 @@ async def get_application_detail(
 async def patch_application(
     application_id: str,
     request: UpdateApplicationRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     updates = request.model_dump(exclude_unset=True)
@@ -510,7 +511,7 @@ async def patch_application(
 @router.delete("/{application_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_application(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> Response:
     try:
@@ -527,7 +528,7 @@ async def delete_application(
 @router.post("/{application_id}/cancel-extraction", response_model=ApplicationDetail)
 async def cancel_extraction(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -544,7 +545,7 @@ async def cancel_extraction(
 @router.post("/{application_id}/retry-extraction", response_model=ApplicationDetail)
 async def retry_extraction(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -562,7 +563,7 @@ async def retry_extraction(
 async def submit_manual_entry(
     application_id: str,
     request: ManualEntryRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -581,7 +582,7 @@ async def submit_manual_entry(
 async def recover_from_source(
     application_id: str,
     request: RecoverFromSourceRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -608,7 +609,7 @@ async def recover_from_source(
 async def resolve_duplicate(
     application_id: str,
     request: DuplicateResolutionRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -626,7 +627,7 @@ async def resolve_duplicate(
 @router.get("/{application_id}/progress", response_model=WorkflowProgress)
 async def get_progress(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> WorkflowProgress:
     try:
@@ -642,7 +643,7 @@ async def get_progress(
 @router.get("/{application_id}/draft", response_model=Optional[ResumeDraftResponse])
 async def get_draft(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> Optional[ResumeDraftResponse]:
     try:
@@ -661,7 +662,7 @@ async def get_draft(
 async def generate_resume(
     application_id: str,
     request: GenerateResumeRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -683,7 +684,7 @@ async def generate_resume(
 async def regenerate_full(
     application_id: str,
     request: FullRegenerationRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -704,7 +705,7 @@ async def regenerate_full(
 async def regenerate_section(
     application_id: str,
     request: SectionRegenerationRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -723,7 +724,7 @@ async def regenerate_section(
 @router.post("/{application_id}/cancel-generation", response_model=ApplicationDetail)
 async def cancel_generation(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
@@ -741,7 +742,7 @@ async def cancel_generation(
 async def save_draft(
     application_id: str,
     request: SaveDraftRequest,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ResumeDraftResponse:
     try:
@@ -758,7 +759,7 @@ async def save_draft(
 @router.get("/{application_id}/export-pdf")
 async def export_pdf(
     application_id: str,
-    current_user: Annotated[AuthenticatedUser, Depends(get_current_user)],
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> Response:
     try:

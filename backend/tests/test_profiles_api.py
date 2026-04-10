@@ -66,6 +66,27 @@ class FailingProfileRepository(ProfileRepository):
     def __init__(self) -> None:
         pass
 
+    def fetch_profile(self, user_id: str):
+        return ProfileRecord(
+            id=user_id,
+            email="invite-only@example.com",
+            name="Alex Example",
+            phone=None,
+            address=None,
+            linkedin_url=None,
+            is_active=True,
+            default_base_resume_id=None,
+            section_preferences={
+                "summary": True,
+                "professional_experience": True,
+                "education": True,
+                "skills": True,
+            },
+            section_order=["summary", "professional_experience", "education", "skills"],
+            created_at="2026-04-07T00:00:00+00:00",
+            updated_at="2026-04-07T00:00:00+00:00",
+        )
+
     def update_profile(self, user_id: str, updates: dict):
         raise RuntimeError("sensitive-db-error-text")
 

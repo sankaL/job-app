@@ -15,6 +15,10 @@ from typing import Any, Awaitable, Optional, TypeVar
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from experience_contract import (
+    extract_professional_experience_anchors,
+    normalize_professional_experience_section,
+)
 from privacy import sanitize_resume_markdown
 
 OPERATION_PROMPTS: dict[str, str] = {
@@ -49,8 +53,8 @@ PROMPT_TRUNCATION_LIMITS = {
 GENERATION_HEARTBEAT_INTERVAL_SECONDS = 20.0
 GENERATION_HEARTBEAT_PERCENT = 45
 GENERATION_HEARTBEAT_MESSAGE = "Waiting for structured resume output"
-FULL_DRAFT_LLM_TIMEOUT_SECONDS = 90.0
-SECTION_REGENERATION_LLM_TIMEOUT_SECONDS = 45.0
+FULL_DRAFT_LLM_TIMEOUT_SECONDS = 240.0
+SECTION_REGENERATION_LLM_TIMEOUT_SECONDS = 120.0
 
 TARGET_LENGTH_GUIDANCE: dict[str, dict[str, Any]] = {
     "1_page": {
@@ -388,13 +392,20 @@ def _build_role_block() -> str:
 
 def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str], section_wrapper: bool) -> str:
     section_spec = ", ".join(f"{section_id}:{_display_name(section_id)}" for section_id in enabled_sections)
+    experience_contract_line = ""
+    if "professional_experience" in enabled_sections:
+        experience_contract_line = (
+            "- Professional Experience structure contract: preserve source company and date range for every role. "
+            "Low and medium must preserve role titles exactly; high may retitle only while keeping company and dates unchanged.\n"
+        )
     return (
         "Non-negotiables:\n"
         f"- {OPERATION_PROMPTS[operation]}\n"
         "- Use only facts grounded in the sanitized base resume source.\n"
         "- Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.\n"
         "- Do not invent employers, titles, dates, institutions, credentials, awards, metrics, scope, or technologies.\n"
-        "- User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.\n"
+        + experience_contract_line
+        + "- User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.\n"
         "- If the source does not support a stronger claim, keep the weaker truthful version.\n"
         "- Use only standard Markdown inside markdown fields. No HTML, tables, images, columns, code fences, commentary, or em dashes.\n"
         f"- Return only these sections and in exactly this order: {section_spec}.\n"
@@ -496,6 +507,7 @@ def _build_generation_prompt(
     aggressiveness: str,
     target_length: str,
     additional_instructions: Optional[str],
+    professional_experience_anchors: list[dict[str, Any]],
 ) -> list[tuple[str, str]]:
     system_msg = _build_shared_system_prompt(
         operation=operation,
@@ -528,6 +540,14 @@ def _build_generation_prompt(
             "max_skills_categories": target_length_config["skills_categories"],
         },
         "section_rules": {section_id: SECTION_RULES[section_id] for section_id in enabled_sections},
+        "professional_experience_structure_contract": {
+            "anchors": professional_experience_anchors,
+            "invariants": {
+                "company_and_dates_must_match_source_for_every_role": True,
+                "low_and_medium_titles_must_match_source_exactly": True,
+                "high_titles_may_retitle_but_company_and_dates_must_stay_source_exact": True,
+            },
+        },
         "job_description": _normalize_prompt_text(job_description, PROMPT_TRUNCATION_LIMITS["job_description"]),
         "sanitized_base_resume_markdown": _normalize_prompt_text(
             base_resume_content, PROMPT_TRUNCATION_LIMITS["base_resume"]
@@ -551,6 +571,7 @@ def _build_section_regeneration_prompt(
     job_description: str,
     aggressiveness: str,
     target_length: str,
+    professional_experience_anchors: list[dict[str, Any]],
 ) -> list[tuple[str, str]]:
     system_msg = (
         _build_shared_system_prompt(
@@ -587,6 +608,14 @@ def _build_section_regeneration_prompt(
             "target_range": target_length_config["target_range"],
             "hard_cap_words": target_length_config["hard_cap"],
         },
+        "professional_experience_structure_contract": {
+            "anchors": professional_experience_anchors,
+            "invariants": {
+                "company_and_dates_must_match_source_for_every_role": True,
+                "low_and_medium_titles_must_match_source_exactly": True,
+                "high_titles_may_retitle_but_company_and_dates_must_stay_source_exact": True,
+            },
+        },
         "job_description": _normalize_prompt_text(job_description, PROMPT_TRUNCATION_LIMITS["job_description"]),
         "sanitized_base_resume_markdown": _normalize_prompt_text(
             base_resume_content, PROMPT_TRUNCATION_LIMITS["base_resume"]
@@ -603,9 +632,9 @@ def _build_section_regeneration_prompt(
 
 
 def _reasoning_config_for_operation(operation: str) -> Optional[dict[str, Any]]:
-    if operation == "generation":
+    if operation in {"generation", "regeneration_full"}:
         return {"effort": "medium", "exclude": True}
-    if operation in {"regeneration_full", "regeneration_section"}:
+    if operation == "regeneration_section":
         return {"effort": "high", "exclude": True}
     return None
 
@@ -748,6 +777,9 @@ async def _call_json_with_fallback(
                     return payload, model_name
                 except Exception as inner_exc:
                     last_error = inner_exc
+            if _is_timeout_error(last_error):
+                # Move to fallback model immediately when a model times out.
+                continue
 
         try:
             payload = await _invoke_prompt_json(
@@ -838,6 +870,31 @@ def _build_other_sections_context(*, draft: str, target_section_name: str) -> li
     return context_entries
 
 
+def _section_label_list(section_ids: list[str]) -> str:
+    return ", ".join(_display_name(section_id) for section_id in section_ids)
+
+
+def _normalize_experience_section_if_present(
+    *,
+    sections: list[dict[str, Any]],
+    professional_experience_anchors: list[dict[str, Any]],
+    aggressiveness: str,
+) -> None:
+    if not professional_experience_anchors:
+        return
+
+    for section in sections:
+        if section.get("name") != "professional_experience":
+            continue
+        normalized_content, _issues = normalize_professional_experience_section(
+            section_markdown=str(section.get("content") or ""),
+            anchors=professional_experience_anchors,
+            aggressiveness=str(aggressiveness).lower(),
+        )
+        section["content"] = normalized_content
+        return
+
+
 async def generate_sections(
     *,
     base_resume_content: str,
@@ -869,7 +926,11 @@ async def generate_sections(
     if not sanitized_base_resume.strip():
         raise ValueError("Sanitized base resume content is empty.")
 
-    await on_progress(35, "Generating structured resume content")
+    professional_experience_anchors = extract_professional_experience_anchors(sanitized_base_resume)
+    section_labels = _section_label_list(section_ids)
+
+    await on_progress(20, f"Preparing generation plan for {section_labels}")
+    await on_progress(35, f"Generating {section_labels} with structured output")
     prompt = _build_generation_prompt(
         operation=operation if operation in OPERATION_PROMPTS else "generation",
         base_resume_content=sanitized_base_resume,
@@ -880,6 +941,7 @@ async def generate_sections(
         aggressiveness=aggressiveness,
         target_length=target_length,
         additional_instructions=additional_instructions,
+        professional_experience_anchors=professional_experience_anchors,
     )
     payload, model_used = await _await_with_progress_heartbeat(
         operation=_call_json_with_fallback(
@@ -895,9 +957,17 @@ async def generate_sections(
         ),
         on_progress=on_progress,
         percent=GENERATION_HEARTBEAT_PERCENT,
-        message=GENERATION_HEARTBEAT_MESSAGE,
+        message=f"Generating sections: {section_labels}",
     )
 
+    await on_progress(
+        60,
+        (
+            "Applying deterministic Professional Experience structure checks"
+            if "professional_experience" in section_ids and professional_experience_anchors
+            else "Normalizing structured section output"
+        ),
+    )
     await on_progress(70, "Parsing structured resume output")
     sections = [
         {
@@ -908,7 +978,17 @@ async def generate_sections(
         }
         for section in payload.sections
     ]
-    return {"sections": sections, "model_used": model_used, "sanitized_base_resume": sanitized_base_resume}
+    _normalize_experience_section_if_present(
+        sections=sections,
+        professional_experience_anchors=professional_experience_anchors,
+        aggressiveness=str(aggressiveness).lower(),
+    )
+    return {
+        "sections": sections,
+        "model_used": model_used,
+        "sanitized_base_resume": sanitized_base_resume,
+        "professional_experience_anchors": professional_experience_anchors,
+    }
 
 
 def _replace_section_in_draft(
@@ -944,6 +1024,7 @@ async def regenerate_single_section(
     fallback_model: str,
     api_key: str,
     base_url: str,
+    on_progress=None,
 ) -> dict[str, Any]:
     aggressiveness = generation_settings.get("aggressiveness", "medium")
     target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
@@ -951,6 +1032,7 @@ async def regenerate_single_section(
     sanitized_base_resume = sanitize_resume_markdown(base_resume_content).sanitized_markdown
     if not sanitized_base_resume.strip():
         raise ValueError("Sanitized base resume content is empty.")
+    professional_experience_anchors = extract_professional_experience_anchors(sanitized_base_resume)
 
     display_name = _display_name(section_name)
     current_section = _extract_section_markdown(current_draft_content, display_name)
@@ -968,24 +1050,60 @@ async def regenerate_single_section(
         job_description=job_description,
         aggressiveness=aggressiveness,
         target_length=target_length,
+        professional_experience_anchors=professional_experience_anchors,
     )
-    payload, model_used = await _call_json_with_fallback(
-        prompt=prompt,
-        response_model=RegeneratedSectionPayload,
-        expected_section_ids=[section_name],
-        operation="regeneration_section",
-        model=model,
-        fallback_model=fallback_model,
-        api_key=api_key,
-        base_url=base_url,
-        timeout=SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
-    )
+    if on_progress is not None:
+        await on_progress(35, f"Preparing {display_name} regeneration context")
+        payload, model_used = await _await_with_progress_heartbeat(
+            operation=_call_json_with_fallback(
+                prompt=prompt,
+                response_model=RegeneratedSectionPayload,
+                expected_section_ids=[section_name],
+                operation="regeneration_section",
+                model=model,
+                fallback_model=fallback_model,
+                api_key=api_key,
+                base_url=base_url,
+                timeout=SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
+            ),
+            on_progress=on_progress,
+            percent=GENERATION_HEARTBEAT_PERCENT,
+            message=f"Generating {display_name} section",
+        )
+    else:
+        payload, model_used = await _call_json_with_fallback(
+            prompt=prompt,
+            response_model=RegeneratedSectionPayload,
+            expected_section_ids=[section_name],
+            operation="regeneration_section",
+            model=model,
+            fallback_model=fallback_model,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
+        )
+
+    section_content = payload.section.markdown.strip()
+    if section_name == "professional_experience" and professional_experience_anchors:
+        section_content, _issues = normalize_professional_experience_section(
+            section_markdown=section_content,
+            anchors=professional_experience_anchors,
+            aggressiveness=str(aggressiveness).lower(),
+        )
+        if on_progress is not None:
+            await on_progress(60, "Applying deterministic Professional Experience structure checks")
+    elif on_progress is not None:
+        await on_progress(60, "Normalizing regenerated section output")
+
+    if on_progress is not None:
+        await on_progress(70, "Parsing regenerated section output")
 
     return {
         "name": payload.section.id,
         "heading": payload.section.heading,
-        "content": payload.section.markdown.strip(),
+        "content": section_content,
         "supporting_snippets": payload.section.supporting_snippets,
         "model_used": model_used,
         "sanitized_base_resume": sanitized_base_resume,
+        "professional_experience_anchors": professional_experience_anchors,
     }

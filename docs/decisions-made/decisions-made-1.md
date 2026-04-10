@@ -1,5 +1,30 @@
 # Decisions Made
 
+## 2026-04-10 13:30:00 EDT — Make regeneration structure deterministic, cap non-admin full regenerations, and move generation to slower higher-quality defaults
+
+- Status: Accepted
+- Context: Full and section regeneration occasionally returned Professional Experience output that dropped or altered company/date lines, creating structural drift that deterministic validation could miss when model output was inconsistent. The team also needed longer async windows for slower higher-quality models and explicit cost controls for repeated full regenerations.
+- Decision:
+  1. Add deterministic Professional Experience source anchors (`title`, `company`, `date_range`, source order) extracted from sanitized base resume content and pass them into full and section regeneration prompts as explicit invariants.
+  2. Add a deterministic post-LLM normalization pass that rehydrates Professional Experience company/date from source anchors before validation and assembly; low/medium also force source-exact titles while high preserves generated titles only when company/date stay source-exact.
+  3. Strengthen deterministic validation to fail closed when Professional Experience role blocks cannot satisfy the structure contract after normalization.
+  4. Enforce a hard per-application cap of three full regenerations for non-admin users, consume a slot only when queueing succeeds, and allow admin bypass.
+  5. Increase generation timeout profiles to `240s` full generation/full regeneration and `120s` section regeneration, and surface section-aware stage messages through progress updates.
+  6. Set generation model defaults to `z-ai/glm-5.1` primary and `anthropic/claude-sonnet-4.6` fallback, while leaving extraction defaults unchanged.
+- Consequences: Regeneration output stays structurally stable for Professional Experience across retries, user-facing progress becomes clearer for longer-running models, full-regeneration spend is bounded for non-admin users, and admin workflows retain operational override capability.
+
+## 2026-04-10 10:42:00 EDT — Keep onboarding invite-only via tokenized signup, and scope admin to metrics plus user lifecycle controls
+
+- Status: Accepted
+- Context: The product needed account creation for new users without opening public registration. Admin users also needed operational visibility and user lifecycle controls before launch, with reliable invite delivery through Resend and clear onboarding requirements.
+- Decision:
+  1. Keep signup invite-only by introducing tokenized invite links and dedicated unauthenticated invite preview/accept endpoints, while keeping all other application APIs JWT-protected.
+  2. Pre-provision invited users in Supabase Auth at invite-send time, then complete onboarding on invite acceptance by setting password and mandatory profile fields.
+  3. Require invite-signup profile fields `first_name`, `last_name`, `location`, `phone`, and `email`; keep LinkedIn optional.
+  4. Enforce password confirmation and a minimum password policy of 12+ characters with uppercase, lowercase, number, and symbol.
+  5. Scope admin MVP responsibilities to exactly two surfaces: a metrics dashboard (invite funnel plus extraction/generation/regeneration/export outcomes) and user management (invite, edit, deactivate/reactivate, delete).
+- Consequences: The app remains private and invite-gated, onboarding becomes deterministic and auditable, and admins can operate user access and monitor core workflow health without adding non-actionable vanity analytics.
+
 ## 2026-04-09 20:56:55 EDT — Add semantic job-location extraction separate from compensation
 
 - Status: Accepted
