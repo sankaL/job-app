@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-04-07
+**Last updated:** 2026-04-09
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -167,3 +167,48 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - cancelling an active generation returns a retryable application state instead of a `500`
   - a timed-out generation persists `failure_reason = generation_timeout` with user-safe message text
   - stale worker callbacks do not overwrite a cancelled or timed-out application because terminal progress uses a new job id
+
+## Current Additive Change Note: Application Compensation Text
+
+- Add the additive migration `supabase/migrations/20260409_000007_phase_4_application_compensation_text.sql`.
+- `applications.compensation_text` stores raw compensation text exactly as shown in the posting or manual entry. It is intentionally nullable and unnormalized for MVP.
+- Rollout order for this change:
+  1. Apply the additive column migration.
+  2. Deploy backend and worker code that reads and writes `compensation_text`.
+  3. Deploy the frontend detail-page field and compact aggressiveness-help UI.
+- No backfill is required. Existing applications may keep `NULL` `compensation_text`, and older rows may keep shorter historical `job_description` values until users retry extraction or edit them manually.
+- Read paths and duplicate-detection logic must stay compatible with mixed rows where `compensation_text` is still null.
+- Post-deploy verification should confirm:
+  - extraction persists the full posting body in `job_description` when present, including lower-page sections like qualifications
+  - extraction persists `compensation_text` only when compensation is clearly present in the posting
+  - manual entry and detail-page edits can save `compensation_text` without affecting duplicate-review behavior
+
+## Current Additive Change Note: Application Job Location Text
+
+- Add the additive migration `supabase/migrations/20260409_000009_phase_4_application_job_location_text.sql`.
+- `applications.job_location_text` stores raw location or hiring-region text exactly as shown in the posting or manual entry. It is intentionally nullable and unnormalized for MVP.
+- Rollout order for this change:
+  1. Apply the additive column migration.
+  2. Deploy backend and worker code that reads and writes `job_location_text`.
+  3. Deploy the frontend detail-page field so users can review and edit extracted location text.
+- No backfill is required. Existing applications may keep `NULL` `job_location_text` until users retry extraction or edit them manually.
+- Read paths and duplicate-detection logic must stay compatible with mixed rows where `job_location_text` is still null.
+- Post-deploy verification should confirm:
+  - extraction persists `job_location_text` only when the posting clearly states where the role is located, based, or hireable
+  - extraction can separate `job_location_text` and `compensation_text` semantically even when they appear on the same rendered line
+  - manual entry and detail-page edits can save `job_location_text` without affecting duplicate-review behavior
+
+## Current Additive Change Note: Profile LinkedIn and Export Header Normalization
+
+- Add the additive migration `supabase/migrations/20260409_000008_phase_4_profile_linkedin_for_export.sql`.
+- `profiles.linkedin_url` stores an optional LinkedIn URL that stays inside the app boundary and is used only for local resume assembly and PDF export.
+- Existing `profiles.address` storage remains unchanged, but export now treats it as the short location line in the resume header rather than a mailing-address-specific contract.
+- No backfill is required. Existing profiles may keep `NULL` `linkedin_url`, and existing drafts may keep older header shapes until they are regenerated or normalized during export.
+- Rollout order for this change:
+  1. Apply the additive `linkedin_url` migration.
+  2. Deploy backend and worker code that assembles or exports the profile-driven header with the new field and the stricter profile-name requirement.
+  3. Deploy the frontend profile form changes so users can save location text and LinkedIn directly.
+- Post-deploy verification should confirm:
+  - profile GET and PATCH return `linkedin_url` correctly for authenticated owners only
+  - initial generation, full regeneration, and PDF export fail closed with actionable guidance when profile `name` is blank
+  - PDF export produces one normalized header only and uses the stored draft `page_length` target to tighten layout when pagination overflows

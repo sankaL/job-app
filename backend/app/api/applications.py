@@ -66,6 +66,15 @@ def _validate_generation_instruction_text(value: Optional[str], *, required: boo
 
 class CreateApplicationRequest(BaseModel):
     job_url: HttpUrl
+    source_text: Optional[str] = None
+
+    @field_validator("source_text")
+    @classmethod
+    def normalize_source_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class UpdateApplicationRequest(BaseModel):
@@ -74,11 +83,13 @@ class UpdateApplicationRequest(BaseModel):
     job_title: Optional[str] = None
     company: Optional[str] = None
     job_description: Optional[str] = None
+    job_location_text: Optional[str] = None
+    compensation_text: Optional[str] = None
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
     base_resume_id: Optional[str] = None
 
-    @field_validator("notes", "job_title", "company", "job_description", "job_posting_origin_other_text")
+    @field_validator("notes", "job_title", "company", "job_description", "job_location_text", "compensation_text", "job_posting_origin_other_text")
     @classmethod
     def normalize_string(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
@@ -91,6 +102,8 @@ class ManualEntryRequest(BaseModel):
     job_title: str
     company: str
     job_description: str
+    job_location_text: Optional[str] = None
+    compensation_text: Optional[str] = None
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
     notes: Optional[str] = None
@@ -103,7 +116,7 @@ class ManualEntryRequest(BaseModel):
             raise ValueError("Field cannot be blank.")
         return stripped
 
-    @field_validator("job_posting_origin_other_text", "notes")
+    @field_validator("job_location_text", "compensation_text", "job_posting_origin_other_text", "notes")
     @classmethod
     def normalize_optional_string(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
@@ -185,6 +198,8 @@ class ApplicationDetail(BaseModel):
     job_title: Optional[str]
     company: Optional[str]
     job_description: Optional[str]
+    job_location_text: Optional[str]
+    compensation_text: Optional[str]
     extracted_reference_id: Optional[str]
     job_posting_origin: Optional[str]
     job_posting_origin_other_text: Optional[str]
@@ -429,10 +444,20 @@ async def create_application(
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
-        record = await service.create_application(
-            user_id=current_user.id,
-            job_url=str(request.job_url),
-        )
+        if request.source_text:
+            record = await service.create_application_from_capture(
+                user_id=current_user.id,
+                job_url=str(request.job_url),
+                capture=SourceCapturePayload(
+                    source_text=request.source_text,
+                    source_url=str(request.job_url),
+                ),
+            )
+        else:
+            record = await service.create_application(
+                user_id=current_user.id,
+                job_url=str(request.job_url),
+            )
         return to_application_detail(
             await service.get_application_detail(
                 user_id=current_user.id,

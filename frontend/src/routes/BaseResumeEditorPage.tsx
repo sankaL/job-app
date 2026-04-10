@@ -8,6 +8,7 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -205,9 +206,9 @@ export function BaseResumeEditorPage() {
             </div>
             <div>
               <Label htmlFor="content">Content (Markdown)</Label>
-              <textarea
+              <MarkdownEditor
                 id="content"
-                className="markdown-editor no-bottom-radius min-h-[500px]"
+                className="no-bottom-radius min-h-[50vh]"
                 value={contentMd}
                 onChange={(e) => setContentMd(e.target.value)}
               />
@@ -242,9 +243,9 @@ export function BaseResumeEditorPage() {
             </div>
             <div>
               <Label htmlFor="content">Content (Markdown)</Label>
-              <textarea
+              <MarkdownEditor
                 id="content"
-                className="markdown-editor no-bottom-radius min-h-[500px]"
+                className="no-bottom-radius min-h-[50vh]"
                 placeholder={"# Your Name\n\n## Summary\nProfessional summary…\n\n## Experience\n\n### Job Title — Company\n- Accomplishment 1\n- Accomplishment 2\n\n## Skills\n- Skill 1\n- Skill 2"}
                 value={contentMd}
                 onChange={(e) => setContentMd(e.target.value)}
@@ -310,9 +311,9 @@ export function BaseResumeEditorPage() {
               </div>
               <div>
                 <Label htmlFor="content">Content (Markdown)</Label>
-                <textarea
+                <MarkdownEditor
                   id="content"
-                  className="markdown-editor no-bottom-radius min-h-[500px]"
+                  className="no-bottom-radius min-h-[50vh]"
                   value={contentMd}
                   onChange={(e) => setContentMd(e.target.value)}
                 />

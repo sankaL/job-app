@@ -11,7 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { InfoPopover } from "@/components/ui/info-popover";
 import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppliedToggleButton } from "@/components/AppliedToggleButton";
@@ -48,6 +50,8 @@ type JobFormState = {
   job_title: string;
   company: string;
   job_description: string;
+  job_location_text: string;
+  compensation_text: string;
   job_posting_origin: string;
   job_posting_origin_other_text: string;
 };
@@ -140,6 +144,8 @@ export function ApplicationDetailPage() {
     job_title: "",
     company: "",
     job_description: "",
+    job_location_text: "",
+    compensation_text: "",
     job_posting_origin: "",
     job_posting_origin_other_text: "",
   });
@@ -179,6 +185,8 @@ export function ApplicationDetailPage() {
     job_title: detail?.job_title ?? "",
     company: detail?.company ?? "",
     job_description: detail?.job_description ?? "",
+    job_location_text: detail?.job_location_text ?? "",
+    compensation_text: detail?.compensation_text ?? "",
     job_posting_origin: detail?.job_posting_origin ?? "",
     job_posting_origin_other_text: detail?.job_posting_origin_other_text ?? "",
   }), [detail]);
@@ -196,6 +204,8 @@ export function ApplicationDetailPage() {
       jobForm.job_title !== savedJobForm.job_title ||
       jobForm.company !== savedJobForm.company ||
       jobForm.job_description !== savedJobForm.job_description ||
+      jobForm.job_location_text !== savedJobForm.job_location_text ||
+      jobForm.compensation_text !== savedJobForm.compensation_text ||
       jobForm.job_posting_origin !== savedJobForm.job_posting_origin ||
       (jobForm.job_posting_origin === "other" && jobForm.job_posting_origin_other_text !== savedJobForm.job_posting_origin_other_text)
     );
@@ -209,6 +219,10 @@ export function ApplicationDetailPage() {
       additionalInstructions !== (savedSettings.additional_instructions || "")
     );
   }, [selectedResumeId, pageLength, aggressiveness, additionalInstructions, savedSettings]);
+  const selectedAggressivenessOption = useMemo(
+    () => AGGRESSIVENESS_OPTIONS.find((option) => option.value === aggressiveness) ?? null,
+    [aggressiveness],
+  );
 
   function applyDetailState(response: ApplicationDetail, options?: { refreshShell?: boolean }) {
     const generationActive = isGenerationWorkflowActive(response);
@@ -218,6 +232,8 @@ export function ApplicationDetailPage() {
       job_title: response.job_title ?? "",
       company: response.company ?? "",
       job_description: response.job_description ?? "",
+      job_location_text: response.job_location_text ?? "",
+      compensation_text: response.compensation_text ?? "",
       job_posting_origin: response.job_posting_origin ?? "",
       job_posting_origin_other_text: response.job_posting_origin_other_text ?? "",
     });
@@ -408,6 +424,8 @@ export function ApplicationDetailPage() {
         job_title: jobForm.job_title,
         company: jobForm.company || null,
         job_description: jobForm.job_description || null,
+        job_location_text: jobForm.job_location_text || null,
+        compensation_text: jobForm.compensation_text || null,
         job_posting_origin: jobForm.job_posting_origin || null,
         job_posting_origin_other_text: jobForm.job_posting_origin === "other" ? jobForm.job_posting_origin_other_text : null,
       });
@@ -427,6 +445,8 @@ export function ApplicationDetailPage() {
     try {
       const response = await submitManualEntry(activeApplicationId, {
         ...jobForm,
+        job_location_text: jobForm.job_location_text || null,
+        compensation_text: jobForm.compensation_text || null,
         job_posting_origin: jobForm.job_posting_origin || null,
         job_posting_origin_other_text: jobForm.job_posting_origin === "other" ? jobForm.job_posting_origin_other_text : null,
         notes: notesDraft || null,
@@ -713,7 +733,7 @@ export function ApplicationDetailPage() {
       resizeObserver.disconnect();
       window.removeEventListener("resize", updateHeight);
     };
-  }, [isPastExtraction, detail?.internal_state, draft, editMode, notesDraft, additionalInstructions, pageLength, aggressiveness, selectedResumeId, baseResumes.length, jobForm.job_description, jobForm.job_posting_origin, jobForm.job_posting_origin_other_text, jobForm.job_title, jobForm.company]);
+  }, [isPastExtraction, detail?.internal_state, draft, editMode, notesDraft, additionalInstructions, pageLength, aggressiveness, selectedResumeId, baseResumes.length, jobForm.job_description, jobForm.job_location_text, jobForm.compensation_text, jobForm.job_posting_origin, jobForm.job_posting_origin_other_text, jobForm.job_title, jobForm.company]);
 
   return (
     <div className="page-enter space-y-4">
@@ -753,6 +773,16 @@ export function ApplicationDetailPage() {
                     {isExporting ? "Exporting…" : "Export PDF"}
                   </Button>
                 )}
+                <AppliedToggleButton applied={detail.applied} onClick={() => handleAppliedButtonClick()} />
+                <a
+                  className="inline-flex h-9 items-center justify-center rounded-lg border px-3.5 text-xs font-semibold transition-colors"
+                  style={{ borderColor: "var(--color-border)", color: "var(--color-spruce)", background: "var(--color-white)" }}
+                  href={detail.job_url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  View Posting ↗
+                </a>
                 {extractionActive ? (
                   <IconButton
                     variant="danger"
@@ -776,16 +806,6 @@ export function ApplicationDetailPage() {
                     <Trash2 size={16} aria-hidden="true" />
                   </IconButton>
                 )}
-                <AppliedToggleButton applied={detail.applied} onClick={() => handleAppliedButtonClick()} />
-                <a
-                  className="inline-flex h-9 items-center justify-center rounded-lg border px-3.5 text-xs font-semibold transition-colors"
-                  style={{ borderColor: "var(--color-border)", color: "var(--color-spruce)", background: "var(--color-white)" }}
-                  href={detail.job_url}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  View Posting ↗
-                </a>
               </div>
             }
           />
@@ -913,6 +933,24 @@ export function ApplicationDetailPage() {
                     <Label htmlFor="jd">Job Description</Label>
                     <Textarea id="jd" className="min-h-32" placeholder="Job description" value={jobForm.job_description} onChange={(e) => setJobForm((c) => ({ ...c, job_description: e.target.value }))} />
                   </div>
+                  <div>
+                    <Label htmlFor="job-location">Location</Label>
+                    <Input
+                      id="job-location"
+                      placeholder="e.g. British Columbia/Ontario or Toronto, Ontario"
+                      value={jobForm.job_location_text}
+                      onChange={(e) => setJobForm((c) => ({ ...c, job_location_text: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="compensation">Compensation</Label>
+                    <Input
+                      id="compensation"
+                      placeholder="e.g. $140,000 - $175,000 base salary"
+                      value={jobForm.compensation_text}
+                      onChange={(e) => setJobForm((c) => ({ ...c, compensation_text: e.target.value }))}
+                    />
+                  </div>
                   <div className="flex gap-2">
                     <Button loading={isSavingJobInfo} disabled={isSavingJobInfo} type="submit">
                       {isSavingJobInfo ? "Saving…" : "Save"}
@@ -1006,6 +1044,26 @@ export function ApplicationDetailPage() {
                       <Label htmlFor="jd" className="text-xs">Job Description</Label>
                       <Textarea id="jd" className="text-sm min-h-32" placeholder="Job description" value={jobForm.job_description} onChange={(e) => setJobForm((c) => ({ ...c, job_description: e.target.value }))} />
                     </div>
+                    <div>
+                      <Label htmlFor="job-location-detail" className="text-xs">Location</Label>
+                      <Input
+                        id="job-location-detail"
+                        className="text-sm"
+                        placeholder="e.g. British Columbia/Ontario or Toronto, Ontario"
+                        value={jobForm.job_location_text}
+                        onChange={(e) => setJobForm((c) => ({ ...c, job_location_text: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="compensation-detail" className="text-xs">Compensation</Label>
+                      <Input
+                        id="compensation-detail"
+                        className="text-sm"
+                        placeholder="e.g. $140,000 - $175,000 base salary"
+                        value={jobForm.compensation_text}
+                        onChange={(e) => setJobForm((c) => ({ ...c, compensation_text: e.target.value }))}
+                      />
+                    </div>
                   </div>
                 </Card>
 
@@ -1069,11 +1127,40 @@ export function ApplicationDetailPage() {
                           {AGGRESSIVENESS_OPTIONS.map((o) => (
                             <label key={o.value} className="cursor-pointer rounded-md border p-2 transition-colors block" style={{ borderColor: aggressiveness === o.value ? "var(--color-spruce)" : "var(--color-border)", background: aggressiveness === o.value ? "var(--color-spruce-05)" : "var(--color-white)" }}>
                               <input checked={aggressiveness === o.value} className="sr-only" name="aggressiveness" type="radio" value={o.value} onChange={() => setAggressiveness(o.value)} />
-                              <div className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>{o.label}</div>
-                              <div className="text-[10px]" style={{ color: "var(--color-ink-50)" }}>{o.description}</div>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-xs font-medium" style={{ color: "var(--color-ink)" }}>{o.label}</div>
+                                  <div className="text-[10px]" style={{ color: "var(--color-ink-50)" }}>{o.description}</div>
+                                </div>
+                                <div className="shrink-0">
+                                  <InfoPopover label={`${o.label} aggressiveness details`}>
+                                    <div className="space-y-2">
+                                      <p className="text-xs font-semibold" style={{ color: "var(--color-ink)" }}>{o.label} affects:</p>
+                                      <ul className="space-y-1 text-[11px]" style={{ color: "var(--color-ink-65)" }}>
+                                        {o.details.map((detailLine) => (
+                                          <li key={detailLine}>{detailLine}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  </InfoPopover>
+                                </div>
+                              </div>
                             </label>
                           ))}
                         </div>
+                        {selectedAggressivenessOption?.warning ? (
+                          <div
+                            role="alert"
+                            className="mt-2 rounded-md border px-3 py-2 text-[11px]"
+                            style={{
+                              borderColor: "var(--color-amber)",
+                              background: "var(--color-amber-10)",
+                              color: "var(--color-ink)",
+                            }}
+                          >
+                            {selectedAggressivenessOption.warning}
+                          </div>
+                        ) : null}
                       </div>
 
                       {/* Additional Instructions */}
@@ -1182,8 +1269,8 @@ export function ApplicationDetailPage() {
 
                     {editMode ? (
                       <div className="mt-4 flex-1 flex flex-col min-h-0 overflow-hidden">
-                        <textarea
-                          className="markdown-editor no-bottom-radius flex-1 overflow-y-auto min-h-0"
+                        <MarkdownEditor
+                          className="no-bottom-radius flex-1 min-h-0"
                           value={editContent}
                           onChange={(e) => setEditContent(e.target.value)}
                         />

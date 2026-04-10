@@ -6,6 +6,7 @@ single clean Markdown document.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 
@@ -17,6 +18,19 @@ def _clean_personal_value(value: Any) -> str:
     return str(value).strip()
 
 
+def _format_linkedin_value(value: Any) -> str:
+    linkedin = _clean_personal_value(value)
+    if not linkedin:
+        return ""
+
+    normalized = re.sub(r"^https?://", "", linkedin, flags=re.I)
+    normalized = re.sub(r"^www\.", "", normalized, flags=re.I).rstrip("/")
+    match = re.search(r"linkedin\.com/(in|pub|company)/(.+)", normalized, re.I)
+    if match:
+        return f"{match.group(1).lower()}/{match.group(2).strip('/')}"
+    return normalized
+
+
 def assemble_resume(
     *,
     personal_info: dict[str, Any],
@@ -25,7 +39,7 @@ def assemble_resume(
     """Assemble final Markdown from personal info header + ordered sections.
 
     Args:
-        personal_info: ``{"name": str, "email": str, "phone": str|None, "address": str|None}``
+        personal_info: ``{"name": str, "email": str, "phone": str|None, "address": str|None, "linkedin_url": str|None}``
         generated_sections: ``[{"name": str, "content": str}]`` already in order.
 
     Returns:
@@ -39,8 +53,6 @@ def assemble_resume(
     name = _clean_personal_value(personal_info.get("name"))
     if name:
         lines.append(f"# {name}")
-    else:
-        lines.append("# (Name)")
 
     # -- Contact line --
     contact_parts: list[str] = []
@@ -53,6 +65,9 @@ def assemble_resume(
     address = _clean_personal_value(personal_info.get("address"))
     if address:
         contact_parts.append(address)
+    linkedin = _format_linkedin_value(personal_info.get("linkedin_url"))
+    if linkedin:
+        contact_parts.append(linkedin)
 
     if contact_parts:
         lines.append(" | ".join(contact_parts))

@@ -530,6 +530,25 @@ def test_medium_generation_prompt_keeps_length_caps():
     system_prompt = prompt[0][1]
     assert "Target total length: 450-700 words." in system_prompt
     assert "cap bullets at 4 per role" in system_prompt
+    assert "keep each role title exactly as it appears in the source" in system_prompt.lower()
+
+
+def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_experience():
+    prompt = generation._build_generation_prompt(
+        operation="generation",
+        base_resume_content="## Professional Experience\n**Backend Engineer** | Acme | 2022 - Present\n- Built backend systems.\n",
+        job_title="Platform Engineer",
+        company_name="Acme",
+        job_description="Build platform APIs.",
+        enabled_sections=["professional_experience"],
+        aggressiveness="high",
+        target_length="1_page",
+        additional_instructions="Match the target role.",
+    )
+
+    system_prompt = prompt[0][1]
+    assert "you may retitle the role name for alignment only when it remains a truthful reframing of the same source role" in system_prompt.lower()
+    assert "keep employers and dates unchanged" in system_prompt.lower()
 
 
 def test_response_contract_payload_uses_section_minimum_snippet_examples():
@@ -636,6 +655,47 @@ async def test_validate_resume_rejects_unsupported_role_and_company_claims():
         base_resume_content="## Summary\nBuilt backend systems.\n",
         section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
         generation_settings={"page_length": "1_page"},
+    )
+
+    error_types = {error["type"] for error in result["errors"]}
+    assert "unsupported_claim" in error_types
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_allows_high_aggressiveness_experience_role_title_rewrite():
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "professional_experience",
+                "heading": "Professional Experience",
+                "content": "## Professional Experience\nPlatform Engineer | Acme | 2022 - Present\n- Built backend systems.",
+                "supporting_snippets": ["Built backend systems.", "Acme"],
+            }
+        ],
+        base_resume_content="## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n",
+        section_preferences=[{"name": "professional_experience", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "high"},
+    )
+
+    error_types = {error["type"] for error in result["errors"]}
+    assert "unsupported_claim" not in error_types
+    assert result["valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_still_rejects_medium_aggressiveness_experience_role_title_rewrite():
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "professional_experience",
+                "heading": "Professional Experience",
+                "content": "## Professional Experience\nPlatform Engineer | Acme | 2022 - Present\n- Built backend systems.",
+                "supporting_snippets": ["Built backend systems.", "Acme"],
+            }
+        ],
+        base_resume_content="## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n",
+        section_preferences=[{"name": "professional_experience", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
     )
 
     error_types = {error["type"] for error in result["errors"]}

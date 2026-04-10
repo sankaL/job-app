@@ -13,6 +13,7 @@ export type SessionBootstrapResponse = {
     name: string | null;
     phone: string | null;
     address: string | null;
+    linkedin_url: string | null;
     default_base_resume_id: string | null;
     section_preferences: Record<string, boolean>;
     section_order: string[];
@@ -98,6 +99,8 @@ export type ApplicationDetail = {
   job_title: string | null;
   company: string | null;
   job_description: string | null;
+  job_location_text: string | null;
+  compensation_text: string | null;
   extracted_reference_id: string | null;
   job_posting_origin: string | null;
   job_posting_origin_other_text: string | null;
@@ -167,6 +170,7 @@ export type ProfileData = {
   name: string | null;
   phone: string | null;
   address: string | null;
+  linkedin_url: string | null;
   default_base_resume_id: string | null;
   section_preferences: Record<string, boolean>;
   section_order: string[];
@@ -178,6 +182,7 @@ export type ProfileUpdatePayload = {
   name?: string | null;
   phone?: string | null;
   address?: string | null;
+  linkedin_url?: string | null;
   section_preferences?: Record<string, boolean>;
   section_order?: string[];
 };
@@ -282,10 +287,15 @@ export async function listApplications(): Promise<ApplicationSummary[]> {
   return authenticatedRequest<ApplicationSummary[]>("/api/applications");
 }
 
-export async function createApplication(jobUrl: string): Promise<ApplicationDetail> {
+export type CreateApplicationPayload = {
+  job_url: string;
+  source_text?: string;
+};
+
+export async function createApplication(payload: CreateApplicationPayload): Promise<ApplicationDetail> {
   return authenticatedRequest<ApplicationDetail>("/api/applications", {
     method: "POST",
-    body: { job_url: jobUrl },
+    body: payload,
   });
 }
 

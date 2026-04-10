@@ -1,8 +1,8 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-04-08  
-**Sources:** `agents/generation.py`, `agents/worker.py`, `backend/app/services/resume_parser.py`
+**Last updated:** 2026-04-09  
+**Sources:** `agents/generation.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
 
@@ -27,6 +27,7 @@ This document records the latest live prompt definitions in the repository. The 
 - Generation first attempts schema-enforced structured output. If that fails, the same model falls back to the strict prompt-level JSON contract. If the provider appears to reject the reasoning parameter, the same model is retried once without reasoning before moving on.
 - If every attempt times out, the generation layer preserves the timeout classification so the worker can surface `generation_timeout` or `regeneration_timeout` instead of a generic unexpected failure.
 - Extraction and upload cleanup do not enable reasoning.
+- After generation or full regeneration, local assembly reattaches the profile-driven header with name, email, phone, location text (stored in `address`), and optional `linkedin_url`. Those fields never enter the model prompt payload.
 
 ### Shared system prompt template
 
@@ -42,7 +43,8 @@ Non-negotiables:
 - {{operation_prompt}}
 - Use only facts grounded in the sanitized base resume source.
 - Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.
-- Do not invent employers, titles, dates, institutions, credentials, awards, metrics, scope, or technologies.
+- Do not invent employers, dates, institutions, credentials, awards, metrics, scope, or technologies.
+- Role-title exception: only in high aggressiveness, and only inside Professional Experience, you may retitle the role name when it remains a truthful reframing of the same source role. Keep employer and dates unchanged and do not inflate seniority.
 - User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.
 - If the source does not support a stronger claim, keep the weaker truthful version.
 - Use only standard Markdown inside markdown fields. No HTML, tables, images, columns, code fences, commentary, or em dashes.
@@ -107,9 +109,9 @@ In medium and high aggressiveness modes, the live prompt uses the standard budge
 
 | Aggressiveness | Summary | Professional Experience | Skills | Education |
 |---|---|---|---|---|
-| `low` | Light phrasing cleanup only; preserve source voice closely. | Light rephrasing and bullet reordering only. Preserve existing bullet counts when the source is already longer than the target. | Do not change skills content or grouping, including for length control. | Do not change facts or wording beyond minimal formatting cleanup. |
-| `medium` | Moderate rewrite for role alignment using only source-backed facts. | Rephrase, reorder, prune, and emphasize grounded bullets. | Reorder, regroup, and prune to the most relevant source-backed skills. | Do not change facts or wording beyond minimal formatting cleanup. |
-| `high` | Fully rewrite the Summary for strongest role alignment using only source-backed facts. | Aggressively reframe, reprioritize, condense, or expand grounded bullets. | Aggressively prune, regroup, and prioritize source-backed skills. | Do not change facts or wording beyond minimal formatting cleanup. |
+| `low` | Light phrasing cleanup only; preserve source voice closely. | Light rephrasing and bullet reordering only. Keep role titles exactly as they appear in the source. Preserve existing bullet counts when the source is already longer than the target. | Do not change skills content or grouping, including for length control. | Do not change facts or wording beyond minimal formatting cleanup. |
+| `medium` | Moderate rewrite for role alignment using only source-backed facts. | Rephrase, reorder, prune, and emphasize grounded bullets, but keep role titles exactly as they appear in the source. | Reorder, regroup, and prune to the most relevant source-backed skills. | Do not change facts or wording beyond minimal formatting cleanup. |
+| `high` | Fully rewrite the Summary for strongest role alignment using only source-backed facts. | Aggressively reframe, reprioritize, condense, or expand grounded bullets, and role titles may be rewritten when the new title is still a truthful reframing of the same source role. | Aggressively prune, regroup, and prioritize source-backed skills. | Do not change facts or wording beyond minimal formatting cleanup. |
 
 ### Target-length variants
 
@@ -270,7 +272,13 @@ Extract structured job-posting fields from the supplied webpage context.
 Rules:
 - Do not invent facts. job_title and job_description are required.
 - Use json_ld for structured metadata when it is coherent.
-- Use visible_text for the job description body.
+- Use visible_text for the full primary job posting body, not just the responsibilities excerpt.
+- job_description must include the complete posting content for the primary role when present: responsibilities, qualifications, requirements, benefits, compensation, and other role-specific sections.
+- Also set job_location_text to the raw location or hiring-region snippet when the posting clearly states where the role is based, located, or hireable.
+- Separate job_location_text and compensation_text semantically even when they appear on the same line, in the same table, or in the same paragraph.
+- Keep compensation text inside job_description when it appears in the posting.
+- Use page labels, nearby headings, and surrounding context to distinguish location from compensation instead of brittle string splitting.
+- Also set compensation_text to the raw salary or compensation snippet when it is clearly stated. If compensation is absent or ambiguous, leave compensation_text null.
 - Use page_title, meta, final_url, detected_origin, and extracted_reference_id only to disambiguate or fill structured fields already supported by the page.
 - Ignore navigation, sign-in prompts, cookie banners, related-job cards, footers, and other page chrome.
 - If multiple jobs are present, extract the primary posting that best matches the page title, URL, and reference id.
@@ -288,7 +296,7 @@ Rules:
   "page_title": "{{page_title}}",
   "meta": "{{meta_object}}",
   "json_ld": ["{{json_ld_item}}"],
-  "visible_text": "{{visible_text_truncated_to_15000_chars}}",
+  "visible_text": "{{visible_text_truncated_to_40000_chars}}",
   "detected_origin": "{{detected_origin_or_null}}",
   "extracted_reference_id": "{{reference_id_or_null}}"
 }
@@ -298,6 +306,9 @@ Rules:
 
 - Extraction uses LangChain structured output against the `ExtractedJobPosting` schema.
 - `job_title` and `job_description` are required fields.
+- `job_location_text` is optional and is left null unless the posting clearly states where the role is located or hireable.
+- `compensation_text` is optional and is left null unless the posting states compensation clearly.
+- Page capture now prefers `main`, `article`, or `[role="main"]` text before falling back to `body`, and both scraped and pasted-source payloads preserve up to `40,000` characters so lower-page sections are less likely to be dropped.
 - Optional fields are left null when uncertain rather than guessed.
 
 ## Resume Upload Cleanup Prompt

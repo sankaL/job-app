@@ -25,6 +25,7 @@ class StubProfileRepository(ProfileRepository):
             name=None,
             phone=None,
             address=None,
+            linkedin_url=None,
             default_base_resume_id=None,
             section_preferences={
                 "summary": True,

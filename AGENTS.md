@@ -25,7 +25,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
 - All application data is private to the authenticated user. Treat user isolation as a hard requirement across UI, API, background work, and notifications.
 - All resume content is stored as Markdown. Base resumes and generated drafts remain editable as Markdown.
 - Personal information such as name, email, phone, and address comes from the user profile and must not be invented by the LLM.
-- Resume tailoring must stay grounded in the user's source resume and the job posting. Do not invent employers, titles, dates, credentials, or education history.
+- Resume tailoring must stay grounded in the user's source resume and the job posting. Do not invent employers, dates, credentials, or education history. High aggressiveness may retitle Professional Experience role names only when the new title remains a truthful reframing of the same source role and keeps employer and dates unchanged.
 - The `applied` flag is separate from the primary application status and must remain independently user-controlled.
 - Exported PDFs are generated on demand from the latest draft. Do not add persistent PDF storage for MVP.
 

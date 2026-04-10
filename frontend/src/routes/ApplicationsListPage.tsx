@@ -1,6 +1,7 @@
-import { FormEvent, useDeferredValue, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useDeferredValue, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { CircleStop, Trash2 } from "lucide-react";
+import { CreateApplicationModal } from "@/components/applications/CreateApplicationModal";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useAppContext } from "@/components/layout/AppContext";
 import { Button } from "@/components/ui/button";
@@ -93,9 +94,7 @@ export function ApplicationsListPage() {
   const { toast } = useToast();
   const [applications, setApplications] = useState<ApplicationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [jobUrl, setJobUrl] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [appliedFilter, setAppliedFilter] = useState("all");
@@ -167,20 +166,11 @@ export function ApplicationsListPage() {
     });
   }, [filteredApplications]);
 
-  async function handleCreateApplication(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setIsCreating(true);
-    try {
-      const detail = await createApplication(jobUrl);
-      refreshApplications();
-      toast("Application created successfully");
-      navigate(`/app/applications/${detail.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create application.");
-      toast(err instanceof Error ? err.message : "Failed to create application", "error");
-      setIsCreating(false);
-    }
+  async function handleCreateApplication(payload: { job_url: string; source_text?: string }) {
+    const detail = await createApplication(payload);
+    void refreshApplications();
+    toast("Application created successfully");
+    navigate(`/app/applications/${detail.id}`);
   }
 
   async function handleAppliedToggle(applicationId: string, applied: boolean) {
@@ -220,10 +210,8 @@ export function ApplicationsListPage() {
   function handleAppliedClick(app: ApplicationSummary, e: React.MouseEvent) {
     e.stopPropagation();
     if (app.applied) {
-      // Un-marking doesn't need confirmation
       void handleAppliedToggle(app.id, false);
     } else {
-      // Marking as applied needs confirmation
       setConfirmAppliedId(app.id);
     }
   }
@@ -527,45 +515,12 @@ export function ApplicationsListPage() {
             : "Loading…"
         }
         actions={
-          <Button onClick={() => setShowNewForm(true)}>
+          <Button onClick={() => setShowCreateModal(true)}>
             + New Application
           </Button>
         }
       />
 
-      {/* New application form (collapsible) */}
-      {showNewForm && (
-        <Card variant="elevated" density="compact" className="animate-scaleIn">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
-              Create New Application
-            </h3>
-            <button
-              onClick={() => setShowNewForm(false)}
-              className="text-xs transition-colors"
-              style={{ color: "var(--color-ink-40)" }}
-            >
-              ✕
-            </button>
-          </div>
-          <form className="mt-3 flex flex-col gap-3 md:flex-row" onSubmit={handleCreateApplication}>
-            <Input
-              aria-label="Job URL"
-              placeholder="Paste a job posting URL"
-              type="url"
-              value={jobUrl}
-              onChange={(e) => setJobUrl(e.target.value)}
-              required
-              className="flex-1"
-            />
-            <Button type="submit" loading={isCreating} disabled={isCreating}>
-              {isCreating ? "Creating…" : "Create"}
-            </Button>
-          </form>
-        </Card>
-      )}
-
-      {/* Error */}
       {error && (
         <Card variant="danger" density="compact">
           <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>
@@ -575,7 +530,6 @@ export function ApplicationsListPage() {
         </Card>
       )}
 
-      {/* Filters — aligned inline */}
       <div className="grid gap-3 md:grid-cols-[minmax(0,1.8fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)] xl:grid-cols-[minmax(320px,2.2fr)_240px_220px]">
         <Input
           aria-label="Search applications"
@@ -646,7 +600,6 @@ export function ApplicationsListPage() {
         </Card>
       )}
 
-      {/* Table / Loading / Empty */}
       {applications === null ? (
         <SkeletonTable rows={8} columns={7} />
       ) : (
@@ -665,12 +618,12 @@ export function ApplicationsListPage() {
               title={sourceApplications.length === 0 ? "No applications yet" : "No matching applications"}
               description={
                 sourceApplications.length === 0
-                  ? "Paste a job URL above to create your first application."
+                  ? "Open the new application modal to create your first application from a job link."
                   : "Try adjusting your search or filter criteria."
               }
               action={
                 sourceApplications.length === 0 ? (
-                  <Button onClick={() => setShowNewForm(true)}>+ New Application</Button>
+                  <Button onClick={() => setShowCreateModal(true)}>+ New Application</Button>
                 ) : undefined
               }
             />
@@ -678,7 +631,12 @@ export function ApplicationsListPage() {
         />
       )}
 
-      {/* Confirmation modal for marking as applied */}
+      <CreateApplicationModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSubmit={handleCreateApplication}
+      />
+
       <ConfirmModal
         open={confirmAppliedId !== null}
         title="Mark as Applied?"

@@ -68,7 +68,11 @@ class StubNotificationRepository(NotificationRepository):
         return [NotificationRecord.model_validate(record) for record in ordered]
 
     def clear_notifications(self, user_id: str) -> None:
-        self.records = [record for record in self.records if record["user_id"] != user_id]
+        self.records = [
+            record
+            for record in self.records
+            if record["user_id"] != user_id or record["action_required"] is True
+        ]
 
 
 @pytest.fixture(autouse=True)
@@ -120,7 +124,7 @@ def test_list_notifications_returns_scoped_results_in_descending_created_order()
     ]
 
 
-def test_clear_notifications_deletes_only_the_authenticated_users_notifications():
+def test_clear_notifications_preserves_action_required_items_for_the_authenticated_user():
     repository = StubNotificationRepository()
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
     app.dependency_overrides[get_notification_repository] = lambda: repository
@@ -133,4 +137,4 @@ def test_clear_notifications_deletes_only_the_authenticated_users_notifications(
 
     assert response.status_code == 204
     assert response.content == b""
-    assert [record["id"] for record in repository.records] == ["notif-1"]
+    assert [record["id"] for record in repository.records] == ["notif-1", "notif-3"]

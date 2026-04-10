@@ -162,11 +162,11 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
     try {
       setNotificationsClearing(true);
       await clearNotifications();
-      setNotifications([]);
+      setNotifications((current) => current.filter((notification) => notification.action_required));
       setNotificationsError(null);
       await refreshApplications();
       window.dispatchEvent(new Event(NOTIFICATIONS_CLEARED_EVENT));
-      toast("Notifications cleared.");
+      toast("Cleared notifications that do not need attention.");
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to clear notifications", "error");
     } finally {

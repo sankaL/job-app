@@ -6,6 +6,7 @@ from typing import Any, Optional
 import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from app.core.config import get_settings
@@ -17,6 +18,7 @@ class ProfileRecord(BaseModel):
     name: Optional[str]
     phone: Optional[str]
     address: Optional[str]
+    linkedin_url: Optional[str]
     default_base_resume_id: Optional[str]
     section_preferences: dict[str, bool]
     section_order: list[str]
@@ -52,6 +54,7 @@ class ProfileRepository:
           name,
           phone,
           address,
+          linkedin_url,
           default_base_resume_id::text,
           section_preferences,
           section_order,
@@ -167,7 +170,7 @@ class ProfileRepository:
             sql.SQL("{} = {}").format(sql.Identifier(field), self._cast_placeholder(field))
             for field in updates
         ]
-        values = list(updates.values())
+        values = [self._prepare_value(field, value) for field, value in updates.items()]
         update_query = sql.SQL(
             """
             update public.profiles
@@ -186,6 +189,16 @@ class ProfileRepository:
             return None
 
         return self.fetch_profile(user_id)
+
+    def _prepare_value(self, field_name: str, value: Any) -> Any:
+        if value is None:
+            return None
+
+        jsonb_fields = {"section_preferences", "section_order"}
+        if field_name in jsonb_fields:
+            return Jsonb(value)
+
+        return value
 
     def _cast_placeholder(self, field_name: str) -> sql.SQL:
         jsonb_fields = {"section_preferences", "section_order"}

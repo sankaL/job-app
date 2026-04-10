@@ -47,7 +47,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Initial generation and full regeneration must use one LLM request that returns structured JSON for all enabled sections in order.
 - Respect the user's enabled sections, section order, target length, aggressiveness setting, and additional instructions where applicable.
 - Strip personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
-- Never generate personal information or invent credentials, employers, titles, dates, or educational institutions.
+- Never generate personal information or invent credentials, employers, dates, or educational institutions. High aggressiveness may retitle Professional Experience role names only when the new title remains a truthful reframing of the same source role and keeps employer and dates unchanged.
 - Run deterministic schema and rule validation over generated content before assembly.
 - Validator outcomes are limited to approve or fail.
 - Validation failure must block assembly and follow the generation failure path defined by the PRD.

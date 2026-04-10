@@ -11,16 +11,17 @@ from assembly import assemble_resume
 def test_assemble_resume_tolerates_null_personal_info_fields():
     result = assemble_resume(
         personal_info={
-            "name": None,
+            "name": "Alex Example",
             "email": "alex@example.com",
             "phone": None,
             "address": None,
+            "linkedin_url": "https://linkedin.com/in/alex",
         },
         generated_sections=[
             {"name": "summary", "content": "## Summary\nBuilt backend systems."},
         ],
     )
 
-    assert result.startswith("# (Name)\n")
-    assert "alex@example.com" in result
+    assert result.startswith("# Alex Example\n")
+    assert "alex@example.com | in/alex" in result
     assert "## Summary\nBuilt backend systems." in result

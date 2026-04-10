@@ -14,6 +14,7 @@ import { BaseResumeEditorPage } from "@/routes/BaseResumeEditorPage";
 import { BaseResumesPage } from "@/routes/BaseResumesPage";
 import { DashboardPage } from "@/routes/DashboardPage";
 import { ExtensionPage } from "@/routes/ExtensionPage";
+import { ProfilePage } from "@/routes/ProfilePage";
 import { NOTIFICATIONS_CLEARED_EVENT } from "@/lib/events";
 
 const api = vi.hoisted(() => ({
@@ -27,6 +28,7 @@ const api = vi.hoisted(() => ({
   exportPdf: vi.fn(),
   fetchExtensionStatus: vi.fn(),
   fetchApplicationDetail: vi.fn(),
+  fetchProfile: vi.fn(),
   fetchApplicationProgress: vi.fn(),
   fetchBaseResume: vi.fn(),
   fetchDraft: vi.fn(),
@@ -47,6 +49,7 @@ const api = vi.hoisted(() => ({
   triggerGeneration: vi.fn(),
   triggerSectionRegeneration: vi.fn(),
   updateBaseResume: vi.fn(),
+  updateProfile: vi.fn(),
   uploadBaseResume: vi.fn(),
 }));
 
@@ -85,6 +88,23 @@ function buildApplicationSummary(overrides: Record<string, unknown> = {}) {
     has_action_required_notification: false,
     has_unresolved_duplicate: false,
     ...overrides,
+  };
+}
+
+function buildApplicationDetail(overrides: Record<string, unknown> = {}) {
+  const summary = buildApplicationSummary(overrides);
+  return {
+    ...summary,
+    job_description: "Build APIs",
+    job_location_text: null,
+    compensation_text: null,
+    extracted_reference_id: null,
+    job_posting_origin_other_text: null,
+    base_resume_id: null,
+    notes: null,
+    extraction_failure_details: null,
+    generation_failure_details: null,
+    duplicate_warning: null,
   };
 }
 
@@ -132,10 +152,46 @@ describe("phase 1 applications UI", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     api.fetchDraft.mockResolvedValue(null);
+    api.fetchProfile.mockResolvedValue({
+      id: "user-1",
+      email: "test@test.com",
+      name: "Alex Example",
+      phone: "555-0100",
+      address: "Toronto, ON",
+      linkedin_url: "https://linkedin.com/in/alex-example",
+      default_base_resume_id: null,
+      section_preferences: {
+        summary: true,
+        professional_experience: true,
+        education: true,
+        skills: true,
+      },
+      section_order: ["summary", "professional_experience", "education", "skills"],
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:00:00Z",
+    });
     api.fetchSessionBootstrap.mockResolvedValue(defaultBootstrap);
     api.listBaseResumes.mockResolvedValue([]);
     api.listApplications.mockResolvedValue([]);
     api.listNotifications.mockResolvedValue([]);
+    api.updateProfile.mockImplementation(async (payload) => ({
+      id: "user-1",
+      email: "test@test.com",
+      name: payload.name ?? "Alex Example",
+      phone: payload.phone ?? "555-0100",
+      address: payload.address ?? "Toronto, ON",
+      linkedin_url: payload.linkedin_url ?? "https://linkedin.com/in/alex-example",
+      default_base_resume_id: null,
+      section_preferences: payload.section_preferences ?? {
+        summary: true,
+        professional_experience: true,
+        education: true,
+        skills: true,
+      },
+      section_order: payload.section_order ?? ["summary", "professional_experience", "education", "skills"],
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:05:00Z",
+    }));
   });
 
   afterEach(() => {
@@ -149,6 +205,93 @@ describe("phase 1 applications UI", () => {
 
     expect(await screen.findByText(/no applications yet/i)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /new application/i })).not.toHaveLength(0);
+  });
+
+  it("opens a new application modal with only the URL field visible by default", async () => {
+    api.listApplications.mockResolvedValue([]);
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    await screen.findByText(/no applications yet/i);
+    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+
+    expect(await screen.findByRole("dialog", { name: /start with the job link/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/job url/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/pasted job description/i)).not.toBeInTheDocument();
+  });
+
+  it("reveals the pasted job description field only when the user asks for it", async () => {
+    api.listApplications.mockResolvedValue([]);
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    await screen.findByText(/no applications yet/i);
+    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+    await userEvent.click(screen.getByRole("button", { name: /paste job description instead/i }));
+
+    expect(await screen.findByLabelText(/pasted job description/i)).toBeInTheDocument();
+  });
+
+  it("submits URL-only application creation from the modal and navigates to the detail page", async () => {
+    api.listApplications.mockResolvedValue([]);
+    api.createApplication.mockResolvedValue(buildApplicationDetail({ id: "app-42", job_url: "https://example.com/jobs/42" }));
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications" element={<ApplicationsListPage />} />
+        <Route path="/app/applications/:applicationId" element={<div>Detail Route</div>} />
+      </Routes>,
+      { initialEntries: ["/app/applications"] },
+    );
+
+    await screen.findByText(/no applications yet/i);
+    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+    await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/42");
+    await userEvent.click(screen.getByRole("button", { name: /create application/i }));
+
+    await waitFor(() =>
+      expect(api.createApplication).toHaveBeenCalledWith({ job_url: "https://example.com/jobs/42", source_text: undefined }),
+    );
+    expect(await screen.findByText("Detail Route")).toBeInTheDocument();
+  });
+
+  it("submits pasted job text from the modal when that field is revealed", async () => {
+    api.listApplications.mockResolvedValue([]);
+    api.createApplication.mockResolvedValue(buildApplicationDetail({ id: "app-84", job_url: "https://example.com/jobs/84" }));
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    await screen.findByText(/no applications yet/i);
+    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+    await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/84");
+    await userEvent.click(screen.getByRole("button", { name: /paste job description instead/i }));
+    await userEvent.type(
+      await screen.findByLabelText(/pasted job description/i),
+      "Senior Platform Engineer. Build APIs, queues, and internal tools.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /create with pasted text/i }));
+
+    await waitFor(() =>
+      expect(api.createApplication).toHaveBeenCalledWith({
+        job_url: "https://example.com/jobs/84",
+        source_text: "Senior Platform Engineer. Build APIs, queues, and internal tools.",
+      }),
+    );
+  });
+
+  it("keeps create failures inside the modal instead of promoting them to the page error card", async () => {
+    api.listApplications.mockResolvedValue([]);
+    api.createApplication.mockRejectedValueOnce(new Error("Unable to create application."));
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    await screen.findByText(/no applications yet/i);
+    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+    await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/99");
+    await userEvent.click(screen.getByRole("button", { name: /create application/i }));
+
+    expect(await screen.findByText("Unable to create application.")).toBeInTheDocument();
+    expect(screen.queryByText("Request failed")).not.toBeInTheDocument();
   });
 
   it("opens the notifications dropdown and keeps the badge count tied to attention items", async () => {
@@ -264,10 +407,10 @@ describe("phase 1 applications UI", () => {
     expect(screen.queryByText(/action required/i)).not.toBeInTheDocument();
   });
 
-  it("clears all notifications from the inbox and refreshes shell attention state", async () => {
+  it("clears only notifications that do not need attention", async () => {
     api.listApplications
       .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: true })])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: true })]);
     api.listNotifications.mockResolvedValue([
       buildNotificationSummary({
         id: "notif-clear",
@@ -275,6 +418,13 @@ describe("phase 1 applications UI", () => {
         message: "Resume needs manual review.",
         action_required: true,
         type: "warning",
+      }),
+      buildNotificationSummary({
+        id: "notif-clearable",
+        application_id: null,
+        message: "Export completed successfully.",
+        action_required: false,
+        type: "success",
       }),
     ]);
     api.clearNotifications.mockResolvedValue(undefined);
@@ -286,8 +436,9 @@ describe("phase 1 applications UI", () => {
 
     await waitFor(() => expect(api.clearNotifications).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText(/no notifications yet/i)).toBeInTheDocument();
-    expect(screen.getByText("Notifications cleared.")).toBeInTheDocument();
+    expect(await screen.findByText("Resume needs manual review.")).toBeInTheDocument();
+    expect(screen.queryByText("Export completed successfully.")).not.toBeInTheDocument();
+    expect(screen.getByText("Cleared notifications that do not need attention.")).toBeInTheDocument();
   });
 
   it("shows a sanitized error state when notifications fail to load", async () => {
@@ -742,6 +893,7 @@ describe("phase 1 applications UI", () => {
       job_title: null,
       company: null,
       job_description: null,
+      compensation_text: null,
       job_posting_origin: null,
       job_posting_origin_other_text: null,
       base_resume_id: null,
@@ -794,6 +946,7 @@ describe("phase 1 applications UI", () => {
       job_title: "Backend Engineer",
       company: "Acme",
       job_description: "Build APIs",
+      compensation_text: null,
       job_posting_origin: "linkedin",
       job_posting_origin_other_text: null,
       base_resume_id: null,
@@ -857,6 +1010,7 @@ describe("phase 1 applications UI", () => {
       job_title: "AI & Data Senior Manager",
       company: "Accenture",
       job_description: "Lead AI delivery programs.",
+      compensation_text: "$170,000 - $210,000 base salary",
       job_posting_origin: "company_website",
       job_posting_origin_other_text: null,
       base_resume_id: "resume-1",
@@ -898,11 +1052,39 @@ describe("phase 1 applications UI", () => {
     expect(await screen.findByText(/generated resume/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /job description/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /generation settings/i })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("$170,000 - $210,000 base salary")).toBeInTheDocument();
     expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /export pdf/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /delete application/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /mark applied/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view posting/i })).toBeInTheDocument();
+  });
+
+  it("saves location and linkedin fields from the profile page", async () => {
+    const user = userEvent.setup();
+
+    renderWithAppProvider(<ProfilePage />);
+
+    expect(await screen.findByLabelText("Location")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Address")).not.toBeInTheDocument();
+
+    const locationInput = screen.getByLabelText("Location");
+    const linkedinInput = screen.getByLabelText("LinkedIn");
+
+    await user.clear(locationInput);
+    await user.type(locationInput, "Ottawa, ON");
+    await user.clear(linkedinInput);
+    await user.type(linkedinInput, "https://linkedin.com/in/alex-updated");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(api.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          address: "Ottawa, ON",
+          linkedin_url: "https://linkedin.com/in/alex-updated",
+        }),
+      ),
+    );
   });
 
   it("filters resumes by search term on the resumes page", async () => {
@@ -1208,6 +1390,8 @@ describe("phase 1 applications UI", () => {
       job_title: "Backend Engineer",
       company: "Acme",
       job_description: "Build APIs",
+      job_location_text: null,
+      compensation_text: null,
       extracted_reference_id: null,
       job_posting_origin: "linkedin",
       job_posting_origin_other_text: null,
@@ -1234,6 +1418,8 @@ describe("phase 1 applications UI", () => {
       job_title: "Staff Backend Engineer",
       company: "Beta Labs",
       job_description: "Build APIs",
+      job_location_text: "British Columbia/Ontario",
+      compensation_text: "$145,000 - $175,000",
       extracted_reference_id: null,
       job_posting_origin: "linkedin",
       job_posting_origin_other_text: null,
@@ -1271,10 +1457,84 @@ describe("phase 1 applications UI", () => {
     await userEvent.type(screen.getByLabelText(/job title/i), "Staff Backend Engineer");
     await userEvent.clear(screen.getByLabelText(/company/i));
     await userEvent.type(screen.getByLabelText(/company/i), "Beta Labs");
+    await userEvent.type(screen.getByLabelText(/location/i), "British Columbia/Ontario");
+    await userEvent.type(screen.getByLabelText(/compensation/i), "$145,000 - $175,000");
     await userEvent.click(screen.getAllByRole("button", { name: /^save$/i })[0]);
 
     expect(await screen.findByText("Beta Labs — Staff Backend Engineer")).toBeInTheDocument();
+    expect(api.patchApplication).toHaveBeenCalledWith(
+      "app-1",
+      expect.objectContaining({
+        job_title: "Staff Backend Engineer",
+        company: "Beta Labs",
+        job_location_text: "British Columbia/Ontario",
+        compensation_text: "$145,000 - $175,000",
+      }),
+    );
     await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows detailed aggressiveness help in compact popovers", async () => {
+    api.listBaseResumes.mockResolvedValue([
+      { id: "resume-1", name: "Default Resume", is_default: true, created_at: "2026-04-07T12:00:00Z", updated_at: "2026-04-07T12:00:00Z" },
+    ]);
+    api.fetchApplicationDetail.mockResolvedValue({
+      id: "app-1",
+      job_url: "https://example.com/job",
+      job_title: "Backend Engineer",
+      company: "Acme",
+      job_description: "Build APIs and backend systems.",
+      compensation_text: null,
+      extracted_reference_id: null,
+      job_posting_origin: "linkedin",
+      job_posting_origin_other_text: null,
+      base_resume_id: "resume-1",
+      base_resume_name: "Default Resume",
+      visible_status: "in_progress",
+      internal_state: "resume_ready",
+      failure_reason: null,
+      extraction_failure_details: null,
+      generation_failure_details: null,
+      applied: false,
+      duplicate_similarity_score: null,
+      duplicate_resolution_status: null,
+      duplicate_matched_application_id: null,
+      notes: null,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:05:00Z",
+      has_action_required_notification: false,
+      duplicate_warning: null,
+    });
+    api.fetchDraft.mockResolvedValue({
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(await screen.findByRole("heading", { name: /generation settings/i })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /high aggressiveness details/i }));
+
+    expect(await screen.findByText(/professional experience: aggressively reframe, reprioritize, and condense grounded bullets/i)).toBeInTheDocument();
+    expect(screen.getByText(/role titles may be rewritten when the new title is still a truthful match for the same role\./i)).toBeInTheDocument();
+    expect(screen.getByText(/education: no factual rewrites beyond minimal formatting cleanup\./i)).toBeInTheDocument();
+    await userEvent.click(screen.getByText("High"));
+    expect(
+      await screen.findByText(/high aggressiveness can make substantial changes to wording, emphasis, and professional experience role titles/i),
+    ).toBeInTheDocument();
   });
 
   it("deletes an application from the detail header and navigates back to the list", async () => {

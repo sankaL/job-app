@@ -19,6 +19,7 @@ from app.db.applications import (
 )
 from app.db.resume_drafts import ResumeDraftRecord
 from app.main import app
+from app.services import application_manager as application_manager_service
 from app.services.application_manager import (
     ApplicationService,
     GenerationCallbackPayload,
@@ -138,22 +139,33 @@ class FakeProfileRepository:
         self.extension_token_hash: str | None = None
         self.extension_token_created_at: str | None = None
         self.extension_token_last_used_at: str | None = None
+        self.name = "Test User"
+        self.email = "invite-only@example.com"
+        self.phone = "555-0100"
+        self.address = "Toronto, ON"
+        self.linkedin_url = "https://linkedin.com/in/test-user"
+        self.section_preferences = {
+            "summary": True,
+            "professional_experience": True,
+            "education": True,
+            "skills": True,
+        }
+        self.section_order = ["summary", "professional_experience", "education", "skills"]
 
     def fetch_profile(self, user_id: str):
         class Profile:
-            name = "Test User"
-            email = "invite-only@example.com"
-            phone = "555-0100"
-            address = "Toronto, ON"
-            section_preferences = {
-                "summary": True,
-                "professional_experience": True,
-                "education": True,
-                "skills": True,
-            }
-            section_order = ["summary", "professional_experience", "education", "skills"]
+            pass
 
-        return Profile()
+        profile = Profile()
+        profile.name = self.name
+        profile.email = self.email
+        profile.phone = self.phone
+        profile.address = self.address
+        profile.linkedin_url = self.linkedin_url
+        profile.section_preferences = self.section_preferences
+        profile.section_order = self.section_order
+
+        return profile
 
     def fetch_extension_connection(self, user_id: str):
         from app.db.profiles import ExtensionConnectionRecord
@@ -317,6 +329,12 @@ class FakeDraftRepository:
         self.drafts[application_id] = draft
         return draft
 
+    def update_exported_at(self, *, application_id: str, user_id: str) -> None:
+        draft = self.fetch_draft(user_id, application_id)
+        if draft is None:
+            raise LookupError("Resume draft not found.")
+        self.drafts[application_id] = draft.model_copy(update={"last_exported_at": "2026-04-07T12:12:00+00:00"})
+
 
 class FakeBaseResumeRepository:
     def __init__(self) -> None:
@@ -445,6 +463,27 @@ async def test_create_application_falls_back_to_manual_entry_when_queue_fails():
 
 
 @pytest.mark.asyncio
+async def test_create_application_from_capture_queues_extraction_with_source_text():
+    service, _, _, progress_store, queue, _, _ = build_service()
+
+    record = await service.create_application_from_capture(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        capture=SourceCapturePayload(
+            source_text="Senior Platform Engineer. Build APIs and queues.",
+            source_url="https://example.com/jobs/1",
+        ),
+    )
+
+    assert record.internal_state == "extraction_pending"
+    assert queue.enqueued[0]["application_id"] == record.id
+    assert queue.enqueued[0]["source_capture"]["source_text"] == "Senior Platform Engineer. Build APIs and queues."
+    assert queue.enqueued[0]["source_capture"]["source_url"] == "https://example.com/jobs/1"
+    assert (await progress_store.get(record.id)) is not None
+    assert (await progress_store.get(record.id)).job_id == "job-1"
+
+
+@pytest.mark.asyncio
 async def test_manual_entry_with_duplicate_candidate_marks_duplicate_review_required():
     service, repository, notifications, _, _, _, _ = build_service()
     existing = repository.create_application(
@@ -477,6 +516,8 @@ async def test_manual_entry_with_duplicate_candidate_marks_duplicate_review_requ
             "job_title": "Backend Engineer",
             "company": "Acme",
             "job_description": "Build APIs for customers.",
+            "job_location_text": "British Columbia/Ontario",
+            "compensation_text": "$150,000 - $180,000",
             "job_posting_origin": "linkedin",
             "job_posting_origin_other_text": None,
             "notes": None,
@@ -485,6 +526,8 @@ async def test_manual_entry_with_duplicate_candidate_marks_duplicate_review_requ
 
     assert detail.application.internal_state == "duplicate_review_required"
     assert detail.application.duplicate_resolution_status == "pending"
+    assert detail.application.job_location_text == "British Columbia/Ontario"
+    assert detail.application.compensation_text == "$150,000 - $180,000"
     assert detail.duplicate_warning is not None
     assert notifications.notifications[-1]["notification_type"] == "warning"
 
@@ -614,6 +657,8 @@ async def test_persisted_reference_id_can_drive_duplicate_review_without_url_mat
                 job_title="Platform Engineer",
                 job_description="Build distributed systems for customers.",
                 company="Acme",
+                job_location_text="British Columbia/Ontario",
+                compensation_text="$140,000 - $170,000 base salary",
                 job_posting_origin="company_website",
                 extracted_reference_id="REQ-42",
             ),
@@ -621,9 +666,71 @@ async def test_persisted_reference_id_can_drive_duplicate_review_without_url_mat
     )
 
     assert updated.extracted_reference_id == "REQ-42"
+    assert updated.job_location_text == "British Columbia/Ontario"
+    assert updated.compensation_text == "$140,000 - $170,000 base salary"
     assert updated.internal_state == "duplicate_review_required"
     assert updated.duplicate_resolution_status == "pending"
     assert notifications.notifications[-1]["notification_type"] == "warning"
+
+
+@pytest.mark.asyncio
+async def test_patching_compensation_text_does_not_trigger_duplicate_recheck():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "company": "Acme",
+            "job_description": "Build APIs for customers.",
+        },
+    )
+
+    updated = await service.patch_application(
+        user_id="user-1",
+        application_id=created.id,
+        updates={"compensation_text": "$120,000 - $145,000"},
+    )
+
+    assert updated.application.compensation_text == "$120,000 - $145,000"
+    assert updated.application.internal_state == "generation_pending"
+    assert updated.application.duplicate_resolution_status is None
+
+
+@pytest.mark.asyncio
+async def test_patching_job_location_text_does_not_trigger_duplicate_recheck():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "company": "Acme",
+            "job_description": "Build APIs for customers.",
+        },
+    )
+
+    updated = await service.patch_application(
+        user_id="user-1",
+        application_id=created.id,
+        updates={"job_location_text": "British Columbia/Ontario"},
+    )
+
+    assert updated.application.job_location_text == "British Columbia/Ontario"
+    assert updated.application.internal_state == "generation_pending"
+    assert updated.application.duplicate_resolution_status is None
 
 
 @pytest.mark.asyncio
@@ -914,6 +1021,28 @@ def test_delete_application_endpoint_returns_204_for_owned_idle_record():
     assert repository.fetch_application("user-1", created.id) is None
 
 
+def test_create_application_endpoint_accepts_optional_source_text_and_queues_capture_extraction():
+    service, _, _, _, queue, _, _ = build_service()
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/applications",
+        headers={"Authorization": "Bearer valid-token"},
+        json={
+            "job_url": "https://example.com/jobs/1",
+            "source_text": "Senior Platform Engineer. Build APIs and queues.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["internal_state"] == "extraction_pending"
+    assert queue.enqueued[0]["job_url"] == "https://example.com/jobs/1"
+    assert queue.enqueued[0]["source_capture"]["source_text"] == "Senior Platform Engineer. Build APIs and queues."
+    assert queue.enqueued[0]["source_capture"]["source_url"] == "https://example.com/jobs/1"
+
+
 def test_delete_application_endpoint_returns_404_for_missing_record():
     service, _, _, _, _, _, _ = build_service()
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
@@ -1168,6 +1297,119 @@ async def test_full_regeneration_routes_blocked_placeholder_back_to_manual_entry
     assert detail.application.extraction_failure_details["kind"] == "blocked_source"
     assert notifications.notifications[-1]["action_required"] is True
     assert service.generation_job_queue.regenerations == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_generation_requires_profile_name():
+    service, repository, _, _, _, _, _ = build_service()
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+        },
+    )
+    service.profile_repository.name = None
+
+    with pytest.raises(ValueError, match="Complete your profile name before generating a resume."):
+        await service.trigger_generation(
+            user_id="user-1",
+            application_id=created.id,
+            base_resume_id="resume-1",
+            target_length="1_page",
+            aggressiveness="medium",
+            additional_instructions=None,
+        )
+
+    assert service.generation_job_queue.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_requires_profile_name():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Test User\ninvite-only@example.com | 555-0100 | Toronto, ON\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    service.profile_repository.name = None
+
+    with pytest.raises(ValueError, match="Complete your profile name before regenerating the full resume."):
+        await service.trigger_full_regeneration(
+            user_id="user-1",
+            application_id=created.id,
+            target_length="1_page",
+            aggressiveness="medium",
+            additional_instructions=None,
+        )
+
+    assert service.generation_job_queue.regenerations == []
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_requires_profile_name(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    service.profile_repository.name = None
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("generate_pdf should not run when profile name is missing")
+
+    monkeypatch.setattr(application_manager_service, "generate_pdf", fail_if_called)
+
+    with pytest.raises(ValueError, match="Complete your profile name before exporting a PDF."):
+        await service.export_pdf(
+            user_id="user-1",
+            application_id=created.id,
+        )
 
 
 @pytest.mark.asyncio

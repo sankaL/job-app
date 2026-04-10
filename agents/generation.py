@@ -82,13 +82,19 @@ TARGET_LENGTH_GUIDANCE: dict[str, dict[str, Any]] = {
 AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
     "low": {
         "summary": "Light phrasing cleanup only. Preserve the source voice closely and tighten for clarity.",
-        "professional_experience": "Light rephrasing and bullet reordering only. Do not add new metrics, scope, or technologies.",
+        "professional_experience": (
+            "Light rephrasing and bullet reordering only. Keep each role title exactly as it appears in the source. "
+            "Do not add new metrics, scope, or technologies."
+        ),
         "skills": "Do not change skills content or grouping. Preserve the source skills list as-is except for Markdown cleanup.",
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
     },
     "medium": {
         "summary": "Moderate rewrite for role alignment using only source-backed facts.",
-        "professional_experience": "Rephrase, reorder, prune, and emphasize grounded bullets for the target role. Do not add new facts.",
+        "professional_experience": (
+            "Rephrase, reorder, prune, and emphasize grounded bullets for the target role. Keep each role title exactly as it appears in the source. "
+            "Do not add new facts."
+        ),
         "skills": "Reorder, regroup, and prune to the most relevant source-backed skills. Do not add new skills.",
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
     },
@@ -96,7 +102,8 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
         "summary": "Fully rewrite the Summary for strongest role alignment using only source-backed facts.",
         "professional_experience": (
             "Aggressively reframe, reprioritize, condense, or expand grounded bullets for fit and impact. "
-            "Do not add new metrics, scope, employers, or technologies."
+            "You may retitle the role name for alignment only when it remains a truthful reframing of the same source role. "
+            "Keep employers and dates unchanged, and do not inflate scope, seniority, employers, or technologies."
         ),
         "skills": "Aggressively prune, regroup, and prioritize source-backed skills for relevance. Do not add new skills.",
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
@@ -110,7 +117,8 @@ SECTION_RULES: dict[str, str] = {
     ),
     "professional_experience": (
         "Prioritize the most relevant experience first. Use concise accomplishment-oriented bullets grounded in the source. "
-        "Preserve chronology facts and do not invent metrics, scope, or technologies."
+        "Preserve chronology facts and do not invent metrics, scope, or technologies. "
+        "Low and medium aggressiveness must preserve role titles exactly; high aggressiveness may retitle role names only when the rewrite stays truthful to the same role and does not change employer, dates, or seniority."
     ),
     "education": (
         "Keep Education concise and factual. Never add or infer schools, degrees, honors, dates, coursework, or credentials."

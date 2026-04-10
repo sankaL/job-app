@@ -22,6 +22,7 @@ export function ProfilePage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
   const [sectionPreferences, setSectionPreferences] = useState<Record<string, boolean>>({});
   const [sectionOrder, setSectionOrder] = useState<string[]>([]);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
@@ -31,6 +32,7 @@ export function ProfilePage() {
     name: string;
     phone: string;
     address: string;
+    linkedinUrl: string;
     sectionPreferences: Record<string, boolean>;
     sectionOrder: string[];
   } | null>(null);
@@ -44,12 +46,14 @@ export function ProfilePage() {
         setEmail(response.email);
         setPhone(response.phone ?? "");
         setAddress(response.address ?? "");
+        setLinkedinUrl(response.linkedin_url ?? "");
         setSectionPreferences(response.section_preferences ?? {});
         setSectionOrder(response.section_order?.length ? response.section_order : DEFAULT_SECTIONS);
         setOriginalState({
           name: response.name ?? "",
           phone: response.phone ?? "",
           address: response.address ?? "",
+          linkedinUrl: response.linkedin_url ?? "",
           sectionPreferences: response.section_preferences ?? {},
           sectionOrder: response.section_order?.length ? response.section_order : DEFAULT_SECTIONS,
         });
@@ -63,6 +67,7 @@ export function ProfilePage() {
     ? name !== originalState.name ||
       phone !== originalState.phone ||
       address !== originalState.address ||
+      linkedinUrl !== originalState.linkedinUrl ||
       JSON.stringify(sectionPreferences) !== JSON.stringify(originalState.sectionPreferences) ||
       JSON.stringify(sectionOrder) !== JSON.stringify(originalState.sectionOrder)
     : false;
@@ -93,6 +98,7 @@ export function ProfilePage() {
         name: name || null,
         phone: phone || null,
         address: address || null,
+        linkedin_url: linkedinUrl || null,
         section_preferences: sectionPreferences,
         section_order: sectionOrder,
       });
@@ -100,12 +106,14 @@ export function ProfilePage() {
       setName(response.name ?? "");
       setPhone(response.phone ?? "");
       setAddress(response.address ?? "");
+      setLinkedinUrl(response.linkedin_url ?? "");
       setSectionPreferences(response.section_preferences ?? {});
       setSectionOrder(response.section_order?.length ? response.section_order : DEFAULT_SECTIONS);
       setOriginalState({
         name: response.name ?? "",
         phone: response.phone ?? "",
         address: response.address ?? "",
+        linkedinUrl: response.linkedin_url ?? "",
         sectionPreferences: response.section_preferences ?? {},
         sectionOrder: response.section_order?.length ? response.section_order : DEFAULT_SECTIONS,
       });
@@ -171,8 +179,17 @@ export function ProfilePage() {
               <Input id="phone" placeholder="Your phone number" value={phone} onChange={(e) => setPhone(e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="address">Address</Label>
-              <Input id="address" placeholder="Your address" value={address} onChange={(e) => setAddress(e.target.value)} />
+              <Label htmlFor="address">Location</Label>
+              <Input id="address" placeholder="City, Province/State" value={address} onChange={(e) => setAddress(e.target.value)} />
+            </div>
+            <div>
+              <Label htmlFor="linkedin_url">LinkedIn</Label>
+              <Input
+                id="linkedin_url"
+                placeholder="https://linkedin.com/in/your-handle"
+                value={linkedinUrl}
+                onChange={(e) => setLinkedinUrl(e.target.value)}
+              />
             </div>
           </div>
         </Card>

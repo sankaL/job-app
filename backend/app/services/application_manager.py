@@ -94,6 +94,8 @@ class WorkerSuccessPayload(BaseModel):
     job_title: str
     job_description: str
     company: Optional[str] = None
+    job_location_text: Optional[str] = None
+    compensation_text: Optional[str] = None
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
     extracted_reference_id: Optional[str] = None
@@ -804,6 +806,8 @@ class ApplicationService:
                     "job_title": payload.extracted.job_title,
                     "company": payload.extracted.company,
                     "job_description": payload.extracted.job_description,
+                    "job_location_text": payload.extracted.job_location_text,
+                    "compensation_text": payload.extracted.compensation_text,
                     "extracted_reference_id": payload.extracted.extracted_reference_id,
                     "job_posting_origin": payload.extracted.job_posting_origin,
                     "job_posting_origin_other_text": payload.extracted.job_posting_origin_other_text,
@@ -850,16 +854,9 @@ class ApplicationService:
         if base_resume is None:
             raise LookupError("Base resume not found.")
 
-        profile = self.profile_repository.fetch_profile(user_id)
-        if profile is None:
-            raise ValueError("User profile is required for generation.")
-
-        personal_info = {
-            "name": profile.name,
-            "email": profile.email,
-            "phone": profile.phone,
-            "address": profile.address,
-        }
+        profile = self._require_profile(user_id=user_id, action="generating a resume")
+        self._require_profile_name(profile, action="generating a resume")
+        personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
 
@@ -1071,16 +1068,9 @@ class ApplicationService:
         if base_resume is None:
             raise LookupError("Linked base resume not found.")
 
-        profile = self.profile_repository.fetch_profile(user_id)
-        if profile is None:
-            raise ValueError("User profile is required for regeneration.")
-
-        personal_info = {
-            "name": profile.name,
-            "email": profile.email,
-            "phone": profile.phone,
-            "address": profile.address,
-        }
+        profile = self._require_profile(user_id=user_id, action="regenerating the full resume")
+        self._require_profile_name(profile, action="regenerating the full resume")
+        personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
         generation_settings = {
@@ -1174,12 +1164,7 @@ class ApplicationService:
         if profile is None:
             raise ValueError("User profile is required for regeneration.")
 
-        personal_info = {
-            "name": profile.name,
-            "email": profile.email,
-            "phone": profile.phone,
-            "address": profile.address,
-        }
+        personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
         generation_settings = draft.generation_params
@@ -1409,17 +1394,10 @@ class ApplicationService:
         if draft is None:
             raise PermissionError("No draft exists. Generation must happen first.")
 
-        profile = self.profile_repository.fetch_profile(user_id)
-        personal_info = None
-        full_name = "resume"
-        if profile:
-            personal_info = {
-                "name": profile.name,
-                "email": profile.email,
-                "phone": profile.phone,
-                "address": profile.address,
-            }
-            full_name = (profile.name or "resume").replace(" ", "_")
+        profile = self._require_profile(user_id=user_id, action="exporting a PDF")
+        self._require_profile_name(profile, action="exporting a PDF")
+        personal_info = self._build_personal_info(profile)
+        full_name = (self._clean_profile_value(profile.name) or "resume").replace(" ", "_")
 
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"{full_name}_resume_{timestamp}.pdf"
@@ -1428,6 +1406,7 @@ class ApplicationService:
             pdf_bytes = await generate_pdf(
                 markdown_content=draft.content_md,
                 personal_info=personal_info,
+                page_length=str(draft.generation_params.get("page_length") or "1_page"),
             )
         except asyncio.TimeoutError:
             await self._handle_export_failure(
@@ -1740,6 +1719,32 @@ class ApplicationService:
         if profile is None:
             raise ValueError("Authenticated profile is unavailable.")
         return profile.email
+
+    @staticmethod
+    def _clean_profile_value(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = str(value).strip()
+        return stripped or None
+
+    def _require_profile(self, *, user_id: str, action: str):
+        profile = self.profile_repository.fetch_profile(user_id)
+        if profile is None:
+            raise ValueError(f"Complete your profile before {action}.")
+        return profile
+
+    def _require_profile_name(self, profile, *, action: str) -> None:
+        if not self._clean_profile_value(getattr(profile, "name", None)):
+            raise ValueError(f"Complete your profile name before {action}.")
+
+    def _build_personal_info(self, profile) -> dict[str, Optional[str]]:
+        return {
+            "name": self._clean_profile_value(getattr(profile, "name", None)),
+            "email": self._clean_profile_value(getattr(profile, "email", None)),
+            "phone": self._clean_profile_value(getattr(profile, "phone", None)),
+            "address": self._clean_profile_value(getattr(profile, "address", None)),
+            "linkedin_url": self._clean_profile_value(getattr(profile, "linkedin_url", None)),
+        }
 
     @staticmethod
     def _looks_like_blocked_source_placeholder(record: ApplicationRecord) -> bool:

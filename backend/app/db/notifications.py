@@ -53,7 +53,7 @@ class NotificationRepository:
     def clear_notifications(self, user_id: str) -> None:
         query = """
         delete from public.notifications
-        where user_id = %s
+        where user_id = %s and action_required = false
         """
 
         with self._connection() as connection, connection.cursor() as cursor:

@@ -1,7 +1,7 @@
 # AI Resume Builder Database Schema
 
 **Document status:** Source of truth for the MVP database contract  
-**Last updated:** 2026-04-07
+**Last updated:** 2026-04-09
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Related rollout guide:** `docs/backend-database-migration-runbook.md`
 
@@ -55,7 +55,8 @@ Application-owned extension of `auth.users`.
 | `email` | `text` | No | — | Read-only mirror of auth email for application queries. User-editing is not allowed. |
 | `name` | `text` | Yes | `null` | Required by the product before final assembly/export, but nullable at rest until the user completes the profile. |
 | `phone` | `text` | Yes | `null` | Nullable until user provides it. |
-| `address` | `text` | Yes | `null` | Nullable until user provides it. |
+| `address` | `text` | Yes | `null` | Nullable until user provides it. Used as the short location line in resume assembly and PDF export. |
+| `linkedin_url` | `text` | Yes | `null` | Optional LinkedIn profile URL used in resume assembly and PDF export. |
 | `default_base_resume_id` | `uuid` | Yes | `null` | Canonical pointer to the user's default base resume. Composite foreign key with `id` to `base_resumes (id, user_id)` and `ON DELETE SET NULL`. |
 | `section_preferences` | `jsonb` | No | `{"summary": true, "professional_experience": true, "education": true, "skills": true}` | See JSON contract above. |
 | `section_order` | `jsonb` | No | `["summary", "professional_experience", "education", "skills"]` | See JSON contract above. |
@@ -122,7 +123,9 @@ User-owned job application records and workflow state.
 | `job_url` | `text` | No | — | Source URL used for extraction. Must be non-blank. |
 | `job_title` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
 | `company` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
-| `job_description` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
+| `job_description` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. Stores the full primary job posting body when available, not just a responsibilities excerpt. |
+| `job_location_text` | `text` | Yes | `null` | Nullable raw location or hiring-region text copied from the posting or manual entry when available. |
+| `compensation_text` | `text` | Yes | `null` | Nullable raw salary or compensation text copied from the posting or manual entry when available. |
 | `extracted_reference_id` | `text` | Yes | `null` | Persisted reference or requisition identifier extracted from the posting when available. |
 | `job_posting_origin` | `job_posting_origin_enum` | Yes | `null` | Normalized posting source when extraction or user input can identify it. |
 | `job_posting_origin_other_text` | `text` | Yes | `null` | Free-text source label used only when `job_posting_origin = 'other'`. |
@@ -154,6 +157,9 @@ User-owned job application records and workflow state.
 
 - `applied` must remain editable regardless of the primary visible status.
 - `job_posting_origin` may remain `NULL` after extraction succeeds if origin classification is unknown; the user may supply or edit it later.
+- `job_location_text` is optional raw posting text and must not block extraction success, duplicate review, or generation readiness when absent.
+- `compensation_text` is optional raw posting text and must not block extraction success, duplicate review, or generation readiness when absent.
+- Extraction should separate `job_location_text` and `compensation_text` semantically from posting context, even when both appear on the same rendered line, and should leave either field null when the distinction is not clear.
 - `extraction_failure_details` stores sanitized recoverable diagnostics for extraction failures. MVP uses it for blocked-source metadata such as provider, reference ID, blocked URL, and detection timestamp.
 - `generation_failure_details` stores generation and regeneration failure diagnostics including timeout or cancellation copy plus an optional array of specific validation errors. Cleared on successful generation or regeneration.
 - `extracted_reference_id` should be written from the extraction pipeline when present and reused by duplicate detection before falling back to URL or description parsing.
@@ -284,5 +290,5 @@ Additional rules:
 - Use `timestamptz` for all timestamps.
 - Maintain `updated_at` automatically on write through a shared trigger or equivalent backend discipline.
 - Keep enum names and values aligned with the PRD status model; do not introduce alternate status labels.
-- Preserve `job_title`, `company`, `job_description`, and `job_posting_origin` as nullable until extraction or manual entry succeeds, while allowing `job_posting_origin` to remain `NULL` when the source cannot be classified yet.
+- Preserve `job_title`, `company`, `job_description`, `job_location_text`, `compensation_text`, and `job_posting_origin` as nullable until extraction or manual entry succeeds, while allowing `job_posting_origin` to remain `NULL` when the source cannot be classified yet.
 - Do not add persistent PDF storage columns or tables for MVP.
