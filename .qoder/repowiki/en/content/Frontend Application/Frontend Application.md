@@ -33,6 +33,9 @@
 - [chrome-extension popup.html](file://frontend/public/chrome-extension/popup.html)
 - [chrome-extension popup.css](file://frontend/public/chrome-extension/popup.css)
 - [chrome-extension-popup.d.ts](file://frontend/src/types/chrome-extension-popup.d.ts)
+- [deploy-railway-main.yml](file://.github/workflows/deploy-railway-main.yml)
+- [Dockerfile](file://frontend/Dockerfile)
+- [dev-entrypoint.sh](file://frontend/dev-entrypoint.sh)
 </cite>
 
 ## Table of Contents
@@ -43,9 +46,10 @@
 5. [Detailed Component Analysis](#detailed-component-analysis)
 6. [Dependency Analysis](#dependency-analysis)
 7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+8. [Production Deployment and Configuration](#production-deployment-and-configuration)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
 This document describes the React 19-based frontend application for the AI Resume Builder. It covers the application structure, routing with React Router DOM, state management patterns, component architecture, styling with Tailwind CSS, Chrome extension integration, authentication and session management, responsive design, accessibility, cross-browser compatibility, and integration with the backend API.
@@ -71,9 +75,11 @@ D --> J["button.tsx / card.tsx / input.tsx / label.tsx"]
 K["api.ts<br/>Enhanced API client with resume generation"] --> L["supabase.ts<br/>Supabase client"]
 M["env.ts<br/>Environment variables"] --> K
 N["tailwind.config.ts<br/>Theme and colors"] --> O["index.css<br/>Global styles"]
-P["vite.config.ts<br/>Aliases and test setup"] --> Q["package.json<br/>Dependencies and scripts"]
+P["vite.config.ts<br/>Aliases, host validation, and test setup"] --> Q["package.json<br/>Dependencies and scripts"]
 R["MarkdownPreview.tsx<br/>Markdown rendering component"] --> S["ReactMarkdown + GFM"]
 T["application-options.ts<br/>Constants for UI options"] --> U["Generation settings"]
+V["Railway Deployment<br/>GitHub Actions workflow"] --> W["Production Environment"]
+X["Dockerfile & Dev Entrypoint<br/>Containerized development"] --> Y["Local Development"]
 ```
 
 **Diagram sources**
@@ -97,15 +103,18 @@ T["application-options.ts<br/>Constants for UI options"] --> U["Generation setti
 - [utils.ts](file://frontend/src/lib/utils.ts)
 - [application-options.ts:1-31](file://frontend/src/lib/application-options.ts#L1-L31)
 - [tailwind.config.ts:1-25](file://frontend/tailwind.config.ts#L1-L25)
-- [vite.config.ts:1-24](file://frontend/vite.config.ts#L1-L24)
-- [package.json:1-38](file://frontend/package.json#L1-L38)
+- [vite.config.ts:1-28](file://frontend/vite.config.ts#L1-L28)
+- [package.json:1-42](file://frontend/package.json#L1-L42)
+- [deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
+- [Dockerfile:1-11](file://frontend/Dockerfile#L1-L11)
+- [dev-entrypoint.sh:1-24](file://frontend/dev-entrypoint.sh#L1-L24)
 
 **Section sources**
 - [main.tsx:1-14](file://frontend/src/main.tsx#L1-L14)
 - [App.tsx:1-36](file://frontend/src/App.tsx#L1-L36)
-- [vite.config.ts:1-24](file://frontend/vite.config.ts#L1-L24)
+- [vite.config.ts:1-28](file://frontend/vite.config.ts#L1-L28)
 - [tailwind.config.ts:1-25](file://frontend/tailwind.config.ts#L1-L25)
-- [package.json:1-38](file://frontend/package.json#L1-L38)
+- [package.json:1-42](file://frontend/package.json#L1-L42)
 
 ## Core Components
 - AppShell: Provides the main layout, navigation, session bootstrap, and sign-out flow.
@@ -139,7 +148,7 @@ The frontend follows a layered architecture:
 - Routing layer: React Router DOM with nested routes and guards
 - State layer: React hooks for local component state; Supabase for auth session
 - Data layer: Enhanced API module with comprehensive resume generation endpoints
-- Infrastructure: Tailwind CSS for styling, Vite for build tooling
+- Infrastructure: Tailwind CSS for styling, Vite for build tooling, and Railway for deployment
 
 ```mermaid
 graph TB
@@ -161,6 +170,8 @@ end
 subgraph "Infrastructure"
 TW["Tailwind CSS"]
 VT["Vite Build"]
+RD["Railway Deployment"]
+DC["Docker Containerization"]
 end
 R --> RR
 U --> TW
@@ -170,6 +181,8 @@ R --> AC
 AC --> BE
 SR --> AC
 VT --> R
+RD --> VT
+DC --> VT
 ```
 
 **Diagram sources**
@@ -179,7 +192,9 @@ VT --> R
 - [api.ts:414-495](file://frontend/src/lib/api.ts#L414-L495)
 - [supabase.ts:1-26](file://frontend/src/lib/supabase.ts#L1-L26)
 - [tailwind.config.ts:1-25](file://frontend/tailwind.config.ts#L1-L25)
-- [vite.config.ts:1-24](file://frontend/vite.config.ts#L1-L24)
+- [vite.config.ts:1-28](file://frontend/vite.config.ts#L1-L28)
+- [deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
+- [Dockerfile:1-11](file://frontend/Dockerfile#L1-L11)
 
 ## Detailed Component Analysis
 
@@ -444,21 +459,21 @@ API --> Backend["Backend API"]
 Tailwind["tailwindcss@^3.4.17"] --> Styles["tailwind.config.ts"]
 Vite["vite@^6.2.4"] --> Build["vite.config.ts"]
 Types["typescript@^5.8.3"] --> TSConfig["tsconfig.app.json"]
-Markdown["react-markdown@^9.0.1"] --> MP["MarkdownPreview.tsx"]
-GFM["remark-gfm@^4.0.0"] --> MP
+Markdown["react-markdown@^10.1.0"] --> MP["MarkdownPreview.tsx"]
+GFM["remark-gfm@^4.0.1"] --> MP
 ```
 
 **Diagram sources**
-- [package.json:13-21](file://frontend/package.json#L13-L21)
+- [package.json:13-25](file://frontend/package.json#L13-L25)
 - [api.ts:1-2](file://frontend/src/lib/api.ts#L1-L2)
 - [supabase.ts:1-2](file://frontend/src/lib/supabase.ts#L1-L2)
 - [tailwind.config.ts:1-25](file://frontend/tailwind.config.ts#L1-L25)
-- [vite.config.ts:1-24](file://frontend/vite.config.ts#L1-L24)
+- [vite.config.ts:1-28](file://frontend/vite.config.ts#L1-L28)
 - [MarkdownPreview.tsx:1-2](file://frontend/src/components/MarkdownPreview.tsx#L1-L2)
 
 **Section sources**
-- [package.json:1-38](file://frontend/package.json#L1-L38)
-- [vite.config.ts:1-24](file://frontend/vite.config.ts#L1-L24)
+- [package.json:1-42](file://frontend/package.json#L1-L42)
+- [vite.config.ts:1-28](file://frontend/vite.config.ts#L1-L28)
 - [tailwind.config.ts:1-25](file://frontend/tailwind.config.ts#L1-L25)
 
 ## Performance Considerations
@@ -468,6 +483,51 @@ GFM["remark-gfm@^4.0.0"] --> MP
 - Tailwind JIT compilation and minimal CSS reduce bundle size.
 - **Enhanced**: Debounced autosave for notes and efficient markdown rendering with memoization.
 
+## Production Deployment and Configuration
+
+### Vite Configuration for Railway Environments
+The Vite configuration has been enhanced to support Railway's dynamic production environment. The key improvement involves allowing Railway's `.up.railway.app` hostname in both server and preview configurations to prevent host validation blocking.
+
+**Updated** Added `.up.railway.app` to both `server.allowedHosts` and `preview.allowedHosts` arrays to resolve production access issues where Railway's dynamic hostnames were being blocked by Vite's host validation.
+
+**Section sources**
+- [vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
+
+### Railway Deployment Pipeline
+The application uses GitHub Actions to deploy to Railway with selective service detection. The workflow automatically detects changes and deploys only the affected services (backend, frontend, or agents).
+
+**Updated** Enhanced deployment pipeline with improved service detection and selective deployment based on file changes.
+
+```mermaid
+flowchart TD
+Start["Push to main branch"] --> Filter["Detect changed services"]
+Filter --> Backend{"Backend changed?"}
+Filter --> Frontend{"Frontend changed?"}
+Filter --> Agents{"Agents changed?"}
+Backend --> |Yes| DeployBackend["Deploy backend service"]
+Backend --> |No| SkipBackend["Skip backend"]
+Frontend --> |Yes| DeployFrontend["Deploy frontend service"]
+Frontend --> |No| SkipFrontend["Skip frontend"]
+Agents --> |Yes| DeployAgents["Deploy agents service"]
+Agents --> |No| SkipAgents["Skip agents"]
+DeployBackend --> Success["Deployment complete"]
+DeployFrontend --> Success
+DeployAgents --> Success
+```
+
+**Diagram sources**
+- [deploy-railway-main.yml:12-134](file://.github/workflows/deploy-railway-main.yml#L12-L134)
+
+**Section sources**
+- [deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
+
+### Containerized Development Environment
+The frontend uses Docker for consistent development environments with optimized package installation caching.
+
+**Section sources**
+- [Dockerfile:1-11](file://frontend/Dockerfile#L1-L11)
+- [dev-entrypoint.sh:1-24](file://frontend/dev-entrypoint.sh#L1-L24)
+
 ## Troubleshooting Guide
 Common issues and resolutions:
 - Authentication failures: Verify Supabase credentials and session persistence. Check auth state change subscriptions and token availability.
@@ -475,15 +535,17 @@ Common issues and resolutions:
 - Extension bridge not detected: Confirm manifest permissions, service worker registration, and popup messaging setup.
 - Styling inconsistencies: Ensure Tailwind content paths include all component files and rebuild the project.
 - **Enhanced**: Markdown rendering issues: Verify react-markdown and remark-gfm dependencies are properly installed and configured.
+- **Enhanced**: Production access blocked: Verify `.up.railway.app` is included in Vite's allowed hosts configuration for both server and preview modes.
 
 **Section sources**
 - [api.ts:190-214](file://frontend/src/lib/api.ts#L190-L214)
 - [ExtensionPage.tsx:43-72](file://frontend/src/routes/ExtensionPage.tsx#L43-L72)
 - [tailwind.config.ts:4-5](file://frontend/tailwind.config.ts#L4-L5)
 - [MarkdownPreview.tsx:1-16](file://frontend/src/components/MarkdownPreview.tsx#L1-L16)
+- [vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
 
 ## Conclusion
-The frontend application is a modular, authenticated React 19 app with clear separation of concerns. It leverages Supabase for authentication, React Router for navigation, and a centralized API client for backend integration. The UI is built with reusable components and Tailwind CSS, ensuring a consistent and responsive design. The Chrome extension integration demonstrates secure, scoped communication for job capture. **The enhanced ApplicationDetailPage now provides comprehensive resume generation capabilities with draft preview/editing, section-specific regeneration controls, and PDF export functionality, making it a complete solution for AI-powered resume creation.**
+The frontend application is a modular, authenticated React 19 app with clear separation of concerns. It leverages Supabase for authentication, React Router for navigation, and a centralized API client for backend integration. The UI is built with reusable components and Tailwind CSS, ensuring a consistent and responsive design. The Chrome extension integration demonstrates secure, scoped communication for job capture. **The enhanced ApplicationDetailPage now provides comprehensive resume generation capabilities with draft preview/editing, section-specific regeneration controls, and PDF export functionality, making it a complete solution for AI-powered resume creation.** The recent Vite configuration improvements ensure seamless operation in Railway's production environment with proper host validation for dynamic hostnames.
 
 ## Appendices
 
@@ -620,3 +682,14 @@ The API module now includes comprehensive resume generation endpoints:
 
 **Section sources**
 - [api.ts:414-495](file://frontend/src/lib/api.ts#L414-L495)
+
+### Vite Configuration Details
+The Vite configuration includes several key settings for optimal development and production performance:
+
+- **Path Aliases**: `@` for `src` and `@shared` for `../shared` for cleaner imports
+- **Host Validation**: `.up.railway.app` allowed in both server and preview modes for production access
+- **File System Security**: Root directory allowed for Vite operations
+- **Test Environment**: jsdom with Vitest for comprehensive testing
+
+**Section sources**
+- [vite.config.ts:5-27](file://frontend/vite.config.ts#L5-L27)

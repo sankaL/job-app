@@ -25,11 +25,13 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced documentation of increased timeouts for full draft generation (240s) and section regeneration (120s)
+- Enhanced documentation of increased timeouts for full draft generation (540s) and section regeneration (280s)
 - Added comprehensive coverage of deterministic Professional Experience structure handling with anchor extraction and validation
 - Updated regeneration cap implementation documentation with non-admin cap enforcement and admin bypass functionality
 - Enhanced validation rules documentation with stricter prompt constraints for role title rewrites
 - Updated backend integration documentation with deterministic regeneration capabilities and timeout profiles
+- Added detailed coverage of admin bypass support for regeneration caps
+- Expanded documentation of strict validation rules for role title rewrites
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -98,7 +100,7 @@ DB --> APP
 - [generation.py:1-1110](file://agents/generation.py#L1-L1110)
 - [validation.py:1-602](file://agents/validation.py#L1-L602)
 - [experience_contract.py:1-254](file://agents/experience_contract.py#L1-L254)
-- [assembly.py:1-63](file://agents/assembly.py#L1-L63)
+- [assembly.py:1-86](file://agents/assembly.py#L1-L86)
 - [pyproject.toml:1-26](file://agents/pyproject.toml#L1-L26)
 - [Dockerfile:1-14](file://agents/Dockerfile#L1-L14)
 - [workflow-contract.json:1-114](file://shared/workflow-contract.json#L1-L114)
@@ -134,7 +136,7 @@ DB --> APP
 - [generation.py:58-59](file://agents/generation.py#L58-L59)
 - [validation.py:1-16](file://agents/validation.py#L1-L16)
 - [experience_contract.py:1-254](file://agents/experience_contract.py#L1-L254)
-- [assembly.py:12-63](file://agents/assembly.py#L12-L63)
+- [assembly.py:12-86](file://agents/assembly.py#L12-L86)
 - [workflow-contract.json:1-114](file://shared/workflow-contract.json#L1-L114)
 
 ## Architecture Overview
@@ -220,7 +222,7 @@ The generation agent performs section-based generation with:
 - Validation gate before assembly
 - Deterministic Professional Experience structure handling
 
-**Updated** Enhanced with increased timeouts (240s for full generation, 120s for section regeneration) and deterministic Professional Experience handling
+**Updated** Enhanced with increased timeouts (540s for full generation, 280s for section regeneration) and deterministic Professional Experience handling
 
 ```mermaid
 sequenceDiagram
@@ -260,7 +262,7 @@ end
 - [worker.py:828-1054](file://agents/worker.py#L828-L1054)
 - [generation.py:827-1110](file://agents/generation.py#L827-L1110)
 - [validation.py:527-602](file://agents/validation.py#L527-L602)
-- [assembly.py:12-63](file://agents/assembly.py#L12-L63)
+- [assembly.py:12-86](file://agents/assembly.py#L12-L86)
 
 **Section sources**
 - [worker.py:828-1054](file://agents/worker.py#L828-L1054)
@@ -345,10 +347,10 @@ J --> R["Return final Markdown"]
 ```
 
 **Diagram sources**
-- [assembly.py:12-63](file://agents/assembly.py#L12-L63)
+- [assembly.py:12-86](file://agents/assembly.py#L12-L86)
 
 **Section sources**
-- [assembly.py:12-63](file://agents/assembly.py#L12-L63)
+- [assembly.py:12-86](file://agents/assembly.py#L12-L86)
 
 ### Progress Tracking and Callbacks
 Progress is stored in Redis under a deterministic key and periodically updated during agent runs. Backend callbacks notify the system of state transitions and completion.
@@ -489,9 +491,9 @@ The validation system implements comprehensive hallucination detection and ATS s
 ### Error Handling and Timeout Management
 The system implements comprehensive error handling and timeout management:
 - Extraction timeout: 30 seconds
-- Full generation timeout: 240 seconds (increased from previous 300s)
-- Full regeneration timeout: 240 seconds (increased from previous 300s)
-- Single-section regeneration timeout: 120 seconds (increased from previous 45s)
+- Full generation timeout: 540 seconds (increased from previous 240s)
+- Full regeneration timeout: 540 seconds (increased from previous 240s)
+- Single-section regeneration timeout: 280 seconds (increased from previous 120s)
 - Section regeneration LLM timeout: 120 seconds (increased from previous 45s)
 - Export timeout: 20 seconds
 - Bounded retries: One fallback model retry per LLM call
@@ -565,7 +567,7 @@ EC --> FAST
 - [main.py:14-36](file://backend/app/main.py#L14-L36)
 
 ## Performance Considerations
-- Timeouts: Extraction (30s), generation (240s), regeneration (240s), single-section regeneration (120s), export (20s).
+- Timeouts: Extraction (30s), generation (540s), regeneration (540s), single-section regeneration (280s), export (20s).
 - Increased timeouts for complex generation tasks with deterministic validation
 - Bounded retries: One fallback model retry per LLM call.
 - Structured output reduces parsing overhead and improves reliability.
@@ -695,3 +697,17 @@ The system enforces a non-admin full regeneration cap of 3 per application:
 - [2026-04-10-deterministic-regeneration-timeouts-and-cap.md:25-31](file://docs/task-output/2026-04-10-deterministic-regeneration-timeouts-and-cap.md#L25-L31)
 - [2026-04-10-deterministic-regeneration-timeouts-and-cap.sql:3-11](file://supabase/migrations/20260410_000011_phase_5_full_regeneration_cap.sql#L3-L11)
 - [2026-04-10-deterministic-regeneration-timeouts-and-cap.md:40-43](file://docs/task-output/2026-04-10-deterministic-regeneration-timeouts-and-cap.md#L40-L43)
+
+### Admin Bypass Support
+The system provides admin bypass functionality for regeneration caps:
+- Admin users can bypass the 3-full-regeneration cap per application
+- Admin bypass is determined by profile.is_admin flag
+- Admin users can perform unlimited full regenerations
+- Non-admin users are strictly limited to 3 full regenerations per application
+- User-safe conflict guidance is provided when cap is reached
+
+**New** Comprehensive documentation of admin bypass support
+
+**Section sources**
+- [2026-04-10-deterministic-regeneration-timeouts-and-cap.md:25-31](file://docs/task-output/2026-04-10-deterministic-regeneration-timeouts-and-cap.md#L25-L31)
+- [2026-04-10-deterministic-regeneration-timeouts-and-cap.sql:3-11](file://supabase/migrations/20260410_000011_phase_5_full_regeneration_cap.sql#L3-L11)

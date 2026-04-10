@@ -2,6 +2,7 @@
 
 <cite>
 **Referenced Files in This Document**
+- [.github/workflows/deploy-railway-main.yml](file://.github/workflows/deploy-railway-main.yml)
 - [docker-compose.yml](file://docker-compose.yml)
 - [Makefile](file://Makefile)
 - [.env.compose.example](file://.env.compose.example)
@@ -18,23 +19,32 @@
 - [supabase/migrations/20260407_000002_phase_1a_blocked_recovery_extension.sql](file://supabase/migrations/20260407_000002_phase_1a_blocked_recovery_extension.sql)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Added comprehensive documentation for the new Railway deployment automation system
+- Documented the GitHub Actions workflow with sophisticated path-filtered deployments
+- Updated deployment pipeline section to cover selective service deployments
+- Enhanced monitoring and operational procedures with Railway-specific guidance
+- Added new section covering automated deployment workflows and change detection
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+6. [Railway Deployment Automation](#railway-deployment-automation)
+7. [Dependency Analysis](#dependency-analysis)
+8. [Performance Considerations](#performance-considerations)
+9. [Troubleshooting Guide](#troubleshooting-guide)
+10. [Conclusion](#conclusion)
+11. [Appendices](#appendices)
 
 ## Introduction
-This document provides comprehensive deployment and operations guidance for the containerized application. It covers Docker configuration, multi-service orchestration, volume management, network configuration, health checks, production deployment steps, database migrations, monitoring, deployment pipeline, operational procedures, scaling, performance monitoring, capacity planning, troubleshooting, rollback, and maintenance.
+This document provides comprehensive deployment and operations guidance for the containerized application. It covers Docker configuration, multi-service orchestration, volume management, network configuration, health checks, production deployment steps, database migrations, monitoring, deployment pipeline, operational procedures, scaling, performance monitoring, capacity planning, troubleshooting, rollback, and maintenance. The document now includes detailed coverage of the new Railway deployment automation system with selective path-filtered deployments using GitHub Actions.
 
 ## Project Structure
-The project uses Docker Compose to orchestrate frontend, backend, agents, Redis, Supabase components (PostgreSQL, GoTrue, PostgREST, Kong), and a dedicated migration runner. Environment variables are managed via a compose-specific environment file. Scripts support health checks, migrations, and seeding a local development user.
+The project uses Docker Compose to orchestrate frontend, backend, agents, Redis, Supabase components (PostgreSQL, GoTrue, PostgREST, Kong), and a dedicated migration runner. Environment variables are managed via a compose-specific environment file. Scripts support health checks, migrations, and seeding a local development user. The new Railway deployment system enables automated, selective deployments based on file changes.
 
 ```mermaid
 graph TB
@@ -62,10 +72,10 @@ KG --> GR
 ```
 
 **Diagram sources**
-- [docker-compose.yml:1-191](file://docker-compose.yml#L1-L191)
+- [docker-compose.yml:1-194](file://docker-compose.yml#L1-L194)
 
 **Section sources**
-- [docker-compose.yml:1-191](file://docker-compose.yml#L1-L191)
+- [docker-compose.yml:1-194](file://docker-compose.yml#L1-L194)
 - [Makefile:1-30](file://Makefile#L1-L30)
 
 ## Core Components
@@ -78,9 +88,10 @@ KG --> GR
 - Migration runner: Applies SQL migrations idempotently and tracks applied versions.
 - Healthcheck script: Validates external endpoints for auth, backend, and frontend.
 - Seed script: Creates a local development user via Supabase admin API.
+- **Railway deployment automation**: GitHub Actions workflow with path-filtered deployments for selective service updates.
 
 **Section sources**
-- [docker-compose.yml:2-191](file://docker-compose.yml#L2-L191)
+- [docker-compose.yml:2-194](file://docker-compose.yml#L2-L194)
 - [backend/Dockerfile:1-18](file://backend/Dockerfile#L1-L18)
 - [frontend/Dockerfile:1-11](file://frontend/Dockerfile#L1-L11)
 - [agents/Dockerfile:1-14](file://agents/Dockerfile#L1-L14)
@@ -89,6 +100,7 @@ KG --> GR
 - [scripts/seed_local_user.sh:1-61](file://scripts/seed_local_user.sh#L1-L61)
 - [supabase/kong/kong-entrypoint.sh:1-10](file://supabase/kong/kong-entrypoint.sh#L1-L10)
 - [supabase/kong/kong.yml:1-96](file://supabase/kong/kong.yml#L1-L96)
+- [.github/workflows/deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
 
 ## Architecture Overview
 The system is composed of:
@@ -98,6 +110,7 @@ The system is composed of:
 - Data plane: PostgreSQL for relational data and auth metadata.
 - Supabase gateway: Kong routes traffic to GoTrue and PostgREST with ACL and key-auth plugins.
 - Orchestration: Docker Compose manages lifecycle, dependencies, and health checks.
+- **Deployment automation**: GitHub Actions workflow with path-filtered deployments to Railway platform.
 
 ```mermaid
 graph TB
@@ -123,7 +136,7 @@ GA --> DB
 ```
 
 **Diagram sources**
-- [docker-compose.yml:1-191](file://docker-compose.yml#L1-L191)
+- [docker-compose.yml:1-194](file://docker-compose.yml#L1-L194)
 - [supabase/kong/kong.yml:1-96](file://supabase/kong/kong.yml#L1-L96)
 
 ## Detailed Component Analysis
@@ -142,7 +155,7 @@ Key orchestration highlights:
 - Kong depends on GoTrue and PostgREST readiness.
 
 **Section sources**
-- [docker-compose.yml:1-191](file://docker-compose.yml#L1-L191)
+- [docker-compose.yml:1-194](file://docker-compose.yml#L1-L194)
 - [supabase/kong/kong-entrypoint.sh:1-10](file://supabase/kong/kong-entrypoint.sh#L1-L10)
 
 ### Volume Management
@@ -206,7 +219,7 @@ Operational usage:
   - Confirm Kong routes and ACL/key-auth are functioning.
 
 **Section sources**
-- [.env.compose.example:1-46](file://.env.compose.example#L1-L46)
+- [.env.compose.example:1-50](file://.env.compose.example#L1-L50)
 - [scripts/run_migrations.sh:1-39](file://scripts/run_migrations.sh#L1-L39)
 - [docker-compose.yml:101-113](file://docker-compose.yml#L101-L113)
 - [scripts/healthcheck.sh:1-35](file://scripts/healthcheck.sh#L1-L35)
@@ -236,6 +249,7 @@ Recommended additions:
 - Metrics and tracing for backend and agents.
 - Database performance monitoring and alerting.
 - Gateway metrics for Kong.
+- **Railway deployment monitoring**: Track deployment status and service health through Railway dashboard.
 
 **Section sources**
 - [scripts/healthcheck.sh:32-34](file://scripts/healthcheck.sh#L32-L34)
@@ -250,18 +264,25 @@ Recommended additions:
 - Release procedures:
   - Deploy migration runner first, then backend, followed by frontend and agents.
   - Validate with health checks before switching traffic.
+- **Automated deployments**:
+  - GitHub Actions workflow automatically detects changed services and deploys selectively.
+  - Uses dorny/paths-filter action for sophisticated change detection.
+  - Supports concurrent deployment with cancellation of in-progress workflows.
 
 **Section sources**
 - [backend/Dockerfile:1-18](file://backend/Dockerfile#L1-L18)
 - [frontend/Dockerfile:1-11](file://frontend/Dockerfile#L1-L11)
 - [agents/Dockerfile:1-14](file://agents/Dockerfile#L1-L14)
 - [docker-compose.yml:22-53](file://docker-compose.yml#L22-L53)
+- [.github/workflows/deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
 
 ### Operational Procedures
 - Service health monitoring:
   - Use the healthcheck script and Compose logs.
+  - **Railway monitoring**: Monitor service health and deployment status through Railway dashboard.
 - Log management:
   - Tail logs with the Makefile target for ongoing inspection.
+  - **Railway logs**: Access service logs and deployment logs through Railway interface.
 - Backup strategies:
   - Back up the PostgreSQL data volume regularly.
 - Disaster recovery:
@@ -281,43 +302,96 @@ Recommended additions:
   - Allocate CPU/memory for backend, agents, and database based on workload.
   - Monitor Redis memory usage and latency.
 
-[No sources needed since this section provides general guidance]
-
 ### Performance Monitoring and Capacity Planning
 - Track backend response times, agent queue depth, and DB query performance.
 - Plan DB storage growth and connection limits.
 - Monitor Kong throughput and latency.
 
-[No sources needed since this section provides general guidance]
+## Railway Deployment Automation
 
-### Troubleshooting Guide
-Common issues and resolutions:
-- Database not ready:
-  - Migration runner waits for DB readiness; check DB health and credentials.
-- Auth gateway not healthy:
-  - Verify Kong health and that GoTrue is reachable.
-- Frontend cannot reach backend:
-  - Confirm backend health endpoint and CORS configuration.
-- Missing migrations:
-  - Re-run migration runner or inspect applied versions table.
-- Local user creation failures:
-  - Ensure Supabase admin key is set and auth gateway is healthy.
+### GitHub Actions Workflow Overview
+The new deployment system uses a sophisticated GitHub Actions workflow that implements selective path-filtered deployments to Railway. This system automatically detects which services have been affected by changes and deploys only those services, significantly reducing deployment time and improving efficiency.
 
-Rollback procedures:
-- Stop services, restore DB from backup, re-apply migrations up to target version, restart services.
+**Updated** Added comprehensive documentation for the new Railway deployment automation system
 
-Maintenance tasks:
-- Regularly update base images and rebuild services.
-- Rotate secrets and update environment variables accordingly.
+### Path-Filtered Deployment Logic
+The workflow uses the dorny/paths-filter action to intelligently detect changes and deploy only affected services:
+
+- **Backend service**: Deploys when backend/**, shared/**, supabase/**, docker-compose.yml, or deploy-railway-main.yml changes
+- **Frontend service**: Deploys when frontend/**, shared/**, docker-compose.yml, or deploy-railway-main.yml changes  
+- **Agents service**: Deploys when agents/**, shared/**, docker-compose.yml, or deploy-railway-main.yml changes
+
+```mermaid
+graph TB
+subgraph "Path Filtering Logic"
+BE_PATHS["backend/** + shared/** + supabase/** + docker-compose.yml + workflow"]
+FE_PATHS["frontend/** + shared/** + docker-compose.yml + workflow"]
+AG_PATHS["agents/** + shared/** + docker-compose.yml + workflow"]
+end
+subgraph "Service Deployment"
+BE_DEPLOY["Deploy backend service"]
+FE_DEPLOY["Deploy frontend service"]
+AG_DEPLOY["Deploy agents service"]
+end
+BE_PATHS --> BE_DEPLOY
+FE_PATHS --> FE_DEPLOY
+AG_PATHS --> AG_DEPLOY
+```
+
+**Diagram sources**
+- [.github/workflows/deploy-railway-main.yml:26-46](file://.github/workflows/deploy-railway-main.yml#L26-L46)
+
+### Deployment Workflow Architecture
+The workflow follows a multi-stage approach with change detection and conditional deployment:
+
+1. **Change Detection Stage**: Uses dorny/paths-filter to analyze file changes
+2. **Conditional Deployment Jobs**: Each service has its own deployment job
+3. **Railway Integration**: Uses Railway CLI for service-specific deployments
+4. **Environment Management**: Requires specific Railway service IDs and project configuration
 
 **Section sources**
-- [scripts/run_migrations.sh:13-16](file://scripts/run_migrations.sh#L13-L16)
-- [docker-compose.yml:140-144](file://docker-compose.yml#L140-L144)
-- [scripts/healthcheck.sh:32-34](file://scripts/healthcheck.sh#L32-L34)
-- [scripts/seed_local_user.sh:29-37](file://scripts/seed_local_user.sh#L29-L37)
+- [.github/workflows/deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
+
+### Deployment Job Configuration
+Each deployment job follows a standardized pattern:
+
+- **Checkout**: Clones the repository with full history (fetch-depth: 0)
+- **Environment Setup**: Installs Node.js 20.x for Railway CLI compatibility
+- **Railway CLI Installation**: Global installation of @railway/cli
+- **Service Deployment**: Uses `railway up` with service-specific parameters
+- **Authentication**: Requires RAILWAY_TOKEN, RAILWAY_PROJECT_ID, and service-specific IDs
+
+**Section sources**
+- [.github/workflows/deploy-railway-main.yml:48-76](file://.github/workflows/deploy-railway-main.yml#L48-L76)
+- [.github/workflows/deploy-railway-main.yml:77-104](file://.github/workflows/deploy-railway-main.yml#L77-L104)
+- [.github/workflows/deploy-railway-main.yml:106-134](file://.github/workflows/deploy-railway-main.yml#L106-L134)
+
+### Environment Requirements
+Railway deployment requires several environment variables configured in GitHub Secrets:
+
+- **RAILWAY_TOKEN**: Railway platform authentication token
+- **RAILWAY_PROJECT_ID**: Target Railway project identifier
+- **RAILWAY_BACKEND_SERVICE_ID**: Backend service identifier
+- **RAILWAY_FRONTEND_SERVICE_ID**: Frontend service identifier  
+- **RAILWAY_AGENTS_SERVICE_ID**: Agents service identifier
+
+**Section sources**
+- [.github/workflows/deploy-railway-main.yml:66-75](file://.github/workflows/deploy-railway-main.yml#L66-L75)
+- [.github/workflows/deploy-railway-main.yml:95-104](file://.github/workflows/deploy-railway-main.yml#L95-L104)
+- [.github/workflows/deploy-railway-main.yml:124-133](file://.github/workflows/deploy-railway-main.yml#L124-L133)
+
+### Concurrency and Cancellation
+The workflow implements concurrency control to prevent conflicts:
+
+- **Group**: railway-main-${{ github.ref }} ensures proper grouping
+- **Cancel in Progress**: Automatically cancels in-progress deployments when new commits are pushed
+- **Sequential Processing**: Jobs wait for change detection results before proceeding
+
+**Section sources**
+- [.github/workflows/deploy-railway-main.yml:8-10](file://.github/workflows/deploy-railway-main.yml#L8-L10)
 
 ## Dependency Analysis
-The following diagram shows service dependencies and health gating enforced by Compose.
+The following diagram shows service dependencies and health gating enforced by Compose, plus the new Railway deployment automation dependencies.
 
 ```mermaid
 graph LR
@@ -331,6 +405,14 @@ GR["supabase-rest"] --> DB
 KG["supabase-kong"] --> GA
 KG --> GR
 AG["agents"] --> RD
+subgraph "Railway Deployment Dependencies"
+DETECT["Change Detection"] --> BE_DEPLOY["Backend Deploy"]
+DETECT --> FE_DEPLOY["Frontend Deploy"]
+DETECT --> AG_DEPLOY["Agents Deploy"]
+BE_DEPLOY --> RAILWAY["Railway Platform"]
+FE_DEPLOY --> RAILWAY
+AG_DEPLOY --> RAILWAY
+end
 ```
 
 **Diagram sources**
@@ -338,35 +420,55 @@ AG["agents"] --> RD
 - [docker-compose.yml:101-113](file://docker-compose.yml#L101-L113)
 - [docker-compose.yml:115-144](file://docker-compose.yml#L115-L144)
 - [docker-compose.yml:146-181](file://docker-compose.yml#L146-L181)
+- [.github/workflows/deploy-railway-main.yml:12-47](file://.github/workflows/deploy-railway-main.yml#L12-L47)
 
 **Section sources**
-- [docker-compose.yml:1-191](file://docker-compose.yml#L1-L191)
+- [docker-compose.yml:1-194](file://docker-compose.yml#L1-L194)
+- [.github/workflows/deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
 
 ## Performance Considerations
 - Optimize database queries and indexes; monitor slow queries.
 - Tune Redis memory and eviction policies.
 - Scale backend and agents based on observed queue depth and latency.
 - Use connection pooling for database and Redis.
-
-[No sources needed since this section provides general guidance]
+- **Railway optimization**: Leverage Railway's auto-scaling capabilities and resource allocation.
 
 ## Troubleshooting Guide
-- Healthcheck failures:
-  - Use the healthcheck script to pinpoint failing service.
-- Logs:
-  - Use the Makefile logs target to inspect recent logs across services.
-- Reset environment:
-  - Use the Makefile reset target to clean volumes and rebuild.
+Common issues and resolutions:
+- Database not ready:
+  - Migration runner waits for DB readiness; check DB health and credentials.
+- Auth gateway not healthy:
+  - Verify Kong health and that GoTrue is reachable.
+- Frontend cannot reach backend:
+  - Confirm backend health endpoint and CORS configuration.
+- Missing migrations:
+  - Re-run migration runner or inspect applied versions table.
+- Local user creation failures:
+  - Ensure Supabase admin key is set and auth gateway is healthy.
+- **Railway deployment failures**:
+  - Verify Railway secrets are properly configured in GitHub
+  - Check service IDs match actual Railway service configurations
+  - Review deployment logs for specific error messages
+  - Ensure Railway CLI compatibility with Node.js version
+
+Rollback procedures:
+- Stop services, restore DB from backup, re-apply migrations up to target version, restart services.
+- **Railway rollback**: Use Railway's built-in rollback functionality to revert to previous deployments.
+
+Maintenance tasks:
+- Regularly update base images and rebuild services.
+- Rotate secrets and update environment variables accordingly.
+- **Railway maintenance**: Monitor service health and update Railway configuration as needed.
 
 **Section sources**
-- [scripts/healthcheck.sh:1-35](file://scripts/healthcheck.sh#L1-L35)
-- [Makefile:19-21](file://Makefile#L19-L21)
-- [Makefile:15-17](file://Makefile#L15-L17)
+- [scripts/run_migrations.sh:13-16](file://scripts/run_migrations.sh#L13-L16)
+- [docker-compose.yml:140-144](file://docker-compose.yml#L140-L144)
+- [scripts/healthcheck.sh:32-34](file://scripts/healthcheck.sh#L32-L34)
+- [scripts/seed_local_user.sh:29-37](file://scripts/seed_local_user.sh#L29-L37)
+- [.github/workflows/deploy-railway-main.yml:62-63](file://.github/workflows/deploy-railway-main.yml#L62-L63)
 
 ## Conclusion
-This guide consolidates deployment and operations practices for the containerized application. By leveraging Compose orchestration, health checks, migrations, and the provided scripts, teams can reliably deploy, operate, scale, and troubleshoot the system in production.
-
-[No sources needed since this section summarizes without analyzing specific files]
+This guide consolidates deployment and operations practices for the containerized application, including the new Railway deployment automation system. By leveraging Compose orchestration, health checks, migrations, the provided scripts, and the sophisticated GitHub Actions workflow with path-filtered deployments, teams can reliably deploy, operate, scale, and troubleshoot the system in production with selective, efficient deployments.
 
 ## Appendices
 
@@ -384,9 +486,14 @@ This guide consolidates deployment and operations practices for the containerize
   - EMAIL_NOTIFICATIONS_ENABLED, RESEND_API_KEY, EMAIL_FROM
 - Local seed user:
   - LOCAL_DEV_USER_EMAIL, LOCAL_DEV_USER_PASSWORD
+- **Railway deployment**:
+  - RAILWAY_TOKEN, RAILWAY_PROJECT_ID, RAILWAY_BACKEND_SERVICE_ID, RAILWAY_FRONTEND_SERVICE_ID, RAILWAY_AGENTS_SERVICE_ID
 
 **Section sources**
-- [.env.compose.example:1-46](file://.env.compose.example#L1-L46)
+- [.env.compose.example:1-50](file://.env.compose.example#L1-L50)
+- [.github/workflows/deploy-railway-main.yml:66-75](file://.github/workflows/deploy-railway-main.yml#L66-L75)
+- [.github/workflows/deploy-railway-main.yml:95-104](file://.github/workflows/deploy-railway-main.yml#L95-L104)
+- [.github/workflows/deploy-railway-main.yml:124-133](file://.github/workflows/deploy-railway-main.yml#L124-L133)
 
 ### Example Commands
 - Start services: make up
@@ -395,26 +502,28 @@ This guide consolidates deployment and operations practices for the containerize
 - Validate health: make health
 - Reset environment: make reset
 - Compose configuration validation: make compose-config
+- **Railway deployment**: Trigger workflow manually or wait for automatic detection
 
 **Section sources**
 - [Makefile:9-29](file://Makefile#L9-L29)
+- [.github/workflows/deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
 
 ### Monitoring Dashboards
 - Backend health: probe the backend health endpoint.
 - Kong metrics: configure gateway metrics collection.
 - Database metrics: track connection counts, replication lag, and query performance.
-
-[No sources needed since this section provides general guidance]
+- **Railway monitoring**: Use Railway dashboard for deployment status, service health, and performance metrics.
 
 ### Operational Checklists
 - Pre-deploy:
   - Verify environment variables and secrets.
   - Confirm DB connectivity and initial schema.
+  - **Railway setup**: Verify all Railway service IDs and tokens are configured.
 - Deploy:
   - Apply migrations, start backend, then frontend and agents.
   - Validate with healthcheck script.
+  - **Railway deployment**: Monitor workflow status and service health.
 - Post-deploy:
   - Confirm logs are clean and metrics are healthy.
   - Document applied migration versions.
-
-[No sources needed since this section provides general guidance]
+  - **Railway verification**: Confirm services are running and accessible.
