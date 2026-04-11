@@ -33,7 +33,9 @@ class WorkflowContract(BaseModel):
 def get_workflow_contract() -> WorkflowContract:
     settings = get_settings()
     configured_path = Path(settings.shared_contract_path)
+    bundled_path = Path(__file__).resolve().with_name("workflow-contract.json")
     fallback_paths = (
+        bundled_path,
         Path(__file__).resolve().parents[2] / "shared" / "workflow-contract.json",
         Path(__file__).resolve().parents[3] / "shared" / "workflow-contract.json",
     )

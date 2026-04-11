@@ -1,0 +1,121 @@
+{
+  "version": "1.0.2",
+  "visible_statuses": [
+    { "id": "draft", "label": "Draft" },
+    { "id": "needs_action", "label": "Needs Action" },
+    { "id": "in_progress", "label": "In Progress" },
+    { "id": "complete", "label": "Complete" }
+  ],
+  "internal_states": [
+    "extraction_pending",
+    "extracting",
+    "manual_entry_required",
+    "duplicate_review_required",
+    "generation_pending",
+    "generating",
+    "resume_ready",
+    "regenerating_section",
+    "regenerating_full",
+    "export_in_progress"
+  ],
+  "failure_reasons": [
+    "extraction_failed",
+    "generation_failed",
+    "generation_timeout",
+    "generation_cancelled",
+    "regeneration_failed",
+    "export_failed"
+  ],
+  "workflow_kinds": [
+    "extraction",
+    "generation",
+    "regeneration_section",
+    "regeneration_full",
+    "export"
+  ],
+  "mapping_rules": [
+    {
+      "name": "failure_reason_overrides_to_needs_action",
+      "status": "needs_action",
+      "when": {
+        "failure_reason_any": true
+      }
+    },
+    {
+      "name": "manual_entry_and_duplicate_review_require_attention",
+      "status": "needs_action",
+      "when": {
+        "internal_state_in": [
+          "manual_entry_required",
+          "duplicate_review_required"
+        ]
+      }
+    },
+    {
+      "name": "pre_resume_states_are_draft",
+      "status": "draft",
+      "when": {
+        "internal_state_in": [
+          "extraction_pending",
+          "extracting",
+          "generation_pending",
+          "generating"
+        ]
+      }
+    },
+    {
+      "name": "resume_ready_without_fresh_export_is_needs_action",
+      "status": "needs_action",
+      "when": {
+        "internal_state_in": [
+          "resume_ready"
+        ],
+        "has_successful_export": false
+      }
+    },
+    {
+      "name": "regenerating_and_export_states_are_in_progress",
+      "status": "in_progress",
+      "when": {
+        "internal_state_in": [
+          "regenerating_section",
+          "regenerating_full",
+          "export_in_progress"
+        ]
+      }
+    },
+    {
+      "name": "resume_ready_with_fresh_export_is_complete",
+      "status": "complete",
+      "when": {
+        "internal_state_in": [
+          "resume_ready"
+        ],
+        "has_successful_export": true,
+        "draft_changed_since_export": false
+      }
+    }
+  ],
+  "polling_progress_schema": {
+    "required": [
+      "job_id",
+      "workflow_kind",
+      "state",
+      "message",
+      "percent_complete",
+      "created_at",
+      "updated_at"
+    ],
+    "properties": {
+      "job_id": "uuid",
+      "workflow_kind": "workflow_kinds",
+      "state": "internal_states",
+      "message": "string",
+      "percent_complete": "integer_0_100",
+      "created_at": "iso8601_datetime",
+      "updated_at": "iso8601_datetime",
+      "completed_at": "iso8601_datetime|null",
+      "terminal_error_code": "failure_reasons|null"
+    }
+  }
+}
