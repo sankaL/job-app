@@ -21,11 +21,11 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced ApplicationDetailPage with terminal progress reconciliation capabilities
-- Added applyTerminalGenerationProgress function for improved error handling
-- Implemented applyTerminalGenerationFallback function for graceful degradation
-- Added generation polling termination upon observing terminal progress
-- Improved mapping of terminal progress states to application details
+- Enhanced ApplicationDetailPage with EXTRACTION_DETAIL_REFRESH_FALLBACK_MESSAGE constant for improved extraction failure handling
+- Added applyTerminalExtractionFallback function for graceful degradation when detail refresh fails after terminal extraction progress
+- Implemented improved fallback mechanisms for terminal extraction progress states
+- Enhanced error messaging with specific fallback messages for extraction detail refresh failures
+- Strengthened terminal progress reconciliation system for both extraction and generation workflows
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -41,16 +41,16 @@
 ## Introduction
 This document provides comprehensive documentation for all application pages and their functionality. It covers:
 - ApplicationsDashboardPage: job application listings with filtering and sorting
-- ApplicationDetailPage: individual application views including status tracking, progress indicators, and enhanced terminal progress reconciliation
+- ApplicationDetailPage: individual application views including status tracking, progress indicators, enhanced terminal progress reconciliation, and improved extraction failure handling
 - BaseResumeEditorPage: AI-generated resume editing with section-based content management
 - BaseResumesPage: managing existing base resumes
 - ProfilePage: user account settings and preferences
 - ExtensionPage: Chrome extension integration and job capture workflow
 
-It also documents page-specific state management, data fetching patterns, user interaction flows, responsive/mobile optimization considerations, and the enhanced terminal progress reconciliation system.
+It also documents page-specific state management, data fetching patterns, user interaction flows, responsive/mobile optimization considerations, and the enhanced terminal progress reconciliation system with improved fallback mechanisms.
 
 ## Project Structure
-The application pages live under the frontend routes directory and rely on a shared API client for authenticated requests. UI components include reusable badge and markdown preview utilities. The Chrome extension resides under public/chrome-extension and communicates via postMessage and storage APIs. The backend implements robust terminal progress reconciliation to prevent frontend polling loops.
+The application pages live under the frontend routes directory and rely on a shared API client for authenticated requests. UI components include reusable badge and markdown preview utilities. The Chrome extension resides under public/chrome-extension and communicates via postMessage and storage APIs. The backend implements robust terminal progress reconciliation to prevent frontend polling loops and provide graceful fallback handling.
 
 ```mermaid
 graph TB
@@ -59,6 +59,7 @@ Routes["Routes (Pages)"]
 UI["UI Components"]
 API["API Client"]
 TermRec["Terminal Progress Reconciliation"]
+Fallback["Fallback Mechanisms"]
 End
 subgraph "Chrome Extension"
 Popup["Popup Script"]
@@ -68,10 +69,11 @@ end
 subgraph "Backend"
 Manager["Application Manager"]
 ProgressStore["Progress Store"]
-end
+End
 Routes --> API
 UI --> API
 TermRec --> Routes
+Fallback --> Routes
 Popup --> Routes
 Content --> Routes
 SW --> Popup
@@ -105,13 +107,15 @@ Manager --> ProgressStore
 - StatusBadge: renders status labels with color-coded styles based on visible status.
 - MarkdownPreview: renders Markdown content with GitHub Flavored Markdown support.
 - API client: centralized authenticated requests for applications, base resumes, profile, and extension operations.
-- Terminal Progress Reconciliation: enhanced error handling and graceful degradation for generation workflows.
+- Terminal Progress Reconciliation: enhanced error handling and graceful degradation for generation and extraction workflows.
+- **Enhanced**: Fallback mechanisms: improved extraction failure handling with dedicated fallback messages and graceful degradation strategies.
 
 Key responsibilities:
 - StatusBadge: maps status keys to labels and applies Tailwind classes for visual distinction.
 - MarkdownPreview: wraps react-markdown with remarkGfm for GFM compatibility.
 - API client: handles bearer token acquisition, request dispatch, error parsing, and upload flows.
 - Terminal Progress Reconciliation: prevents frontend polling loops by detecting terminal progress states and gracefully degrading when detail refresh fails.
+- **Enhanced**: Fallback mechanisms: provides specific fallback messages for extraction detail refresh failures and applies graceful degradation strategies for terminal extraction progress states.
 
 **Section sources**
 - [StatusBadge.tsx:1-23](file://frontend/src/components/StatusBadge.tsx#L1-L23)
@@ -121,12 +125,13 @@ Key responsibilities:
 - [ApplicationDetailPage.tsx:173-179](file://frontend/src/routes/ApplicationDetailPage.tsx#L173-L179)
 
 ## Architecture Overview
-The pages follow a unidirectional data flow with enhanced terminal progress reconciliation:
+The pages follow a unidirectional data flow with enhanced terminal progress reconciliation and improved fallback mechanisms:
 - Pages fetch data via the API client and manage local state.
 - UI components render data and trigger actions that call API functions.
 - For long-running operations, pages poll progress endpoints and update state accordingly.
-- Terminal progress reconciliation prevents infinite polling loops by detecting terminal states.
+- Terminal progress reconciliation prevents infinite polling loops by detecting terminal states and applying graceful fallbacks.
 - The Chrome extension communicates via postMessage to the web app and backend.
+- **Enhanced**: Extraction failure handling provides specific fallback messages and graceful degradation when detail refresh operations encounter terminal extraction progress states.
 
 ```mermaid
 sequenceDiagram
@@ -135,23 +140,31 @@ participant Dashboard as "ApplicationsDashboardPage"
 participant API as "API Client"
 participant Backend as "Backend"
 participant TermRec as "Terminal Reconciliation"
+participant Fallback as "Fallback Mechanisms"
 User->>Dashboard : "Paste job URL and click New Application"
 Dashboard->>API : "POST /api/applications {job_url}"
 API->>Backend : "Authenticated request"
 Backend-->>API : "ApplicationDetail"
 API-->>Dashboard : "ApplicationDetail"
 Dashboard-->>User : "Navigate to ApplicationDetailPage"
-User->>Detail : "Trigger generation"
-Detail->>API : "POST generate"
+User->>Detail : "Trigger extraction/generation"
+Detail->>API : "POST extraction/generation"
 Detail->>Poll : "Start polling progress"
 loop Until terminal state
 Poll->>API : "GET progress"
 API->>TermRec : "Check terminal progress"
-TermRec-->>API : "Terminal state detected"
+alt Terminal state reached
+TermRec-->>API : "Terminal progress detected"
+alt Detail refresh fails
+API-->>Fallback : "Apply fallback mechanisms"
+Fallback-->>Detail : "Graceful degradation with fallback message"
+else Detail refresh succeeds
 API-->>Poll : "Terminal progress"
 end
 Poll->>API : "GET detail"
 API-->>Detail : "Updated ApplicationDetail"
+end
+end
 ```
 
 **Diagram sources**
@@ -223,7 +236,7 @@ Purpose:
 - Manages job info editing, manual entry, duplicate review, generation, and PDF export.
 - Polls progress for extraction and generation/regeneration states.
 - Edits resume draft content and triggers targeted regeneration.
-- **Enhanced**: Implements terminal progress reconciliation to prevent infinite polling loops.
+- **Enhanced**: Implements comprehensive terminal progress reconciliation with improved fallback mechanisms for extraction failure handling.
 
 State management:
 - Detail, progress, and draft state.
@@ -231,11 +244,11 @@ State management:
 - Settings for base resume selection, page length, aggressiveness, and additional instructions.
 - Edit mode for draft Markdown content.
 - Optimistic progress display during generation.
-- **Enhanced**: Terminal progress state management with graceful fallback.
+- **Enhanced**: Terminal progress state management with graceful fallback and specific extraction failure messages.
 
 Data fetching:
 - fetchApplicationDetail on mount.
-- fetchApplicationProgress on state transitions to pending/generating.
+- fetchApplicationProgress on state transitions to pending/generating/extraction.
 - fetchDraft when resume-ready or regenerating.
 - listBaseResumes when generation settings become visible.
 
@@ -248,13 +261,17 @@ Actions:
 - Trigger generation/full regeneration/section regeneration.
 - Save draft and export PDF.
 
-**Enhanced** Terminal Progress Reconciliation:
-The ApplicationDetailPage now includes sophisticated terminal progress handling:
+**Enhanced** Terminal Progress Reconciliation and Fallback Mechanisms:
+The ApplicationDetailPage now includes sophisticated terminal progress handling with enhanced extraction failure management:
 
+- `EXTRACTION_DETAIL_REFRESH_FALLBACK_MESSAGE`: Constant providing fallback message for extraction detail refresh failures.
 - `applyTerminalGenerationProgress`: Maps terminal progress states to application details, converting progress states to appropriate internal states and failure reasons.
 - `applyTerminalGenerationFallback`: Gracefully degrades when detail refresh fails, stopping generation polling and clearing optimistic progress indicators.
+- `applyTerminalExtractionFallback`: Applies graceful degradation for terminal extraction progress states, transitioning to manual entry required with proper failure details.
+- `extractionFallbackMessage`: Provides specific fallback messages based on terminal extraction progress states, using the new fallback constant for extraction detail refresh failures.
 - Generation polling termination: Stops polling once terminal progress is observed, preventing infinite loops.
 - Proper state mapping: Converts terminal progress codes to meaningful failure reasons and internal states.
+- **Enhanced**: Improved error handling for extraction detail refresh failures with specific fallback messages and graceful degradation strategies.
 
 ```mermaid
 sequenceDiagram
@@ -263,19 +280,25 @@ participant Detail as "ApplicationDetailPage"
 participant API as "API Client"
 participant Poll as "Progress Poller"
 participant TermRec as "Terminal Reconciliation"
+participant Fallback as "Fallback Mechanisms"
 User->>Detail : "Open application detail"
 Detail->>API : "GET detail"
-alt Extraction or Generation pending
+alt Extraction pending or generating
 Detail->>Poll : "Start polling"
 Poll->>API : "GET progress"
 API->>TermRec : "Check terminal progress"
 alt Terminal state reached
 TermRec-->>API : "Terminal progress detected"
+alt Detail refresh fails
+API-->>Fallback : "Apply terminal extraction fallback"
+Fallback-->>Detail : "Graceful degradation with fallback message"
+else Detail refresh succeeds
 API-->>Poll : "Terminal progress"
+end
 Poll->>API : "GET detail"
 API-->>Detail : "Updated ApplicationDetail"
 TermRec-->>Detail : "Apply terminal progress mapping"
-else Still generating
+else Still extracting/generating
 TermRec-->>API : "Still active"
 API-->>Poll : "Progress update"
 end
@@ -294,9 +317,11 @@ Detail->>Poll : "Start polling"
 
 **Section sources**
 - [ApplicationDetailPage.tsx:1-800](file://frontend/src/routes/ApplicationDetailPage.tsx#L1-L800)
-- [ApplicationDetailPage.tsx:78-109](file://frontend/src/routes/ApplicationDetailPage.tsx#L78-L109)
-- [ApplicationDetailPage.tsx:173-179](file://frontend/src/routes/ApplicationDetailPage.tsx#L173-L179)
-- [ApplicationDetailPage.tsx:260-281](file://frontend/src/routes/ApplicationDetailPage.tsx#L260-281)
+- [ApplicationDetailPage.tsx:67-68](file://frontend/src/routes/ApplicationDetailPage.tsx#L67-L68)
+- [ApplicationDetailPage.tsx:143-148](file://frontend/src/routes/ApplicationDetailPage.tsx#L143-L148)
+- [ApplicationDetailPage.tsx:297-308](file://frontend/src/routes/ApplicationDetailPage.tsx#L297-L308)
+- [ApplicationDetailPage.tsx:345-376](file://frontend/src/routes/ApplicationDetailPage.tsx#L345-L376)
+- [ApplicationDetailPage.tsx:385-414](file://frontend/src/routes/ApplicationDetailPage.tsx#L385-L414)
 - [api.ts:85-110](file://frontend/src/lib/api.ts#L85-L110)
 - [api.ts:255-300](file://frontend/src/lib/api.ts#L255-L300)
 - [api.ts:414-466](file://frontend/src/lib/api.ts#L414-L466)
@@ -438,7 +463,8 @@ Popup->>Web : "Open detail page"
 - ApplicationDetailPage depends on application-options for generation settings and status labels.
 - UI components (StatusBadge, MarkdownPreview) are reused across pages.
 - ExtensionPage coordinates with Chrome extension scripts via postMessage and storage.
-- **Enhanced**: Backend implements terminal progress reconciliation to support frontend improvements.
+- **Enhanced**: Backend implements terminal progress reconciliation with improved fallback mechanisms to support frontend enhancements.
+- **Enhanced**: ApplicationDetailPage includes dedicated fallback constants and functions for graceful extraction failure handling.
 
 ```mermaid
 graph LR
@@ -452,6 +478,7 @@ Ext["ExtensionPage"] --> API
 SB["StatusBadge"] --> AO
 MP["MarkdownPreview"] --> ADet
 AM["ApplicationManager"] --> TermRec["Terminal Reconciliation"]
+AM --> Fallback["Fallback Mechanisms"]
 ```
 
 **Diagram sources**
@@ -480,21 +507,26 @@ AM["ApplicationManager"] --> TermRec["Terminal Reconciliation"]
 - Conditional rendering: skeleton loaders reduce layout shifts while data loads.
 - Mobile-first grids: responsive breakpoints ensure readable content on small screens.
 - **Enhanced**: Generation polling termination upon terminal progress observation improves performance for long-running jobs.
+- **Enhanced**: Specific fallback messages for extraction detail refresh failures reduce error confusion and improve user experience.
 
 ## Troubleshooting Guide
 Common issues and remedies:
 - Authentication failures: ensure a valid session exists; the API client throws if access token is missing.
 - Request errors: API client parses error details from JSON responses; display user-friendly messages.
 - Extension connectivity: verify token issuance, bridge detection, and trusted app URL checks.
-- Progress polling: ensure internal_state transitions out of pending/generating to stop polling.
-- **Enhanced**: Terminal progress reconciliation: if detail refresh fails after terminal progress is observed, the applyTerminalGenerationFallback function gracefully degrades the UI state.
+- Progress polling: ensure internal_state transitions out of pending/generating/extraction to stop polling.
+- **Enhanced**: Terminal progress reconciliation: if detail refresh fails after terminal progress is observed, the applyTerminalGenerationFallback function gracefully degrades the UI state with specific fallback messages.
+- **Enhanced**: Extraction failure handling: when extraction detail refresh fails, the system displays the EXTRACTION_DETAIL_REFRESH_FALLBACK_MESSAGE constant with graceful degradation to manual entry state.
 - PDF uploads: confirm file type and size constraints; optional LLM cleanup flag can be toggled.
+- **Enhanced**: Fallback mechanisms: extraction fallback messages provide clear guidance for users when detail refresh operations encounter terminal extraction progress states.
 
 **Section sources**
 - [api.ts:177-238](file://frontend/src/lib/api.ts#L177-L238)
 - [ExtensionPage.tsx:35-72](file://frontend/src/routes/ExtensionPage.tsx#L35-L72)
 - [ApplicationDetailPage.tsx:102-154](file://frontend/src/routes/ApplicationDetailPage.tsx#L102-L154)
 - [ApplicationDetailPage.tsx:173-179](file://frontend/src/routes/ApplicationDetailPage.tsx#L173-L179)
+- [ApplicationDetailPage.tsx:67-68](file://frontend/src/routes/ApplicationDetailPage.tsx#L67-L68)
+- [ApplicationDetailPage.tsx:143-148](file://frontend/src/routes/ApplicationDetailPage.tsx#L143-L148)
 
 ## Conclusion
-The application pages implement a cohesive, authenticated frontend with robust state management and clear user workflows. Filtering and sorting in the dashboard streamline discovery, while the detail page provides comprehensive controls for progress tracking, generation, and export. The enhanced terminal progress reconciliation system prevents infinite polling loops and improves reliability for long-running generation jobs. The base resume management supports flexible authoring and AI-assisted cleanup. The Chrome extension integration enables seamless job capture and navigation to application detail pages. Responsive design and optimistic UI patterns contribute to a smooth user experience across devices. The backend's terminal progress reconciliation ensures that frontend state management remains consistent even when detail refresh operations encounter temporary failures.
+The application pages implement a cohesive, authenticated frontend with robust state management and clear user workflows. Filtering and sorting in the dashboard streamline discovery, while the detail page provides comprehensive controls for progress tracking, generation, and export. The enhanced terminal progress reconciliation system prevents infinite polling loops and improves reliability for long-running generation jobs. The new extraction failure handling mechanisms provide specific fallback messages and graceful degradation strategies for terminal extraction progress states. The base resume management supports flexible authoring and AI-assisted cleanup. The Chrome extension integration enables seamless job capture and navigation to application detail pages. Responsive design and optimistic UI patterns contribute to a smooth user experience across devices. The backend's terminal progress reconciliation ensures that frontend state management remains consistent even when detail refresh operations encounter temporary failures, with enhanced fallback mechanisms providing clear user guidance and graceful degradation.

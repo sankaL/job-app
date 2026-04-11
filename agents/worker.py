@@ -25,6 +25,11 @@ from validation import validate_resume
 
 logger = logging.getLogger(__name__)
 
+CALLBACK_REQUEST_TIMEOUT_SECONDS = 8.0
+CALLBACK_RETRY_ATTEMPTS = 6
+CALLBACK_RETRY_INITIAL_BACKOFF_SECONDS = 1.0
+CALLBACK_RETRY_MAX_BACKOFF_SECONDS = 8.0
+
 ORIGIN_MAP = {
     "linkedin.com": "linkedin",
     "indeed.com": "indeed",
@@ -381,9 +386,9 @@ class BackendCallbackClient:
         if not self._settings.worker_callback_secret:
             raise RuntimeError("WORKER_CALLBACK_SECRET is not configured.")
         last_error: Optional[Exception] = None
-        for attempt in range(3):
+        for attempt in range(CALLBACK_RETRY_ATTEMPTS):
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
+                async with httpx.AsyncClient(timeout=CALLBACK_REQUEST_TIMEOUT_SECONDS) as client:
                     response = await client.post(
                         f"{self._settings.backend_api_url.rstrip('/')}{path}",
                         json=payload,
@@ -398,8 +403,13 @@ class BackendCallbackClient:
             except httpx.HTTPError as exc:
                 last_error = exc
 
-            if attempt < 2:
-                await asyncio.sleep(0.5 * (2**attempt))
+            if attempt < CALLBACK_RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(
+                    min(
+                        CALLBACK_RETRY_INITIAL_BACKOFF_SECONDS * (2**attempt),
+                        CALLBACK_RETRY_MAX_BACKOFF_SECONDS,
+                    )
+                )
 
         raise RuntimeError("Worker callback failed after retries.") from last_error
 
@@ -642,19 +652,26 @@ async def report_failure(
         completed_at=completed_at,
         terminal_error_code=terminal_error_code,
     )
-    await callback.post(
-        {
-            "application_id": application_id,
-            "user_id": user_id,
-            "job_id": job_id,
-            "event": "failed",
-            "failure": {
-                "message": message,
-                "terminal_error_code": terminal_error_code,
-                "failure_details": failure_details.model_dump() if failure_details else None,
-            },
-        }
-    )
+    try:
+        await callback.post(
+            {
+                "application_id": application_id,
+                "user_id": user_id,
+                "job_id": job_id,
+                "event": "failed",
+                "failure": {
+                    "message": message,
+                    "terminal_error_code": terminal_error_code,
+                    "failure_details": failure_details.model_dump() if failure_details else None,
+                },
+            }
+        )
+    except Exception:
+        logger.exception(
+            "Extraction failure callback delivery failed after terminal progress write. app_id=%s job_id=%s",
+            application_id,
+            job_id,
+        )
 
 
 async def report_bootstrap_progress(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -708,6 +725,8 @@ async def run_extraction_job(
             application_id,
             job_id,
         )
+
+    success_payload: Optional[dict[str, Any]] = None
 
     try:
         if source_capture is not None:
@@ -787,16 +806,7 @@ async def run_extraction_job(
             percent_complete=100,
             completed_at=completed_at,
         )
-        await callback.post(
-            {
-                "application_id": application_id,
-                "user_id": user_id,
-                "job_id": job_id,
-                "event": "succeeded",
-                "extracted": finalized.model_dump(),
-            }
-        )
-        return finalized.model_dump()
+        success_payload = finalized.model_dump()
     except PlaywrightTimeoutError as error:
         await report_failure(
             writer=writer,
@@ -819,6 +829,27 @@ async def run_extraction_job(
             terminal_error_code="extraction_failed",
         )
         raise
+
+    if success_payload is not None:
+        try:
+            await callback.post(
+                {
+                    "application_id": application_id,
+                    "user_id": user_id,
+                    "job_id": job_id,
+                    "event": "succeeded",
+                    "extracted": success_payload,
+                }
+            )
+        except Exception:
+            logger.exception(
+                "Extraction success callback delivery failed; relying on progress reconciliation. app_id=%s job_id=%s",
+                application_id,
+                job_id,
+            )
+        return success_payload
+
+    raise RuntimeError("Extraction completed without a success payload.")
 
 
 # ---------------------------------------------------------------------------

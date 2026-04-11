@@ -13,7 +13,16 @@
 - [workflow-contract.json](file://shared/workflow-contract.json)
 - [pdf_export.py](file://backend/app/services/pdf_export.py)
 - [internal_worker.py](file://backend/app/api/internal_worker.py)
+- [test_worker.py](file://agents/tests/test_worker.py)
+- [application_manager.py](file://backend/app/services/application_manager.py)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated extraction callback resilience documentation to reflect best-effort callback behavior
+- Added documentation for enhanced extraction reliability measures
+- Updated callback error handling and recovery mechanisms
+- Enhanced extraction job continuation logic when callbacks fail
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -31,6 +40,8 @@
 The AI Prompt System is a sophisticated, multi-agent architecture designed to generate, validate, and assemble professional resumes with strict adherence to Anti-Tracking Safety (ATS) compliance and privacy protection. This system operates as a single-call generation pipeline that produces structured JSON output, which is then validated locally and assembled deterministically.
 
 The system maintains four distinct prompt families: Job Posting Extraction, Resume Generation (full and single-section), and Resume Upload Cleanup. Each prompt family is carefully crafted to ensure that sensitive personal information remains protected while producing high-quality, ATS-optimized content.
+
+**Updated** Enhanced extraction reliability with best-effort callback behavior and improved error recovery mechanisms.
 
 ## Project Structure
 
@@ -87,6 +98,8 @@ The system defines four primary prompt families, each serving specific use cases
 - **Purpose**: Extract structured job posting fields from captured webpage context
 - **Constraints**: No invented facts, requires job_title and job_description
 - **Origin Normalization**: Supports 8 predefined sources (LinkedIn, Indeed, Google Jobs, Glassdoor, ZipRecruiter, Monster, Dice, Company Website)
+- **Enhanced Reliability**: Best-effort callback delivery with automatic continuation when backend is unreachable
+- **Runtime Enforcement**: Structured output validation with comprehensive field requirements
 
 #### Resume Generation Prompts
 - **Shared System Prompt**: Base template used for both full-draft and single-section generation
@@ -381,6 +394,46 @@ DuplicateReviewRequired --> ExtractionPending : Review Complete
 - [workflow-contract.json:1-114](file://shared/workflow-contract.json#L1-L114)
 - [workflow.py:1-32](file://backend/app/services/workflow.py#L1-L32)
 
+### Extraction Callback Resilience
+
+**Updated** The extraction system now implements best-effort callback delivery with enhanced reliability:
+
+```mermaid
+flowchart TD
+Start([Extraction Job Start]) --> TryCallback[Try Send 'started' Callback]
+TryCallback --> CallbackSuccess{Callback Success?}
+CallbackSuccess --> |Yes| Continue[Continue with Extraction]
+CallbackSuccess --> |No| LogError[Log Exception]
+LogError --> ProgressOnly[Continue with Progress Tracking Only]
+ProgressOnly --> Continue
+Continue --> Extract[Run Extraction]
+Extract --> Validate[Validate Results]
+Validate --> SuccessCallback[Try Send 'succeeded' Callback]
+SuccessCallback --> SuccessComplete[Extraction Complete]
+SuccessCallback --> |Exception| ProgressOnly2[Continue with Progress Only]
+ProgressOnly2 --> SuccessComplete
+```
+
+**Diagram sources**
+- [worker.py:696-711](file://agents/worker.py#L696-L711)
+- [worker.py:705-710](file://agents/worker.py#L705-L710)
+
+#### Callback Error Handling
+
+The extraction system implements comprehensive error handling for callback failures:
+
+| Scenario | Behavior | Recovery Mechanism |
+|----------|----------|-------------------|
+| Started callback fails | Log exception and continue | Progress tracking via Redis only |
+| Succeeded callback fails | Continue with extraction completion | Terminal callback for reconciliation |
+| Backend unreachable | Best-effort delivery with retries | Eventual state convergence via Redis |
+| Network errors | Automatic retry with exponential backoff | Fallback to progress-only tracking |
+
+**Section sources**
+- [worker.py:696-711](file://agents/worker.py#L696-L711)
+- [worker.py:705-710](file://agents/worker.py#L705-L710)
+- [test_worker.py:273-337](file://agents/tests/test_worker.py#L273-L337)
+
 ## Dependency Analysis
 
 The prompt system exhibits well-managed dependencies with clear separation of concerns:
@@ -423,6 +476,7 @@ end
 | Privacy Module | High (9/10) | Very Low (2/10) | 0 external dependencies |
 | Assembly Agent | High (8/10) | Low (3/10) | 1 internal dependency |
 | Worker Orchestrator | Medium (6/10) | High (7/10) | 4 external integrations |
+| **Extraction Callback System** | **High (9/10)** | **Medium (6/10)** | **1 external integration** |
 
 **Section sources**
 - [generation.py:1-596](file://agents/generation.py#L1-L596)
@@ -456,6 +510,19 @@ The system employs efficient memory handling:
 - **Content Normalization**: Reduces redundant whitespace and formatting
 - **Sanitization Pipeline**: Removes unnecessary content before LLM processing
 
+### Extraction Reliability Improvements
+
+**Updated** Enhanced extraction reliability through best-effort callback delivery:
+
+- **Callback Resilience**: Extraction continues even when callback endpoints are temporarily unreachable
+- **Progress Tracking**: Redis-based progress monitoring ensures state consistency
+- **Terminal Recovery**: Backend reconciliation handles eventual callback delivery
+- **Error Classification**: Specific failure types for extraction callback delivery issues
+
+**Section sources**
+- [prompts.md:336-345](file://docs/prompts.md#L336-L345)
+- [worker.py:696-711](file://agents/worker.py#L696-L711)
+
 ## Troubleshooting Guide
 
 ### Common Prompt Issues
@@ -467,6 +534,7 @@ The system employs efficient memory handling:
 | ATS Violation | HTML, tables, or images in output | Apply ATS safety validation |
 | Grounding Failure | Unsupported claims or dates | Verify base resume content |
 | Timeout Error | Generation exceeds timeout limits | Reduce content size or adjust settings |
+| **Extraction Callback Failure** | **Started callback exception logged** | **Best-effort continuation with progress tracking** |
 
 ### Debugging Strategies
 
@@ -474,6 +542,7 @@ The system employs efficient memory handling:
 2. **Privacy Audit**: Verify sanitization results before LLM calls
 3. **Validation Trace**: Check validation error categories and severity
 4. **Workflow State**: Monitor internal state transitions in workflow manager
+5. **Callback Monitoring**: Check extraction callback delivery logs and Redis progress
 
 ### Error Recovery Patterns
 
@@ -483,11 +552,15 @@ Error[Error Occurred] --> Classify[Classify Error Type]
 Classify --> PrivacyError[Privacy Error]
 Classify --> ValidationError[Validation Error]
 Classify --> TimeoutError[Timeout Error]
+Classify --> CallbackError[Callback Error]
 Classify --> OtherError[Other Error]
 PrivacyError --> Sanitize[Re-sanitize Content]
 ValidationError --> Fix[Fix Validation Issues]
 TimeoutError --> Retry[Retry with Reduced Content]
+CallbackError --> BestEffort[Best-Effort Continuation]
 OtherError --> Report[Report to Backend]
+BestEffort --> ProgressOnly[Progress-Only Tracking]
+ProgressOnly --> Continue[Continue Extraction]
 Sanitize --> RetryCall[Retry Generation Call]
 Fix --> RetryCall
 Retry --> RetryCall
@@ -495,9 +568,18 @@ RetryCall --> Success[Success]
 Report --> Manual[Manual Intervention Required]
 ```
 
+**Updated** Enhanced callback error recovery with best-effort continuation:
+
+- **Started Callback Failure**: Extraction continues with progress-only tracking
+- **Succeeded Callback Failure**: Backend reconciliation handles eventual delivery
+- **Network Transients**: Automatic retry with exponential backoff
+- **Eventual Consistency**: Redis progress ensures state convergence
+
 **Section sources**
 - [generation.py:388-441](file://agents/generation.py#L388-L441)
 - [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [worker.py:696-711](file://agents/worker.py#L696-L711)
+- [test_worker.py:273-337](file://agents/tests/test_worker.py#L273-L337)
 
 ## Conclusion
 
@@ -509,5 +591,8 @@ Key architectural achievements include:
 - **Single-Call Efficiency**: Reduced latency and costs through optimized architecture
 - **Runtime Flexibility**: Dynamic section permutations and parameter variations
 - **Robust Error Handling**: Comprehensive fallback mechanisms and recovery strategies
+- **Enhanced Extraction Reliability**: Best-effort callback delivery with automatic continuation
+
+**Updated** Recent improvements focus on extraction callback resilience, ensuring system reliability even when backend communication is temporarily unavailable. The addition of best-effort callback behavior provides graceful degradation while maintaining eventual consistency through Redis-based progress tracking.
 
 The system's modular design facilitates future enhancements while maintaining backward compatibility. The extensive documentation and testing infrastructure support ongoing development and maintenance efforts.

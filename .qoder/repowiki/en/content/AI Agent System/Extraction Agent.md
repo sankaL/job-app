@@ -10,6 +10,14 @@
 - [AGENTS.md](file://agents/AGENTS.md)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Enhanced extraction callback resilience with best-effort started callback delivery
+- Improved error handling for transient network failures
+- Added comprehensive logging and structured context for debugging
+- Updated progress tracking to continue even when callback delivery fails
+- Enhanced backend reconciliation logic for callback synchronization failures
+
 ## Table of Contents
 1. [Introduction](#introduction)
 2. [Project Structure](#project-structure)
@@ -23,7 +31,7 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document describes the Extraction Agent responsible for automatically extracting job postings from URLs. It covers the web scraping pipeline using Playwright, page context capture, metadata extraction, content normalization, job board parsing for multiple platforms, blocked URL detection, reference ID extraction, origin normalization, structured extraction via OpenRouter LLMs with schema validation, and integration with the progress tracking system. It also documents error handling, timeouts, and fallback/retry strategies.
+This document describes the Extraction Agent responsible for automatically extracting job postings from URLs. It covers the web scraping pipeline using Playwright, page context capture, metadata extraction, content normalization, job board parsing for multiple platforms, blocked URL detection, reference ID extraction, origin normalization, structured extraction via OpenRouter LLMs with schema validation, and integration with the progress tracking system. It also documents enhanced error handling for transient network failures, callback resilience mechanisms, and comprehensive logging for debugging purposes.
 
 ## Project Structure
 The extraction agent lives in the agents module and coordinates with the backend via internal callbacks. The shared workflow contract defines the internal states and transitions used by the progress tracking system.
@@ -39,7 +47,7 @@ C["workflow-contract.json<br/>Internal states & transitions"]
 end
 subgraph "Backend"
 API["internal_worker.py<br/>Internal worker endpoints"]
-SVC["application_manager.py<br/>Application state machine"]
+SVC["application_manager.py<br/>Application state machine<br/>+ Callback Reconciliation"]
 end
 W --> API
 API --> SVC
@@ -48,13 +56,13 @@ T --> W
 ```
 
 **Diagram sources**
-- [worker.py:1-1236](file://agents/worker.py#L1-L1236)
+- [worker.py:1-1430](file://agents/worker.py#L1-L1430)
 - [workflow-contract.json:1-112](file://shared/workflow-contract.json#L1-L112)
 - [internal_worker.py:1-71](file://backend/app/api/internal_worker.py#L1-L71)
 - [application_manager.py:477-511](file://backend/app/services/application_manager.py#L477-L511)
 
 **Section sources**
-- [worker.py:1-1236](file://agents/worker.py#L1-L1236)
+- [worker.py:1-1430](file://agents/worker.py#L1-L1430)
 - [workflow-contract.json:1-112](file://shared/workflow-contract.json#L1-L112)
 - [internal_worker.py:1-71](file://backend/app/api/internal_worker.py#L1-L71)
 - [application_manager.py:477-511](file://backend/app/services/application_manager.py#L477-L511)
@@ -66,7 +74,9 @@ T --> W
 - Reference ID extraction from URLs and content
 - Blocked URL detection and reporting
 - Structured extraction using OpenRouter LLMs with ExtractedJobPosting schema validation
-- Progress tracking via Redis and backend callbacks
+- **Enhanced progress tracking via Redis with best-effort callback delivery**
+- **Improved error handling for transient network failures**
+- **Comprehensive logging and structured context for debugging**
 - Fallback and retry strategies for extraction failures
 
 **Section sources**
@@ -79,13 +89,15 @@ T --> W
 - [worker.py:475-509](file://agents/worker.py#L475-L509)
 
 ## Architecture Overview
-The extraction agent orchestrates a deterministic pipeline:
+The extraction agent orchestrates a deterministic pipeline with enhanced callback resilience:
 - Initialize settings and clients
 - Capture page context (Playwright) or accept a pre-captured source
 - Detect blocked sources
+- **Best-effort started callback delivery with comprehensive error handling**
 - Run structured extraction via OpenRouter LLM
 - Finalize and validate the extracted job posting
-- Report progress and completion/failure to backend
+- **Continue progress tracking even if callback delivery fails**
+- Report completion/failure to backend with enhanced error context
 
 ```mermaid
 sequenceDiagram
@@ -98,6 +110,12 @@ participant Backend as "BackendCallbackClient"
 Client->>Worker : "run_extraction_job(application_id, user_id, job_url, job_id, source_capture?)"
 Worker->>Redis : "set_progress(extracting, 10%)"
 Worker->>Backend : "post(started)"
+alt "started callback succeeds"
+Worker->>Worker : "continue with extraction"
+else "started callback fails"
+Worker->>Worker : "log exception with structured context"
+Worker->>Worker : "continue with progress-only tracking"
+end
 alt "source_capture provided"
 Worker->>Worker : "build_page_context_from_capture()"
 Worker->>Redis : "set_progress(extracting, 35%)"
@@ -123,7 +141,7 @@ end
 ```
 
 **Diagram sources**
-- [worker.py:526-666](file://agents/worker.py#L526-L666)
+- [worker.py:674-821](file://agents/worker.py#L674-L821)
 - [worker.py:372-409](file://agents/worker.py#L372-L409)
 - [worker.py:307-370](file://agents/worker.py#L307-L370)
 - [worker.py:448-472](file://agents/worker.py#L448-L472)
@@ -156,10 +174,10 @@ BuildContext --> End(["Return PageContext"])
 ```
 
 **Diagram sources**
-- [worker.py:372-409](file://agents/worker.py#L372-L409)
+- [worker.py:487-524](file://agents/worker.py#L487-L524)
 
 **Section sources**
-- [worker.py:372-409](file://agents/worker.py#L372-L409)
+- [worker.py:487-524](file://agents/worker.py#L487-L524)
 
 ### Metadata Extraction and Content Normalization
 - Normalizes origin from final URL using a predefined mapping for LinkedIn, Indeed, Google Jobs, Glassdoor, ZipRecruiter, Monster, Dice, and treats other domains as company_website.
@@ -169,20 +187,20 @@ BuildContext --> End(["Return PageContext"])
 - Truncates visible text and meta to constrain prompt size.
 
 **Section sources**
-- [worker.py:162-174](file://agents/worker.py#L162-L174)
-- [worker.py:177-196](file://agents/worker.py#L177-L196)
-- [worker.py:398-409](file://agents/worker.py#L398-L409)
+- [worker.py:248-261](file://agents/worker.py#L248-L261)
+- [worker.py:263-282](file://agents/worker.py#L263-L282)
+- [worker.py:513-524](file://agents/worker.py#L513-L524)
 
 ### Blocked URL Detection System
 - Combines page title, final URL, meta keys/values, and a snippet of visible text.
 - Detects providers by markers:
-  - Indeed: support.indeed.com or “you have been blocked”
-  - Cloudflare: “cloudflare”, “ray id”, “cf-chl”
+  - Indeed: support.indeed.com or "you have been blocked"
+  - Cloudflare: "cloudflare", "ray id", "cf-chl"
 - Extracts a provider-specific reference ID (e.g., Ray ID) when present.
 - Returns an ExtractionFailureDetails object with kind, provider, reference_id, blocked_url, and detected_at.
 
 **Section sources**
-- [worker.py:199-237](file://agents/worker.py#L199-L237)
+- [worker.py:285-324](file://agents/worker.py#L285-L324)
 
 ### Structured Extraction Using OpenRouter LLMs
 - Uses a dedicated extraction agent class that:
@@ -194,7 +212,7 @@ BuildContext --> End(["Return PageContext"])
   - job_posting_origin (normalized)
   - job_posting_origin_other_text (only when origin is other)
   - extracted_reference_id (optional)
-- The agent’s system prompt enforces normalized origins and disallows invented facts.
+- The agent's system prompt enforces normalized origins and disallows invented facts.
 
 ```mermaid
 classDiagram
@@ -215,12 +233,12 @@ OpenRouterExtractionAgent --> ExtractedJobPosting : "returns"
 ```
 
 **Diagram sources**
-- [worker.py:307-370](file://agents/worker.py#L307-L370)
-- [worker.py:121-156](file://agents/worker.py#L121-L156)
+- [worker.py:407-484](file://agents/worker.py#L407-L484)
+- [worker.py:127-172](file://agents/worker.py#L127-L172)
 
 **Section sources**
-- [worker.py:307-370](file://agents/worker.py#L307-L370)
-- [worker.py:121-156](file://agents/worker.py#L121-L156)
+- [worker.py:407-484](file://agents/worker.py#L407-L484)
+- [worker.py:127-172](file://agents/worker.py#L127-L172)
 
 ### Origin Normalization and Reference ID Finalization
 - finalize_extracted_posting merges:
@@ -229,14 +247,19 @@ OpenRouterExtractionAgent --> ExtractedJobPosting : "returns"
   - Ensures extracted_reference_id falls back to context when not provided
 
 **Section sources**
-- [worker.py:427-445](file://agents/worker.py#L427-L445)
+- [worker.py:542-562](file://agents/worker.py#L542-L562)
 
-### Progress Tracking and Backend Callbacks
+### Enhanced Progress Tracking and Callback Resilience
+**Updated** Enhanced with best-effort callback delivery and comprehensive error handling
+
 - Progress is written to Redis under a key derived from application_id.
 - The worker posts lifecycle events to backend endpoints:
   - Extraction callback: started, succeeded, failed
   - Generation and regeneration callbacks: started, succeeded, failed
-- The backend service updates application state and triggers downstream flows.
+- **Best-effort started callback delivery**: Attempts to send the "started" callback, but continues execution even if it fails
+- **Comprehensive logging**: Structured logging with application ID and job ID context for debugging
+- **Progress-only continuation**: Extraction continues regardless of callback delivery status
+- **Backend reconciliation**: Backend service detects callback synchronization failures and handles them gracefully
 
 ```mermaid
 sequenceDiagram
@@ -245,18 +268,26 @@ participant Redis as "RedisProgressWriter"
 participant Backend as "BackendCallbackClient"
 Worker->>Redis : "set(progress)"
 Worker->>Backend : "post({event : started})"
+alt "callback succeeds"
+Backend-->>Worker : "acknowledged"
+Worker->>Worker : "continue with extraction"
+else "callback fails"
+Backend-->>Worker : "exception"
+Worker->>Worker : "log structured exception"
+Worker->>Worker : "continue with progress-only tracking"
+end
 Worker->>Backend : "post({event : succeeded|failed, ...})"
 ```
 
 **Diagram sources**
+- [worker.py:696-710](file://agents/worker.py#L696-L710)
 - [worker.py:448-472](file://agents/worker.py#L448-L472)
 - [worker.py:475-509](file://agents/worker.py#L475-L509)
-- [internal_worker.py:19-34](file://backend/app/api/internal_worker.py#L19-L34)
 
 **Section sources**
+- [worker.py:696-710](file://agents/worker.py#L696-L710)
 - [worker.py:448-472](file://agents/worker.py#L448-L472)
 - [worker.py:475-509](file://agents/worker.py#L475-L509)
-- [internal_worker.py:19-34](file://backend/app/api/internal_worker.py#L19-L34)
 
 ### Schema Validation and Error Handling
 - After extraction, the worker validates the final ExtractedJobPosting using Pydantic model validation.
@@ -267,63 +298,77 @@ Worker->>Backend : "post({event : succeeded|failed, ...})"
   - blocked_source: reports manual entry required with failure details
   - extraction_failed: reports manual entry required with generic failure
   - TimeoutError: reports manual entry required with timeout message
+- **Enhanced error handling**: Comprehensive exception logging with structured context for debugging
 
 **Section sources**
-- [worker.py:614-624](file://agents/worker.py#L614-L624)
-- [worker.py:645-666](file://agents/worker.py#L645-L666)
+- [worker.py:799-821](file://agents/worker.py#L799-L821)
+- [worker.py:285-324](file://agents/worker.py#L285-L324)
+- [worker.py:705-710](file://agents/worker.py#L705-L710)
 
 ### Fallback Mechanisms and Retry Strategies
 - Extraction agent retries once using a fallback model if the primary fails.
+- **Enhanced callback resilience**: Started callback delivery uses exponential backoff with retries
+- **Backend reconciliation**: Backend service handles callback synchronization failures gracefully
 - The worker sets a terminal error code and posts failure details to the backend for recovery and manual entry.
 
 **Section sources**
-- [worker.py:319-328](file://agents/worker.py#L319-L328)
+- [worker.py:419-428](file://agents/worker.py#L419-L428)
+- [worker.py:384-404](file://agents/worker.py#L384-L404)
 - [worker.py:475-509](file://agents/worker.py#L475-L509)
 
 ### Examples of Extraction Workflows
 - Successful extraction:
   - Scrape page context or use source_capture
   - Detect blocked sources (if any)
+  - **Best-effort started callback delivery**
   - Run structured extraction with OpenRouter
   - Validate schema and finalize
+  - **Continue progress tracking regardless of callback status**
   - Report success to backend and update progress to generation_pending
 - Blocked source:
   - Detect blocked page and report failure with blocked_source
   - Transition to manual_entry_required
+- **Callback failure scenarios**:
+  - Started callback fails due to network issues
+  - Extraction completes successfully despite callback failure
+  - Backend service detects and handles callback synchronization failure
 - Insufficient source text:
   - If source_capture is provided and visible_text is too short, report extraction_failed
 
 **Section sources**
-- [worker.py:526-666](file://agents/worker.py#L526-L666)
-- [test_worker.py:83-96](file://agents/tests/test_worker.py#L83-L96)
+- [worker.py:674-821](file://agents/worker.py#L674-L821)
+- [test_worker.py:273-337](file://agents/tests/test_worker.py#L273-L337)
 
 ## Dependency Analysis
 - External libraries:
   - Playwright for browser automation
   - LangChain OpenAI for structured LLM calls
   - Redis client for progress persistence
-  - HTTPX for backend callbacks
+  - HTTPX for backend callbacks with retry logic
 - Internal dependencies:
   - Assembly and validation modules for downstream generation
   - Shared workflow contract for state machine semantics
+  - **Enhanced backend service with callback reconciliation**
 
 ```mermaid
 graph LR
 Worker["worker.py"] --> Playwright["playwright"]
 Worker --> LangChain["langchain_openai"]
 Worker --> Redis["redis"]
-Worker --> Httpx["httpx"]
+Worker --> Httpx["httpx (retry logic)"]
 Worker --> Assembly["assembly.py"]
 Worker --> Validation["validation.py"]
 Worker --> Contract["workflow-contract.json"]
+Backend["application_manager.py"] --> Reconciliation["Callback Reconciliation Logic"]
 ```
 
 **Diagram sources**
-- [worker.py:1-24](file://agents/worker.py#L1-L24)
+- [worker.py:1-25](file://agents/worker.py#L1-L25)
 - [workflow-contract.json:1-112](file://shared/workflow-contract.json#L1-L112)
+- [application_manager.py:63-65](file://backend/app/services/application_manager.py#L63-L65)
 
 **Section sources**
-- [worker.py:1-24](file://agents/worker.py#L1-L24)
+- [worker.py:1-25](file://agents/worker.py#L1-L25)
 - [workflow-contract.json:1-112](file://shared/workflow-contract.json#L1-L112)
 
 ## Performance Considerations
@@ -335,8 +380,9 @@ Worker --> Contract["workflow-contract.json"]
   - Extraction agent attempts a fallback model once to improve reliability.
 - Progress granularity:
   - Percent-complete increments are used to provide user feedback during long-running steps.
-
-[No sources needed since this section provides general guidance]
+- **Enhanced callback performance**:
+  - Best-effort callback delivery prevents blocking extraction on transient network failures.
+  - Exponential backoff reduces server load during callback retries.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -344,38 +390,47 @@ Common issues and resolutions:
   - Indicates slow network or blocked page. The worker reports manual entry required.
 - Blocked source detected:
   - The worker extracts provider and reference ID (e.g., Ray ID) and transitions to manual entry.
+- **Callback synchronization failure**:
+  - **Started callback fails due to network issues but extraction continues**
+  - **Backend service detects callback delivery failure and handles gracefully**
+  - **Check worker logs for structured exception context with app_id and job_id**
 - Insufficient source text:
   - When using source_capture, if visible text is too short, the worker requests manual entry.
 - Validation failed:
   - The extracted fields must pass Pydantic validation; ensure required fields job_title and job_description are present.
 - Missing configuration:
   - OPENROUTER_API_KEY, EXTRACTION_AGENT_MODEL, EXTRACTION_AGENT_FALLBACK_MODEL must be set.
+- **Transient network failures**:
+  - **Started callback delivery uses retry logic with exponential backoff**
+  - **Extraction continues even if callback fails**
+  - **Backend service provides reconciliation for callback synchronization issues**
 
 **Section sources**
-- [worker.py:645-666](file://agents/worker.py#L645-L666)
-- [worker.py:199-237](file://agents/worker.py#L199-L237)
-- [worker.py:614-624](file://agents/worker.py#L614-L624)
-- [worker.py:312-318](file://agents/worker.py#L312-L318)
+- [worker.py:799-821](file://agents/worker.py#L799-L821)
+- [worker.py:285-324](file://agents/worker.py#L285-L324)
+- [worker.py:705-710](file://agents/worker.py#L705-L710)
+- [worker.py:384-404](file://agents/worker.py#L384-L404)
 
 ## Conclusion
-The Extraction Agent provides a robust, deterministic pipeline for extracting job postings from URLs. It combines reliable browser automation, careful metadata capture, structured LLM extraction with schema validation, and resilient progress tracking. The system gracefully handles blocked sources, timeouts, and insufficient content by transitioning to manual entry and preserving diagnostic context for recovery.
-
-[No sources needed since this section summarizes without analyzing specific files]
+The Extraction Agent provides a robust, deterministic pipeline for extracting job postings from URLs with enhanced resilience against network failures. It combines reliable browser automation, careful metadata capture, structured LLM extraction with schema validation, and resilient progress tracking with best-effort callback delivery. The system gracefully handles blocked sources, timeouts, insufficient content, and transient network failures by continuing execution, providing comprehensive logging, and enabling backend reconciliation for callback synchronization issues.
 
 ## Appendices
 
 ### Integration with Backend and Workflow States
 - The worker posts lifecycle events to backend endpoints with a shared secret.
-- The backend service updates application records and transitions internal states according to the shared workflow contract.
+- **Enhanced backend service updates application records and transitions internal states according to the shared workflow contract.**
+- **Backend service includes reconciliation logic for callback synchronization failures.**
 
 **Section sources**
 - [internal_worker.py:19-34](file://backend/app/api/internal_worker.py#L19-L34)
-- [application_manager.py:477-511](file://backend/app/services/application_manager.py#L477-L511)
+- [application_manager.py:905-929](file://backend/app/services/application_manager.py#L905-L929)
 - [workflow-contract.json:9-26](file://shared/workflow-contract.json#L9-L26)
 
-### Example Test Coverage
-- Tests cover origin normalization, reference ID extraction, blocked page detection, page context construction from capture, and fallback model behavior.
+### Enhanced Callback Resilience Testing
+- **Tests cover best-effort started callback delivery when backend is temporarily unreachable**
+- **Verification that extraction continues despite callback failures**
+- **Progress tracking maintains state even when callbacks fail**
+- **Backend reconciliation logic handles callback synchronization failures gracefully**
 
 **Section sources**
-- [test_worker.py:37-96](file://agents/tests/test_worker.py#L37-L96)
-- [test_worker.py:121-127](file://agents/tests/test_worker.py#L121-L127)
+- [test_worker.py:273-337](file://agents/tests/test_worker.py#L273-L337)

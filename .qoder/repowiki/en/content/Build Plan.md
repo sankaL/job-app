@@ -23,16 +23,18 @@
 - [frontend/vite.config.ts](file://frontend/vite.config.ts)
 - [frontend/src/lib/env.ts](file://frontend/src/lib/env.ts)
 - [agents/worker.py](file://agents/worker.py)
+- [backend/app/api/internal_worker.py](file://backend/app/api/internal_worker.py)
+- [backend/app/services/application_manager.py](file://backend/app/services/application_manager.py)
+- [frontend/src/routes/ApplicationDetailPage.tsx](file://frontend/src/routes/ApplicationDetailPage.tsx)
 - [.env.compose.example](file://.env.compose.example)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Enhanced deployment troubleshooting documentation with systematic guidance for production session bootstrap failures, Redis connectivity issues, and workflow contract path resolution problems
-- Added comprehensive troubleshooting procedures for common deployment challenges
-- Updated Railway runtime routing documentation with backend port binding to $PORT
-- Added frontend custom domain host checks for applix.ca
-- Revised deployment pipeline documentation to reflect enhanced routing fixes
+- Added two new task entries documenting extraction callback resilience improvements and terminal progress reconciliation features
+- Updated bug fixes section to include extraction callback resilience (B5-T05) and terminal progress reconciliation (B5-T04) implementations
+- Enhanced reliability section with detailed explanation of callback resilience and terminal reconciliation mechanisms
+- Updated troubleshooting guide with specific guidance for callback delivery failures and terminal progress handling
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -44,14 +46,15 @@
 7. [Deployment Pipeline](#deployment-pipeline)
 8. [Dependency Analysis](#dependency-analysis)
 9. [Performance Considerations](#performance-considerations)
-10. [Troubleshooting Guide](#troubleshooting-guide)
-11. [Conclusion](#conclusion)
-12. [Appendices](#appendices)
+10. [Reliability Enhancements](#reliability-enhancements)
+11. [Troubleshooting Guide](#troubleshooting-guide)
+12. [Conclusion](#conclusion)
+13. [Appendices](#appendices)
 
 ## Introduction
 This document describes the Build Plan for the AI Resume Builder project. It consolidates the roadmap, implementation status, and operational build practices across the frontend, backend, agents (workers), and local development stack. It also documents the containerized local environment, deployment automation, and configuration contracts that ensure reproducible builds and reliable CI/CD on Railway.
 
-**Updated** Enhanced with improved Railway runtime routing fixes, including backend port binding to $PORT and frontend custom domain host checks for applix.ca. Added comprehensive deployment troubleshooting documentation covering production session bootstrap failures, Redis connectivity issues, and workflow contract path resolution problems.
+**Updated** Enhanced with extraction callback resilience improvements and terminal progress reconciliation features that provide reliability guarantees for distributed asynchronous workflows.
 
 ## Project Structure
 The project is organized into layered services:
@@ -102,7 +105,7 @@ R_AG --> R_KV
 - [.github/workflows/deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
 
 **Section sources**
-- [docs/build-plan.md:1-505](file://docs/build-plan.md#L1-L505)
+- [docs/build-plan.md:1-507](file://docs/build-plan.md#L1-L507)
 - [docker-compose.yml:1-194](file://docker-compose.yml#L1-L194)
 
 ## Core Components
@@ -432,6 +435,79 @@ REST --> DB
 - Use Railway's platform resources and scaling for production workloads
 - Enhanced port binding reduces connection overhead in dynamic environments
 
+## Reliability Enhancements
+
+### Extraction Callback Resilience
+The system now implements resilient extraction callback handling to prevent job termination during transient backend connectivity issues:
+
+- **Best-effort Callback Delivery**: The initial `event=started` callback is treated as best-effort rather than fatal
+- **Graceful Degradation**: Extraction jobs continue running even when the initial callback cannot reach the backend
+- **Progress-driven Recovery**: Jobs rely on Redis-backed progress updates and terminal reconciliation paths
+- **Retry Logic**: Backend callback client implements exponential backoff with 3 retry attempts
+- **Error Classification**: HTTP 4xx errors are treated as fatal, while 5xx errors trigger retries
+
+**Implementation Details**:
+- BackendCallbackClient.post() method handles callback delivery with retry logic
+- Exponential backoff strategy (0.5s, 1.0s, 2.0s delays between attempts)
+- Fatal error classification for 4xx HTTP status codes
+- Runtime error raised after all retry attempts fail
+
+**Section sources**
+- [agents/worker.py:376-404](file://agents/worker.py#L376-L404)
+- [backend/app/api/internal_worker.py:19-34](file://backend/app/api/internal_worker.py#L19-L34)
+
+### Terminal Progress Reconciliation
+The system provides immediate manual-entry fallback when worker callbacks are unreachable:
+
+- **Redis-based Terminal Detection**: Backend monitors Redis progress store for terminal states
+- **Immediate Fallback Trigger**: When terminal progress arrives but callback delivery fails, system transitions to manual_entry_required
+- **Failure Details Preservation**: Callback-sync failures are recorded in extraction_failure_details with provider and reference ID
+- **Frontend Polling Integration**: Frontend extraction polling switches to manual-entry recovery when terminal progress indicates completion
+- **Notification Management**: Action-required notifications are cleared and re-created appropriately
+
+**Reconciliation Logic**:
+- `_reconcile_terminal_extraction_progress()` method handles terminal state detection
+- Success case: transitions to manual_entry_required with callback_delivery_failed details
+- Failure case: preserves existing failure details or infers blocked_source when applicable
+- Progress synthesis: builds synthetic progress records when application state differs from stored progress
+
+**Section sources**
+- [backend/app/services/application_manager.py:724-849](file://backend/app/services/application_manager.py#L724-L849)
+- [frontend/src/routes/ApplicationDetailPage.tsx:345-383](file://frontend/src/routes/ApplicationDetailPage.tsx#L345-L383)
+
+### Reliability Architecture
+The reliability enhancements are implemented through a multi-layered approach:
+
+```mermaid
+sequenceDiagram
+participant Worker as "ARQ Worker"
+participant Backend as "Backend API"
+participant Redis as "Redis Store"
+participant Frontend as "Frontend Client"
+Worker->>Backend : "POST /api/internal/worker/extraction-callback (started)"
+Note over Worker,BuildPlan : Best-effort delivery - job continues even if callback fails
+Backend->>Redis : "Store progress updates"
+Worker->>Backend : "POST extraction-callback (completed/failed)"
+Backend->>Redis : "Update terminal progress"
+Redis-->>Backend : "Terminal progress detected"
+Backend->>Backend : "_reconcile_terminal_extraction_progress()"
+Backend->>Redis : "Set manual_entry_required with failure details"
+Frontend->>Backend : "GET /api/applications/{id}/progress"
+Backend->>Frontend : "Return terminal progress with manual_entry_required"
+Frontend->>Backend : "Refresh application detail"
+Backend->>Frontend : "Synthesize progress if needed"
+```
+
+**Diagram sources**
+- [agents/worker.py:376-404](file://agents/worker.py#L376-L404)
+- [backend/app/services/application_manager.py:724-849](file://backend/app/services/application_manager.py#L724-L849)
+- [frontend/src/routes/ApplicationDetailPage.tsx:345-383](file://frontend/src/routes/ApplicationDetailPage.tsx#L345-L383)
+
+**Section sources**
+- [agents/worker.py:376-404](file://agents/worker.py#L376-L404)
+- [backend/app/services/application_manager.py:724-849](file://backend/app/services/application_manager.py#L724-L849)
+- [frontend/src/routes/ApplicationDetailPage.tsx:345-383](file://frontend/src/routes/ApplicationDetailPage.tsx#L345-L383)
+
 ## Troubleshooting Guide
 
 ### Production Session Bootstrap Failures
@@ -524,6 +600,42 @@ REST --> DB
 - [docs/build-plan.md:153](file://docs/build-plan.md#L153)
 - [frontend/vite.config.ts:14-20](file://frontend/vite.config.ts#L14-L20)
 
+### Extraction Callback Resilience Issues
+**Problem**: Extraction jobs failing during initial callback delivery despite successful processing
+**Root Cause**: Backend callback delivery failures causing premature job termination
+**Solution**:
+1. Verify BackendCallbackClient.retry logic is functioning correctly
+2. Check callback secret configuration in worker settings
+3. Monitor ARQ worker logs for callback delivery errors
+4. Verify backend API endpoint is reachable from worker container
+
+**Expected Behavior**:
+- Initial `event=started` callbacks should be best-effort
+- Jobs should continue processing even if callback fails
+- Terminal progress reconciliation should trigger manual_entry_required on completion
+
+**Section sources**
+- [agents/worker.py:376-404](file://agents/worker.py#L376-L404)
+- [backend/app/api/internal_worker.py:19-34](file://backend/app/api/internal_worker.py#L19-L34)
+
+### Terminal Progress Reconciliation Failures
+**Problem**: Manual-entry fallback not triggering when worker callbacks are unreachable
+**Root Cause**: Terminal progress reconciliation logic not detecting completion states
+**Solution**:
+1. Verify Redis progress store contains terminal progress records
+2. Check `_reconcile_terminal_extraction_progress()` method execution
+3. Validate frontend polling logic for terminal state detection
+4. Monitor backend logs for reconciliation errors
+
+**Expected Behavior**:
+- Terminal progress with `completed_at` or `terminal_error_code` triggers reconciliation
+- Manual-entry fallback should be set with appropriate failure details
+- Frontend should switch to manual-entry recovery state
+
+**Section sources**
+- [backend/app/services/application_manager.py:724-849](file://backend/app/services/application_manager.py#L724-L849)
+- [frontend/src/routes/ApplicationDetailPage.tsx:345-383](file://frontend/src/routes/ApplicationDetailPage.tsx#L345-L383)
+
 ### Systematic Deployment Troubleshooting Procedures
 **Production Deployment Checklist**:
 1. Verify all environment variables are correctly set in Railway
@@ -532,18 +644,24 @@ REST --> DB
 4. Validate port binding using `netstat` or `ss` commands
 5. Monitor service logs for error patterns
 6. Test critical endpoints: `/api/session/bootstrap`, `/health`, `/api/applications`
+7. Verify extraction callback resilience with test jobs
+8. Validate terminal progress reconciliation with completion scenarios
 
 **Common Error Patterns**:
 - **File Not Found Errors**: Typically indicate missing workflow contract or incorrect path resolution
 - **Connection Refused**: Usually indicates Redis connectivity issues or wrong service URLs
 - **Port Binding Errors**: Suggest backend not using $PORT environment variable
 - **Host Validation Errors**: Indicate frontend allowedHosts configuration issues
+- **Callback Delivery Failures**: Indicate transient backend connectivity issues
+- **Reconciliation Failures**: Indicate terminal progress detection or frontend polling issues
 
 **Section sources**
 - [docs/build-plan.md:151-154](file://docs/build-plan.md#L151-L154)
 
 ## Conclusion
-The Build Plan establishes a robust, reproducible local development environment and a streamlined CI/CD pipeline for production. The shared workflow contract and containerized stack ensure consistent behavior across frontend, backend, and agents. The path-filtered Railway deployments minimize disruption while enabling rapid iteration across services. Recent enhancements include improved Railway runtime routing with dynamic port binding, enhanced frontend custom domain validation for production deployments, and comprehensive deployment troubleshooting documentation covering production session bootstrap failures, Redis connectivity issues, and workflow contract path resolution problems.
+The Build Plan establishes a robust, reproducible local development environment and a streamlined CI/CD pipeline for production. The shared workflow contract and containerized stack ensure consistent behavior across frontend, backend, and agents. The path-filtered Railway deployments minimize disruption while enabling rapid iteration across services. Recent enhancements include improved Railway runtime routing with dynamic port binding, enhanced frontend custom domain validation for production deployments, comprehensive deployment troubleshooting documentation covering production session bootstrap failures, Redis connectivity issues, and workflow contract path resolution problems, along with critical reliability improvements for extraction callback resilience and terminal progress reconciliation.
+
+**Updated** Enhanced with extraction callback resilience improvements and terminal progress reconciliation features that provide reliability guarantees for distributed asynchronous workflows, ensuring jobs continue running during transient backend connectivity issues and providing immediate manual-entry fallback when needed.
 
 ## Appendices
 
@@ -595,6 +713,25 @@ The Build Plan establishes a robust, reproducible local development environment 
 - [ ] Session bootstrap endpoint returns 200 status
 - [ ] Database migrations applied successfully
 - [ ] Supabase authentication working correctly
+- [ ] Extraction callback resilience verified with test jobs
+- [ ] Terminal progress reconciliation tested with completion scenarios
 
 **Section sources**
 - [docs/build-plan.md:151-154](file://docs/build-plan.md#L151-L154)
+
+### Reliability Task Tracking
+**Extraction Callback Resilience (B5-T05)**:
+- Implementation: Backend callback delivery is now best-effort for `event=started`
+- Testing: Verified with worker callback resilience tests
+- Monitoring: Backend logs show callback delivery attempts and fallback behavior
+
+**Terminal Progress Reconciliation (B5-T04)**:
+- Implementation: Backend extraction terminal-progress reconciliation from Redis
+- Frontend Integration: Updated extraction polling to switch to manual-entry recovery
+- Testing: Verified with terminal progress reconciliation scenarios
+
+**Section sources**
+- [docs/build-plan.md:117-119](file://docs/build-plan.md#L117-L119)
+- [agents/worker.py:376-404](file://agents/worker.py#L376-L404)
+- [backend/app/services/application_manager.py:724-849](file://backend/app/services/application_manager.py#L724-L849)
+- [frontend/src/routes/ApplicationDetailPage.tsx:345-383](file://frontend/src/routes/ApplicationDetailPage.tsx#L345-L383)

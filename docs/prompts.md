@@ -336,7 +336,7 @@ Rules:
 ### Runtime enforcement
 
 - Extraction uses LangChain structured output against the `ExtractedJobPosting` schema.
-- Extraction `started` callbacks are best-effort. If the callback endpoint is temporarily unreachable, the worker continues extraction and relies on Redis progress plus terminal callback/reconciliation paths for eventual state convergence.
+- Extraction callbacks use bounded retry/backoff and fail closed through Redis-backed progress reconciliation. The `started` callback is best-effort, and terminal callback delivery failures no longer abort extraction after terminal progress is written.
 - `job_title` and `job_description` are required fields.
 - `job_location_text` is optional and is left null unless the posting clearly states where the role is located or hireable.
 - `compensation_text` is optional and is left null unless the posting states compensation clearly.
