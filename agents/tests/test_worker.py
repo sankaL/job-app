@@ -25,6 +25,7 @@ from worker import (
     finalize_extracted_posting,
     is_current_job,
     normalize_origin_from_url,
+    run_extraction_job,
     set_progress,
 )
 
@@ -267,3 +268,69 @@ async def test_backend_callback_client_retries_transient_server_errors(monkeypat
     await client.post({"ok": True})
 
     assert attempts["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_run_extraction_job_continues_when_started_callback_fails(monkeypatch):
+    class FakeWriter:
+        def __init__(self) -> None:
+            self.progress_by_app: dict[str, JobProgress] = {}
+
+        async def get(self, application_id: str):
+            return self.progress_by_app.get(application_id)
+
+        async def set(self, application_id: str, progress: JobProgress, ttl_seconds: int = 86400):
+            del ttl_seconds
+            self.progress_by_app[application_id] = progress
+
+    class FakeCallback:
+        def __init__(self) -> None:
+            self.events: list[str] = []
+
+        async def post(self, payload: dict[str, object], *, path: str = "/api/internal/worker/extraction-callback"):
+            del path
+            event = str(payload.get("event"))
+            self.events.append(event)
+            if event == "started":
+                raise RuntimeError("backend temporarily unreachable")
+
+    class FakeExtractor:
+        async def extract(self, context: PageContext) -> ExtractedJobPosting:
+            del context
+            return ExtractedJobPosting(
+                job_title="Senior Backend Engineer",
+                job_description="Build APIs and background systems.",
+                company="Acme",
+                job_location_text="Toronto, ON",
+                compensation_text="$140,000 - $170,000",
+                job_posting_origin="linkedin",
+                extracted_reference_id="1234567890",
+            )
+
+    fake_writer = FakeWriter()
+    fake_callback = FakeCallback()
+
+    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: WorkerSettingsEnv(redis_url="redis://unused"))
+    monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: fake_callback)
+    monkeypatch.setattr("worker.OpenRouterExtractionAgent", lambda _settings: FakeExtractor())
+
+    async def fake_scrape(job_url: str) -> PageContext:
+        del job_url
+        return build_context()
+
+    monkeypatch.setattr("worker.scrape_page_context", fake_scrape)
+
+    result = await run_extraction_job(
+        {},
+        application_id="app-1",
+        user_id="user-1",
+        job_url="https://www.linkedin.com/jobs/view/1234567890",
+        job_id="job-1",
+    )
+
+    assert result["job_title"] == "Senior Backend Engineer"
+    assert fake_callback.events == ["started", "succeeded"]
+    final_progress = await fake_writer.get("app-1")
+    assert final_progress is not None
+    assert final_progress.state == "generation_pending"

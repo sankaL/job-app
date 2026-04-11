@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ from assembly import assemble_resume
 from generation import SECTION_DISPLAY_NAMES, _replace_section_in_draft, generate_sections, regenerate_single_section
 from validation import validate_resume
 
+logger = logging.getLogger(__name__)
 
 ORIGIN_MAP = {
     "linkedin.com": "linkedin",
@@ -691,14 +693,21 @@ async def run_extraction_job(
         message="Opening the job posting.",
         percent_complete=10,
     )
-    await callback.post(
-        {
-            "application_id": application_id,
-            "user_id": user_id,
-            "job_id": job_id,
-            "event": "started",
-        }
-    )
+    try:
+        await callback.post(
+            {
+                "application_id": application_id,
+                "user_id": user_id,
+                "job_id": job_id,
+                "event": "started",
+            }
+        )
+    except Exception:
+        logger.exception(
+            "Extraction started callback delivery failed; continuing with progress-only tracking. app_id=%s job_id=%s",
+            application_id,
+            job_id,
+        )
 
     try:
         if source_capture is not None:

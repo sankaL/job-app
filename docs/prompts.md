@@ -1,7 +1,7 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-04-10  
+**Last updated:** 2026-04-11
 **Sources:** `agents/generation.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
@@ -336,6 +336,7 @@ Rules:
 ### Runtime enforcement
 
 - Extraction uses LangChain structured output against the `ExtractedJobPosting` schema.
+- Extraction `started` callbacks are best-effort. If the callback endpoint is temporarily unreachable, the worker continues extraction and relies on Redis progress plus terminal callback/reconciliation paths for eventual state convergence.
 - `job_title` and `job_description` are required fields.
 - `job_location_text` is optional and is left null unless the posting clearly states where the role is located or hireable.
 - `compensation_text` is optional and is left null unless the posting states compensation clearly.
