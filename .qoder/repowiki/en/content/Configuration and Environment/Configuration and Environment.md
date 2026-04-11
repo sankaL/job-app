@@ -15,22 +15,22 @@
 - [frontend/src/lib/api.ts](file://frontend/src/lib/api.ts)
 - [frontend/public/chrome-extension/manifest.json](file://frontend/public/chrome-extension/manifest.json)
 - [frontend/public/chrome-extension/popup.js](file://frontend/public/chrome-extension/popup.js)
+- [frontend/vite.config.ts](file://frontend/vite.config.ts)
+- [frontend/package.json](file://frontend/package.json)
 - [docker-compose.yml](file://docker-compose.yml)
 - [scripts/seed_local_user.sh](file://scripts/seed_local_user.sh)
 - [backend/Dockerfile](file://backend/Dockerfile)
 - [agents/Dockerfile](file://agents/Dockerfile)
 - [agents/pyproject.toml](file://agents/pyproject.toml)
 - [backend/pyproject.toml](file://backend/pyproject.toml)
-- [frontend/package.json](file://frontend/package.json)
 </cite>
 
 ## Update Summary
 **Changes Made**
-- Added documentation for new environment variables: SUPABASE_INTERNAL_URL, ADMIN_EMAILS, INVITE_LINK_EXPIRY_HOURS, and LOCAL_DEV_USER_IS_ADMIN
-- Updated backend configuration section to include new admin email management and invite expiration settings
-- Enhanced frontend environment validation to cover new admin-related configurations
-- Added documentation for local development user administration features
-- Updated dependency analysis to reflect new environment variable relationships
+- Updated Vite configuration documentation to reflect the expanded allowed hosts list with `applix.ca` domain support for custom domain access
+- Added documentation for Railway deployment configuration and custom domain support
+- Enhanced frontend development server configuration to support custom domain access
+- Updated deployment strategy documentation to include selective Railway deployments
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -67,6 +67,7 @@ FE_Env["Environment Validation<br/>frontend/src/lib/env.ts"]
 FE_Supa["Supabase Client<br/>frontend/src/lib/supabase.ts"]
 FE_Route["Protected Route<br/>frontend/src/routes/ProtectedRoute.tsx"]
 FE_API["API Client<br/>frontend/src/lib/api.ts"]
+FE_Vite["Vite Config<br/>frontend/vite.config.ts"]
 FE_Ext["Chrome Extension<br/>frontend/public/chrome-extension/*"]
 end
 subgraph "Backend"
@@ -82,16 +83,18 @@ subgraph "Agents"
 AG_Worker["Worker Settings & Jobs<br/>agents/worker.py"]
 AG_Docker["Agents Dockerfile<br/>agents/Dockerfile"]
 end
-subgraph "Compose"
+subgraph "Deployment"
 DC["docker-compose.yml"]
 BE_Docker["Backend Dockerfile<br/>backend/Dockerfile"]
 SEED["Seed Script<br/>scripts/seed_local_user.sh"]
+RAILWAY["Railway Deployment<br/>.github/workflows/deploy-railway-main.yml"]
 end
 FE_Env --> FE_Supa
 FE_Supa --> FE_API
 FE_Route --> FE_API
 FE_API --> BE_Main
 FE_Ext --> FE_API
+FE_Vite --> FE_API
 BE_Main --> BE_Auth
 BE_Main --> BE_Sec
 BE_Auth --> BE_Session
@@ -103,6 +106,7 @@ DC --> AG_Worker
 DC --> SEED
 BE_Docker --> BE_Main
 AG_Docker --> AG_Worker
+RAILWAY --> FE_Vite
 ```
 
 **Diagram sources**
@@ -111,6 +115,7 @@ AG_Docker --> AG_Worker
 - [frontend/src/routes/ProtectedRoute.tsx:1-44](file://frontend/src/routes/ProtectedRoute.tsx#L1-L44)
 - [frontend/src/lib/api.ts:177-214](file://frontend/src/lib/api.ts#L177-L214)
 - [frontend/public/chrome-extension/popup.js:109-135](file://frontend/public/chrome-extension/popup.js#L109-L135)
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
 - [backend/app/main.py:14-22](file://backend/app/main.py#L14-L22)
 - [backend/app/core/config.py:35-96](file://backend/app/core/config.py#L35-L96)
 - [backend/app/core/auth.py:22-69](file://backend/app/core/auth.py#L22-L69)
@@ -123,11 +128,13 @@ AG_Docker --> AG_Worker
 - [scripts/seed_local_user.sh:64-96](file://scripts/seed_local_user.sh#L64-L96)
 - [backend/Dockerfile:1-18](file://backend/Dockerfile#L1-L18)
 - [agents/Dockerfile:1-14](file://agents/Dockerfile#L1-L14)
+- [.github/workflows/deploy-railway-main.yml:1-133](file://.github/workflows/deploy-railway-main.yml#L1-L133)
 
 **Section sources**
 - [docker-compose.yml:1-194](file://docker-compose.yml#L1-L194)
 - [backend/app/core/config.py:35-96](file://backend/app/core/config.py#L35-L96)
 - [frontend/src/lib/env.ts:1-15](file://frontend/src/lib/env.ts#L1-L15)
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
 
 ## Core Components
 This section documents environment configuration management, validation, and secret handling across components.
@@ -143,6 +150,11 @@ This section documents environment configuration management, validation, and sec
   - Zod schema enforces presence and shape of environment variables for app environment, dev mode, Supabase URL, Supabase anonymous key, and API URL.
   - Parsing occurs at module initialization, ensuring early failures if variables are missing or invalid.
 
+- Vite Development Server Configuration
+  - **Updated**: Development server allows connections from both Railway-generated domains (`.up.railway.app`) and custom Applix domain (`applix.ca`) to support production-like access during development.
+  - Preview server mirrors the development server configuration for production builds.
+  - Server configuration supports host binding for containerized deployments.
+
 - Agent Settings and Secrets
   - Worker settings include app environment, dev mode, Redis URL, backend API URL, worker callback secret, shared contract path, OpenRouter configuration, and model names for extraction, generation, and validation.
   - Worker callback requires a shared secret header for backend callbacks.
@@ -156,6 +168,7 @@ This section documents environment configuration management, validation, and sec
 **Section sources**
 - [backend/app/core/config.py:35-96](file://backend/app/core/config.py#L35-L96)
 - [frontend/src/lib/env.ts:1-15](file://frontend/src/lib/env.ts#L1-L15)
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
 - [agents/worker.py:54-71](file://agents/worker.py#L54-L71)
 - [backend/app/core/security.py:13-54](file://backend/app/core/security.py#L13-L54)
 
@@ -278,6 +291,11 @@ Settings <.. AccessControl : "provides admin_email_list"
 - API Client
   - Retrieves access token from Supabase session and attaches Authorization header to all requests to the backend API.
 
+- Vite Development Configuration
+  - **Updated**: Development server allows connections from both Railway-generated domains (`.up.railway.app`) and custom Applix domain (`applix.ca`) to support production-like access during development.
+  - Preview server mirrors development configuration for production builds.
+  - Supports host binding for containerized deployments.
+
 ```mermaid
 flowchart TD
 Start(["Initialize Frontend"]) --> LoadEnv["Load and validate env schema"]
@@ -295,12 +313,14 @@ MakeRequest --> End(["Render UI"])
 - [frontend/src/lib/supabase.ts:15-25](file://frontend/src/lib/supabase.ts#L15-L25)
 - [frontend/src/routes/ProtectedRoute.tsx:6-43](file://frontend/src/routes/ProtectedRoute.tsx#L6-L43)
 - [frontend/src/lib/api.ts:177-214](file://frontend/src/lib/api.ts#L177-L214)
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
 
 **Section sources**
 - [frontend/src/lib/env.ts:1-15](file://frontend/src/lib/env.ts#L1-L15)
 - [frontend/src/lib/supabase.ts:1-26](file://frontend/src/lib/supabase.ts#L1-L26)
 - [frontend/src/routes/ProtectedRoute.tsx:1-44](file://frontend/src/routes/ProtectedRoute.tsx#L1-L44)
 - [frontend/src/lib/api.ts:177-214](file://frontend/src/lib/api.ts#L177-L214)
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
 
 ### Chrome Extension Integration
 - Manifest Permissions
@@ -361,6 +381,18 @@ D --> F["Backend verifies secret and processes event"]
 - [agents/worker.py:54-71](file://agents/worker.py#L54-L71)
 - [agents/worker.py:290-305](file://agents/worker.py#L290-L305)
 
+### Railway Deployment and Custom Domain Support
+- **Updated**: Expanded allowed hosts configuration to support custom domain access
+- Development server now allows connections from both Railway-generated domains (`.up.railway.app`) and custom Applix domain (`applix.ca`)
+- Preview server mirrors development configuration for production builds
+- Path-filtered GitHub Actions workflow enables selective deployments to Railway services
+- Backend Docker configuration binds to `$PORT` for Railway edge routing
+
+**Section sources**
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
+- [.github/workflows/deploy-railway-main.yml:1-133](file://.github/workflows/deploy-railway-main.yml#L1-L133)
+- [docs/build-plan.md:147-174](file://docs/build-plan.md#L147-L174)
+
 ### Local Development Administration
 - **New**: Local development user administration enables automatic admin promotion during development setup.
 - Seed script reads LOCAL_DEV_USER_IS_ADMIN environment variable to determine if created users should be promoted to admin status.
@@ -379,6 +411,7 @@ ENV_FE["VITE_SUPABASE_URL<br/>VITE_SUPABASE_ANON_KEY<br/>VITE_API_URL"]
 ENV_BE["APP_ENV<br/>APP_DEV_MODE<br/>API_PORT<br/>APP_URL<br/>DATABASE_URL<br/>REDIS_URL<br/>CORS_ORIGINS<br/>SUPABASE_URL<br/>SUPABASE_EXTERNAL_URL<br/>SUPABASE_AUTH_JWKS_URL<br/>SUPABASE_JWT_SECRET<br/>SUPABASE_JWT_AUDIENCE<br/>SUPABASE_JWT_ISSUER<br/>WORKER_CALLBACK_SECRET<br/>EMAIL_NOTIFICATIONS_ENABLED<br/>RESEND_API_KEY<br/>EMAIL_FROM<br/>SHARED_CONTRACT_PATH<br/>OPENROUTER_API_KEY<br/>OPENROUTER_CLEANUP_MODEL<br/>ADMIN_EMAILS<br/>INVITE_LINK_EXPIRY_HOURS"]
 ENV_AG["APP_ENV<br/>APP_DEV_MODE<br/>REDIS_URL<br/>BACKEND_API_URL<br/>WORKER_CALLBACK_SECRET<br/>OPENROUTER_API_KEY<br/>OPENROUTER_BASE_URL<br/>EXTRACTION_AGENT_MODEL<br/>EXTRACTION_AGENT_FALLBACK_MODEL<br/>GENERATION_AGENT_MODEL<br/>GENERATION_AGENT_FALLBACK_MODEL<br/>VALIDATION_AGENT_MODEL<br/>VALIDATION_AGENT_FALLBACK_MODEL"]
 ENV_SEED["LOCAL_DEV_USER_EMAIL<br/>LOCAL_DEV_USER_PASSWORD<br/>LOCAL_DEV_USER_IS_ADMIN<br/>SERVICE_ROLE_KEY<br/>SUPABASE_URL"]
+ENV_RAILWAY["RAILWAY_TOKEN<br/>RAILWAY_PROJECT_ID<br/>RAILWAY_BACKEND_SERVICE_ID<br/>RAILWAY_FRONTEND_SERVICE_ID<br/>RAILWAY_AGENTS_SERVICE_ID"]
 end
 FE["frontend/src/lib/env.ts"] --> BE["backend/app/core/config.py"]
 FE --> AG["agents/worker.py"]
@@ -387,6 +420,8 @@ BE --> SUPA["Supabase Services"]
 FE --> SUPA
 SEED --> BE
 SEED --> SUPA
+RAILWAY --> FE
+RAILWAY --> BE
 ```
 
 **Diagram sources**
@@ -394,12 +429,14 @@ SEED --> SUPA
 - [backend/app/core/config.py:35-96](file://backend/app/core/config.py#L35-L96)
 - [agents/worker.py:54-71](file://agents/worker.py#L54-L71)
 - [scripts/seed_local_user.sh:15-27](file://scripts/seed_local_user.sh#L15-L27)
+- [.github/workflows/deploy-railway-main.yml:62-104](file://.github/workflows/deploy-railway-main.yml#L62-L104)
 
 **Section sources**
 - [frontend/src/lib/env.ts:1-15](file://frontend/src/lib/env.ts#L1-L15)
 - [backend/app/core/config.py:35-96](file://backend/app/core/config.py#L35-L96)
 - [agents/worker.py:54-71](file://agents/worker.py#L54-L71)
 - [scripts/seed_local_user.sh:15-27](file://scripts/seed_local_user.sh#L15-L27)
+- [.github/workflows/deploy-railway-main.yml:62-104](file://.github/workflows/deploy-railway-main.yml#L62-L104)
 
 ## Performance Considerations
 - Environment caching
@@ -411,6 +448,7 @@ SEED --> SUPA
 - Worker callbacks
   - Short timeouts and explicit error handling prevent long-running tasks from blocking the pipeline.
 - **Updated**: Admin email list processing is optimized through cached property to avoid repeated string parsing.
+- **Updated**: Vite allowed hosts configuration prevents development server host-check blocking for custom domains and Railway-generated domains.
 
 ## Troubleshooting Guide
 Common configuration issues and resolutions:
@@ -445,6 +483,13 @@ Common configuration issues and resolutions:
 - **New**: Local development user not promoted to admin
   - Ensure LOCAL_DEV_USER_IS_ADMIN is set to "true" in the .env.compose file. Default behavior promotes local users to administrators.
 
+- **New**: Development server host-check blocking
+  - If accessing the development server from a custom domain or Railway-generated domain, ensure the domain is included in Vite's allowedHosts configuration. The configuration now includes both `.up.railway.app` and `applix.ca`.
+
+- **New**: Railway deployment issues
+  - Verify GitHub Actions workflow has proper secrets configured (RAILWAY_TOKEN, RAILWAY_PROJECT_ID, service IDs).
+  - Check that path filters correctly identify changed services for selective deployments.
+
 **Section sources**
 - [frontend/src/lib/env.ts:1-15](file://frontend/src/lib/env.ts#L1-L15)
 - [backend/app/core/config.py:35-96](file://backend/app/core/config.py#L35-L96)
@@ -454,9 +499,11 @@ Common configuration issues and resolutions:
 - [frontend/public/chrome-extension/popup.js:118-126](file://frontend/public/chrome-extension/popup.js#L118-L126)
 - [backend/app/core/access.py:20-30](file://backend/app/core/access.py#L20-L30)
 - [scripts/seed_local_user.sh:64-96](file://scripts/seed_local_user.sh#L64-L96)
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
+- [.github/workflows/deploy-railway-main.yml:62-104](file://.github/workflows/deploy-railway-main.yml#L62-L104)
 
 ## Conclusion
-This document outlined the configuration and environment setup across the frontend, backend, and agents. By validating environment variables early, securing worker callbacks, enforcing CORS policies, and integrating Supabase authentication, the system achieves robust operation across development and production environments. The addition of admin email management, invite expiration controls, and local development administration enhances the system's operational capabilities while maintaining security and reliability.
+This document outlined the configuration and environment setup across the frontend, backend, and agents. By validating environment variables early, securing worker callbacks, enforcing CORS policies, and integrating Supabase authentication, the system achieves robust operation across development and production environments. The addition of admin email management, invite expiration controls, local development administration, and custom domain support enhances the system's operational capabilities while maintaining security and reliability.
 
 ## Appendices
 
@@ -516,8 +563,16 @@ This document outlined the configuration and environment setup across the fronte
   - SERVICE_ROLE_KEY: string, required for Supabase admin operations
   - SUPABASE_URL: string, default local Supabase URL
 
+- **New**: Railway Deployment
+  - RAILWAY_TOKEN: string, required for automated deployments
+  - RAILWAY_PROJECT_ID: string, required for project identification
+  - RAILWAY_BACKEND_SERVICE_ID: string, required for backend service targeting
+  - RAILWAY_FRONTEND_SERVICE_ID: string, required for frontend service targeting
+  - RAILWAY_AGENTS_SERVICE_ID: string, required for agents service targeting
+
 **Section sources**
 - [frontend/src/lib/env.ts:1-15](file://frontend/src/lib/env.ts#L1-L15)
 - [backend/app/core/config.py:35-96](file://backend/app/core/config.py#L35-L96)
 - [agents/worker.py:54-71](file://agents/worker.py#L54-L71)
 - [scripts/seed_local_user.sh:15-27](file://scripts/seed_local_user.sh#L15-L27)
+- [.github/workflows/deploy-railway-main.yml:62-104](file://.github/workflows/deploy-railway-main.yml#L62-L104)

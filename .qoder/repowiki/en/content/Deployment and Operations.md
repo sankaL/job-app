@@ -5,13 +5,11 @@
 - [.github/workflows/deploy-railway-main.yml](file://.github/workflows/deploy-railway-main.yml)
 - [docker-compose.yml](file://docker-compose.yml)
 - [Makefile](file://Makefile)
-- [.env.compose.example](file://.env.compose.example)
 - [backend/Dockerfile](file://backend/Dockerfile)
 - [frontend/Dockerfile](file://frontend/Dockerfile)
 - [agents/Dockerfile](file://agents/Dockerfile)
 - [scripts/healthcheck.sh](file://scripts/healthcheck.sh)
 - [scripts/run_migrations.sh](file://scripts/run_migrations.sh)
-- [scripts/seed_local_user.sh](file://scripts/seed_local_user.sh)
 - [supabase/kong/kong-entrypoint.sh](file://supabase/kong/kong-entrypoint.sh)
 - [supabase/kong/kong.yml](file://supabase/kong/kong.yml)
 - [supabase/initdb/00-auth-schema.sql](file://supabase/initdb/00-auth-schema.sql)
@@ -21,7 +19,7 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for the new Railway deployment automation system
+- Added comprehensive documentation for the new Railway deployment automation system with selective path-filtered deployments
 - Documented the GitHub Actions workflow with sophisticated path-filtered deployments
 - Updated deployment pipeline section to cover selective service deployments
 - Enhanced monitoring and operational procedures with Railway-specific guidance
@@ -87,7 +85,6 @@ KG --> GR
 - Supabase stack: GoTrue (auth), PostgREST (REST API), Kong (gateway) with declarative config and key management.
 - Migration runner: Applies SQL migrations idempotently and tracks applied versions.
 - Healthcheck script: Validates external endpoints for auth, backend, and frontend.
-- Seed script: Creates a local development user via Supabase admin API.
 - **Railway deployment automation**: GitHub Actions workflow with path-filtered deployments for selective service updates.
 
 **Section sources**
@@ -97,7 +94,6 @@ KG --> GR
 - [agents/Dockerfile:1-14](file://agents/Dockerfile#L1-L14)
 - [scripts/healthcheck.sh:1-35](file://scripts/healthcheck.sh#L1-L35)
 - [scripts/run_migrations.sh:1-39](file://scripts/run_migrations.sh#L1-L39)
-- [scripts/seed_local_user.sh:1-61](file://scripts/seed_local_user.sh#L1-L61)
 - [supabase/kong/kong-entrypoint.sh:1-10](file://supabase/kong/kong-entrypoint.sh#L1-L10)
 - [supabase/kong/kong.yml:1-96](file://supabase/kong/kong.yml#L1-L96)
 - [.github/workflows/deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
@@ -219,7 +215,6 @@ Operational usage:
   - Confirm Kong routes and ACL/key-auth are functioning.
 
 **Section sources**
-- [.env.compose.example:1-50](file://.env.compose.example#L1-L50)
 - [scripts/run_migrations.sh:1-39](file://scripts/run_migrations.sh#L1-L39)
 - [docker-compose.yml:101-113](file://docker-compose.yml#L101-L113)
 - [scripts/healthcheck.sh:1-35](file://scripts/healthcheck.sh#L1-L35)
@@ -464,7 +459,6 @@ Maintenance tasks:
 - [scripts/run_migrations.sh:13-16](file://scripts/run_migrations.sh#L13-L16)
 - [docker-compose.yml:140-144](file://docker-compose.yml#L140-L144)
 - [scripts/healthcheck.sh:32-34](file://scripts/healthcheck.sh#L32-L34)
-- [scripts/seed_local_user.sh:29-37](file://scripts/seed_local_user.sh#L29-L37)
 - [.github/workflows/deploy-railway-main.yml:62-63](file://.github/workflows/deploy-railway-main.yml#L62-L63)
 
 ## Conclusion
@@ -484,13 +478,10 @@ This guide consolidates deployment and operations practices for the containerize
   - OPENROUTER_* and model selection variables
 - Email notifications:
   - EMAIL_NOTIFICATIONS_ENABLED, RESEND_API_KEY, EMAIL_FROM
-- Local seed user:
-  - LOCAL_DEV_USER_EMAIL, LOCAL_DEV_USER_PASSWORD
 - **Railway deployment**:
   - RAILWAY_TOKEN, RAILWAY_PROJECT_ID, RAILWAY_BACKEND_SERVICE_ID, RAILWAY_FRONTEND_SERVICE_ID, RAILWAY_AGENTS_SERVICE_ID
 
 **Section sources**
-- [.env.compose.example:1-50](file://.env.compose.example#L1-L50)
 - [.github/workflows/deploy-railway-main.yml:66-75](file://.github/workflows/deploy-railway-main.yml#L66-L75)
 - [.github/workflows/deploy-railway-main.yml:95-104](file://.github/workflows/deploy-railway-main.yml#L95-L104)
 - [.github/workflows/deploy-railway-main.yml:124-133](file://.github/workflows/deploy-railway-main.yml#L124-L133)

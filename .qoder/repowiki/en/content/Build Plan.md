@@ -18,7 +18,18 @@
 - [supabase/kong/kong.yml](file://supabase/kong/kong.yml)
 - [supabase/kong/kong-entrypoint.sh](file://supabase/kong/kong-entrypoint.sh)
 - [shared/workflow-contract.json](file://shared/workflow-contract.json)
+- [backend/app/core/config.py](file://backend/app/core/config.py)
+- [frontend/vite.config.ts](file://frontend/vite.config.ts)
+- [frontend/src/lib/env.ts](file://frontend/src/lib/env.ts)
+- [.env.compose.example](file://.env.compose.example)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Enhanced Railway runtime routing documentation with backend port binding to $PORT
+- Added frontend custom domain host checks for applix.ca
+- Updated environment variable configuration documentation
+- Revised deployment pipeline documentation to reflect enhanced routing fixes
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -26,19 +37,23 @@
 3. [Core Components](#core-components)
 4. [Architecture Overview](#architecture-overview)
 5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
-7. [Performance Considerations](#performance-considerations)
-8. [Troubleshooting Guide](#troubleshooting-guide)
-9. [Conclusion](#conclusion)
-10. [Appendices](#appendices)
+6. [Environment Configuration](#environment-configuration)
+7. [Deployment Pipeline](#deployment-pipeline)
+8. [Dependency Analysis](#dependency-analysis)
+9. [Performance Considerations](#performance-considerations)
+10. [Troubleshooting Guide](#troubleshooting-guide)
+11. [Conclusion](#conclusion)
+12. [Appendices](#appendices)
 
 ## Introduction
 This document describes the Build Plan for the AI Resume Builder project. It consolidates the roadmap, implementation status, and operational build practices across the frontend, backend, agents (workers), and local development stack. It also documents the containerized local environment, deployment automation, and configuration contracts that ensure reproducible builds and reliable CI/CD on Railway.
 
+**Updated** Enhanced with improved Railway runtime routing fixes, including backend port binding to $PORT and frontend custom domain host checks for applix.ca.
+
 ## Project Structure
 The project is organized into layered services:
-- Frontend: React + Vite + Tailwind with TypeScript
-- Backend: FastAPI application exposing REST APIs and managing auth, jobs, and integrations
+- Frontend: React + Vite + Tailwind with TypeScript and custom domain host validation
+- Backend: FastAPI application exposing REST APIs and managing auth, jobs, and integrations with Railway-compatible port binding
 - Agents: Python ARQ worker orchestrating long-running tasks (extraction, generation, validation, assembly)
 - Local Dev Stack: Docker Compose with Supabase auth, REST, and Kong gateway, plus Redis and Postgres
 - Deployment: GitHub Actions deploying services independently on Railway based on path changes
@@ -95,12 +110,14 @@ R_AG --> R_KV
 - Shared workflow contract defining status mapping, internal states, failure reasons, and progress polling schema
 
 Key build artifacts and roles:
-- Frontend Dockerfile installs Node dependencies and runs dev entrypoint
-- Backend Dockerfile installs Python dependencies and runs Uvicorn
+- Frontend Dockerfile installs Node dependencies and runs dev entrypoint with custom domain host validation
+- Backend Dockerfile installs Python dependencies and runs Uvicorn with Railway-compatible port binding
 - Agents Dockerfile installs Python dependencies and Playwright Chromium, then runs ARQ worker
 - Backend and Agents pyproject.toml define Python dependencies and dev/test configuration
 - Frontend package.json defines Vite/Tailwind/React toolchain and test scripts
 - Kong declarative config and entrypoint script wire Supabase auth and REST behind a gateway
+
+**Updated** Enhanced backend port binding to support Railway's dynamic $PORT environment variable and improved frontend custom domain validation.
 
 **Section sources**
 - [Makefile:1-30](file://Makefile#L1-L30)
@@ -180,8 +197,8 @@ Seed --> Ready(["Local stack ready"])
 - [scripts/seed_local_user.sh:1-97](file://scripts/seed_local_user.sh#L1-L97)
 
 ### Container Images and Dependencies
-- Frontend: Node 22 Alpine, installs deps, runs dev entrypoint
-- Backend: Python 3.12 Slim, installs dependencies, runs Uvicorn
+- Frontend: Node 22 Alpine, installs deps, runs dev entrypoint with custom domain host validation for applix.ca
+- Backend: Python 3.12 Slim, installs dependencies, runs Uvicorn with Railway-compatible port binding
 - Agents: Python 3.12 Bookworm, installs dependencies and Playwright Chromium, runs ARQ worker
 - Python dependencies declared in pyproject.toml for backend and agents
 - Frontend dependencies declared in package.json for Vite/Tailwind/React
@@ -313,9 +330,50 @@ WORKFLOW_KIND ||--o{ PROGRESS_SCHEMA : "classified_by"
 **Section sources**
 - [shared/workflow-contract.json:1-122](file://shared/workflow-contract.json#L1-L122)
 
+## Environment Configuration
+
+### Backend Port Binding
+The backend service now supports Railway's dynamic port binding through the $PORT environment variable:
+
+- **Railway Runtime**: Uses Railway's assigned port via $PORT environment variable
+- **Development Mode**: Falls back to default port 8000 when $PORT is not available
+- **Configuration**: Backend settings automatically detect and use the appropriate port
+
+**Updated** Enhanced backend port binding to support both Railway's dynamic $PORT and local development fallback.
+
+### Frontend Custom Domain Validation
+The frontend includes enhanced host validation for custom domains:
+
+- **Allowed Hosts**: Configured to accept connections from Railway (.up.railway.app) and custom domain (applix.ca)
+- **Development Security**: Prevents host header injection attacks during development
+- **Production Readiness**: Enables secure deployment to custom domains
+
+**Updated** Added custom domain host checks for applix.ca to support production deployments.
+
+**Section sources**
+- [backend/app/core/config.py:39-40](file://backend/app/core/config.py#L39-L40)
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
+- [frontend/src/lib/env.ts:1-15](file://frontend/src/lib/env.ts#L1-L15)
+
+## Deployment Pipeline
+
+### Enhanced Railway Routing
+The deployment pipeline now includes improved routing support for Railway's dynamic environment:
+
+- **Dynamic Port Assignment**: Backend automatically binds to Railway's assigned $PORT
+- **Selective Deployments**: Path-filtered deployments continue to minimize downtime
+- **Environment Variables**: Proper handling of Railway-specific environment variables
+
+**Updated** Enhanced deployment pipeline documentation to reflect improved Railway runtime routing fixes.
+
+**Section sources**
+- [.github/workflows/deploy-railway-main.yml:65-75](file://.github/workflows/deploy-railway-main.yml#L65-L75)
+- [.github/workflows/deploy-railway-main.yml:94-104](file://.github/workflows/deploy-railway-main.yml#L94-L104)
+- [.github/workflows/deploy-railway-main.yml:123-133](file://.github/workflows/deploy-railway-main.yml#L123-L133)
+
 ## Dependency Analysis
-- Frontend depends on Supabase JS SDK, React, Tailwind, and Vite toolchain
-- Backend depends on FastAPI, ARQ, Redis, Postgres driver, WeasyPrint, and others
+- Frontend depends on Supabase JS SDK, React, Tailwind, and Vite toolchain with custom domain validation
+- Backend depends on FastAPI, ARQ, Redis, Postgres driver, WeasyPrint, and Railway-compatible port handling
 - Agents depend on ARQ, LangChain OpenAI, Playwright, and pydantic settings
 - All services rely on environment variables defined in docker-compose and .env.compose
 - GitHub Actions depend on Railway CLI and project/service IDs from secrets
@@ -357,9 +415,8 @@ REST --> DB
 - Backend installs Cairo/Pango libraries for WeasyPrint PDF rendering
 - Playwright installation in agents image includes Chromium with dependencies
 - Redis and Postgres are separate services; ensure resource limits in production
-- Use Railway’s platform resources and scaling for production workloads
-
-[No sources needed since this section provides general guidance]
+- Use Railway's platform resources and scaling for production workloads
+- Enhanced port binding reduces connection overhead in dynamic environments
 
 ## Troubleshooting Guide
 Common issues and remedies:
@@ -368,6 +425,10 @@ Common issues and remedies:
 - Migrations not applied: migration runner creates schema_meta and tracks applied migrations; ensure DB readiness loop completes
 - Local user creation: seed script requires Supabase health and service role key; handles existence and admin promotion
 - Railway connectivity: agents require REDIS_URL wired in production; ensure service-to-service env vars are set
+- **Railway Port Issues**: Backend now automatically uses $PORT when available, falling back to 8000 for local development
+- **Custom Domain Access**: Frontend validates hosts against allowed list including applix.ca for production deployments
+
+**Updated** Added troubleshooting guidance for Railway port binding and custom domain validation issues.
 
 **Section sources**
 - [docs/build-plan.md:43-43](file://docs/build-plan.md#L43-L43)
@@ -377,9 +438,7 @@ Common issues and remedies:
 - [docs/build-plan.md:151-151](file://docs/build-plan.md#L151-L151)
 
 ## Conclusion
-The Build Plan establishes a robust, reproducible local development environment and a streamlined CI/CD pipeline for production. The shared workflow contract and containerized stack ensure consistent behavior across frontend, backend, and agents. The path-filtered Railway deployments minimize disruption while enabling rapid iteration across services.
-
-[No sources needed since this section summarizes without analyzing specific files]
+The Build Plan establishes a robust, reproducible local development environment and a streamlined CI/CD pipeline for production. The shared workflow contract and containerized stack ensure consistent behavior across frontend, backend, and agents. The path-filtered Railway deployments minimize disruption while enabling rapid iteration across services. Recent enhancements include improved Railway runtime routing with dynamic port binding and enhanced frontend custom domain validation for production deployments.
 
 ## Appendices
 
@@ -398,6 +457,22 @@ The Build Plan establishes a robust, reproducible local development environment 
 - APP_ENV, APP_DEV_MODE, API_URL, SUPABASE_URL, SUPABASE_INTERNAL_URL, SERVICE_ROLE_KEY, JWT_SECRET, ADMIN_EMAILS, INVITE_LINK_EXPIRY_HOURS, WORKER_CALLBACK_SECRET, DUPLICATE_SIMILARITY_THRESHOLD, EMAIL_NOTIFICATIONS_ENABLED, RESEND_API_KEY, EMAIL_FROM
 - FRONTEND_PORT, BACKEND_HOST_PORT, SUPABASE_DB_HOST_PORT, SUPABASE_GATEWAY_PORT
 - POSTGRES_PASSWORD, OPENROUTER_API_KEY, OPENROUTER_BASE_URL, EXTRACTION_AGENT_MODEL, GENERATION_AGENT_MODEL, VALIDATION_AGENT_MODEL
+- **$PORT**: Railway's dynamic port assignment (automatically detected by backend)
+
+**Updated** Added $PORT environment variable for Railway runtime compatibility.
 
 **Section sources**
 - [docker-compose.yml:26-77](file://docker-compose.yml#L26-L77)
+- [backend/app/core/config.py:40](file://backend/app/core/config.py#L40)
+- [.env.compose.example:1-50](file://.env.compose.example#L1-L50)
+
+### Custom Domain Configuration
+- **Frontend Allowed Hosts**: Includes ".up.railway.app" and "applix.ca" for secure production deployments
+- **Railway Compatibility**: Backend automatically binds to $PORT for dynamic Railway environments
+- **Development Safety**: Host validation prevents unauthorized access during development
+
+**Updated** Added documentation for custom domain configuration and Railway port binding.
+
+**Section sources**
+- [frontend/vite.config.ts:13-21](file://frontend/vite.config.ts#L13-L21)
+- [backend/app/core/config.py:39-40](file://backend/app/core/config.py#L39-L40)
