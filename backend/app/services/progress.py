@@ -62,6 +62,10 @@ class RedisProgressStore:
     def _extraction_result_key(application_id: str) -> str:
         return f"phase1:applications:{application_id}:extracted"
 
+    @staticmethod
+    def _generation_result_key(application_id: str) -> str:
+        return f"phase1:applications:{application_id}:generated"
+
     async def get(self, application_id: str) -> Optional[ProgressRecord]:
         payload = await self._redis.get(self._key(application_id))
         if payload is None:
@@ -88,6 +92,15 @@ class RedisProgressStore:
 
     async def clear_extraction_result(self, application_id: str) -> None:
         await self._redis.delete(self._extraction_result_key(application_id))
+
+    async def get_generation_result(self, application_id: str) -> Optional[dict[str, object]]:
+        payload = await self._redis.get(self._generation_result_key(application_id))
+        if payload is None:
+            return None
+        return json.loads(payload)
+
+    async def clear_generation_result(self, application_id: str) -> None:
+        await self._redis.delete(self._generation_result_key(application_id))
 
 
 def get_progress_store() -> RedisProgressStore:

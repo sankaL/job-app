@@ -31,10 +31,11 @@
 
 ## Update Summary
 **Changes Made**
-- Added comprehensive documentation for B5-T04 (terminal progress reconciliation), B5-T05 (extraction callback resilience), B5-T06 (extraction callback hardening), and B5-T07 (callback-missed extraction recovery) bug fixes
-- Enhanced reliability section with detailed terminal progress reconciliation documentation and callback resilience mechanisms
-- Updated troubleshooting guide with specific guidance for callback delivery failures and terminal progress handling
+- Enhanced comprehensive documentation for B5-T04 (terminal progress reconciliation), B5-T05 (extraction callback resilience), B5-T06 (extraction callback hardening), and B5-T07 (callback-missed extraction recovery) reliability enhancements
+- Expanded troubleshooting guide with specific guidance for extraction callback resilience and terminal progress handling
 - Added systematic coverage of extraction payload caching and recovery mechanisms
+- Updated reliability architecture diagrams to reflect the multi-layered approach to callback resilience
+- Enhanced frontend integration documentation for terminal progress reconciliation
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -54,7 +55,7 @@
 ## Introduction
 This document describes the Build Plan for the AI Resume Builder project. It consolidates the roadmap, implementation status, and operational build practices across the frontend, backend, agents (workers), and local development stack. It also documents the containerized local environment, deployment automation, and configuration contracts that ensure reproducible builds and reliable CI/CD on Railway.
 
-**Updated** Enhanced with comprehensive extraction callback resilience improvements, terminal progress reconciliation features, and callback-missed extraction recovery mechanisms that provide reliability guarantees for distributed asynchronous workflows.
+**Updated** Enhanced with comprehensive extraction callback resilience improvements, terminal progress reconciliation features, extraction callback hardening, and callback-missed extraction recovery mechanisms that provide reliability guarantees for distributed asynchronous workflows.
 
 ## Project Structure
 The project is organized into layered services:
@@ -105,7 +106,7 @@ R_AG --> R_KV
 - [.github/workflows/deploy-railway-main.yml:1-134](file://.github/workflows/deploy-railway-main.yml#L1-L134)
 
 **Section sources**
-- [docs/build-plan.md:1-509](file://docs/build-plan.md#L1-L509)
+- [docs/build-plan.md:1-515](file://docs/build-plan.md#L1-L515)
 - [docker-compose.yml:1-194](file://docker-compose.yml#L1-L194)
 
 ## Core Components

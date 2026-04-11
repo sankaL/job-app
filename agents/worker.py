@@ -372,6 +372,10 @@ class RedisProgressWriter:
     def _extraction_result_key(application_id: str) -> str:
         return f"phase1:applications:{application_id}:extracted"
 
+    @staticmethod
+    def _generation_result_key(application_id: str) -> str:
+        return f"phase1:applications:{application_id}:generated"
+
     async def get(self, application_id: str) -> Optional[JobProgress]:
         payload = await self._redis.get(self._key(application_id))
         if payload is None:
@@ -398,6 +402,26 @@ class RedisProgressWriter:
 
     async def clear_extracted_result(self, application_id: str) -> None:
         await self._redis.delete(self._extraction_result_key(application_id))
+
+    async def set_generation_result(
+        self,
+        application_id: str,
+        *,
+        job_id: str,
+        workflow_kind: str,
+        generated: dict[str, Any],
+        ttl_seconds: int = 86400,
+    ) -> None:
+        payload = {
+            "job_id": job_id,
+            "workflow_kind": workflow_kind,
+            "generated": generated,
+            "captured_at": now_iso(),
+        }
+        await self._redis.set(self._generation_result_key(application_id), json.dumps(payload), ex=ttl_seconds)
+
+    async def clear_generation_result(self, application_id: str) -> None:
+        await self._redis.delete(self._generation_result_key(application_id))
 
 
 class BackendCallbackClient:
@@ -675,25 +699,68 @@ async def report_failure(
         terminal_error_code=terminal_error_code,
     )
     await writer.clear_extracted_result(application_id)
+    await post_callback_best_effort(
+        callback,
+        {
+            "application_id": application_id,
+            "user_id": user_id,
+            "job_id": job_id,
+            "event": "failed",
+            "failure": {
+                "message": message,
+                "terminal_error_code": terminal_error_code,
+                "failure_details": failure_details.model_dump() if failure_details else None,
+            },
+        },
+        path="/api/internal/worker/extraction-callback",
+        app_id=application_id,
+        job_id=job_id,
+        callback_stage="extraction failed",
+    )
+
+
+async def post_callback_best_effort(
+    callback: BackendCallbackClient,
+    payload: dict[str, Any],
+    *,
+    path: str,
+    app_id: str,
+    job_id: str,
+    callback_stage: str,
+) -> None:
     try:
-        await callback.post(
-            {
-                "application_id": application_id,
-                "user_id": user_id,
-                "job_id": job_id,
-                "event": "failed",
-                "failure": {
-                    "message": message,
-                    "terminal_error_code": terminal_error_code,
-                    "failure_details": failure_details.model_dump() if failure_details else None,
-                },
-            }
+        await callback.post(payload, path=path)
+    except Exception as error:
+        logger.warning(
+            "Worker %s callback delivery failed; relying on progress/cache reconciliation. app_id=%s job_id=%s error=%s",
+            callback_stage,
+            app_id,
+            job_id,
+            error,
+        )
+
+
+async def set_generation_result_best_effort(
+    writer: RedisProgressWriter,
+    *,
+    application_id: str,
+    job_id: str,
+    workflow_kind: str,
+    generated: dict[str, Any],
+) -> None:
+    try:
+        await writer.set_generation_result(
+            application_id,
+            job_id=job_id,
+            workflow_kind=workflow_kind,
+            generated=generated,
         )
     except Exception as error:
         logger.warning(
-            "Extraction failure callback delivery failed after terminal progress write. app_id=%s job_id=%s error=%s",
+            "Worker generation cache write failed; continuing without cached recovery payload. app_id=%s job_id=%s workflow_kind=%s error=%s",
             application_id,
             job_id,
+            workflow_kind,
             error,
         )
 
@@ -735,22 +802,19 @@ async def run_extraction_job(
         percent_complete=10,
     )
     await writer.clear_extracted_result(application_id)
-    try:
-        await callback.post(
-            {
-                "application_id": application_id,
-                "user_id": user_id,
-                "job_id": job_id,
-                "event": "started",
-            }
-        )
-    except Exception as error:
-        logger.warning(
-            "Extraction started callback delivery failed; continuing with progress-only tracking. app_id=%s job_id=%s error=%s",
-            application_id,
-            job_id,
-            error,
-        )
+    await post_callback_best_effort(
+        callback,
+        {
+            "application_id": application_id,
+            "user_id": user_id,
+            "job_id": job_id,
+            "event": "started",
+        },
+        path="/api/internal/worker/extraction-callback",
+        app_id=application_id,
+        job_id=job_id,
+        callback_stage="extraction started",
+    )
 
     success_payload: Optional[dict[str, Any]] = None
 
@@ -862,23 +926,20 @@ async def run_extraction_job(
         raise
 
     if success_payload is not None:
-        try:
-            await callback.post(
-                {
-                    "application_id": application_id,
-                    "user_id": user_id,
-                    "job_id": job_id,
-                    "event": "succeeded",
-                    "extracted": success_payload,
-                }
-            )
-        except Exception as error:
-            logger.warning(
-                "Extraction success callback delivery failed; relying on progress reconciliation. app_id=%s job_id=%s error=%s",
-                application_id,
-                job_id,
-                error,
-            )
+        await post_callback_best_effort(
+            callback,
+            {
+                "application_id": application_id,
+                "user_id": user_id,
+                "job_id": job_id,
+                "event": "succeeded",
+                "extracted": success_payload,
+            },
+            path="/api/internal/worker/extraction-callback",
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="extraction succeeded",
+        )
         return success_payload
 
     raise RuntimeError("Extraction completed without a success payload.")
@@ -937,6 +998,7 @@ async def run_generation_job(
         )
 
     try:
+        await writer.clear_generation_result(application_id)
         # 1. Starting
         await set_progress(
             writer,
@@ -947,7 +1009,8 @@ async def run_generation_job(
             message="Preparing generation inputs and section plan",
             percent_complete=5,
         )
-        await callback.post(
+        await post_callback_best_effort(
+            callback,
             {
                 "application_id": application_id,
                 "user_id": user_id,
@@ -955,6 +1018,9 @@ async def run_generation_job(
                 "event": "started",
             },
             path=GENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="generation started",
         )
 
         # 2. Generate sections (10-80%)
@@ -1012,7 +1078,8 @@ async def run_generation_job(
                 completed_at=now_iso(),
                 terminal_error_code="validation_failed",
             )
-            await callback.post(
+            await post_callback_best_effort(
+                callback,
                 build_generation_failure_payload(
                     application_id=application_id,
                     user_id=user_id,
@@ -1022,6 +1089,9 @@ async def run_generation_job(
                     validation_errors=validation_result["errors"],
                 ),
                 path=GENERATION_CALLBACK_PATH,
+                app_id=application_id,
+                job_id=job_id,
+                callback_stage="generation failed",
             )
             return
 
@@ -1059,24 +1129,37 @@ async def run_generation_job(
             percent_complete=100,
             completed_at=now_iso(),
         )
-        await callback.post(
-            build_generation_success_payload(
-                application_id=application_id,
-                user_id=user_id,
-                job_id=job_id,
-                content_md=content,
-                generation_params=public_generation_settings,
-                sections_snapshot={
-                    "enabled_sections": [s["name"] for s in enabled_ordered],
-                    "section_order": [s["name"] for s in enabled_ordered],
-                },
-            ),
+        success_payload = build_generation_success_payload(
+            application_id=application_id,
+            user_id=user_id,
+            job_id=job_id,
+            content_md=content,
+            generation_params=public_generation_settings,
+            sections_snapshot={
+                "enabled_sections": [s["name"] for s in enabled_ordered],
+                "section_order": [s["name"] for s in enabled_ordered],
+            },
+        )
+        await set_generation_result_best_effort(
+            writer,
+            application_id=application_id,
+            job_id=job_id,
+            workflow_kind="generation",
+            generated=success_payload["generated"],
+        )
+        await post_callback_best_effort(
+            callback,
+            success_payload,
             path=GENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="generation succeeded",
         )
 
     except asyncio.TimeoutError:
         if not await is_current_job(writer, application_id, job_id):
             return
+        await writer.clear_generation_result(application_id)
         await set_progress(
             writer,
             application_id,
@@ -1088,7 +1171,8 @@ async def run_generation_job(
             completed_at=now_iso(),
             terminal_error_code="generation_timeout",
         )
-        await callback.post(
+        await post_callback_best_effort(
+            callback,
             build_generation_failure_payload(
                 application_id=application_id,
                 user_id=user_id,
@@ -1097,11 +1181,15 @@ async def run_generation_job(
                 terminal_error_code="generation_timeout",
             ),
             path=GENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="generation failed",
         )
         raise
     except Exception:
         if not await is_current_job(writer, application_id, job_id):
             return
+        await writer.clear_generation_result(application_id)
         await set_progress(
             writer,
             application_id,
@@ -1113,16 +1201,20 @@ async def run_generation_job(
             completed_at=now_iso(),
             terminal_error_code="generation_error",
         )
-        await callback.post(
-                build_generation_failure_payload(
-                    application_id=application_id,
-                    user_id=user_id,
-                    job_id=job_id,
-                    message="Resume generation failed unexpectedly.",
-                    terminal_error_code="generation_error",
-                ),
-                path=GENERATION_CALLBACK_PATH,
-            )
+        await post_callback_best_effort(
+            callback,
+            build_generation_failure_payload(
+                application_id=application_id,
+                user_id=user_id,
+                job_id=job_id,
+                message="Resume generation failed unexpectedly.",
+                terminal_error_code="generation_error",
+            ),
+            path=GENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="generation failed",
+        )
         raise
 
 
@@ -1169,6 +1261,7 @@ async def run_regeneration_job(
     instructions = None if is_full_regen else regeneration_instructions
 
     try:
+        await writer.clear_generation_result(application_id)
         await set_progress(
             writer,
             application_id,
@@ -1178,7 +1271,8 @@ async def run_regeneration_job(
             message="Preparing regeneration inputs and section plan",
             percent_complete=5,
         )
-        await callback.post(
+        await post_callback_best_effort(
+            callback,
             {
                 "application_id": application_id,
                 "user_id": user_id,
@@ -1186,6 +1280,9 @@ async def run_regeneration_job(
                 "event": "started",
             },
             path=REGENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="regeneration started",
         )
 
         if is_full_regen:
@@ -1253,7 +1350,8 @@ async def run_regeneration_job(
                     completed_at=now_iso(),
                     terminal_error_code="validation_failed",
                 )
-                await callback.post(
+                await post_callback_best_effort(
+                    callback,
                     build_generation_failure_payload(
                         application_id=application_id,
                         user_id=user_id,
@@ -1263,6 +1361,9 @@ async def run_regeneration_job(
                         validation_errors=validation_result["errors"],
                     ),
                     path=REGENERATION_CALLBACK_PATH,
+                    app_id=application_id,
+                    job_id=job_id,
+                    callback_stage="regeneration failed",
                 )
                 return
 
@@ -1376,7 +1477,8 @@ async def run_regeneration_job(
                     completed_at=now_iso(),
                     terminal_error_code="validation_failed",
                 )
-                await callback.post(
+                await post_callback_best_effort(
+                    callback,
                     build_generation_failure_payload(
                         application_id=application_id,
                         user_id=user_id,
@@ -1386,6 +1488,9 @@ async def run_regeneration_job(
                         validation_errors=validation_result["errors"],
                     ),
                     path=REGENERATION_CALLBACK_PATH,
+                    app_id=application_id,
+                    job_id=job_id,
+                    callback_stage="regeneration failed",
                 )
                 return
 
@@ -1422,21 +1527,34 @@ async def run_regeneration_job(
             percent_complete=100,
             completed_at=now_iso(),
         )
-        await callback.post(
-            build_generation_success_payload(
-                application_id=application_id,
-                user_id=user_id,
-                job_id=job_id,
-                content_md=content,
-                generation_params=public_generation_settings,
-                sections_snapshot=sections_snapshot,
-            ),
+        success_payload = build_generation_success_payload(
+            application_id=application_id,
+            user_id=user_id,
+            job_id=job_id,
+            content_md=content,
+            generation_params=public_generation_settings,
+            sections_snapshot=sections_snapshot,
+        )
+        await set_generation_result_best_effort(
+            writer,
+            application_id=application_id,
+            job_id=job_id,
+            workflow_kind=workflow_kind,
+            generated=success_payload["generated"],
+        )
+        await post_callback_best_effort(
+            callback,
+            success_payload,
             path=REGENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="regeneration succeeded",
         )
 
     except asyncio.TimeoutError:
         if not await is_current_job(writer, application_id, job_id):
             return
+        await writer.clear_generation_result(application_id)
         await set_progress(
             writer,
             application_id,
@@ -1448,7 +1566,8 @@ async def run_regeneration_job(
             completed_at=now_iso(),
             terminal_error_code="regeneration_timeout",
         )
-        await callback.post(
+        await post_callback_best_effort(
+            callback,
             build_generation_failure_payload(
                 application_id=application_id,
                 user_id=user_id,
@@ -1457,11 +1576,15 @@ async def run_regeneration_job(
                 terminal_error_code="regeneration_timeout",
             ),
             path=REGENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="regeneration failed",
         )
         raise
     except Exception:
         if not await is_current_job(writer, application_id, job_id):
             return
+        await writer.clear_generation_result(application_id)
         await set_progress(
             writer,
             application_id,
@@ -1473,7 +1596,8 @@ async def run_regeneration_job(
             completed_at=now_iso(),
             terminal_error_code="regeneration_error",
         )
-        await callback.post(
+        await post_callback_best_effort(
+            callback,
             build_generation_failure_payload(
                 application_id=application_id,
                 user_id=user_id,
@@ -1482,6 +1606,9 @@ async def run_regeneration_job(
                 terminal_error_code="regeneration_error",
             ),
             path=REGENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="regeneration failed",
         )
         raise
 

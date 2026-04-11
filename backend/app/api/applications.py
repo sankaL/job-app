@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Annotated, Any, Optional
 
@@ -21,6 +22,7 @@ from app.services.application_manager import (
 from app.services.progress import ProgressRecord
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
+logger = logging.getLogger(__name__)
 
 INSTRUCTION_WHITESPACE_RE = re.compile(r"\s+")
 UNSAFE_INSTRUCTION_PATTERNS = (
@@ -420,6 +422,7 @@ def _map_service_error(error: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     if isinstance(error, ValueError):
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
+    logger.exception("Unhandled application service error.", exc_info=error)
     return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Application request failed.")
 
 

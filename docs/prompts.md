@@ -26,6 +26,8 @@ This document records the latest live prompt definitions in the repository. The 
 - Full generation and full regeneration allow up to `240s` per LLM attempt and use a `240s` stalled-recovery profile; single-section regeneration allows `120s` per attempt with a `120s` stalled-recovery profile.
 - Generation first attempts schema-enforced structured output. If that fails, the same model falls back to the strict prompt-level JSON contract. If the provider appears to reject the reasoning parameter, the same model is retried once without reasoning before moving on.
 - If every attempt times out, the generation layer preserves the timeout classification so the worker can surface `generation_timeout` or `regeneration_timeout` instead of a generic unexpected failure.
+- Generation and regeneration now persist successful generated payloads into a Redis cache before callback delivery; if callback transport fails, backend reconciliation can still recover and persist the draft from cache on the next progress/detail read.
+- Generation/regeneration callback delivery is best-effort for `started`, `succeeded`, and terminal `failed` events; callback outages no longer crash completed worker jobs.
 - Extraction and upload cleanup do not enable reasoning.
 - Generation and section regeneration include a deterministic Professional Experience anchor contract in the prompt payload and apply a deterministic post-LLM normalization pass that rehydrates source company/date values before validation and assembly.
 - After generation or full regeneration, local assembly reattaches the profile-driven header with name, email, phone, location text (stored in `address`), and optional `linkedin_url`. Those fields never enter the model prompt payload.

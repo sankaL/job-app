@@ -26,6 +26,7 @@ from worker import (
     is_current_job,
     normalize_origin_from_url,
     run_extraction_job,
+    run_generation_job,
     set_progress,
 )
 
@@ -444,3 +445,268 @@ async def test_run_extraction_job_returns_success_when_success_callback_fails(mo
     final_progress = await fake_writer.get("app-2")
     assert final_progress is not None
     assert final_progress.state == "generation_pending"
+
+
+@pytest.mark.asyncio
+async def test_run_generation_job_completes_and_caches_result_when_callbacks_fail(monkeypatch):
+    class FakeWriter:
+        def __init__(self) -> None:
+            self.progress_by_app: dict[str, JobProgress] = {}
+            self.generated_by_app: dict[str, dict[str, object]] = {}
+
+        async def get(self, application_id: str):
+            return self.progress_by_app.get(application_id)
+
+        async def set(self, application_id: str, progress: JobProgress, ttl_seconds: int = 86400):
+            del ttl_seconds
+            self.progress_by_app[application_id] = progress
+
+        async def clear_generation_result(self, application_id: str) -> None:
+            self.generated_by_app.pop(application_id, None)
+
+        async def set_generation_result(
+            self,
+            application_id: str,
+            *,
+            job_id: str,
+            workflow_kind: str,
+            generated: dict[str, object],
+            ttl_seconds: int = 86400,
+        ) -> None:
+            del ttl_seconds
+            self.generated_by_app[application_id] = {
+                "job_id": job_id,
+                "workflow_kind": workflow_kind,
+                "generated": generated,
+            }
+
+    class FakeCallback:
+        def __init__(self) -> None:
+            self.events: list[str] = []
+
+        async def post(self, payload: dict[str, object], *, path: str = "/api/internal/worker/generation-callback"):
+            del path
+            event = str(payload.get("event"))
+            self.events.append(event)
+            raise RuntimeError("backend unreachable")
+
+    async def fake_generate_sections(**kwargs):
+        on_progress = kwargs.get("on_progress")
+        if on_progress is not None:
+            await on_progress(50, "Generating sections")
+        return {"sections": [{"name": "summary", "content": "Built reliable APIs."}]}
+
+    async def fake_validate_resume(**kwargs):
+        del kwargs
+        return {"valid": True, "errors": []}
+
+    def fake_assemble_resume(**kwargs):
+        del kwargs
+        return "# Test Resume"
+
+    fake_writer = FakeWriter()
+    fake_callback = FakeCallback()
+
+    monkeypatch.setattr(
+        "worker.WorkerSettingsEnv",
+        lambda: WorkerSettingsEnv(
+            redis_url="redis://unused",
+            openrouter_api_key="test-key",
+            generation_agent_model="primary-model",
+            generation_agent_fallback_model="fallback-model",
+        ),
+    )
+    monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: fake_callback)
+    monkeypatch.setattr("worker.generate_sections", fake_generate_sections)
+    monkeypatch.setattr("worker.validate_resume", fake_validate_resume)
+    monkeypatch.setattr("worker.assemble_resume", fake_assemble_resume)
+
+    await run_generation_job(
+        {},
+        application_id="app-3",
+        user_id="user-3",
+        job_id="job-3",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs",
+        base_resume_content="## Summary\nBuilt APIs",
+        personal_info={"name": "User"},
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+    )
+
+    assert fake_callback.events == ["started", "succeeded"]
+    final_progress = await fake_writer.get("app-3")
+    assert final_progress is not None
+    assert final_progress.state == "resume_ready"
+    assert fake_writer.generated_by_app["app-3"]["job_id"] == "job-3"
+
+
+@pytest.mark.asyncio
+async def test_run_generation_job_validation_failure_does_not_crash_when_callback_fails(monkeypatch):
+    class FakeWriter:
+        def __init__(self) -> None:
+            self.progress_by_app: dict[str, JobProgress] = {}
+
+        async def get(self, application_id: str):
+            return self.progress_by_app.get(application_id)
+
+        async def set(self, application_id: str, progress: JobProgress, ttl_seconds: int = 86400):
+            del ttl_seconds
+            self.progress_by_app[application_id] = progress
+
+        async def clear_generation_result(self, application_id: str) -> None:
+            del application_id
+            return None
+
+        async def set_generation_result(
+            self,
+            application_id: str,
+            *,
+            job_id: str,
+            workflow_kind: str,
+            generated: dict[str, object],
+            ttl_seconds: int = 86400,
+        ) -> None:
+            del application_id, job_id, workflow_kind, generated, ttl_seconds
+            return None
+
+    class FakeCallback:
+        async def post(self, payload: dict[str, object], *, path: str = "/api/internal/worker/generation-callback"):
+            del payload, path
+            raise RuntimeError("backend unreachable")
+
+    async def fake_generate_sections(**kwargs):
+        on_progress = kwargs.get("on_progress")
+        if on_progress is not None:
+            await on_progress(50, "Generating sections")
+        return {"sections": [{"name": "summary", "content": "Built reliable APIs."}]}
+
+    async def fake_validate_resume(**kwargs):
+        del kwargs
+        return {"valid": False, "errors": ["Missing required section: skills"]}
+
+    fake_writer = FakeWriter()
+
+    monkeypatch.setattr(
+        "worker.WorkerSettingsEnv",
+        lambda: WorkerSettingsEnv(
+            redis_url="redis://unused",
+            openrouter_api_key="test-key",
+            generation_agent_model="primary-model",
+            generation_agent_fallback_model="fallback-model",
+        ),
+    )
+    monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: FakeCallback())
+    monkeypatch.setattr("worker.generate_sections", fake_generate_sections)
+    monkeypatch.setattr("worker.validate_resume", fake_validate_resume)
+
+    await run_generation_job(
+        {},
+        application_id="app-4",
+        user_id="user-4",
+        job_id="job-4",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs",
+        base_resume_content="## Summary\nBuilt APIs",
+        personal_info={"name": "User"},
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+    )
+
+    final_progress = await fake_writer.get("app-4")
+    assert final_progress is not None
+    assert final_progress.state == "generation_failed"
+    assert final_progress.terminal_error_code == "validation_failed"
+
+
+@pytest.mark.asyncio
+async def test_run_generation_job_completes_when_generation_cache_write_fails(monkeypatch):
+    class FakeWriter:
+        def __init__(self) -> None:
+            self.progress_by_app: dict[str, JobProgress] = {}
+
+        async def get(self, application_id: str):
+            return self.progress_by_app.get(application_id)
+
+        async def set(self, application_id: str, progress: JobProgress, ttl_seconds: int = 86400):
+            del ttl_seconds
+            self.progress_by_app[application_id] = progress
+
+        async def clear_generation_result(self, application_id: str) -> None:
+            del application_id
+            return None
+
+        async def set_generation_result(
+            self,
+            application_id: str,
+            *,
+            job_id: str,
+            workflow_kind: str,
+            generated: dict[str, object],
+            ttl_seconds: int = 86400,
+        ) -> None:
+            del application_id, job_id, workflow_kind, generated, ttl_seconds
+            raise RuntimeError("redis write failed")
+
+    class FakeCallback:
+        def __init__(self) -> None:
+            self.events: list[str] = []
+
+        async def post(self, payload: dict[str, object], *, path: str = "/api/internal/worker/generation-callback"):
+            del path
+            self.events.append(str(payload.get("event")))
+
+    async def fake_generate_sections(**kwargs):
+        on_progress = kwargs.get("on_progress")
+        if on_progress is not None:
+            await on_progress(50, "Generating sections")
+        return {"sections": [{"name": "summary", "content": "Built reliable APIs."}]}
+
+    async def fake_validate_resume(**kwargs):
+        del kwargs
+        return {"valid": True, "errors": []}
+
+    def fake_assemble_resume(**kwargs):
+        del kwargs
+        return "# Test Resume"
+
+    fake_writer = FakeWriter()
+    fake_callback = FakeCallback()
+
+    monkeypatch.setattr(
+        "worker.WorkerSettingsEnv",
+        lambda: WorkerSettingsEnv(
+            redis_url="redis://unused",
+            openrouter_api_key="test-key",
+            generation_agent_model="primary-model",
+            generation_agent_fallback_model="fallback-model",
+        ),
+    )
+    monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: fake_callback)
+    monkeypatch.setattr("worker.generate_sections", fake_generate_sections)
+    monkeypatch.setattr("worker.validate_resume", fake_validate_resume)
+    monkeypatch.setattr("worker.assemble_resume", fake_assemble_resume)
+
+    await run_generation_job(
+        {},
+        application_id="app-5",
+        user_id="user-5",
+        job_id="job-5",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs",
+        base_resume_content="## Summary\nBuilt APIs",
+        personal_info={"name": "User"},
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+    )
+
+    final_progress = await fake_writer.get("app-5")
+    assert final_progress is not None
+    assert final_progress.state == "resume_ready"
+    assert fake_callback.events == ["started", "succeeded"]

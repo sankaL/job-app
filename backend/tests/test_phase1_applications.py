@@ -255,6 +255,7 @@ class FakeProgressStore:
     def __init__(self) -> None:
         self.progress: dict[str, ProgressRecord] = {}
         self.extraction_results: dict[str, dict[str, Any]] = {}
+        self.generation_results: dict[str, dict[str, Any]] = {}
 
     async def get(self, application_id: str) -> Optional[ProgressRecord]:
         return self.progress.get(application_id)
@@ -265,12 +266,19 @@ class FakeProgressStore:
     async def delete(self, application_id: str) -> None:
         self.progress.pop(application_id, None)
         self.extraction_results.pop(application_id, None)
+        self.generation_results.pop(application_id, None)
 
     async def get_extraction_result(self, application_id: str) -> Optional[dict[str, Any]]:
         return self.extraction_results.get(application_id)
 
     async def clear_extraction_result(self, application_id: str) -> None:
         self.extraction_results.pop(application_id, None)
+
+    async def get_generation_result(self, application_id: str) -> Optional[dict[str, Any]]:
+        return self.generation_results.get(application_id)
+
+    async def clear_generation_result(self, application_id: str) -> None:
+        self.generation_results.pop(application_id, None)
 
 
 class FakeExtractionJobQueue:
@@ -2262,6 +2270,98 @@ async def test_get_application_detail_recovers_extraction_success_from_cached_re
     assert detail.application.company == "Acme"
     assert created.id not in progress_store.extraction_results
     assert notifications.notifications == []
+
+
+@pytest.mark.asyncio
+async def test_get_progress_recovers_generation_success_from_cached_result_when_callback_missed():
+    service, repository, notifications, progress_store, _, _, draft_repository = build_service()
+    now = datetime.now(timezone.utc)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/10",
+        visible_status="draft",
+        internal_state="generating",
+    )
+    repository.records[created.id] = created.model_copy(update={"updated_at": (now - timedelta(seconds=30)).isoformat()})
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-11",
+            workflow_kind="generation",
+            state="resume_ready",
+            message="Resume generated.",
+            percent_complete=100,
+            created_at=(now - timedelta(seconds=90)).isoformat(),
+            updated_at=(now - timedelta(seconds=20)).isoformat(),
+            completed_at=(now - timedelta(seconds=20)).isoformat(),
+            terminal_error_code=None,
+        ),
+    )
+    progress_store.generation_results[created.id] = {
+        "job_id": "job-11",
+        "workflow_kind": "generation",
+        "captured_at": now.isoformat(),
+        "generated": {
+            "content_md": "# Test Resume",
+            "generation_params": {"page_length": "1_page", "aggressiveness": "medium"},
+            "sections_snapshot": {
+                "enabled_sections": ["summary", "skills"],
+                "section_order": ["summary", "skills"],
+            },
+        },
+    }
+
+    progress = await service.get_progress(user_id="user-1", application_id=created.id)
+
+    assert progress.state == "resume_ready"
+    updated = repository.fetch_application("user-1", created.id)
+    assert updated is not None
+    assert updated.internal_state == "resume_ready"
+    assert updated.failure_reason is None
+    draft = draft_repository.fetch_draft("user-1", created.id)
+    assert draft is not None
+    assert draft.content_md == "# Test Resume"
+    assert created.id not in progress_store.generation_results
+    assert notifications.notifications[-1]["notification_type"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_get_progress_fails_closed_when_generation_success_progress_has_no_callback_sync():
+    service, repository, notifications, progress_store, _, _, _ = build_service()
+    now = datetime.now(timezone.utc)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/11",
+        visible_status="draft",
+        internal_state="generating",
+    )
+    repository.records[created.id] = created.model_copy(update={"updated_at": (now - timedelta(seconds=30)).isoformat()})
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-12",
+            workflow_kind="generation",
+            state="resume_ready",
+            message="Resume generated.",
+            percent_complete=100,
+            created_at=(now - timedelta(seconds=90)).isoformat(),
+            updated_at=(now - timedelta(seconds=20)).isoformat(),
+            completed_at=(now - timedelta(seconds=20)).isoformat(),
+            terminal_error_code=None,
+        ),
+    )
+
+    progress = await service.get_progress(user_id="user-1", application_id=created.id)
+
+    assert progress.state == "generation_pending"
+    assert progress.terminal_error_code == "generation_failed"
+    updated = repository.fetch_application("user-1", created.id)
+    assert updated is not None
+    assert updated.internal_state == "generation_pending"
+    assert updated.failure_reason == "generation_failed"
+    assert updated.generation_failure_details is not None
+    assert "could not be synchronized" in updated.generation_failure_details["message"].lower()
+    assert notifications.notifications[-1]["notification_type"] == "error"
 
 
 @pytest.mark.asyncio

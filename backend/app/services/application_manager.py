@@ -63,6 +63,12 @@ ACTIVE_DELETE_BLOCKING_STATES = {
 EXTRACTION_CALLBACK_SYNC_FAILURE_MESSAGE = (
     "Extraction finished, but results could not be synchronized. Retry extraction or complete manual entry."
 )
+GENERATION_CALLBACK_SYNC_FAILURE_MESSAGE = (
+    "Generation finished, but the new draft could not be synchronized. Please retry generation."
+)
+REGENERATION_CALLBACK_SYNC_FAILURE_MESSAGE = (
+    "Regeneration finished, but the updated draft could not be synchronized. Please retry regeneration."
+)
 BLOCKED_PLACEHOLDER_TITLE_PREFIXES = ("blocked - ",)
 BLOCKED_PLACEHOLDER_TITLE_VALUES = {"you have been blocked", "access denied", "attention required"}
 BLOCKED_PLACEHOLDER_DESCRIPTION_MARKERS = (
@@ -690,22 +696,64 @@ class ApplicationService:
             if record.internal_state == "resume_ready" and record.failure_reason is None:
                 return record
 
+            recovered_success = await self._reconcile_generation_success_from_progress_cache(
+                record=record,
+                progress=progress,
+            )
+            if recovered_success is not None:
+                return recovered_success
+
+            workflow_kind = self._generation_workflow_kind(record, progress)
+            is_initial_generation = workflow_kind == "generation"
+            target_state = self._target_state_after_generation_stop(record, progress)
+            failure_reason = "generation_failed" if is_initial_generation else "regeneration_failed"
+            sync_failure_message = (
+                GENERATION_CALLBACK_SYNC_FAILURE_MESSAGE
+                if is_initial_generation
+                else REGENERATION_CALLBACK_SYNC_FAILURE_MESSAGE
+            )
+            normalized_details = self._normalize_generation_failure_details(
+                message=sync_failure_message,
+                failure_details=None,
+            )
+
+            if (
+                record.internal_state == target_state
+                and record.failure_reason == failure_reason
+                and record.generation_failure_details == normalized_details
+            ):
+                return record
+
             updated = self.repository.update_application(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
-                    internal_state="resume_ready",
-                    failure_reason=None,
-                    generation_failure_details=None,
+                    internal_state=target_state,
+                    failure_reason=failure_reason,
+                    generation_failure_details=normalized_details,
                 ),
+            )
+            await self._set_terminal_generation_progress(
+                record=updated,
+                previous_progress=progress,
+                target_state=target_state,
+                message=sync_failure_message,
+                terminal_error_code=failure_reason,
             )
             try:
                 self.notification_repository.clear_action_required(
                     user_id=record.user_id,
                     application_id=record.id,
                 )
+                self.notification_repository.create_notification(
+                    user_id=record.user_id,
+                    application_id=record.id,
+                    notification_type="error",
+                    message=sync_failure_message,
+                    action_required=True,
+                )
             except Exception:
-                logger.exception("Failed clearing stale action-required notifications for %s", record.id)
+                logger.exception("Failed reconciling generation callback sync failure notifications for %s", record.id)
             return updated
 
         failure_reason = self._terminal_failure_reason(record=record, progress=progress)
@@ -941,6 +989,99 @@ class ApplicationService:
         )
         return await self._run_duplicate_resolution_flow(updated)
 
+    async def _reconcile_generation_success_from_progress_cache(
+        self,
+        *,
+        record: ApplicationRecord,
+        progress: ProgressRecord,
+    ) -> Optional[ApplicationRecord]:
+        cached_result = await self.progress_store.get_generation_result(record.id)
+        if not isinstance(cached_result, dict):
+            return None
+
+        cached_job_id = str(cached_result.get("job_id") or "").strip()
+        if not cached_job_id or cached_job_id != progress.job_id:
+            return None
+
+        cached_workflow_kind = str(cached_result.get("workflow_kind") or "").strip()
+        if cached_workflow_kind and cached_workflow_kind != progress.workflow_kind:
+            return None
+
+        generated_payload = cached_result.get("generated")
+        if not isinstance(generated_payload, dict):
+            return None
+
+        try:
+            generated = GenerationSuccessPayload.model_validate(generated_payload)
+        except Exception:
+            logger.exception("Failed validating cached generation payload for %s", record.id)
+            return None
+
+        self.draft_repository.upsert_draft(
+            application_id=record.id,
+            user_id=record.user_id,
+            content_md=generated.content_md,
+            generation_params=generated.generation_params,
+            sections_snapshot=generated.sections_snapshot,
+        )
+
+        updated = self.repository.update_application(
+            application_id=record.id,
+            user_id=record.user_id,
+            updates=self._workflow_updates(
+                internal_state="resume_ready",
+                failure_reason=None,
+                generation_failure_details=None,
+            ),
+        )
+        await self.progress_store.clear_generation_result(record.id)
+        try:
+            self.notification_repository.clear_action_required(
+                user_id=record.user_id,
+                application_id=record.id,
+            )
+            if progress.workflow_kind == "generation":
+                self.notification_repository.create_notification(
+                    user_id=record.user_id,
+                    application_id=record.id,
+                    notification_type="success",
+                    message="Resume generation completed successfully.",
+                    action_required=False,
+                )
+                await self._send_generation_email(
+                    record=updated,
+                    subject="Applix: resume generated",
+                    body="Your tailored resume has been generated and is ready for review.",
+                )
+                self._record_usage_event(
+                    user_id=record.user_id,
+                    application_id=record.id,
+                    event_type="generation",
+                    event_status="success",
+                )
+            else:
+                self.notification_repository.create_notification(
+                    user_id=record.user_id,
+                    application_id=record.id,
+                    notification_type="success",
+                    message="Resume regeneration completed successfully.",
+                    action_required=False,
+                )
+                await self._send_generation_email(
+                    record=updated,
+                    subject="Applix: resume regenerated",
+                    body="Your resume has been regenerated and is ready for review.",
+                )
+                self._record_usage_event(
+                    user_id=record.user_id,
+                    application_id=record.id,
+                    event_type="regeneration",
+                    event_status="success",
+                )
+        except Exception:
+            logger.exception("Failed reconciling cached generation success notifications for %s", record.id)
+        return updated
+
     def _terminal_failure_reason(
         self,
         *,
@@ -1161,6 +1302,7 @@ class ApplicationService:
             return record
 
         if payload.event == "started":
+            await self.progress_store.clear_generation_result(record.id)
             await self.progress_store.set(
                 record.id,
                 build_progress(
@@ -1193,6 +1335,7 @@ class ApplicationService:
             return record
 
         if payload.event == "failed":
+            await self.progress_store.clear_generation_result(record.id)
             failure_msg = payload.failure.message if payload.failure else "Generation failed."
             failure_details = payload.failure.failure_details if payload.failure else None
             terminal_code = payload.failure.terminal_error_code if payload.failure else "generation_failed"
@@ -1251,6 +1394,7 @@ class ApplicationService:
             )
             completed_progress.completed_at = completed_progress.updated_at
             await self.progress_store.set(record.id, completed_progress)
+            await self.progress_store.clear_generation_result(record.id)
 
             self.notification_repository.clear_action_required(
                 user_id=record.user_id, application_id=record.id,
@@ -1493,6 +1637,7 @@ class ApplicationService:
         failure_reason = "regeneration_failed"
 
         if payload.event == "started":
+            await self.progress_store.clear_generation_result(record.id)
             await self.progress_store.set(
                 record.id,
                 build_progress(
@@ -1514,6 +1659,7 @@ class ApplicationService:
             )
 
         if payload.event == "failed":
+            await self.progress_store.clear_generation_result(record.id)
             failure_msg = payload.failure.message if payload.failure else "Regeneration failed."
             failure_details = payload.failure.failure_details if payload.failure else None
 
@@ -1566,6 +1712,7 @@ class ApplicationService:
             )
             completed_progress.completed_at = completed_progress.updated_at
             await self.progress_store.set(record.id, completed_progress)
+            await self.progress_store.clear_generation_result(record.id)
 
             self.notification_repository.clear_action_required(
                 user_id=record.user_id, application_id=record.id,

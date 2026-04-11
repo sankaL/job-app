@@ -320,14 +320,49 @@ class ApplicationRepository:
         application_id: str,
         user_id: str,
     ) -> None:
-        query = """
-        delete from public.applications
-        where id = %s and user_id = %s
-        returning id::text
-        """
-
         with self._connection() as connection, connection.cursor() as cursor:
-            cursor.execute(query, (application_id, user_id))
+            cursor.execute(
+                """
+                delete from public.resume_drafts
+                where application_id = %s and user_id = %s
+                """,
+                (application_id, user_id),
+            )
+            cursor.execute(
+                """
+                update public.notifications
+                set application_id = null
+                where application_id = %s and user_id = %s
+                """,
+                (application_id, user_id),
+            )
+            cursor.execute("select to_regclass('public.usage_events') as usage_events_table")
+            usage_events_table = cursor.fetchone()
+            if usage_events_table and usage_events_table.get("usage_events_table"):
+                cursor.execute(
+                    """
+                    update public.usage_events
+                    set application_id = null
+                    where application_id = %s and user_id = %s
+                    """,
+                    (application_id, user_id),
+                )
+            cursor.execute(
+                """
+                update public.applications
+                set duplicate_matched_application_id = null
+                where duplicate_matched_application_id = %s and user_id = %s
+                """,
+                (application_id, user_id),
+            )
+            cursor.execute(
+                """
+                delete from public.applications
+                where id = %s and user_id = %s
+                returning id::text
+                """,
+                (application_id, user_id),
+            )
             row = cursor.fetchone()
             connection.commit()
 

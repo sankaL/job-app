@@ -26,14 +26,16 @@
 - Enhanced progress store with extraction result caching capabilities through Redis
 - Improved error handling for callback delivery failures with extraction result cache fallback
 - Updated progress polling logic to include terminal extraction reconciliation with cache validation
+- Enhanced timeout recovery mechanisms with dual-timing approach for generation workflows
+- Added comprehensive extraction reconciliation logic for callback-missed terminal states
 
 ## Table of Contents
 1. [Introduction](#introduction)
-2. [Project Structure](#project-structure)
-3. [Core Components](#core-components)
-4. [Architecture Overview](#architecture-overview)
-5. [Detailed Component Analysis](#detailed-component-analysis)
-6. [Dependency Analysis](#dependency-analysis)
+2. [Project Structure](#project_structure)
+3. [Core Components](#core_components)
+4. [Architecture Overview](#architecture_overview)
+5. [Detailed Component Analysis](#detailed_component_analysis)
+6. [Dependency Analysis](#dependency_analysis)
 7. [Performance Considerations](#performance-considerations)
 8. [Troubleshooting Guide](#troubleshooting-guide)
 9. [Conclusion](#conclusion)
@@ -279,7 +281,7 @@ RecordUsage --> End(["Return updated record"])
 ```
 
 **Diagram sources**
-- [application_manager.py:724-850](file://backend/app/services/application_manager.py#L724-L850)
+- [application_manager.py:802-934](file://backend/app/services/application_manager.py#L802-L934)
 
 #### Extraction Result Cache Validation
 The `_reconcile_extraction_success_from_progress_cache` method provides robust extraction result caching with validation:
@@ -306,7 +308,7 @@ RunDupFlow --> End(["Return updated record"])
 ```
 
 **Diagram sources**
-- [application_manager.py:858-912](file://backend/app/services/application_manager.py#L858-L912)
+- [application_manager.py:936-990](file://backend/app/services/application_manager.py#L936-L990)
 
 #### Key Features of Enhanced Extraction Reconciliation
 - **Success Case Handling**: Detects when extraction completes successfully but callback fails to synchronize
@@ -325,16 +327,16 @@ RunDupFlow --> End(["Return updated record"])
 - **Cache Validation Failed**: Cached extraction payload invalid or job ID mismatch
 
 **Section sources**
-- [application_manager.py:724-850](file://backend/app/services/application_manager.py#L724-L850)
-- [application_manager.py:858-912](file://backend/app/services/application_manager.py#L858-L912)
-- [test_phase1_applications.py:1973-2048](file://backend/tests/test_phase1_applications.py#L1973-L2048)
+- [application_manager.py:802-934](file://backend/app/services/application_manager.py#L802-L934)
+- [application_manager.py:936-990](file://backend/app/services/application_manager.py#L936-L990)
+- [test_phase1_applications.py:2172-2263](file://backend/tests/test_phase1_applications.py#L2172-L2263)
 
 ### Enhanced Timeout Recovery Mechanisms
 The Application Manager Service now implements sophisticated stuck generation recovery with dual-timing approach:
 
 #### Dual-Timing Timeout Parameters
-- **Full Generation Workflows**: 90-second idle timeout with 300-second maximum wall-clock cap
-- **Section Regeneration Workflows**: 45-second idle timeout with 90-second maximum wall-clock cap
+- **Full Generation Workflows**: 240-second idle timeout with 540-second maximum wall-clock cap
+- **Section Regeneration Workflows**: 120-second idle timeout with 280-second maximum wall-clock cap
 
 #### Timeout Detection Logic
 The system monitors two critical metrics:
@@ -365,12 +367,12 @@ CreateNotification --> End
 ```
 
 **Diagram sources**
-- [application_manager.py:493-566](file://backend/app/services/application_manager.py#L493-L566)
-- [application_manager.py:1764-1778](file://backend/app/services/application_manager.py#L1764-L1778)
+- [application_manager.py:608-642](file://backend/app/services/application_manager.py#L608-L642)
+- [application_manager.py:2364-2378](file://backend/app/services/application_manager.py#L2364-L2378)
 
 **Section sources**
-- [application_manager.py:493-566](file://backend/app/services/application_manager.py#L493-L566)
-- [application_manager.py:1764-1778](file://backend/app/services/application_manager.py#L1764-L1778)
+- [application_manager.py:608-642](file://backend/app/services/application_manager.py#L608-L642)
+- [application_manager.py:2364-2378](file://backend/app/services/application_manager.py#L2364-L2378)
 - [decisions-made-1.md:3-11](file://docs/decisions-made/decisions-made-1.md#L3-L11)
 
 ### ApplicationRepository
@@ -451,13 +453,13 @@ Svc->>Prog : set(state="generation_pending"|state="manual_entry_required", perce
 
 **Diagram sources**
 - [progress.py:53-79](file://backend/app/services/progress.py#L53-L79)
-- [application_manager.py:455-512](file://backend/app/services/application_manager.py#L455-L512)
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
+- [application_manager.py:1103-1137](file://backend/app/services/application_manager.py#L1103-L1137)
+- [worker.py:388-401](file://agents/worker.py#L388-L401)
 
 **Section sources**
 - [progress.py:53-79](file://backend/app/services/progress.py#L53-L79)
-- [application_manager.py:455-512](file://backend/app/services/application_manager.py#L455-L512)
-- [worker.py:526-667](file://agents/worker.py#L526-L667)
+- [application_manager.py:1103-1137](file://backend/app/services/application_manager.py#L1103-L1137)
+- [worker.py:388-401](file://agents/worker.py#L388-L401)
 
 ### Generation and Regeneration Workflows
 Generation and regeneration are handled by worker agents with timeout awareness:
@@ -483,12 +485,12 @@ Svc->>R : set(state="resume_ready"|state="generation_failed", percent=100)
 **Diagram sources**
 - [jobs.py:49-85](file://backend/app/services/jobs.py#L49-L85)
 - [worker.py:682-880](file://agents/worker.py#L682-L880)
-- [application_manager.py:603-719](file://backend/app/services/application_manager.py#L603-L719)
+- [application_manager.py:1291-1422](file://backend/app/services/application_manager.py#L1291-L1422)
 
 **Section sources**
 - [jobs.py:49-85](file://backend/app/services/jobs.py#L49-L85)
 - [worker.py:682-880](file://agents/worker.py#L682-L880)
-- [application_manager.py:603-719](file://backend/app/services/application_manager.py#L603-L719)
+- [application_manager.py:1291-1422](file://backend/app/services/application_manager.py#L1291-L1422)
 
 ### API Endpoints and Payloads
 The API exposes endpoints for application management and workflow actions. Request/response models define validation and normalization rules.
@@ -602,7 +604,7 @@ Common issues and recovery steps:
 - Extraction timeout: Worker reports failure; ApplicationService transitions to manual entry required.
 - Generation timeout or validation failure: Worker reports failure; ApplicationService marks generation failed and notifies the user.
 - **Enhanced**: Stuck generation detection: System automatically detects stalled jobs and recovers them with appropriate timeout codes.
-- **Enhanced**: Dual-timing timeout handling: Different timeout parameters for full generation (90s idle, 300s max) vs section regeneration (45s idle, 90s max).
+- **Enhanced**: Dual-timing timeout handling: Different timeout parameters for full generation (240s idle, 540s max) vs section regeneration (120s idle, 280s max).
 - **Enhanced**: Extraction callback delivery failure: Backend reconciliation detects successful extraction completion despite missing callbacks, validates cache, and transitions to generation_pending with cached extraction data.
 - **Enhanced**: Extraction result cache validation: System validates cached extraction payloads and job IDs before applying cached data to prevent data corruption.
 - Export failure: ApplicationService updates state to resume_ready with failure reason and creates an action-required notification.
@@ -622,9 +624,9 @@ Operational tips:
 - [worker.py:645-667](file://agents/worker.py#L645-L667)
 - [worker.py:856-905](file://agents/worker.py#L856-L905)
 - [application_manager.py:1150-1184](file://backend/app/services/application_manager.py#L1150-L1184)
-- [application_manager.py:493-566](file://backend/app/services/application_manager.py#L493-L566)
-- [application_manager.py:724-850](file://backend/app/services/application_manager.py#L724-L850)
-- [application_manager.py:858-912](file://backend/app/services/application_manager.py#L858-L912)
+- [application_manager.py:608-642](file://backend/app/services/application_manager.py#L608-L642)
+- [application_manager.py:802-934](file://backend/app/services/application_manager.py#L802-L934)
+- [application_manager.py:936-990](file://backend/app/services/application_manager.py#L936-L990)
 
 ## Conclusion
 The Application Manager Service provides a robust, asynchronous workflow for job application intake, extraction, generation, and regeneration. It integrates cleanly with job queues and Redis-backed progress tracking, supports duplicate detection and resolution, and offers comprehensive error handling and recovery. The enhanced timeout recovery mechanisms with dual-timing approach ensure that stuck generation jobs are properly detected and recovered, preventing infinite loops while allowing legitimate long-running operations to complete successfully. The new extraction progress reconciliation logic with extraction result caching provides improved reliability by handling callback delivery failures gracefully, validating cached data for consistency, and ensuring proper state synchronization between application records and progress store. The extraction result cache validation mechanism adds an additional layer of resilience by providing reliable fallback when worker callback delivery fails, while comprehensive error handling prevents data corruption and maintains system integrity.
@@ -664,11 +666,11 @@ regenerating_full --> resume_ready : "succeeded"
 
 #### Timeout Parameters
 - **Full Generation Workflows**: 
-  - Idle Timeout: 90 seconds (no progress updates)
-  - Maximum Wall-Clock: 300 seconds (absolute time limit)
+  - Idle Timeout: 240 seconds (no progress updates)
+  - Maximum Wall-Clock: 540 seconds (absolute time limit)
 - **Section Regeneration Workflows**:
-  - Idle Timeout: 45 seconds (no progress updates)
-  - Maximum Wall-Clock: 90 seconds (absolute time limit)
+  - Idle Timeout: 120 seconds (no progress updates)
+  - Maximum Wall-Clock: 280 seconds (absolute time limit)
 
 #### Error Codes
 - **generation_timeout**: Initial generation exceeded idle or maximum timeout
@@ -682,8 +684,8 @@ regenerating_full --> resume_ready : "succeeded"
 - **User Notification**: Creates action-required notification for timeout recovery
 
 **Section sources**
-- [application_manager.py:42-46](file://backend/app/services/application_manager.py#L42-L46)
-- [application_manager.py:1764-1778](file://backend/app/services/application_manager.py#L1764-L1778)
+- [application_manager.py:43-46](file://backend/app/services/application_manager.py#L43-L46)
+- [application_manager.py:2364-2378](file://backend/app/services/application_manager.py#L2364-L2378)
 - [decisions-made-1.md:3-11](file://docs/decisions-made/decisions-made-1.md#L3-L11)
 - [phase_4_generation_failure_reasons.sql:3-4](file://supabase/migrations/20260407_000006_phase_4_generation_failure_reasons.sql#L3-L4)
 
@@ -715,10 +717,10 @@ regenerating_full --> resume_ready : "succeeded"
 - **User-Facing Error Messages**: Clear guidance for users on next steps
 
 **Section sources**
-- [application_manager.py:724-850](file://backend/app/services/application_manager.py#L724-L850)
-- [application_manager.py:858-912](file://backend/app/services/application_manager.py#L858-L912)
-- [test_phase1_applications.py:1973-2048](file://backend/tests/test_phase1_applications.py#L1973-L2048)
-- [ApplicationDetailPage.tsx:67-68](file://frontend/src/routes/ApplicationDetailPage.tsx#L67-L68)
+- [application_manager.py:802-934](file://backend/app/services/application_manager.py#L802-L934)
+- [application_manager.py:936-990](file://backend/app/services/application_manager.py#L936-L990)
+- [test_phase1_applications.py:2172-2263](file://backend/tests/test_phase1_applications.py#L2172-L2263)
+- [ApplicationDetailPage.tsx:385-405](file://frontend/src/routes/ApplicationDetailPage.tsx#L385-L405)
 
 ### Practical Workflows
 
@@ -775,14 +777,15 @@ regenerating_full --> resume_ready : "succeeded"
 - [applications.py:603-621](file://backend/app/api/applications.py#L603-L621)
 - [applications.py:526-539](file://backend/app/api/applications.py#L526-L539)
 - [applications.py:641-661](file://backend/app/api/applications.py#L641-L661)
-- [application_manager.py:183-225](file://backend/app/services/application_manager.py#L183-L225)
-- [application_manager.py:226-246](file://backend/app/services/application_manager.py#L226-L246)
-- [application_manager.py:288-305](file://backend/app/services/application_manager.py#L288-L305)
-- [application_manager.py:358-411](file://backend/app/services/application_manager.py#L358-L411)
-- [application_manager.py:412-437](file://backend/app/services/application_manager.py#L412-L437)
-- [application_manager.py:513-602](file://backend/app/services/application_manager.py#L513-L602)
-- [application_manager.py:724-850](file://backend/app/services/application_manager.py#L724-L850)
-- [application_manager.py:858-912](file://backend/app/services/application_manager.py#L858-L912)
-- [application_manager.py:439-454](file://backend/app/services/application_manager.py#L439-L454)
-- [application_manager.py:1069-1148](file://backend/app/services/application_manager.py#L1069-L1148)
-- [application_manager.py:493-566](file://backend/app/services/application_manager.py#L493-L566)
+- [application_manager.py:228-270](file://backend/app/services/application_manager.py#L228-L270)
+- [application_manager.py:271-291](file://backend/app/services/application_manager.py#L271-L291)
+- [application_manager.py:378-395](file://backend/app/services/application_manager.py#L378-L395)
+- [application_manager.py:448-500](file://backend/app/services/application_manager.py#L448-L500)
+- [application_manager.py:502-527](file://backend/app/services/application_manager.py#L502-L527)
+- [application_manager.py:1205-1289](file://backend/app/services/application_manager.py#L1205-L1289)
+- [application_manager.py:1424-1529](file://backend/app/services/application_manager.py#L1424-L1529)
+- [application_manager.py:1103-1137](file://backend/app/services/application_manager.py#L1103-L1137)
+- [application_manager.py:1139-1203](file://backend/app/services/application_manager.py#L1139-L1203)
+- [application_manager.py:1291-1422](file://backend/app/services/application_manager.py#L1291-L1422)
+- [application_manager.py:802-934](file://backend/app/services/application_manager.py#L802-L934)
+- [application_manager.py:936-990](file://backend/app/services/application_manager.py#L936-L990)
