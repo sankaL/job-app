@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
-import { CircleStop, FileText, Gauge, MessageSquare, Ruler, Sparkles, Trash2 } from "lucide-react";
+import { ChevronDown, CircleStop, FileText, Gauge, MessageSquare, Ruler, Sparkles, Trash2 } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import {
   saveDraft,
   triggerFullRegeneration,
   triggerSectionRegeneration,
+  exportDocx,
   exportPdf,
   triggerGeneration,
   cancelGeneration,
@@ -55,6 +56,8 @@ type JobFormState = {
   job_posting_origin: string;
   job_posting_origin_other_text: string;
 };
+
+type ExportFormat = "pdf" | "docx";
 
 const EXTRACTION_POLL_STATES = ["extraction_pending", "extracting"];
 const ACTIVE_GENERATION_STATES = ["generating", "regenerating_full", "regenerating_section"];
@@ -221,7 +224,8 @@ export function ApplicationDetailPage() {
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [isSavingDraft, setIsSavingDraft] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [showSectionRegen, setShowSectionRegen] = useState(false);
   const [regenSectionName, setRegenSectionName] = useState("");
   const [regenInstructions, setRegenInstructions] = useState("");
@@ -234,6 +238,7 @@ export function ApplicationDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelExtractionConfirm, setShowCancelExtractionConfirm] = useState(false);
   const leftColumnRef = useRef<HTMLDivElement>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
 
   // Track last saved values for dirty state detection
@@ -331,6 +336,19 @@ export function ApplicationDetailPage() {
       typeof generationParams.additional_instructions === "string" ? generationParams.additional_instructions : "",
     );
   }
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [exportMenuOpen]);
 
   useEffect(() => {
     if (!applicationId) return;
@@ -751,27 +769,37 @@ export function ApplicationDetailPage() {
     }
   }
 
-  async function handleExportPdf() {
-    setIsExporting(true);
+  async function handleExport(format: ExportFormat) {
+    setExportMenuOpen(false);
+    setExportingFormat(format);
     setError(null);
     try {
-      const blob = await exportPdf(activeApplicationId);
-      const url = URL.createObjectURL(blob);
+      const download = format === "pdf" ? await exportPdf(activeApplicationId) : await exportDocx(activeApplicationId);
+      const url = URL.createObjectURL(download.blob);
       const link = document.createElement("a");
-      link.href = url;
-      link.download = `resume-${detail?.job_title?.replace(/\s+/g, "-").toLowerCase() ?? activeApplicationId}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      let linkAttached = false;
+      try {
+        link.href = url;
+        link.download =
+          download.filename ??
+          `resume-${detail?.job_title?.replace(/\s+/g, "-").toLowerCase() ?? activeApplicationId}.${format}`;
+        document.body.appendChild(link);
+        linkAttached = true;
+        link.click();
+      } finally {
+        if (linkAttached) {
+          document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(url);
+      }
       const updated = await fetchApplicationDetail(activeApplicationId);
       applyDetailState(updated, { refreshShell: true });
-      toast("PDF exported successfully");
+      toast(`${format.toUpperCase()} exported successfully`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to export PDF.");
-      toast("Failed to export PDF", "error");
+      setError(err instanceof Error ? err.message : `Unable to export ${format.toUpperCase()}.`);
+      toast(`Failed to export ${format.toUpperCase()}`, "error");
     } finally {
-      setIsExporting(false);
+      setExportingFormat(null);
     }
   }
 
@@ -855,9 +883,46 @@ export function ApplicationDetailPage() {
                   </span>
                 )}
                 {draft && (
-                  <Button size="sm" disabled={isExporting || isRegenerating || generationActive} onClick={() => void handleExportPdf()}>
-                    {isExporting ? "Exporting…" : "Export PDF"}
-                  </Button>
+                  <div ref={exportMenuRef} className="relative">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={exportingFormat !== null || isRegenerating || generationActive}
+                      aria-haspopup="menu"
+                      aria-expanded={exportMenuOpen}
+                      onClick={() => setExportMenuOpen((open) => !open)}
+                    >
+                      {exportingFormat === "pdf" ? "Exporting PDF…" : exportingFormat === "docx" ? "Exporting DOCX…" : "Export"}
+                      <ChevronDown size={14} aria-hidden="true" />
+                    </Button>
+                    {exportMenuOpen && exportingFormat === null && !isRegenerating && !generationActive && (
+                      <div
+                        className="animate-scaleIn absolute right-0 top-full z-20 mt-2 w-40 overflow-hidden rounded-xl border py-1 shadow-lg"
+                        style={{ borderColor: "var(--color-border)", background: "var(--color-white)" }}
+                        role="menu"
+                        aria-label="Export options"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                          style={{ color: "var(--color-ink)" }}
+                          onClick={() => void handleExport("pdf")}
+                        >
+                          Export PDF
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                          style={{ color: "var(--color-ink)" }}
+                          onClick={() => void handleExport("docx")}
+                        >
+                          Export DOCX
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
                 <AppliedToggleButton applied={detail.applied} onClick={() => handleAppliedButtonClick()} />
                 <a
@@ -1338,10 +1403,10 @@ export function ApplicationDetailPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         {!generationActive && (
                           <>
-                            <Button size="sm" variant="secondary" disabled={isRegenerating || isExporting} onClick={() => setShowSectionRegen(true)}>Regen Section</Button>
+                            <Button size="sm" variant="secondary" disabled={isRegenerating || exportingFormat !== null} onClick={() => setShowSectionRegen(true)}>Regen Section</Button>
                             <button
                               type="button"
-                              disabled={isRegenerating || isExporting}
+                              disabled={isRegenerating || exportingFormat !== null}
                               className="ai-button inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={() => void handleFullRegeneration()}
                             >

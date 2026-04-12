@@ -98,6 +98,11 @@ export type ResumeDraft = {
   updated_at: string;
 };
 
+export type DownloadResponse = {
+  blob: Blob;
+  filename: string | null;
+};
+
 export type ApplicationDetail = {
   id: string;
   job_url: string;
@@ -742,9 +747,23 @@ export async function cancelGeneration(applicationId: string): Promise<Applicati
   });
 }
 
-export async function exportPdf(applicationId: string): Promise<Blob> {
+function parseDownloadFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+  const quotedMatch = contentDisposition.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1];
+  }
+  const unquotedMatch = contentDisposition.match(/filename=([^;]+)/i);
+  return unquotedMatch?.[1]?.trim() ?? null;
+}
+
+async function exportDownload(applicationId: string, path: string): Promise<DownloadResponse> {
   const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}/export-pdf`, {
+  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}/${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -761,5 +780,16 @@ export async function exportPdf(applicationId: string): Promise<Blob> {
     throw new Error(detail);
   }
 
-  return response.blob();
+  return {
+    blob: await response.blob(),
+    filename: parseDownloadFilename(response.headers.get("Content-Disposition")),
+  };
+}
+
+export async function exportPdf(applicationId: string): Promise<DownloadResponse> {
+  return exportDownload(applicationId, "export-pdf");
+}
+
+export async function exportDocx(applicationId: string): Promise<DownloadResponse> {
+  return exportDownload(applicationId, "export-docx");
 }

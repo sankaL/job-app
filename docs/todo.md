@@ -37,6 +37,8 @@ Opus
 - [] Create a test suite integration in pytest with reporting request library - i make the scenarios sanity test suite
 
 
+
+- [] The medium agressiveness doesnt seem that aggressive explore the rules and make some changes.
 - [] Suggesstion for improving ai writing from https://claude.ai/chat/628ee097-fa6f-48e3-a1e0-d0b34c2f23bc
 
 Great question. Here are practical rules they can apply:

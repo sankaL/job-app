@@ -29,7 +29,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 | Phase 1A | Implemented | Blocked-page recovery, pasted-text retry, and Chrome current-tab capture intake |
 | Phase 2 | Implemented | Base resumes, profile data, section preferences, PDF upload with optional LLM cleanup, and pre-generation configuration surface |
 | Phase 3 | Implemented | Generation, validation, assembly, notifications, and application workspace |
-| Phase 4 | Implemented | Editing, regeneration, and PDF export |
+| Phase 4 | Implemented | Editing, regeneration, and PDF/DOCX export |
 | Phase 5 | In Progress | Invite onboarding and admin operations shipped; hardening, recovery, and end-to-end MVP acceptance remaining |
 
 ## Task Tracking
@@ -115,6 +115,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T15 | Add first-class DOCX export alongside shared export parsing and filename-aware downloads | BE/FE/Docs | DONE | 2026-04-12 16:10:00 EDT | Export now supports both PDF and DOCX from the latest draft, with shared markdown normalization and section parsing, Word-native DOCX formatting on Letter pages, format-aware success/failure handling, and frontend downloads that honor the server-provided filename. |
 | B5-T14 | Improve PDF export readability with smarter spacing, safer bullet parsing, and higher minimum fit presets | BE/Docs | DONE | 2026-04-12 12:32:05 EDT | PDF export now uses roomier header and section spacing, light document-density spacing adjustments, safer bullet-item rendering that unwraps accidental nested list markup without stripping literal `*` content, and a higher minimum readable preset floor of 9.4pt/1.10 line-height. Added regression coverage for spacing CSS, density classification, list rendering, and preset bounds. |
 | B5-T13 | Recover generation/regeneration completions when worker callbacks are unreachable | BE/AI/Docs | DONE | 2026-04-11 14:34:00 EDT | Generation/regeneration workers now cache success payloads before callback delivery and treat callback transport as best-effort so transient backend connect failures no longer abort finished jobs; backend progress reconciliation can persist cached drafts when callbacks are missed and fails closed when no cache is available. |
 | B5-T12 | Make application delete resilient to dependent-row schema drift in production | BE | DONE | 2026-04-11 13:43:53 EDT | `ApplicationRepository.delete_application()` now proactively clears dependent `resume_drafts`, `notifications`, `usage_events` (when present), and self-referencing duplicate links before deleting the application row, preventing foreign-key-related production delete 500s when historical schema constraints differ from current `ON DELETE` behavior. |
@@ -413,7 +414,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Implement Markdown edit mode with persistent save behavior.
 - Support single-section regeneration with required instructions.
 - Support full regeneration with pre-filled prior settings and overwrite of the current draft.
-- Implement on-demand PDF export from the latest draft content with ATS-safe formatting.
+- Implement on-demand PDF and DOCX export from the latest draft content with ATS-safe formatting.
 - Preserve the PRD rule that editing or regenerating after export returns the visible status to `Needs Action` (resume ready but export stale).
 - Handle regeneration and export failures with recoverable status changes and notifications.
 
@@ -430,7 +431,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Markdown editor mode and preview/edit mode switch.
 - Section regeneration endpoint with deterministic validation.
 - Full regeneration path that overwrites the current draft and updates timestamps.
-- PDF export endpoint that streams the generated file without storing it.
+- Export endpoints that stream generated PDF or DOCX files without storing them.
 - In-app notifications for export success and failure, plus email notifications for export failures.
 
 **Exit Criteria**
@@ -438,7 +439,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - A user can edit and save Markdown directly.
 - Section regeneration rejects blank instructions and updates only the selected section.
 - Full regeneration reuses and updates prior settings appropriately.
-- PDF export produces a fresh file from the latest saved draft and does not persist the PDF.
+- Export produces a fresh PDF or DOCX file from the latest saved draft and does not persist the file.
 - Editing or regeneration after export returns the application to `Needs Action`.
 
 **PRD Acceptance Coverage**
@@ -446,7 +447,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 - Edit the resume in plain Markdown mode and save.
 - Regenerate a single section with required instructions.
 - Regenerate the full resume with updated settings and optional instructions.
-- Export the current draft as a PDF download.
+- Export the current draft as a PDF or DOCX download.
 - See status return to `Needs Action` after editing or regenerating a previously exported resume.
 
 ## Phase 5 — Hardening, Recovery, and MVP Acceptance
@@ -501,7 +502,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | Edit the resume in plain Markdown mode and save | Phase 4 |
 | Regenerate a single section with required instructions | Phase 4 |
 | Regenerate the full resume with updated settings and optional instructions | Phase 4 |
-| Export the current draft as a PDF download | Phase 4 |
+| Export the current draft as a PDF or DOCX download | Phase 4 |
 | See status return to `Needs Action` after editing or regenerating a previously exported resume | Phase 4 |
 | Toggle the Applied flag independently of the primary status | Phase 1 and Phase 3 |
 | Receive in-app notifications for all workflow events | Phase 1, Phase 3, and Phase 4 |

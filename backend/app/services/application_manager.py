@@ -29,7 +29,7 @@ from app.services.jobs import (
     get_extraction_job_queue,
     get_generation_job_queue,
 )
-from app.services.pdf_export import generate_pdf
+from app.services.pdf_export import generate_docx, generate_pdf
 from app.services.progress import (
     ProgressRecord,
     RedisProgressStore,
@@ -1795,26 +1795,50 @@ class ApplicationService:
         user_id: str,
         application_id: str,
     ) -> tuple[bytes, str]:
-        """Generate and return PDF bytes and filename.
+        return await self._export_resume(
+            user_id=user_id,
+            application_id=application_id,
+            export_format="pdf",
+        )
 
-        Returns (pdf_bytes, filename).
-        """
+    async def export_docx(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> tuple[bytes, str]:
+        return await self._export_resume(
+            user_id=user_id,
+            application_id=application_id,
+            export_format="docx",
+        )
+
+    async def _export_resume(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+        export_format: str,
+    ) -> tuple[bytes, str]:
         record = self._require_application(user_id=user_id, application_id=application_id)
 
         draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
         if draft is None:
             raise PermissionError("No draft exists. Generation must happen first.")
 
-        profile = self._require_profile(user_id=user_id, action="exporting a PDF")
-        self._require_profile_name(profile, action="exporting a PDF")
+        export_format_normalized = export_format.lower()
+        format_label = "PDF" if export_format_normalized == "pdf" else "DOCX"
+        generator = generate_pdf if export_format_normalized == "pdf" else generate_docx
+        profile = self._require_profile(user_id=user_id, action=f"exporting a {format_label}")
+        self._require_profile_name(profile, action=f"exporting a {format_label}")
         personal_info = self._build_personal_info(profile)
         full_name = (self._clean_profile_value(profile.name) or "resume").replace(" ", "_")
 
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        filename = f"{full_name}_resume_{timestamp}.pdf"
+        filename = f"{full_name}_resume_{timestamp}.{export_format_normalized}"
 
         try:
-            pdf_bytes = await generate_pdf(
+            export_bytes = await generator(
                 markdown_content=draft.content_md,
                 personal_info=personal_info,
                 page_length=str(draft.generation_params.get("page_length") or "1_page"),
@@ -1822,18 +1846,19 @@ class ApplicationService:
         except asyncio.TimeoutError:
             await self._handle_export_failure(
                 record=record,
-                message="PDF export timed out. Please try again.",
+                message=f"{format_label} export timed out. Please try again.",
+                format_label=format_label,
             )
-            raise ValueError("PDF export timed out.")
+            raise ValueError(f"{format_label} export timed out.")
         except Exception as exc:
-            logger.exception("PDF export failed for application %s", application_id)
+            logger.exception("%s export failed for application %s", format_label, application_id)
             await self._handle_export_failure(
                 record=record,
-                message="PDF export failed. Please try again.",
+                message=f"{format_label} export failed. Please try again.",
+                format_label=format_label,
             )
-            raise ValueError("PDF export failed.") from exc
+            raise ValueError(f"{format_label} export failed.") from exc
 
-        # Success: update exported_at, last_exported_at, status
         self.repository.update_application(
             application_id=application_id,
             user_id=user_id,
@@ -1858,7 +1883,7 @@ class ApplicationService:
             user_id=user_id,
             application_id=application_id,
             notification_type="success",
-            message="PDF export completed successfully.",
+            message=f"{format_label} export completed successfully.",
             action_required=False,
         )
         self._record_usage_event(
@@ -1868,13 +1893,14 @@ class ApplicationService:
             event_status="success",
         )
 
-        return pdf_bytes, filename
+        return export_bytes, filename
 
     async def _handle_export_failure(
         self,
         *,
         record: ApplicationRecord,
         message: str,
+        format_label: str,
     ) -> None:
         self.repository.update_application(
             application_id=record.id,
@@ -1901,7 +1927,7 @@ class ApplicationService:
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
-                    subject="Applix: PDF export failed",
+                    subject=f"Applix: {format_label} export failed",
                     text=(
                         f"{message}\n\n"
                         f"Open the application: {self._application_url(record.id)}"

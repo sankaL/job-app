@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-04-12 16:10:00 EDT — Treat DOCX as a first-class export alongside PDF
+
+- Status: Accepted
+- Context: The product already had a tuned PDF export pipeline, but users also needed a clean DOCX download that preserved the same grounded resume structure, fit a Letter-sized page cleanly, and behaved consistently in workflow status and notifications.
+- Decision:
+  1. Add DOCX as a second on-demand export format generated from the latest draft with no persistent file storage.
+  2. Refactor export rendering around one shared normalized resume document structure so PDF and DOCX consume the same header replacement, section parsing, bullet handling, and split-row semantics.
+  3. Treat successful DOCX exports as workflow-equivalent to successful PDF exports by updating export timestamps, setting visible status to `Complete`, and recording the same generic export usage event.
+  4. Use Word-native DOCX formatting with Letter page size, fixed clean margins, real list paragraphs, and tab-stop split rows; keep page-length behavior best-effort rather than requiring exact PDF pagination parity.
+- Consequences: Users can export either PDF or DOCX without changing the storage model, the backend keeps one export status contract instead of format-specific state, and future export-format changes can build on the shared parsing layer instead of duplicating Markdown normalization logic.
+
 ## 2026-04-10 17:00:08 EDT — Use GitHub Actions path-filtered Railway CLI deploys for selective push-to-main releases
 
 - Status: Accepted

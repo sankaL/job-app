@@ -11,7 +11,7 @@ Build a private, invite-only web application that helps users generate ATS-frien
 
 A user logs in, creates a job application from a job link or Chrome current-tab capture, and the system attempts to extract the job details and posting origin asynchronously. The user then selects a base resume, chooses generation settings, and the system produces a tailored resume draft in Markdown. The user can review, edit, regenerate sections, regenerate the full resume, and export a PDF.
 
-This is an MVP. The focus is a clean, reliable workflow with strong user feedback during async processing, clear attention states, and a single ATS-safe PDF output format.
+This is an MVP. The focus is a clean, reliable workflow with strong user feedback during async processing, clear attention states, and ATS-safe PDF and DOCX export formats.
 
 ---
 
@@ -122,7 +122,7 @@ Application statuses are kept lightweight and action-oriented for the user.
 | **Draft** | Application exists but no usable tailored resume draft yet. Covers: just submitted URL, extraction pending or running, details extracted but generation not started. |
 | **Needs Action** | User must do something before the workflow can continue. Covers: extraction failed (manual entry required), duplicate review unresolved, generation failed, generation timed out, generation cancelled, regeneration failed, export failed. |
 | **In Progress** | A tailored resume draft exists and the user is reviewing or iterating. Covers: generation complete, user editing, after section or full regeneration, after editing a previously exported resume. |
-| **Complete** | The current draft has been successfully exported as a PDF. **Not permanent** — if the user edits or regenerates after export, status returns to In Progress. |
+| **Complete** | The current draft has been successfully exported as a supported export format (`PDF` or `DOCX`). **Not permanent** — if the user edits or regenerates after export, status returns to In Progress. |
 
 ### 7.2 Applied Flag (Secondary)
 
@@ -167,7 +167,7 @@ Async operations must enforce timeouts to prevent silent hangs. These are the re
 | Playwright extraction | 30 seconds |
 | Full resume generation and full regeneration (all sections) | 240 seconds without progress, with a 240 second maximum wall-clock window |
 | Single section regeneration | 120 seconds without progress, with a 120 second maximum wall-clock window |
-| PDF export | 20 seconds |
+| Resume export | 20 seconds |
 
 On timeout, the operation is treated as a failure and follows the failure handling path defined for that operation. For generation and regeneration, meaningful progress updates from the active job should extend the remaining processing window until the maximum cap is reached, but the workflow must still fail once it stalls past the idle boundary. Engineers may tune these values during implementation, but must have explicit timeouts in place. "Reasonable for MVP" is not sufficient — every async operation must have a defined failure boundary.
 
@@ -487,7 +487,7 @@ The main working page for a single application.
 - Regenerate Section
 - Regenerate Full Resume
 - Retry Extraction (if extraction failed)
-- Export PDF
+- Export PDF / DOCX
 
 ---
 
@@ -534,27 +534,28 @@ Users can manually edit the generated Markdown at any time.
 
 ---
 
-### 10.14 PDF Export
+### 10.14 Resume Export
 
-**Trigger:** User clicks **Export PDF**
+**Trigger:** User clicks **Export PDF** or **Export DOCX**
 
 **Process:**
 1. Take the latest `resume_drafts.content_md` at the moment of export (not cached; always fresh)
 2. Inject user personal information if not already present
-3. Convert Markdown → styled HTML → PDF via the chosen PDF engine
+3. Convert Markdown into the requested output format using the committed renderer for that format
 4. Stream the file directly to the browser as a download
-5. **Do not store the PDF in persistent storage for MVP** — it is always regenerated on demand from the latest draft
+5. **Do not store exported files in persistent storage for MVP** — they are always regenerated on demand from the latest draft
 
-**Filename format:** `{full_name}_resume_{YYYYMMDD_HHMMSS}.pdf`
+**Filename format:** `{full_name}_resume_{YYYYMMDD_HHMMSS}.{ext}`
 
-**PDF output requirements:**
-- Single ATS-safe format only (MVP owns the output template — no user choice)
+**Output requirements:**
+- Two ATS-safe formats only: PDF and DOCX
 - Clean, industry-standard single-column layout
 - No tables, no images, no decorative elements
 - Standard fonts (e.g., Georgia, Calibri, or equivalent)
 - Margins: 0.75–1 inch
 - Section headings as bold text with appropriate spacing
 - Sections in the order defined by user's `section_order` preferences
+- DOCX uses Word-native formatting with Letter page size and best-effort spacing aligned to the saved page-length target; exact pagination parity with PDF is not required
 
 **On success:**
 - Visible status → **Complete**
@@ -643,7 +644,7 @@ Examples:
 | Extraction failed — manual entry required | ✅ |
 | Resume generation completed | ✅ |
 | Resume generation failed | ✅ |
-| PDF export failed | ✅ |
+| Resume export failed | ✅ |
 
 All emails must include a direct link to the relevant application.
 
@@ -893,7 +894,7 @@ The MVP is successful if a user can:
 - [ ] Edit the resume in plain Markdown mode and save
 - [ ] Regenerate a single section with required instructions
 - [ ] Regenerate the full resume with updated settings and optional instructions
-- [ ] Export the current draft as a PDF download
+- [ ] Export the current draft as a PDF or DOCX download
 - [ ] See status return to In Progress after editing or regenerating a previously exported resume
 - [ ] Toggle the Applied flag independently of the primary status
 - [ ] Receive in-app notifications for all workflow events

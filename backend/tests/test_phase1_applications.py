@@ -1187,6 +1187,36 @@ def test_delete_application_endpoint_returns_404_for_missing_record():
     assert response.json()["detail"] == "Application not found."
 
 
+def test_export_docx_endpoint_returns_docx_attachment():
+    service, repository, _, _, _, _, drafts = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/applications/{created.id}/export-docx",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    assert 'filename="' in response.headers["content-disposition"]
+    assert response.headers["content-disposition"].endswith('.docx"')
+
+
 def test_delete_application_endpoint_returns_409_for_active_record():
     service, repository, _, _, _, _, _ = build_service()
     created = repository.create_application(
@@ -1785,6 +1815,115 @@ async def test_export_pdf_requires_profile_name(monkeypatch):
             user_id="user-1",
             application_id=created.id,
         )
+
+
+@pytest.mark.asyncio
+async def test_export_docx_requires_profile_name(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    service.profile_repository.name = None
+
+    async def fail_if_called(*args, **kwargs):
+        raise AssertionError("generate_docx should not run when profile name is missing")
+
+    monkeypatch.setattr(application_manager_service, "generate_docx", fail_if_called)
+
+    with pytest.raises(ValueError, match="Complete your profile name before exporting a DOCX."):
+        await service.export_docx(
+            user_id="user-1",
+            application_id=created.id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_export_docx_updates_status_notifications_and_timestamps(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, notifications, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    async def fake_generate_docx(*args, **kwargs):
+        return b"docx-bytes"
+
+    monkeypatch.setattr(application_manager_service, "generate_docx", fake_generate_docx)
+
+    export_bytes, filename = await service.export_docx(
+        user_id="user-1",
+        application_id=created.id,
+    )
+
+    updated = repository.fetch_application("user-1", created.id)
+    draft = drafts.fetch_draft("user-1", created.id)
+
+    assert export_bytes == b"docx-bytes"
+    assert filename.endswith(".docx")
+    assert updated is not None
+    assert updated.visible_status == "complete"
+    assert updated.exported_at is not None
+    assert draft is not None
+    assert draft.last_exported_at is not None
+    assert notifications.notifications[-1]["message"] == "DOCX export completed successfully."
+
+
+@pytest.mark.asyncio
+async def test_export_docx_failure_sets_export_failed_and_uses_docx_copy(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, notifications, _, _, email_sender, drafts = build_service(draft_repository=drafts)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    async def fail_generate_docx(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(application_manager_service, "generate_docx", fail_generate_docx)
+
+    with pytest.raises(ValueError, match="DOCX export failed."):
+        await service.export_docx(
+            user_id="user-1",
+            application_id=created.id,
+        )
+
+    updated = repository.fetch_application("user-1", created.id)
+    assert updated is not None
+    assert updated.failure_reason == "export_failed"
+    assert updated.visible_status == "needs_action"
+    assert notifications.notifications[-1]["message"] == "DOCX export failed. Please try again."
+    assert email_sender.messages[-1].subject == "Applix: DOCX export failed"
 
 
 @pytest.mark.asyncio

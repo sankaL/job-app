@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import re
 
 from app.services import pdf_export
@@ -63,9 +64,14 @@ def test_build_html_uses_point_spacing_units():
         "## Summary\nBuilt backend systems.\n",
         preset,
     )
+    major_section_gap = max(
+        preset.body_font_size * 0.6 * preset.section_spacing_scale,
+        preset.section_margin_top * 1.1,
+    )
+    header_gap = max(major_section_gap, preset.contact_to_first_section_margin * 1.1)
 
-    assert f"margin-bottom: {preset.contact_to_first_section_margin * 1.1:.2f}pt;" in html
-    assert f"margin-top: {preset.section_margin_top * 1.1:.2f}pt;" in html
+    assert f"margin-bottom: {header_gap:.2f}pt;" in html
+    assert f"margin-top: {major_section_gap:.2f}pt;" in html
     assert f"margin: 0 0 {preset.section_header_content_gap * 1.1:.2f}pt 0;" in html
     assert f"margin: 0 0 {preset.paragraph_margin * 1.08:.2f}pt 0;" in html
     assert f"margin: 0 0 {preset.paragraph_margin * 1.08:.2f}pt {preset.bullet_indent}pt;" in html
@@ -284,3 +290,133 @@ def test_build_html_does_not_bold_date_split_rows_outside_professional_experienc
     )
 
     assert "split-left split-left-strong" not in html
+
+
+def test_build_html_preserves_blank_line_separation_between_split_row_groups():
+    html = pdf_export._build_html(
+        (
+            "## Professional Experience\n"
+            "Senior Data Architect | Jan 2020 - Present\n"
+            "Acme Corp | Toronto, ON\n\n"
+            "Lead Engineer | Jan 2018 - Dec 2019\n"
+            "Beta Corp | Ottawa, ON\n"
+        ),
+        pdf_export.LAYOUT_PRESETS[0],
+    )
+
+    assert html.count("class='split-group'") == 2
+
+
+def test_build_export_document_reuses_one_normalized_header():
+    document = pdf_export._build_export_document(
+        "Alex Example\nalex@example.com | 555-0100\n\n## Summary\nBuilt backend systems.\n",
+        _personal_info(),
+    )
+
+    assert document.header is not None
+    assert document.header.name == "Alex Example"
+    assert document.header.contact_line == "alex@example.com | 555-0100 | Toronto, ON | in/alex-example"
+    assert len(document.sections) == 1
+    assert document.sections[0].heading == "Summary"
+
+
+def test_render_docx_sync_uses_letter_page_size_and_expected_margins():
+    from docx import Document
+
+    docx_bytes = pdf_export._render_docx_sync(
+        "## Summary\nBuilt backend systems.\n",
+        _personal_info(),
+        "2_page",
+    )
+    document = Document(io.BytesIO(docx_bytes))
+    section = document.sections[0]
+    layout = pdf_export.DOCX_LAYOUT_PRESETS["2_page"]
+
+    assert round(section.page_width.inches, 2) == 8.5
+    assert round(section.page_height.inches, 2) == 11.0
+    assert round(section.top_margin.inches, 2) == round(layout.page_margin, 2)
+    assert round(section.left_margin.inches, 2) == round(layout.page_margin, 2)
+
+
+def test_render_docx_sync_adds_clear_header_and_major_section_spacing():
+    from docx import Document
+
+    docx_bytes = pdf_export._render_docx_sync(
+        (
+            "# Alex Example\n"
+            "alex@example.com | 555-0100 | Toronto, ON\n\n"
+            "## Summary\n"
+            "Built backend systems.\n\n"
+            "## Skills\n"
+            "- Python\n"
+        ),
+        _personal_info(),
+        "2_page",
+    )
+    document = Document(io.BytesIO(docx_bytes))
+    layout = pdf_export.DOCX_LAYOUT_PRESETS["2_page"]
+    header_section_gap = max(layout.body_font_size * layout.line_spacing * 0.95, layout.header_spacing_after)
+    major_section_gap = max(layout.body_font_size * layout.line_spacing * 0.95, layout.section_spacing_before)
+    contact_paragraph = next(paragraph for paragraph in document.paragraphs if "alex@example.com" in paragraph.text)
+    skills_heading = next(paragraph for paragraph in document.paragraphs if paragraph.text == "SKILLS")
+
+    assert round(contact_paragraph.paragraph_format.space_after.pt, 2) >= round(header_section_gap, 2)
+    assert round(skills_heading.paragraph_format.space_before.pt, 2) >= round(major_section_gap, 2)
+
+
+def test_render_docx_sync_renders_header_bullets_and_split_rows_without_tables():
+    from docx import Document
+
+    docx_bytes = pdf_export._render_docx_sync(
+        (
+            "# Alex Example\n"
+            "alex@example.com | 555-0100 | Toronto, ON\n\n"
+            "## Professional Experience\n"
+            "Senior Data Architect | Jan 2020 - Present\n"
+            "Acme Corp | Toronto, ON\n"
+            "- Led migration program\n"
+        ),
+        _personal_info(),
+        "1_page",
+    )
+    document = Document(io.BytesIO(docx_bytes))
+    paragraph_text = [paragraph.text for paragraph in document.paragraphs]
+
+    assert document.tables == []
+    assert paragraph_text[0] == "Alex Example"
+    assert any("PROFESSIONAL EXPERIENCE" == text for text in paragraph_text)
+    assert any("Senior Data Architect\tJan 2020 - Present" == text for text in paragraph_text)
+    assert any("Led migration program" in text for text in paragraph_text)
+
+
+def test_render_docx_sync_bolds_only_professional_experience_role_title_split_rows():
+    from docx import Document
+
+    docx_bytes = pdf_export._render_docx_sync(
+        (
+            "## Professional Experience\n"
+            "Senior Data Architect | Jan 2020 - Present\n"
+            "Acme Corp | Toronto, ON\n"
+            "## Summary\n"
+            "Portfolio Lead | 2024 - Present\n"
+        ),
+        _personal_info(),
+        "1_page",
+    )
+    document = Document(io.BytesIO(docx_bytes))
+    role_paragraph = next(paragraph for paragraph in document.paragraphs if paragraph.text == "Senior Data Architect\tJan 2020 - Present")
+    summary_paragraph = next(paragraph for paragraph in document.paragraphs if paragraph.text == "Portfolio Lead\t2024 - Present")
+
+    assert role_paragraph.runs[0].bold is True
+    assert summary_paragraph.runs[0].bold in {False, None}
+
+
+def test_resolve_docx_layout_adjusts_for_dense_and_sparse_documents():
+    dense = pdf_export._resolve_docx_layout("1_page", {"is_dense": True, "is_sparse": False})
+    sparse = pdf_export._resolve_docx_layout("1_page", {"is_dense": False, "is_sparse": True})
+    baseline = pdf_export.DOCX_LAYOUT_PRESETS["1_page"]
+
+    assert dense.body_font_size < baseline.body_font_size
+    assert dense.paragraph_spacing < baseline.paragraph_spacing
+    assert sparse.body_font_size > baseline.body_font_size
+    assert sparse.section_spacing_before > baseline.section_spacing_before

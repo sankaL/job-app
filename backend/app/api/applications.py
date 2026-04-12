@@ -779,3 +779,25 @@ async def export_pdf(
         )
     except Exception as error:
         raise _map_service_error(error) from error
+
+
+@router.get("/{application_id}/export-docx")
+async def export_docx(
+    application_id: str,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> Response:
+    try:
+        docx_bytes, filename = await service.export_docx(
+            user_id=current_user.id,
+            application_id=application_id,
+        )
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+    except Exception as error:
+        raise _map_service_error(error) from error

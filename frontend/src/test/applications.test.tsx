@@ -25,6 +25,7 @@ const api = vi.hoisted(() => ({
   clearNotifications: vi.fn(),
   deleteApplication: vi.fn(),
   deleteBaseResume: vi.fn(),
+  exportDocx: vi.fn(),
   exportPdf: vi.fn(),
   fetchExtensionStatus: vi.fn(),
   fetchApplicationDetail: vi.fn(),
@@ -151,6 +152,8 @@ function buildNotificationSummary(overrides: Record<string, unknown> = {}) {
 describe("phase 1 applications UI", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    globalThis.URL.createObjectURL = vi.fn(() => "blob:mock-url");
+    globalThis.URL.revokeObjectURL = vi.fn();
     api.fetchDraft.mockResolvedValue(null);
     api.fetchProfile.mockResolvedValue({
       id: "user-1",
@@ -1054,10 +1057,83 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByRole("heading", { name: /generation settings/i })).toBeInTheDocument();
     expect(screen.getByDisplayValue("$170,000 - $210,000 base salary")).toBeInTheDocument();
     expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /export pdf/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /export/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /delete application/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /mark applied/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /view posting/i })).toBeInTheDocument();
+  });
+
+  it("downloads DOCX using the server-provided filename", async () => {
+    const user = userEvent.setup();
+    const appendSpy = vi.spyOn(document.body, "appendChild");
+    const removeSpy = vi.spyOn(document.body, "removeChild");
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    api.listBaseResumes.mockResolvedValue([{ id: "resume-1", name: "Default Resume", is_default: true, created_at: "2026-04-07T12:00:00Z", updated_at: "2026-04-07T12:00:00Z" }]);
+    api.fetchApplicationDetail.mockResolvedValue({
+      id: "app-1",
+      job_url: "https://example.com/job",
+      job_title: "Backend Engineer",
+      company: "Acme",
+      job_description: "Build APIs",
+      compensation_text: null,
+      job_posting_origin: "company_website",
+      job_posting_origin_other_text: null,
+      base_resume_id: "resume-1",
+      base_resume_name: "Default Resume",
+      visible_status: "in_progress",
+      internal_state: "resume_ready",
+      failure_reason: null,
+      applied: false,
+      duplicate_similarity_score: null,
+      duplicate_resolution_status: null,
+      duplicate_matched_application_id: null,
+      notes: null,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:00:00Z",
+      has_action_required_notification: false,
+      extraction_failure_details: null,
+      duplicate_warning: null,
+      generation_failure_details: null,
+    });
+    api.fetchDraft.mockResolvedValue({
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+    });
+    api.exportDocx.mockResolvedValue({
+      blob: new Blob(["docx"], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      }),
+      filename: "Alex_Example_resume_20260412_101500.docx",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await screen.findByText(/generated resume/i);
+    await user.click(screen.getByRole("button", { name: /^export$/i }));
+    await user.click(screen.getByRole("menuitem", { name: /export docx/i }));
+
+    await waitFor(() => expect(api.exportDocx).toHaveBeenCalledWith("app-1"));
+    const anchor = appendSpy.mock.calls.find(([node]) => node instanceof HTMLAnchorElement)?.[0] as HTMLAnchorElement;
+    expect(anchor.download).toBe("Alex_Example_resume_20260412_101500.docx");
+    expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
+    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+
+    appendSpy.mockRestore();
+    removeSpy.mockRestore();
+    clickSpy.mockRestore();
   });
 
   it("saves location and linkedin fields from the profile page", async () => {

@@ -59,8 +59,8 @@ Application-owned extension of `auth.users`.
 | `last_name` | `text` | Yes | `null` | Nullable until invite onboarding is completed. |
 | `name` | `text` | Yes | `null` | Required by the product before final assembly/export, but nullable at rest until the user completes the profile. |
 | `phone` | `text` | Yes | `null` | Nullable until user provides it. |
-| `address` | `text` | Yes | `null` | Nullable until user provides it. Used as the short location line in resume assembly and PDF export. |
-| `linkedin_url` | `text` | Yes | `null` | Optional LinkedIn profile URL used in resume assembly and PDF export. |
+| `address` | `text` | Yes | `null` | Nullable until user provides it. Used as the short location line in resume assembly and export. |
+| `linkedin_url` | `text` | Yes | `null` | Optional LinkedIn profile URL used in resume assembly and export. |
 | `is_admin` | `boolean` | No | `false` | Grants access to admin routes and screens. |
 | `is_active` | `boolean` | No | `true` | Deactivated users are blocked from application access. |
 | `onboarding_completed_at` | `timestamptz` | Yes | `null` | Set when invite signup is accepted successfully. |
@@ -149,7 +149,7 @@ User-owned job application records and workflow state.
 | `duplicate_matched_application_id` | `uuid` | Yes | `null` | Self-reference to the application surfaced in duplicate review. Composite foreign key with `user_id` to `applications (id, user_id)` and `ON DELETE SET NULL`. |
 | `notes` | `text` | Yes | `null` | Free-text notes from the application detail page. |
 | `full_regeneration_count` | `integer` | No | `0` | Per-application count of successfully queued full regenerations for non-admin cap enforcement. |
-| `exported_at` | `timestamptz` | Yes | `null` | Last successful export timestamp for the application. |
+| `exported_at` | `timestamptz` | Yes | `null` | Last successful export timestamp for the application, regardless of supported export format. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
 
@@ -195,7 +195,7 @@ Single current Markdown draft for one application.
 | `generation_params` | `jsonb` | No | — | See JSON contract above. |
 | `sections_snapshot` | `jsonb` | No | — | See JSON contract above. |
 | `last_generated_at` | `timestamptz` | No | — | Updated on successful generation and full regeneration. |
-| `last_exported_at` | `timestamptz` | Yes | `null` | Updated on successful export. |
+| `last_exported_at` | `timestamptz` | Yes | `null` | Updated on successful export, regardless of supported export format. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write, including manual edits. |
 
 **Constraints**

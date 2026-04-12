@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import html
+import io
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from html.parser import HTMLParser
+from typing import Optional, Union
 
 import markdown
 
 logger = logging.getLogger(__name__)
 
-PDF_EXPORT_TIMEOUT_SECONDS = 20
+EXPORT_TIMEOUT_SECONDS = 20
 PAGE_TARGETS = {
     "1_page": 1,
     "2_page": 2,
@@ -109,8 +111,83 @@ class LayoutPreset:
         return round(max(10.5, self.body_font_size * 0.96), 2)
 
 
+@dataclass(frozen=True)
+class DocxLayoutPreset:
+    body_font_size: float
+    line_spacing: float
+    page_margin: float
+    paragraph_spacing: float
+    section_spacing_before: float
+    section_spacing_after: float
+    header_spacing_after: float
+    bullet_indent: float
+    split_row_spacing: float
+
+    @property
+    def name_font_size(self) -> float:
+        return round(self.body_font_size * 1.55, 2)
+
+    @property
+    def contact_font_size(self) -> float:
+        return round(self.body_font_size * 0.84, 2)
+
+    @property
+    def section_heading_size(self) -> float:
+        return round(self.body_font_size * 0.98, 2)
+
+
+@dataclass(frozen=True)
+class ExportHeader:
+    name: str
+    contact_line: str
+
+
+@dataclass(frozen=True)
+class ExportParagraph:
+    html_fragment: str
+
+
+@dataclass(frozen=True)
+class ExportSubheading:
+    text: str
+
+
+@dataclass(frozen=True)
+class ExportBulletList:
+    items: list[str]
+
+
+@dataclass(frozen=True)
+class ExportSplitRow:
+    left_html: str
+    right_html: str
+    emphasize_left: bool = False
+
+
+@dataclass(frozen=True)
+class ExportSplitGroup:
+    rows: list[ExportSplitRow]
+
+
+ExportBlock = Union[ExportParagraph, ExportSubheading, ExportBulletList, ExportSplitGroup]
+
+
+@dataclass(frozen=True)
+class ExportSection:
+    heading: str
+    blocks: list[ExportBlock]
+
+
+@dataclass(frozen=True)
+class ExportDocument:
+    header: Optional[ExportHeader]
+    intro_blocks: list[ExportBlock]
+    sections: list[ExportSection]
+    density_metrics: dict[str, float | int | bool | str]
+    normalized_markdown: str
+
+
 LAYOUT_PRESETS = [
-    # Density-first ladder: tighten spacing before shrinking fonts.
     LayoutPreset(body_font_size=11.8, line_height=1.26, page_margin=0.60, spacing_scale=1.12, section_spacing_scale=1.08),
     LayoutPreset(body_font_size=11.8, line_height=1.22, page_margin=0.56, spacing_scale=0.98, section_spacing_scale=1.0),
     LayoutPreset(body_font_size=11.4, line_height=1.24, page_margin=0.54, spacing_scale=1.02, section_spacing_scale=1.02),
@@ -121,6 +198,42 @@ LAYOUT_PRESETS = [
     LayoutPreset(body_font_size=9.8, line_height=1.12, page_margin=0.42, spacing_scale=0.68, section_spacing_scale=0.78),
     LayoutPreset(body_font_size=9.4, line_height=1.10, page_margin=0.40, spacing_scale=0.64, section_spacing_scale=0.72),
 ]
+
+DOCX_LAYOUT_PRESETS = {
+    "1_page": DocxLayoutPreset(
+        body_font_size=10.6,
+        line_spacing=1.05,
+        page_margin=0.55,
+        paragraph_spacing=2.8,
+        section_spacing_before=7.0,
+        section_spacing_after=4.6,
+        header_spacing_after=8.0,
+        bullet_indent=18.0,
+        split_row_spacing=2.4,
+    ),
+    "2_page": DocxLayoutPreset(
+        body_font_size=11.0,
+        line_spacing=1.08,
+        page_margin=0.65,
+        paragraph_spacing=3.2,
+        section_spacing_before=8.0,
+        section_spacing_after=5.0,
+        header_spacing_after=9.0,
+        bullet_indent=18.0,
+        split_row_spacing=2.8,
+    ),
+    "3_page": DocxLayoutPreset(
+        body_font_size=11.2,
+        line_spacing=1.10,
+        page_margin=0.72,
+        paragraph_spacing=3.5,
+        section_spacing_before=8.6,
+        section_spacing_after=5.4,
+        header_spacing_after=9.6,
+        bullet_indent=18.0,
+        split_row_spacing=3.0,
+    ),
+}
 
 
 def _clean_personal_value(value: object) -> str:
@@ -335,8 +448,8 @@ def _calculate_content_density_metrics(markdown_content: str) -> dict[str, float
     }
 
 
-def _render_content_blocks(lines: list[str], *, section_heading: Optional[str] = None) -> str:
-    blocks: list[str] = []
+def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = None) -> list[ExportBlock]:
+    blocks: list[ExportBlock] = []
     index = 0
     in_professional_experience = _is_professional_experience_section(section_heading)
 
@@ -348,14 +461,14 @@ def _render_content_blocks(lines: list[str], *, section_heading: Optional[str] =
 
         subheading_match = SUBHEADING_RE.match(stripped)
         if subheading_match:
-            blocks.append(f"<h3>{html.escape(subheading_match.group(1).strip())}</h3>")
+            blocks.append(ExportSubheading(text=subheading_match.group(1).strip()))
             index += 1
             continue
 
         if not BULLET_RE.match(stripped):
             pipe_match = PIPE_ROW_RE.match(stripped)
             if pipe_match:
-                rows: list[str] = []
+                rows: list[ExportSplitRow] = []
                 while index < len(lines):
                     current = lines[index].strip()
                     current_match = PIPE_ROW_RE.match(current)
@@ -363,9 +476,9 @@ def _render_content_blocks(lines: list[str], *, section_heading: Optional[str] =
                         break
                     right_column = current_match.group(2).strip()
                     rows.append(
-                        _render_split_row(
-                            current_match.group(1).strip(),
-                            right_column,
+                        ExportSplitRow(
+                            left_html=_render_inline_markdown(current_match.group(1).strip()),
+                            right_html=_render_inline_markdown(right_column),
                             emphasize_left=(
                                 in_professional_experience
                                 and _looks_like_experience_date_range(right_column)
@@ -374,8 +487,8 @@ def _render_content_blocks(lines: list[str], *, section_heading: Optional[str] =
                     )
                     index += 1
                 if rows:
-                    blocks.append(f"<div class='split-group'>{''.join(rows)}</div>")
-                    continue
+                    blocks.append(ExportSplitGroup(rows=rows))
+                continue
 
         bullet_match = BULLET_RE.match(stripped)
         if bullet_match:
@@ -385,9 +498,9 @@ def _render_content_blocks(lines: list[str], *, section_heading: Optional[str] =
                 current_match = BULLET_RE.match(current)
                 if current_match is None:
                     break
-                items.append(f"<li>{_render_list_item_content(current_match.group(1).strip())}</li>")
+                items.append(_render_list_item_content(current_match.group(1).strip()))
                 index += 1
-            blocks.append(f"<ul>{''.join(items)}</ul>")
+            blocks.append(ExportBulletList(items=items))
             continue
 
         paragraph_lines = [stripped]
@@ -404,30 +517,23 @@ def _render_content_blocks(lines: list[str], *, section_heading: Optional[str] =
             paragraph_lines.append(current)
             index += 1
 
-        blocks.append(_render_markdown_block("\n".join(paragraph_lines)))
+        blocks.append(ExportParagraph(html_fragment=_render_markdown_block("\n".join(paragraph_lines))))
 
-    return "".join(blocks)
+    return blocks
 
 
-def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: int = 0) -> str:
-    density_metrics = _calculate_content_density_metrics(markdown_content)
-    density_label = str(density_metrics["density_label"])
-    spacing_factor = 0.92 if density_metrics["is_dense"] else 1.08 if density_metrics["is_sparse"] else 1.0
-    section_spacing_factor = 0.9 if density_metrics["is_dense"] else 1.1 if density_metrics["is_sparse"] else 1.0
-    header_gap = round(max(8.2, preset.contact_to_first_section_margin * section_spacing_factor), 2)
-    section_margin_top = round(max(4.0, preset.section_margin_top * section_spacing_factor), 2)
-    section_heading_gap = round(max(4.0, preset.section_header_content_gap * section_spacing_factor), 2)
-    subheading_gap = round(max(2.1, preset.subheading_content_gap * spacing_factor), 2)
-    paragraph_margin = round(max(1.4, preset.paragraph_margin * spacing_factor), 2)
-    split_group_margin = round(max(0.8, preset.split_group_margin * spacing_factor), 2)
-    list_item_margin = round(max(0.24, preset.list_item_margin_bottom * spacing_factor), 2)
-    bullet_indent = round(max(10.5, preset.bullet_indent), 2)
-    bullet_padding = round(max(3.5, bullet_indent * 0.36), 2)
-    lines = markdown_content.strip().splitlines()
-    header_name = ""
-    contact_line = ""
+def _render_content_blocks(lines: list[str], *, section_heading: Optional[str] = None) -> str:
+    blocks = _parse_content_blocks(lines, section_heading=section_heading)
+    return _render_html_blocks(blocks)
+
+
+def _build_export_document(markdown_content: str, personal_info: Optional[dict] = None) -> ExportDocument:
+    normalized_markdown = _normalize_markdown_for_export(markdown_content, personal_info)
+    density_metrics = _calculate_content_density_metrics(normalized_markdown)
+    lines = normalized_markdown.strip().splitlines()
+    header: Optional[ExportHeader] = None
     intro_lines: list[str] = []
-    sections: list[tuple[str, list[str]]] = []
+    sections: list[ExportSection] = []
 
     index = 0
     while index < len(lines) and not lines[index].strip():
@@ -437,6 +543,7 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
         top_heading_match = TOP_HEADING_RE.match(lines[index].strip())
         if top_heading_match:
             header_name = top_heading_match.group(1).strip()
+            contact_line = ""
             index += 1
             while index < len(lines):
                 stripped = lines[index].strip()
@@ -448,6 +555,7 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
                     else:
                         intro_lines.append(lines[index])
                 index += 1
+            header = ExportHeader(name=header_name, contact_line=contact_line)
 
     current_heading: Optional[str] = None
     current_lines: list[str] = []
@@ -456,7 +564,12 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
         section_match = SECTION_HEADING_RE.match(stripped)
         if section_match:
             if current_heading is not None:
-                sections.append((current_heading, current_lines))
+                sections.append(
+                    ExportSection(
+                        heading=current_heading,
+                        blocks=_parse_content_blocks(current_lines, section_heading=current_heading),
+                    )
+                )
             current_heading = section_match.group(1).strip()
             current_lines = []
         else:
@@ -464,24 +577,103 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
         index += 1
 
     if current_heading is not None:
-        sections.append((current_heading, current_lines))
+        sections.append(
+            ExportSection(
+                heading=current_heading,
+                blocks=_parse_content_blocks(current_lines, section_heading=current_heading),
+            )
+        )
 
-    intro_html = _render_content_blocks(intro_lines)
+    return ExportDocument(
+        header=header,
+        intro_blocks=_parse_content_blocks(intro_lines),
+        sections=sections,
+        density_metrics=density_metrics,
+        normalized_markdown=normalized_markdown,
+    )
+
+
+def _render_html_blocks(blocks: list[ExportBlock]) -> str:
+    html_blocks: list[str] = []
+
+    def render_split_group(group: ExportSplitGroup) -> str:
+        rows = []
+        for row in group.rows:
+            row_class = "split-row split-row-role-title" if row.emphasize_left else "split-row"
+            left_class = "split-left split-left-strong" if row.emphasize_left else "split-left"
+            rows.append(
+                f"<div class='{row_class}'>"
+                f"<span class='{left_class}'>{row.left_html}</span>"
+                f"<span class='split-right'>{row.right_html}</span>"
+                "</div>"
+            )
+        return f"<div class='split-group'>{''.join(rows)}</div>"
+
+    for block in blocks:
+        if isinstance(block, ExportParagraph):
+            html_blocks.append(block.html_fragment)
+        elif isinstance(block, ExportSubheading):
+            html_blocks.append(f"<h3>{html.escape(block.text)}</h3>")
+        elif isinstance(block, ExportBulletList):
+            items = "".join(f"<li>{item}</li>" for item in block.items)
+            html_blocks.append(f"<ul>{items}</ul>")
+        elif isinstance(block, ExportSplitGroup):
+            html_blocks.append(render_split_group(block))
+    return "".join(html_blocks)
+
+
+def _build_html(
+    document_or_markdown: Union[ExportDocument, str],
+    preset: LayoutPreset,
+    *,
+    preset_index: int = 0,
+) -> str:
+    document = (
+        document_or_markdown
+        if isinstance(document_or_markdown, ExportDocument)
+        else _build_export_document(document_or_markdown)
+    )
+    density_metrics = document.density_metrics
+    density_label = str(density_metrics["density_label"])
+    spacing_factor = 0.92 if density_metrics["is_dense"] else 1.08 if density_metrics["is_sparse"] else 1.0
+    section_spacing_factor = 0.9 if density_metrics["is_dense"] else 1.1 if density_metrics["is_sparse"] else 1.0
+    major_section_gap = round(
+        max(
+            preset.body_font_size * 0.6 * preset.section_spacing_scale,
+            preset.section_margin_top * section_spacing_factor,
+        ),
+        2,
+    )
+    header_gap = round(max(major_section_gap, preset.contact_to_first_section_margin * section_spacing_factor), 2)
+    section_margin_top = major_section_gap
+    section_heading_gap = round(max(4.0, preset.section_header_content_gap * section_spacing_factor), 2)
+    subheading_gap = round(max(2.1, preset.subheading_content_gap * spacing_factor), 2)
+    paragraph_margin = round(max(1.4, preset.paragraph_margin * spacing_factor), 2)
+    split_group_margin = round(max(0.8, preset.split_group_margin * spacing_factor), 2)
+    list_item_margin = round(max(0.24, preset.list_item_margin_bottom * spacing_factor), 2)
+    bullet_indent = round(max(10.5, preset.bullet_indent), 2)
+    bullet_padding = round(max(3.5, bullet_indent * 0.36), 2)
+
+    intro_html = _render_html_blocks(document.intro_blocks)
     sections_html = "".join(
         (
             "<section class='resume-section'>"
-            f"<h2>{html.escape(heading)}</h2>"
-            f"{_render_content_blocks(section_lines, section_heading=heading)}"
+            f"<h2>{html.escape(section.heading)}</h2>"
+            f"{_render_html_blocks(section.blocks)}"
             "</section>"
         )
-        for heading, section_lines in sections
+        for section in document.sections
     )
     header_html = ""
-    if header_name or contact_line:
-        contact_html = f"<p class='resume-contact'>{html.escape(contact_line)}</p>" if contact_line else ""
+    if document.header and (document.header.name or document.header.contact_line):
+        contact_html = (
+            f"<p class='resume-contact'>{html.escape(document.header.contact_line)}</p>"
+            if document.header.contact_line
+            else ""
+        )
         header_html = (
             "<header class='resume-header'>"
-            f"<h1>{html.escape(header_name)}</h1>"
+            f"<h1>{html.escape(document.header.name)}</h1>"
             f"{contact_html}"
             "</header>"
         )
@@ -604,8 +796,7 @@ def _build_html(markdown_content: str, preset: LayoutPreset, *, preset_index: in
 
 
 def _render_html_to_pdf(html_content: str) -> tuple[bytes, int]:
-    """Render HTML to PDF bytes and report the resulting page count."""
-    import weasyprint  # noqa: WPS433 — deferred import
+    import weasyprint  # noqa: WPS433
 
     document = weasyprint.HTML(string=html_content).render()
     return document.write_pdf(), len(document.pages)
@@ -626,7 +817,6 @@ def _build_roomier_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
 
 
 def _build_section_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
-    """Increase section readability spacing without changing typography size."""
     return LayoutPreset(
         body_font_size=preset.body_font_size,
         line_height=preset.line_height,
@@ -637,13 +827,12 @@ def _build_section_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset
 
 
 def _validate_roomier_one_page_fit(
-    markdown_content: str,
+    document: ExportDocument,
     *,
     base_pdf: bytes,
     base_preset: LayoutPreset,
     base_index: int,
 ) -> bytes:
-    """Try readability variants and keep the roomiest one that still fits on one page."""
     best_pdf = base_pdf
     best_preset = base_preset
 
@@ -656,7 +845,7 @@ def _validate_roomier_one_page_fit(
             candidate_preset = build_candidate(best_preset)
             if candidate_preset == best_preset:
                 continue
-            html_content = _build_html(markdown_content, candidate_preset, preset_index=base_index)
+            html_content = _build_html(document, candidate_preset, preset_index=base_index)
             pdf_bytes, page_count = _render_html_to_pdf(html_content)
             if page_count > 1:
                 continue
@@ -674,20 +863,20 @@ def _generate_pdf_with_autofit_sync(
     personal_info: Optional[dict] = None,
     page_length: Optional[str] = None,
 ) -> bytes:
-    normalized_markdown = _normalize_markdown_for_export(markdown_content, personal_info)
+    document = _build_export_document(markdown_content, personal_info)
     target_pages = PAGE_TARGETS.get(str(page_length or "1_page"), 1)
 
     last_pdf = b""
     for preset_index, preset in enumerate(LAYOUT_PRESETS):
         if not _is_readable_preset(preset):
             continue
-        html_content = _build_html(normalized_markdown, preset, preset_index=preset_index)
+        html_content = _build_html(document, preset, preset_index=preset_index)
         pdf_bytes, page_count = _render_html_to_pdf(html_content)
         last_pdf = pdf_bytes
         if page_count <= target_pages:
             if target_pages == 1:
                 return _validate_roomier_one_page_fit(
-                    normalized_markdown,
+                    document,
                     base_pdf=pdf_bytes,
                     base_preset=preset,
                     base_index=preset_index,
@@ -697,12 +886,203 @@ def _generate_pdf_with_autofit_sync(
     return last_pdf
 
 
+class _InlineHTMLToDocxParser(HTMLParser):
+    def __init__(self, paragraph, *, default_bold: bool = False, default_italic: bool = False) -> None:
+        super().__init__()
+        self.paragraph = paragraph
+        self.bold_depth = 1 if default_bold else 0
+        self.italic_depth = 1 if default_italic else 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:  # noqa: ANN001
+        if tag in {"strong", "b"}:
+            self.bold_depth += 1
+        elif tag in {"em", "i"}:
+            self.italic_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"strong", "b"} and self.bold_depth > 0:
+            self.bold_depth -= 1
+        elif tag in {"em", "i"} and self.italic_depth > 0:
+            self.italic_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not data:
+            return
+        run = self.paragraph.add_run(html.unescape(data))
+        run.bold = self.bold_depth > 0
+        run.italic = self.italic_depth > 0
+
+
+def _append_inline_html_runs(paragraph, html_fragment: str, *, bold: bool = False, italic: bool = False) -> None:
+    parser = _InlineHTMLToDocxParser(paragraph, default_bold=bold, default_italic=italic)
+    parser.feed(html_fragment)
+    parser.close()
+
+
+def _set_paragraph_spacing(paragraph, *, before: float = 0.0, after: float = 0.0, line_spacing: Optional[float] = None) -> None:
+    from docx.shared import Pt
+
+    paragraph_format = paragraph.paragraph_format
+    paragraph_format.space_before = Pt(before)
+    paragraph_format.space_after = Pt(after)
+    if line_spacing is not None:
+        paragraph_format.line_spacing = line_spacing
+
+
+def _set_font(run, *, size: float, font_name: str = "Georgia", bold: Optional[bool] = None) -> None:
+    from docx.oxml.ns import qn
+    from docx.shared import Pt
+
+    run.font.name = font_name
+    run._element.get_or_add_rPr().rFonts.set(qn("w:eastAsia"), font_name)
+    run.font.size = Pt(size)
+    if bold is not None:
+        run.bold = bold
+
+
+def _resolve_docx_layout(page_length: Optional[str], density_metrics: dict[str, float | int | bool | str]) -> DocxLayoutPreset:
+    base = DOCX_LAYOUT_PRESETS.get(str(page_length or "1_page"), DOCX_LAYOUT_PRESETS["1_page"])
+    if density_metrics["is_dense"]:
+        return DocxLayoutPreset(
+            body_font_size=max(10.0, round(base.body_font_size - 0.3, 2)),
+            line_spacing=max(1.0, round(base.line_spacing - 0.03, 2)),
+            page_margin=max(0.5, round(base.page_margin - 0.04, 2)),
+            paragraph_spacing=max(2.2, round(base.paragraph_spacing - 0.4, 2)),
+            section_spacing_before=max(6.0, round(base.section_spacing_before - 0.8, 2)),
+            section_spacing_after=max(4.0, round(base.section_spacing_after - 0.4, 2)),
+            header_spacing_after=max(7.0, round(base.header_spacing_after - 0.8, 2)),
+            bullet_indent=base.bullet_indent,
+            split_row_spacing=max(2.0, round(base.split_row_spacing - 0.3, 2)),
+        )
+    if density_metrics["is_sparse"]:
+        return DocxLayoutPreset(
+            body_font_size=round(base.body_font_size + 0.25, 2),
+            line_spacing=round(base.line_spacing + 0.03, 2),
+            page_margin=round(base.page_margin, 2),
+            paragraph_spacing=round(base.paragraph_spacing + 0.4, 2),
+            section_spacing_before=round(base.section_spacing_before + 0.8, 2),
+            section_spacing_after=round(base.section_spacing_after + 0.5, 2),
+            header_spacing_after=round(base.header_spacing_after + 0.8, 2),
+            bullet_indent=base.bullet_indent,
+            split_row_spacing=round(base.split_row_spacing + 0.3, 2),
+        )
+    return base
+
+
+def _render_docx_sync(
+    markdown_content: str,
+    personal_info: Optional[dict] = None,
+    page_length: Optional[str] = None,
+) -> bytes:
+    from docx import Document  # noqa: WPS433
+    from docx.enum.section import WD_SECTION_START  # noqa: WPS433
+    from docx.enum.text import WD_TAB_ALIGNMENT  # noqa: WPS433
+    from docx.shared import Inches, Pt  # noqa: WPS433
+
+    document_model = _build_export_document(markdown_content, personal_info)
+    layout = _resolve_docx_layout(page_length, document_model.density_metrics)
+    major_section_gap = max(layout.body_font_size * layout.line_spacing * 0.95, layout.section_spacing_before)
+    header_section_gap = max(layout.body_font_size * layout.line_spacing * 0.95, layout.header_spacing_after)
+
+    doc = Document()
+    section = doc.sections[0]
+    section.start_type = WD_SECTION_START.NEW_PAGE
+    section.page_width = Inches(8.5)
+    section.page_height = Inches(11)
+    section.top_margin = Inches(layout.page_margin)
+    section.bottom_margin = Inches(layout.page_margin)
+    section.left_margin = Inches(layout.page_margin)
+    section.right_margin = Inches(layout.page_margin)
+
+    normal_style = doc.styles["Normal"]
+    normal_style.font.name = "Georgia"
+    normal_style.font.size = Pt(layout.body_font_size)
+    normal_style.paragraph_format.line_spacing = layout.line_spacing
+    normal_style.paragraph_format.space_before = Pt(0)
+    normal_style.paragraph_format.space_after = Pt(layout.paragraph_spacing)
+
+    if document_model.header and (document_model.header.name or document_model.header.contact_line):
+        header_paragraph = doc.add_paragraph()
+        header_paragraph.alignment = 1
+        _set_paragraph_spacing(header_paragraph, after=0, line_spacing=1.0)
+        if document_model.header.name:
+            name_run = header_paragraph.add_run(document_model.header.name)
+            _set_font(name_run, size=layout.name_font_size, bold=True)
+
+        if document_model.header.contact_line:
+            contact_paragraph = doc.add_paragraph()
+            contact_paragraph.alignment = 1
+            _set_paragraph_spacing(contact_paragraph, after=header_section_gap, line_spacing=1.0)
+            contact_run = contact_paragraph.add_run(document_model.header.contact_line)
+            _set_font(contact_run, size=layout.contact_font_size)
+
+    def add_blocks(blocks: list[ExportBlock]) -> None:
+        usable_width = section.page_width - section.left_margin - section.right_margin
+
+        for block in blocks:
+            if isinstance(block, ExportParagraph):
+                paragraph = doc.add_paragraph()
+                _set_paragraph_spacing(paragraph, after=layout.paragraph_spacing, line_spacing=layout.line_spacing)
+                _append_inline_html_runs(paragraph, block.html_fragment)
+            elif isinstance(block, ExportSubheading):
+                paragraph = doc.add_paragraph()
+                _set_paragraph_spacing(paragraph, after=layout.paragraph_spacing, line_spacing=1.0)
+                run = paragraph.add_run(block.text)
+                _set_font(run, size=layout.body_font_size, bold=True)
+            elif isinstance(block, ExportBulletList):
+                for item in block.items:
+                    paragraph = doc.add_paragraph(style="List Bullet")
+                    paragraph.paragraph_format.left_indent = Pt(layout.bullet_indent)
+                    _set_paragraph_spacing(paragraph, after=layout.paragraph_spacing, line_spacing=layout.line_spacing)
+                    _append_inline_html_runs(paragraph, item)
+            elif isinstance(block, ExportSplitGroup):
+                last_index = len(block.rows) - 1
+                for row_index, row in enumerate(block.rows):
+                    paragraph = doc.add_paragraph()
+                    paragraph.paragraph_format.tab_stops.add_tab_stop(usable_width, WD_TAB_ALIGNMENT.RIGHT)
+                    paragraph_after = layout.split_row_spacing if row_index < last_index else layout.paragraph_spacing
+                    _set_paragraph_spacing(paragraph, after=paragraph_after, line_spacing=layout.line_spacing)
+                    _append_inline_html_runs(paragraph, row.left_html, bold=row.emphasize_left)
+                    paragraph.add_run("\t")
+                    _append_inline_html_runs(paragraph, row.right_html)
+
+    add_blocks(document_model.intro_blocks)
+
+    for section_block in document_model.sections:
+        heading_paragraph = doc.add_paragraph()
+        _set_paragraph_spacing(
+            heading_paragraph,
+            before=major_section_gap,
+            after=layout.section_spacing_after,
+            line_spacing=1.0,
+        )
+        heading_run = heading_paragraph.add_run(section_block.heading.upper())
+        _set_font(heading_run, size=layout.section_heading_size, bold=True)
+        bottom_border = heading_paragraph._element.get_or_add_pPr()
+        # Word border XML is a minimal way to preserve the PDF heading separator without tables/shapes.
+        from docx.oxml import OxmlElement  # noqa: WPS433
+        from docx.oxml.ns import qn  # noqa: WPS433
+
+        p_borders = OxmlElement("w:pBdr")
+        border = OxmlElement("w:bottom")
+        border.set(qn("w:val"), "single")
+        border.set(qn("w:sz"), "6")
+        border.set(qn("w:space"), "1")
+        border.set(qn("w:color"), "111111")
+        p_borders.append(border)
+        bottom_border.append(p_borders)
+        add_blocks(section_block.blocks)
+
+    output = io.BytesIO()
+    doc.save(output)
+    return output.getvalue()
+
+
 async def generate_pdf(
     markdown_content: str,
     personal_info: Optional[dict] = None,
     page_length: Optional[str] = None,
 ) -> bytes:
-    """Convert Markdown to ATS-safe PDF with header normalization and page-fit retries."""
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(
         loop.run_in_executor(
@@ -712,5 +1092,23 @@ async def generate_pdf(
             personal_info,
             page_length,
         ),
-        timeout=PDF_EXPORT_TIMEOUT_SECONDS,
+        timeout=EXPORT_TIMEOUT_SECONDS,
+    )
+
+
+async def generate_docx(
+    markdown_content: str,
+    personal_info: Optional[dict] = None,
+    page_length: Optional[str] = None,
+) -> bytes:
+    loop = asyncio.get_running_loop()
+    return await asyncio.wait_for(
+        loop.run_in_executor(
+            None,
+            _render_docx_sync,
+            markdown_content,
+            personal_info,
+            page_length,
+        ),
+        timeout=EXPORT_TIMEOUT_SECONDS,
     )
