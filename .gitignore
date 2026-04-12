@@ -58,5 +58,5 @@ coverage/
 *.bak
 *.tmp
 
-
+.qoder/*
 *repowiki/*
