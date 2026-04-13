@@ -240,6 +240,7 @@ export function ApplicationDetailPage() {
   const leftColumnRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
+  const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
 
   // Track last saved values for dirty state detection
   const savedJobForm = useMemo(() => ({
@@ -876,7 +877,7 @@ export function ApplicationDetailPage() {
             subtitle={detail.company ?? "Company pending extraction"}
             badge={<StatusBadge status={detail.visible_status} size="md" />}
             actions={
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {detail.has_action_required_notification && detail.visible_status !== "needs_action" && (
                   <span className="rounded-md px-2 py-1 text-[10px] font-bold uppercase" style={{ background: "var(--color-ember-10)", color: "var(--color-ember)" }}>
                     Action Required
@@ -897,8 +898,8 @@ export function ApplicationDetailPage() {
                     </Button>
                     {exportMenuOpen && exportingFormat === null && !isRegenerating && !generationActive && (
                       <div
-                        className="animate-scaleIn absolute right-0 top-full z-20 mt-2 w-40 overflow-hidden rounded-xl border py-1 shadow-lg"
-                        style={{ borderColor: "var(--color-border)", background: "var(--color-white)" }}
+                        className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-40 overflow-hidden rounded-xl border py-1 shadow-lg"
+                        style={{ borderColor: "var(--color-border)", background: "var(--color-white)", maxHeight: "calc(100vh - 200px)", overflowY: "auto" }}
                         role="menu"
                         aria-label="Export options"
                       >
@@ -925,15 +926,21 @@ export function ApplicationDetailPage() {
                   </div>
                 )}
                 <AppliedToggleButton applied={detail.applied} onClick={() => handleAppliedButtonClick()} />
+                {/* View Posting - icon only on mobile, with text on desktop */}
                 <a
                   className="inline-flex h-9 items-center justify-center rounded-lg border px-3.5 text-xs font-semibold transition-colors"
                   style={{ borderColor: "var(--color-border)", color: "var(--color-spruce)", background: "var(--color-white)" }}
                   href={detail.job_url}
                   rel="noreferrer"
                   target="_blank"
+                  title="View Posting"
                 >
-                  View Posting ↗
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="sm:hidden">
+                    <path d="M6 3H3v10h10v-3M10 2h4v4M7 9l7-7" />
+                  </svg>
+                  <span className="hidden sm:inline">View Posting ↗</span>
                 </a>
+                {/* Stop Extraction / Delete - icon button */}
                 {extractionActive ? (
                   <IconButton
                     variant="danger"
@@ -1154,12 +1161,32 @@ export function ApplicationDetailPage() {
           {/* ── Two-Column Layout (when past extraction and not in manual_entry_required) ── */}
           {isPastExtraction && detail.internal_state !== "manual_entry_required" && (
             <div className="grid gap-4 xl:items-start xl:[grid-template-columns:minmax(300px,340px)_minmax(0,1fr)] 2xl:[grid-template-columns:minmax(320px,340px)_minmax(0,1fr)]">
-              {/* LEFT COLUMN - Settings & Controls */}
-              <div ref={leftColumnRef} className="min-w-0 space-y-4 xl:sticky xl:top-[calc(var(--topbar-height)+1.5rem)] xl:self-start">
+              {/* LEFT COLUMN - Settings & Controls (shown second on mobile via order) */}
+              <div ref={leftColumnRef} className="order-2 min-w-0 space-y-4 xl:order-1 xl:sticky xl:top-[calc(var(--topbar-height)+1.5rem)] xl:self-start">
                 {/* Job Description Card */}
                 <Card density="compact" className="p-4">
                   <div className="flex justify-between items-center">
-                    <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Job Description</h3>
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Job Description</h3>
+                      <button
+                        type="button"
+                        className="sm:hidden p-0.5"
+                        style={{ color: "var(--color-ink-40)" }}
+                        onClick={() => setJobDescriptionCollapsed((v) => !v)}
+                        aria-label={jobDescriptionCollapsed ? "Expand job description" : "Collapse job description"}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 14 14"
+                          fill="none"
+                          className="transition-transform"
+                          style={{ transform: jobDescriptionCollapsed ? "rotate(0deg)" : "rotate(180deg)" }}
+                        >
+                          <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </div>
                     <form onSubmit={handleSaveJobInfo}>
                       <Button
                         size="sm"
@@ -1172,7 +1199,8 @@ export function ApplicationDetailPage() {
                       </Button>
                     </form>
                   </div>
-                  <div className="mt-3 space-y-2.5">
+                  {!jobDescriptionCollapsed && (
+                    <div className="mt-3 space-y-2.5">
                     <div>
                       <Label htmlFor="job-title" className="text-xs">Job Title</Label>
                       <Input id="job-title" className="text-sm" placeholder="Job title" value={jobForm.job_title} onChange={(e) => setJobForm((c) => ({ ...c, job_title: e.target.value }))} />
@@ -1216,6 +1244,7 @@ export function ApplicationDetailPage() {
                       />
                     </div>
                   </div>
+                  )}
                 </Card>
 
                 {/* Generation Settings Card */}
@@ -1336,8 +1365,8 @@ export function ApplicationDetailPage() {
                 </Card>
               </div>
 
-              {/* RIGHT COLUMN - Resume Preview */}
-              <div className="min-w-0">
+              {/* RIGHT COLUMN - Resume Preview (shown first on mobile via order) */}
+              <div className="order-1 min-w-0 xl:order-2">
                 {/* Resume Content Area */}
                 {generationActive || showOptimisticProgress ? (
                   /* Resume Skeleton during generation with overlay */
@@ -1356,15 +1385,15 @@ export function ApplicationDetailPage() {
                 ) : draft ? (
                   /* Generated Resume Preview/Editor */
                   <Card className={`${workspaceCardClass} p-4`} style={workspaceCardStyle}>
-                    <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
-                      <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Generated Resume</h3>
-                      <div className="flex items-center gap-3 text-xs" style={{ color: "var(--color-ink-40)" }}>
-                        {draft.last_exported_at && <span>Exported {new Date(draft.last_exported_at).toLocaleString()}</span>}
-                        <span>Generated {new Date(draft.last_generated_at).toLocaleString()}</span>
+                    <div className="flex min-w-0 items-center justify-between gap-3 overflow-hidden">
+                      <h3 className="shrink-0 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Generated Resume</h3>
+                      <div className="flex min-w-0 items-center gap-3 text-xs" style={{ color: "var(--color-ink-40)" }}>
+                        {draft.last_exported_at && <span className="hidden sm:inline shrink-0">Exported {new Date(draft.last_exported_at).toLocaleString()}</span>}
+                        <span className="truncate">Generated {new Date(draft.last_generated_at).toLocaleString()}</span>
                       </div>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap items-center justify-end gap-2 flex-shrink-0">
+                    <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                       <div
                         className="inline-flex items-center rounded-full border p-1"
                         style={{
@@ -1419,7 +1448,7 @@ export function ApplicationDetailPage() {
                     </div>
 
                     {editMode ? (
-                      <div className="mt-4 flex-1 flex flex-col min-h-0 overflow-hidden">
+                      <div className="mt-4 flex-1 flex flex-col min-h-0 overflow-hidden" style={{ minHeight: "50vh" }}>
                         <MarkdownEditor
                           className="no-bottom-radius flex-1 min-h-0"
                           value={editContent}

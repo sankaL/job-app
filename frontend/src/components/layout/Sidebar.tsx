@@ -129,9 +129,10 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
   return (
     <aside
-      className="fixed left-0 top-0 z-30 flex h-screen flex-col border-r"
+      className="fixed left-0 top-0 z-30 flex min-h-screen flex-col border-r"
       style={{
         width: "var(--sidebar-width)",
+        height: "100dvh",
         background: "var(--color-sidebar-bg)",
         borderColor: "var(--color-sidebar-border)",
       }}

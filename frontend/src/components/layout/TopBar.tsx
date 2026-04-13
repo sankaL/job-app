@@ -247,7 +247,7 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
 
           {notificationsOpen && (
             <div
-              className="animate-scaleIn absolute right-0 top-full mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border"
+              className="notification-panel-mobile animate-scaleIn absolute right-0 top-full mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border"
               style={{
                 background: "var(--color-white)",
                 borderColor: "var(--color-border)",

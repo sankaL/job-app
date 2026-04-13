@@ -127,7 +127,7 @@ export function BaseResumesPage() {
               description="Try a different search term."
             />
           ) : (
-            <div className="stagger-children grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+            <div className="stagger-children grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr))]">
               {filteredResumes.map((resume) => (
                 <Card key={resume.id} density="compact" className="transition-all hover:shadow-md">
                   <div className="flex items-start justify-between gap-4">

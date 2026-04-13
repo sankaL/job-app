@@ -169,6 +169,16 @@ export function DashboardPage() {
   const [applications, setApplications] = useState<ApplicationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(() => getCurrentYear());
+  const [chartExpanded, setChartExpanded] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth < 768);
+    }
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   async function loadApplications() {
     setError(null);
@@ -303,13 +313,110 @@ export function DashboardPage() {
         actions={<Button onClick={() => navigate("/app/applications")}>View All Applications</Button>}
       />
 
-      <div className="stagger-children grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="stagger-children grid gap-3 grid-cols-2 lg:grid-cols-4 sm:gap-4">
         <StatCard label="Total Applications" value={total} accent="var(--color-ink)" tint="var(--color-ink-05)" icon={Briefcase} />
         <StatCard label="Applied" value={appliedCount} accent="var(--color-spruce)" tint="var(--color-spruce-10)" icon={CheckCircle2} />
         <StatCard label="Needs Action" value={needsActionCount} accent="var(--color-ember)" tint="var(--color-ember-10)" icon={AlertTriangle} />
         <StatCard label="Extraction Failures" value={failedExtractions} accent="var(--color-amber)" tint="var(--color-amber-10)" icon={Building2} />
       </div>
 
+      {/* Monthly Activity — collapsible on mobile */}
+      {isMobile ? (
+        <div>
+          <button
+            type="button"
+            className="chart-toggle-btn"
+            onClick={() => setChartExpanded(!chartExpanded)}
+          >
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 16h14" />
+              <path d="M6 16V9" />
+              <path d="M10 16V5" />
+              <path d="M14 16v-3" />
+            </svg>
+            Monthly Activity
+            <svg
+              width="14" height="14" viewBox="0 0 14 14" fill="none"
+              className={`chart-toggle-chevron${chartExpanded ? " open" : ""}`}
+            >
+              <path d="M3.5 5.5l3.5 3.5 3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {chartExpanded && (
+            <Card density="compact" className="mt-2 overflow-hidden !p-0">
+              <div className="px-3 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-40)" }}>
+                    Monthly Activity
+                  </h3>
+                  <div className="w-28">
+                    <Select
+                      id="dashboard-monthly-year-mobile"
+                      aria-label="Select monthly activity year"
+                      value={String(selectedYear)}
+                      onChange={(event) => setSelectedYear(Number(event.target.value))}
+                    >
+                      {availableYears.map((year) => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </Select>
+                  </div>
+                </div>
+              </div>
+              <div className="px-1 pb-3">
+                <ChartContainer
+                  config={MONTHLY_CHART_CONFIG}
+                  aria-label={`Monthly activity for ${selectedYear}`}
+                  role="img"
+                  className="h-[200px] w-full"
+                >
+                  <AreaChart data={monthlyData} margin={{ left: 2, right: 2, top: 8, bottom: 0 }}>
+                    <CartesianGrid vertical={false} stroke="rgba(16, 24, 40, 0.08)" strokeDasharray="4 8" />
+                    <XAxis
+                      dataKey="label"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      interval={1}
+                      tick={{ fill: "rgba(16, 24, 40, 0.44)", fontSize: 10, fontWeight: 700 }}
+                    />
+                    <YAxis hide domain={[0, "dataMax + 1"]} />
+                    <Area
+                      dataKey="created"
+                      type="natural"
+                      fill="rgba(16, 24, 40, 0.08)"
+                      stroke="rgba(16, 24, 40, 0.42)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Area
+                      dataKey="createdAndApplied"
+                      type="natural"
+                      fill="rgba(24, 74, 69, 0.08)"
+                      stroke="var(--color-spruce)"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </AreaChart>
+                </ChartContainer>
+              </div>
+              <div
+                className="flex flex-wrap items-center gap-2 border-t px-3 pb-3 pt-2 text-[10px] font-semibold uppercase tracking-[0.16em]"
+                style={{ color: "var(--color-ink-40)", borderColor: "var(--color-border)" }}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2 w-2 rounded-sm" style={{ background: "rgba(16, 24, 40, 0.20)" }} />
+                  {totalCreatedForYear} created
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block h-2 w-2 rounded-sm" style={{ background: "rgba(24, 74, 69, 0.78)" }} />
+                  {totalCreatedAndAppliedForYear} applied
+                </span>
+              </div>
+            </Card>
+          )}
+        </div>
+      ) : (
       <Card density="compact" className="overflow-hidden !p-0">
         <div
           className="flex flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5"
@@ -358,8 +465,9 @@ export function DashboardPage() {
           <span>{selectedYear} overview</span>
         </div>
       </Card>
+      )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card density="compact" className="h-full min-h-[198px]">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-40)" }}>
@@ -606,8 +714,8 @@ function CompactRailRow({
   track: string;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="w-[7.5rem] shrink-0 overflow-hidden">
+    <div className="flex items-center gap-2 sm:gap-3">
+      <div className="w-[5.5rem] sm:w-[7.5rem] shrink-0 overflow-hidden">
         {label}
       </div>
       <div className="flex-1 overflow-hidden rounded-full" style={{ background: track }}>

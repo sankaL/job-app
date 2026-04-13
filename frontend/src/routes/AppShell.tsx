@@ -11,7 +11,7 @@ function ShellContent() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen overflow-x-hidden">
       {/* Desktop sidebar */}
       <div className="sidebar-desktop">
         <Sidebar />
@@ -27,11 +27,11 @@ function ShellContent() {
         </>
       )}
 
-      <div className="main-with-sidebar flex flex-1 flex-col" style={{ marginLeft: "var(--sidebar-width)" }}>
+      <div className="main-with-sidebar min-w-0 flex flex-1 flex-col" style={{ marginLeft: "var(--sidebar-width)" }}>
         <TopBar onMenuToggle={() => setMobileSidebarOpen((v) => !v)} />
 
-        <main className="app-shell-main flex-1">
-          <div className="app-shell-content">
+        <main className="app-shell-main flex-1" style={{ overflowX: "hidden" }}>
+          <div className="app-shell-content" style={{ maxWidth: "100%", overflowX: "hidden" }}>
             {bootstrapError ? (
               <Card variant="danger" className="mb-6">
                 <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>

@@ -110,6 +110,7 @@ export function ApplicationsListPage() {
     application: ApplicationSummary;
   } | null>(null);
   const [isRowActionSubmitting, setIsRowActionSubmitting] = useState(false);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   async function loadApplications() {
     try {
@@ -377,6 +378,7 @@ export function ApplicationsListPage() {
         </div>
       ),
       width: "56px",
+      hiddenOnMobile: true,
       render: (app: ApplicationSummary) => (
         <div className="flex items-start" onClick={(event) => event.stopPropagation()}>
           <SelectionCheckbox
@@ -447,6 +449,7 @@ export function ApplicationsListPage() {
       header: "Base Resume",
       width: "180px",
       sortable: true,
+      hiddenOnMobile: true,
       sortValue: (app: ApplicationSummary) => app.base_resume_name?.toLowerCase() ?? "zzz",
       render: (app: ApplicationSummary) => (
         <span className="block truncate text-xs" style={{ color: "var(--color-ink-40)" }}>
@@ -459,6 +462,7 @@ export function ApplicationsListPage() {
       header: "Updated",
       width: "118px",
       sortable: true,
+      hiddenOnMobile: true,
       sortValue: (app: ApplicationSummary) => new Date(app.updated_at).getTime(),
       render: (app: ApplicationSummary) => (
         <span className="block text-xs tabular-nums" style={{ color: "var(--color-ink-40)" }}>
@@ -470,6 +474,7 @@ export function ApplicationsListPage() {
       key: "actions",
       header: "",
       width: "196px",
+      hiddenOnMobile: true,
       render: (app: ApplicationSummary) => (
         <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
           <AppliedToggleButton applied={app.applied} compact onClick={(e) => handleAppliedClick(app, e)} />
@@ -531,7 +536,8 @@ export function ApplicationsListPage() {
         </Card>
       )}
 
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1.8fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)] xl:grid-cols-[minmax(320px,2.2fr)_240px_220px]">
+      {/* Desktop filters */}
+      <div className="hidden gap-3 md:grid md:grid-cols-[minmax(0,1.8fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)] xl:grid-cols-[minmax(320px,2.2fr)_240px_220px]">
         <Input
           aria-label="Search applications"
           placeholder="Search title or company…"
@@ -561,6 +567,55 @@ export function ApplicationsListPage() {
           <option value="applied">Applied</option>
           <option value="not_applied">Not Applied</option>
         </Select>
+      </div>
+
+      {/* Mobile filters */}
+      <div className="flex flex-col gap-2 md:hidden">
+        <div className="flex gap-2">
+          <Input
+            aria-label="Search applications"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1"
+          />
+          <button
+            type="button"
+            className="mobile-filters-toggle"
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M2 4h12M4 8h8M6 12h4" />
+            </svg>
+            Filters
+          </button>
+        </div>
+        {showMobileFilters && (
+          <div className="flex gap-2">
+            <Select
+              aria-label="Filter by status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="flex-1"
+            >
+              <option value="all">All statuses</option>
+              <option value="draft">Draft</option>
+              <option value="needs_action">Needs Action</option>
+              <option value="in_progress">In Progress</option>
+              <option value="complete">Complete</option>
+            </Select>
+            <Select
+              aria-label="Filter by applied"
+              value={appliedFilter}
+              onChange={(e) => setAppliedFilter(e.target.value)}
+              className="flex-1"
+            >
+              <option value="all">All</option>
+              <option value="applied">Applied</option>
+              <option value="not_applied">Not Applied</option>
+            </Select>
+          </div>
+        )}
       </div>
 
       {selectedIds.length > 0 && (

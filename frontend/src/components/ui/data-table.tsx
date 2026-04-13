@@ -10,6 +10,7 @@ type Column<T> = {
   sortable?: boolean;
   sortValue?: (row: T) => SortableValue;
   width?: string;
+  hiddenOnMobile?: boolean;
 };
 
 type DataTableProps<T> = {
@@ -119,9 +120,10 @@ export function DataTable<T>({
                   <th
                     key={col.key}
                     className={
-                      density === "compact"
+                      (density === "compact"
                         ? "px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.18em]"
-                        : "px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider"
+                        : "px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider") +
+                      (col.hiddenOnMobile ? " dt-hide-mobile" : "")
                     }
                     style={{
                       color: "var(--color-ink-50)",
@@ -196,9 +198,10 @@ export function DataTable<T>({
                     <td
                       key={col.key}
                       className={
-                        density === "compact"
+                        (density === "compact"
                           ? `px-4 py-2.5 ${verticalAlign === "top" ? "align-top" : "align-middle"}`
-                          : `px-4 py-3 ${verticalAlign === "top" ? "align-top" : "align-middle"}`
+                          : `px-4 py-3 ${verticalAlign === "top" ? "align-top" : "align-middle"}`) +
+                        (col.hiddenOnMobile ? " dt-hide-mobile" : "")
                       }
                     >
                       {col.render(row)}

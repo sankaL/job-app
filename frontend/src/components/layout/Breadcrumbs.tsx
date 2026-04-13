@@ -44,23 +44,23 @@ export function Breadcrumbs({ overrides }: BreadcrumbsProps) {
   });
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
+    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm overflow-hidden">
       {crumbs.map((crumb, index) => (
-        <span key={crumb.path} className="flex items-center gap-1.5">
+        <span key={crumb.path || `crumb-${index}`} className="flex min-w-0 items-center gap-1.5">
           {index > 0 && (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0" style={{ color: "var(--color-ink-25)" }}>
               <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
           {crumb.isLast ? (
-            <span className="font-medium" style={{ color: "var(--color-ink)" }}>
+            <span className="truncate font-medium" style={{ color: "var(--color-ink)", maxWidth: "180px" }}>
               {crumb.label}
             </span>
           ) : (
             <Link
               to={crumb.path}
-              className="transition-colors"
-              style={{ color: "var(--color-ink-50)" }}
+              className="truncate transition-colors hidden sm:inline"
+              style={{ color: "var(--color-ink-50)", maxWidth: "120px" }}
               onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-ink)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-ink-50)"; }}
             >

@@ -87,7 +87,7 @@ export function LoginPage() {
                 Invite-only MVP
               </p>
               <h1
-                className="mt-3 max-w-lg font-display text-3xl leading-[1.08] sm:text-4xl lg:text-[2.75rem]"
+                className="mt-3 max-w-lg font-display text-2xl leading-[1.08] sm:text-3xl lg:text-[2.75rem]"
                 style={{ color: "var(--color-ink)" }}
               >
                 AI-Powered Resume Tailoring
@@ -156,7 +156,7 @@ export function LoginPage() {
         </section>
 
         <section className="flex items-end justify-center px-6 pb-6 pt-0 sm:px-10 lg:min-h-screen lg:justify-end lg:px-0 lg:py-0">
-          <div className="relative flex h-[360px] w-full max-w-[860px] items-end justify-center overflow-visible sm:h-[430px] lg:h-screen lg:max-w-[980px]">
+          <div className="relative flex h-[280px] w-full max-w-[860px] items-end justify-center overflow-visible sm:h-[430px] lg:h-screen lg:max-w-[980px]">
             <div
               className="absolute inset-x-2 bottom-0 top-8 rounded-[40px] sm:inset-x-6 lg:bottom-0 lg:left-[18%] lg:right-0 lg:top-0 lg:rounded-[28px_0_0_28px]"
               style={{
