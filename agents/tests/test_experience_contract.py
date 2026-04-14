@@ -91,13 +91,34 @@ Lead Engineer | Different Co | 2017 - 2020
     assert "Lead Engineer | Beta Labs | 2018 - 2021" in normalized
 
 
-def test_validate_professional_experience_contract_enforces_title_immutability_for_medium():
+def test_normalize_professional_experience_section_medium_keeps_generated_titles_but_restores_company_and_dates():
+    anchors = _anchors()
+    generated = """## Professional Experience
+Platform Engineer | Acme Corp | 2021 - Present
+- Built backend APIs.
+
+Application Engineer | Beta Labs | 2018 - 2021
+- Shipped production features.
+"""
+
+    normalized, issues = normalize_professional_experience_section(
+        section_markdown=generated,
+        anchors=anchors,
+        aggressiveness="medium",
+    )
+
+    assert issues == []
+    assert "Platform Engineer | Acme Corp | 2021 - Present" in normalized
+    assert "Application Engineer | Beta Labs | 2018 - 2021" in normalized
+
+
+def test_validate_professional_experience_contract_allows_grounded_title_rewrite_for_medium():
     anchors = _anchors()
     section = """## Professional Experience
 Platform Engineer | Acme Corp | 2021 - Present
 - Built backend APIs.
 
-Software Engineer | Beta Labs | 2018 - 2021
+Application Engineer | Beta Labs | 2018 - 2021
 - Shipped production features.
 """
 
@@ -107,7 +128,7 @@ Software Engineer | Beta Labs | 2018 - 2021
         aggressiveness="medium",
     )
 
-    assert any("title must remain unchanged" in error for error in errors)
+    assert errors == []
 
 
 def test_validate_professional_experience_contract_allows_title_rewrite_for_high():
@@ -127,6 +148,44 @@ Software Engineer | Beta Labs | 2018 - 2021
     )
 
     assert errors == []
+
+
+def test_validate_professional_experience_contract_rejects_ungrounded_title_rewrite_for_medium():
+    anchors = _anchors()
+    section = """## Professional Experience
+Engagement Lead | Acme Corp | 2021 - Present
+- Built backend APIs.
+
+Software Engineer | Beta Labs | 2018 - 2021
+- Shipped production features.
+"""
+
+    errors = validate_professional_experience_contract(
+        section_markdown=section,
+        anchors=anchors,
+        aggressiveness="medium",
+    )
+
+    assert any("must stay grounded in the source title" in error for error in errors)
+
+
+def test_validate_professional_experience_contract_rejects_seniority_change_for_high():
+    anchors = _anchors()
+    section = """## Professional Experience
+Senior Platform Engineer | Acme Corp | 2021 - Present
+- Built backend APIs.
+
+Software Engineer | Beta Labs | 2018 - 2021
+- Shipped production features.
+"""
+
+    errors = validate_professional_experience_contract(
+        section_markdown=section,
+        anchors=anchors,
+        aggressiveness="high",
+    )
+
+    assert any("must preserve source seniority" in error for error in errors)
 
 
 def test_validate_professional_experience_contract_fails_when_role_blocks_are_missing():

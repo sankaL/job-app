@@ -356,8 +356,8 @@ Before initial generation, the user configures:
 
 **Aggressiveness definitions:**
 - **Low:** Light Summary cleanup, light Professional Experience rephrasing or reordering only, no role-title changes, Skills unchanged, and Education unchanged except minimal formatting cleanup
-- **Medium:** Rewrite Summary for stronger alignment, rephrase or reorder Professional Experience with selective pruning, keep professional-experience role titles unchanged, reorder or regroup Skills, and keep Education fact-fixed apart from minimal formatting cleanup
-- **High:** Strongest grounded rewrite of Summary, aggressive reframing or reprioritization of Professional Experience, professional-experience role titles may be rewritten when the new title is still a truthful reframing of the same source role, aggressive regrouping or pruning of Skills, and Education still fact-fixed apart from minimal formatting cleanup. This mode is an explicit user opt-in and may materially change wording, emphasis, and role framing, so the generated output must be presented with a clear warning that careful user review is required.
+- **Medium:** Rewrite Summary for stronger alignment, reframe or reprioritize Professional Experience with consolidation or selective pruning, explicitly allow merging two related source bullets into one stronger grounded bullet when that improves focus, allow light professional-experience title reframing only when the title stays grounded in the same core role family and seniority, reorder or regroup Skills with the strongest relevant cluster first, and keep Education fact-fixed apart from minimal formatting cleanup
+- **High:** Strongest rewrite of Summary, including bounded professional inference from demonstrated source patterns, aggressive reframing or reprioritization of Professional Experience, professional-experience role titles may be rewritten when the new title still matches the demonstrated work and preserves seniority, aggressive regrouping or pruning of Skills with the strongest relevant cluster first, and Education still fact-fixed apart from minimal formatting cleanup. This mode is an explicit user opt-in and may materially change wording, emphasis, and role framing, so the generated output must be presented with a clear warning that careful user review is required.
 
 **Settings UI note:** The Generation Settings card may stay compact as long as the full low, medium, and high behavior breakdown remains available inline through a tooltip or popover. When High is selected, the UI must also show an inline warning that this mode can make substantial changes and should be used only when the user wants a more aggressive rewrite and will review the result carefully.
 
@@ -392,9 +392,11 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - Use one LLM request for initial generation and one LLM request for full regeneration
 - Use one LLM request for single-section regeneration of the selected section
 - Professional Experience must use deterministic source anchors (`title`, `company`, `date_range`, source order) extracted from the sanitized base resume
-- Low and medium aggressiveness must keep Professional Experience titles source-exact; high may retitle only when truthful to the same role
+- Low aggressiveness must keep Professional Experience titles source-exact
+- Medium may lightly reframe Professional Experience titles only when the new title stays grounded in the same core role family and seniority as the source title
+- High may retitle Professional Experience roles more freely only when the new title still matches the demonstrated work and preserves seniority
 - Company and date range for every Professional Experience role are deterministic invariants and must remain source-exact for all aggressiveness levels
-- Apply a deterministic post-LLM normalization pass that rehydrates Professional Experience company and date values from anchors before validation or assembly
+- Apply a deterministic post-LLM normalization pass that rehydrates Professional Experience company and date values from anchors before validation or assembly; low also rehydrates source-exact titles while medium and high preserve the generated title for validation
 - The model must return a strict JSON envelope that includes ordered sections and per-section grounding snippets copied from the sanitized base resume
 - Prompt variants must explicitly reflect the selected page target and aggressiveness level
 - A second model request is allowed only when the first request fails at the provider or transport level, or returns invalid structured output
@@ -407,6 +409,8 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - No tables
 - No images
 - Clean bullet formatting
+- Human-sounding output with explicit anti-filler guidance, varied bullet structure, and candidate-specific detail requirements
+- Explicit bounded-inference examples for high aggressiveness so the model can distinguish grounded role framing from invented outcomes or metrics
 - Strong keyword relevance to the job description
 - Grounded, source-based content — no invented credentials or history
 - No personal or contact information in the model prompt or output contract
@@ -421,8 +425,9 @@ After generation returns structured JSON, the application validates it locally b
 - Strict JSON parsing and schema compliance
 - ATS-safe structure (no tables, no columns, no special characters)
 - Valid Markdown formatting
-- Hallucinated content not present in the base resume — specifically: invented employers, dates, credentials, or educational institutions, plus invented job titles outside the high-aggressiveness professional-experience title-rewrite allowance
-- Professional Experience structure contract enforcement after deterministic normalization: same role-block count as source anchors, source-exact company and date per role, and source-exact titles in low or medium aggressiveness
+- Hallucinated content not present in the base resume — specifically: invented employers, dates, credentials, or educational institutions, plus invented job titles outside the medium and high professional-experience title-rewrite allowances
+- Professional Experience structure contract enforcement after deterministic normalization: same role-block count as source anchors, source-exact company and date per role, source-exact titles in low aggressiveness, medium title grounding to the same core role family and seniority, and preserved seniority in high aggressiveness
+- Document where validation is heuristic rather than semantic proof; medium title grounding is only approximated deterministically and ultimately depends on the prompt contract plus model behavior
 - Consistency across sections (no conflicting dates, duplicate entries)
 - All enabled sections are present and in the correct order
 - Personal or contact information leakage in generated sections

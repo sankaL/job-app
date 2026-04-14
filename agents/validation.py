@@ -158,7 +158,7 @@ def _check_claim_grounding(
             if (
                 claim["kind"] == "role_title"
                 and section["name"] == "professional_experience"
-                and aggressiveness == "high"
+                and aggressiveness in {"medium", "high"}
             ):
                 continue
             if normalized_claim and normalized_claim not in searchable_source:

@@ -94,50 +94,82 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
     },
     "medium": {
-        "summary": "Moderate rewrite for role alignment using only source-backed facts.",
-        "professional_experience": (
-            "Rephrase, reorder, prune, and emphasize grounded bullets for the target role. Keep each role title exactly as it appears in the source. "
-            "Do not add new facts."
+        "summary": (
+            "Substantial rewrite for role alignment using grounded source facts only. Reposition the candidate's profile "
+            "toward the target role without adding new claims."
         ),
-        "skills": "Reorder, regroup, and prune to the most relevant source-backed skills. Do not add new skills.",
+        "professional_experience": (
+            "Reframe bullet angles, reorder, consolidate, prune, and emphasize grounded bullets for the target role. "
+            "Two source bullets covering related grounded work may be consolidated into one stronger bullet when that improves focus and specificity. "
+            "You may lightly reframe the role title only when it preserves the same core role family and seniority as the source title. "
+            "Keep company and dates unchanged. Do not add new facts."
+        ),
+        "skills": (
+            "Reorder, regroup, and prune to the most relevant source-backed skills. Lead with the most role-relevant skill cluster. "
+            "Do not add new skills."
+        ),
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
     },
     "high": {
-        "summary": "Fully rewrite the Summary for strongest role alignment using only source-backed facts.",
-        "professional_experience": (
-            "Aggressively reframe, reprioritize, condense, or expand grounded bullets for fit and impact. "
-            "You may retitle the role name for alignment only when it remains a truthful reframing of the same source role. "
-            "Keep employers and dates unchanged, and do not inflate scope, seniority, employers, or technologies."
+        "summary": (
+            "Fully rewrite the Summary for strongest role alignment. You may make bounded professional inferences from demonstrated patterns "
+            "in the source, but never invent specific employers, dates, institutions, credentials, metrics, or technologies."
         ),
-        "skills": "Aggressively prune, regroup, and prioritize source-backed skills for relevance. Do not add new skills.",
+        "professional_experience": (
+            "Aggressively reframe, reprioritize, consolidate, condense, or expand grounded bullets for fit and impact. "
+            "You may retitle the role name for alignment or adjacent role framing only when it still matches the demonstrated responsibilities. "
+            "Keep company and dates unchanged, keep duration consistent with the source, do not change seniority, "
+            "and do not invent metrics, employers, technologies, institutions, or achievements."
+        ),
+        "skills": (
+            "Aggressively prune, regroup, and prioritize source-backed skills for relevance. Lead with the most role-relevant skill cluster. "
+            "Do not add new skills."
+        ),
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
     },
 }
 
 SECTION_RULES: dict[str, str] = {
     "summary": (
-        "Lead with the strongest source-backed fit for the target role. Keep the section concise, concrete, and specific. "
-        "Do not use generic filler, first-person narration, or em dashes."
+        "Lead with the strongest grounded fit for the target role. Keep the section concise, concrete, specific, and natural. "
+        "Do not use generic filler, first-person narration, or em dashes. If a sentence could describe almost anyone in the field, rewrite it until it feels candidate-specific."
     ),
     "professional_experience": (
         "Prioritize the most relevant experience first. Use concise accomplishment-oriented bullets grounded in the source. "
         "Preserve chronology facts and do not invent metrics, scope, or technologies. "
-        "Low and medium aggressiveness must preserve role titles exactly; high aggressiveness may retitle role names only when the rewrite stays truthful to the same role and does not change employer, dates, or seniority."
+        "Bullet openings may vary; do not make every bullet follow the same verb-first pattern. "
+        "Low aggressiveness must preserve role titles exactly. Medium may lightly reframe titles only when the core role family and seniority remain grounded in the source. "
+        "High may retitle more freely only when the rewrite still matches demonstrated work and does not change employer, dates, duration, or seniority."
     ),
     "education": (
         "Keep Education concise and factual. Never add or infer schools, degrees, honors, dates, coursework, or credentials."
     ),
     "skills": (
-        "Use only source-backed skills. Prioritize role-relevant skills and avoid keyword stuffing, duplicate categories, or generic buzzwords."
+        "Use only source-backed skills. Lead with the most role-relevant skill cluster and avoid keyword stuffing, duplicate categories, or generic buzzwords."
     ),
 }
 
-BOUNDARY_EXAMPLE = (
-    "Worked example of acceptable vs unacceptable rewriting:\n"
+FACT_BOUNDARY_EXAMPLE = (
+    "Worked example of acceptable vs unacceptable fact expansion:\n"
     "- Source fact: \"Built CI/CD pipelines for 12 AWS services and supported production deployments.\"\n"
-    "- Acceptable high-aggressiveness rewrite: \"Built and supported CI/CD pipelines across 12 AWS services for production deployments.\"\n"
+    "- Acceptable grounded rewrite: \"Built and supported CI/CD pipelines across 12 AWS services for production deployments.\"\n"
     "- Unacceptable rewrite: \"Led DevOps strategy across 12 AWS microservices, reducing deployment failures by 40%.\"\n"
     "- Why: the unacceptable version adds leadership scope and a performance metric that are not present in the source."
+)
+
+INFERENCE_BOUNDARY_EXAMPLE = (
+    "Worked example of bounded professional inference in high aggressiveness:\n"
+    "- Source shows: managing a team of 15, coordinating delivery across clients, and owning test strategy.\n"
+    "- Acceptable high-aggressiveness inference: retitle the role as \"QA Engineering Lead\" when the rest of the role content stays grounded in those demonstrated responsibilities.\n"
+    "- Unacceptable inference: \"Reduced client attrition by 20%.\"\n"
+    "- Why: the title reframe is an interpretation of demonstrated work, but the metric is an invented outcome with no source basis."
+)
+
+VOICE_BOUNDARY_EXAMPLE = (
+    "Worked example of avoiding filler:\n"
+    "- Weak rewrite: \"Proven ability to leverage expertise in backend engineering to drive high-quality outcomes.\"\n"
+    "- Better rewrite when the source supports it: \"Built backend APIs and maintained the deployment pipeline for internal platform services.\"\n"
+    "- Why: the better version names real work instead of generic resume filler that could fit almost anyone."
 )
 
 
@@ -390,20 +422,32 @@ def _build_role_block() -> str:
     )
 
 
+def _build_voice_rules_block() -> str:
+    return (
+        "Voice and specificity rules:\n"
+        "- Avoid resume filler such as \"proven ability to\", \"leveraging expertise in\", \"adept at\", \"ensuring high-quality outcomes\", \"driving continuous improvement\", or \"spearheading\" in model-authored content, even when those phrases appear in the source.\n"
+        "- Vary bullet openings and sentence structure. Do not make every bullet use the same verb-first pattern.\n"
+        "- Prefer specific, grounded detail over general claims. If a line could fit almost anyone in the same field, rewrite it to make it more candidate-specific.\n"
+        "- For each Professional Experience role, include at least one concrete, source-backed detail when the source provides one, such as a tool, system, domain, team context, or result.\n"
+    )
+
+
 def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str], section_wrapper: bool) -> str:
     section_spec = ", ".join(f"{section_id}:{_display_name(section_id)}" for section_id in enabled_sections)
     experience_contract_line = ""
     if "professional_experience" in enabled_sections:
         experience_contract_line = (
-            "- Professional Experience structure contract: preserve source company and date range for every role. "
-            "Low and medium must preserve role titles exactly; high may retitle only while keeping company and dates unchanged.\n"
+            "- Professional Experience structure contract: preserve source company and date range for every role so duration stays consistent. "
+            "Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; "
+            "high may retitle more freely only when the rewrite still matches demonstrated work. Company and dates must stay unchanged in every mode.\n"
         )
     return (
         "Non-negotiables:\n"
         f"- {OPERATION_PROMPTS[operation]}\n"
-        "- Use only facts grounded in the sanitized base resume source.\n"
+        "- Use grounded source facts from the sanitized base resume. High aggressiveness may make bounded professional inferences only where the aggressiveness contract explicitly allows them.\n"
         "- Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.\n"
-        "- Do not invent employers, titles, dates, institutions, credentials, awards, metrics, scope, or technologies.\n"
+        "- Do not invent employers, dates, institutions, credentials, awards, metrics, scope, or technologies.\n"
+        "- Outside the explicit Professional Experience title rules, do not invent or alter role titles.\n"
         + experience_contract_line
         + "- User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.\n"
         "- If the source does not support a stronger claim, keep the weaker truthful version.\n"
@@ -421,13 +465,16 @@ def _build_section_rules_block(*, enabled_sections: list[str]) -> str:
 
 def _build_aggressiveness_block(*, aggressiveness: str) -> str:
     contract = AGGRESSIVENESS_CONTRACTS.get(aggressiveness, AGGRESSIVENESS_CONTRACTS["medium"])
+    inference_example = f"{INFERENCE_BOUNDARY_EXAMPLE}\n" if aggressiveness == "high" else ""
     return (
         f"Aggressiveness contract ({aggressiveness}):\n"
         f"- Summary: {contract['summary']}\n"
         f"- Professional Experience: {contract['professional_experience']}\n"
         f"- Skills: {contract['skills']}\n"
         f"- Education: {contract['education']}\n"
-        f"{BOUNDARY_EXAMPLE}\n"
+        f"{FACT_BOUNDARY_EXAMPLE}\n"
+        f"{inference_example}"
+        f"{VOICE_BOUNDARY_EXAMPLE}\n"
     )
 
 
@@ -466,6 +513,8 @@ def _build_shared_system_prompt(
 ) -> str:
     return (
         _build_role_block()
+        + "\n"
+        + _build_voice_rules_block()
         + "\n"
         + _build_non_negotiables_block(
             operation=operation,
@@ -544,8 +593,10 @@ def _build_generation_prompt(
             "anchors": professional_experience_anchors,
             "invariants": {
                 "company_and_dates_must_match_source_for_every_role": True,
-                "low_and_medium_titles_must_match_source_exactly": True,
-                "high_titles_may_retitle_but_company_and_dates_must_stay_source_exact": True,
+                "duration_must_stay_consistent_with_source": True,
+                "low_titles_must_match_source_exactly": True,
+                "medium_titles_may_reframe_but_must_preserve_core_role_family_and_seniority": True,
+                "high_titles_may_retitle_when_supported_by_demonstrated_work_but_company_and_dates_must_stay_source_exact": True,
             },
         },
         "job_description": _normalize_prompt_text(job_description, PROMPT_TRUNCATION_LIMITS["job_description"]),
@@ -583,7 +634,7 @@ def _build_section_regeneration_prompt(
         )
         + "\nSection-regeneration coherence rules:\n"
         + "- Keep terminology and tone compatible with the rest of the draft.\n"
-        + "- Do not duplicate the strongest claims already emphasized elsewhere.\n"
+        + "- Read other_sections_context and do not repeat a claim that already appears there verbatim or as the dominant selling point.\n"
         + "- Do not contradict the rest of the draft unless the source resume requires correction.\n"
     )
     target_length_config = TARGET_LENGTH_GUIDANCE.get(target_length, TARGET_LENGTH_GUIDANCE["1_page"])
@@ -612,8 +663,10 @@ def _build_section_regeneration_prompt(
             "anchors": professional_experience_anchors,
             "invariants": {
                 "company_and_dates_must_match_source_for_every_role": True,
-                "low_and_medium_titles_must_match_source_exactly": True,
-                "high_titles_may_retitle_but_company_and_dates_must_stay_source_exact": True,
+                "duration_must_stay_consistent_with_source": True,
+                "low_titles_must_match_source_exactly": True,
+                "medium_titles_may_reframe_but_must_preserve_core_role_family_and_seniority": True,
+                "high_titles_may_retitle_when_supported_by_demonstrated_work_but_company_and_dates_must_stay_source_exact": True,
             },
         },
         "job_description": _normalize_prompt_text(job_description, PROMPT_TRUNCATION_LIMITS["job_description"]),

@@ -15,6 +15,50 @@ DATE_RANGE_RE = re.compile(
     re.I,
 )
 
+TITLE_STOPWORDS = {"and", "of", "the", "to", "for", "in", "at", "with", "on", "a", "an"}
+ROLE_FAMILY_TOKENS = {
+    "accountant",
+    "administrator",
+    "advisor",
+    "analyst",
+    "architect",
+    "consultant",
+    "coordinator",
+    "designer",
+    "developer",
+    "engineer",
+    "executive",
+    "manager",
+    "operator",
+    "partner",
+    "producer",
+    "recruiter",
+    "researcher",
+    "scientist",
+    "specialist",
+    "strategist",
+    "supervisor",
+    "technician",
+    "writer",
+}
+SENIORITY_PATTERNS: tuple[tuple[str, int], ...] = (
+    ("vice president", 7),
+    ("vp", 7),
+    ("chief", 8),
+    ("head", 6),
+    ("principal", 5),
+    ("staff", 4),
+    ("lead", 4),
+    ("senior", 3),
+    ("sr", 3),
+    ("associate", 2),
+    ("junior", 1),
+    ("jr", 1),
+    ("intern", 0),
+    ("trainee", 0),
+    ("apprentice", 0),
+)
+
 
 def normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).casefold()
@@ -28,6 +72,46 @@ def _strip_inline_markdown(value: str) -> str:
 
 def _looks_like_date_range(value: str) -> bool:
     return DATE_RANGE_RE.search(value) is not None
+
+
+def _title_tokens(value: str) -> set[str]:
+    normalized = re.sub(r"[^a-z0-9+#/]+", " ", _strip_inline_markdown(value).lower())
+    return {
+        token
+        for token in normalized.split()
+        if token and token not in TITLE_STOPWORDS
+    }
+
+
+def _extract_seniority_rank(value: str) -> Optional[int]:
+    normalized = normalize_text(_strip_inline_markdown(value))
+    rank: Optional[int] = None
+    for pattern, candidate_rank in SENIORITY_PATTERNS:
+        if re.search(rf"\b{re.escape(pattern)}\b", normalized):
+            rank = candidate_rank if rank is None else max(rank, candidate_rank)
+    return rank
+
+
+def _preserves_seniority(source_title: str, generated_title: str) -> bool:
+    return _extract_seniority_rank(source_title) == _extract_seniority_rank(generated_title)
+
+
+def _is_medium_title_grounded_in_source(source_title: str, generated_title: str) -> bool:
+    # This is a deliberately conservative heuristic, not a full semantic validator.
+    # We approximate "same core role family" through token overlap plus role-family nouns.
+    if normalize_text(source_title) == normalize_text(generated_title):
+        return True
+
+    source_tokens = _title_tokens(source_title)
+    generated_tokens = _title_tokens(generated_title)
+    overlap = source_tokens & generated_tokens
+    if not overlap:
+        return False
+
+    if overlap & ROLE_FAMILY_TOKENS:
+        return True
+
+    return len(overlap) >= 2
 
 
 def _extract_professional_experience_section(content: str) -> Optional[str]:
@@ -180,7 +264,7 @@ def normalize_professional_experience_section(
         header = block["header"]
         generated_title = header.get("title", "")
 
-        if aggressiveness in {"low", "medium"}:
+        if aggressiveness == "low":
             title = str(anchor.get("source_title", generated_title)).strip()
         else:
             title = generated_title.strip() or str(anchor.get("source_title", "")).strip()
@@ -242,11 +326,37 @@ def validate_professional_experience_contract(
                 )
             )
 
-        if aggressiveness in {"low", "medium"} and normalize_text(header.get("title", "")) != normalize_text(anchor_title):
+        generated_title = header.get("title", "").strip()
+
+        if aggressiveness == "low" and normalize_text(generated_title) != normalize_text(anchor_title):
             errors.append(
                 (
-                    f"Role {index + 1} title must remain unchanged in {aggressiveness} aggressiveness. "
-                    f"Expected `{anchor_title}`, got `{header.get('title', '').strip()}`."
+                    f"Role {index + 1} title must remain unchanged in low aggressiveness. "
+                    f"Expected `{anchor_title}`, got `{generated_title}`."
+                )
+            )
+
+        if aggressiveness == "medium":
+            if not _is_medium_title_grounded_in_source(anchor_title, generated_title):
+                errors.append(
+                    (
+                        f"Role {index + 1} title in medium aggressiveness must stay grounded in the source title "
+                        f"`{anchor_title}`. Got `{generated_title}`."
+                    )
+                )
+            if not _preserves_seniority(anchor_title, generated_title):
+                errors.append(
+                    (
+                        f"Role {index + 1} title in medium aggressiveness must preserve source seniority "
+                        f"`{anchor_title}`. Got `{generated_title}`."
+                    )
+                )
+
+        if aggressiveness == "high" and not _preserves_seniority(anchor_title, generated_title):
+            errors.append(
+                (
+                    f"Role {index + 1} title in high aggressiveness must preserve source seniority "
+                    f"`{anchor_title}`. Got `{generated_title}`."
                 )
             )
 

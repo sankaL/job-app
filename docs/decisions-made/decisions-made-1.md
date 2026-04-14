@@ -1,5 +1,18 @@
 # Decisions Made
 
+## 2026-04-13 22:45:01 EDT — Make medium title reframing bounded, add high-mode bounded inference, and harden resume voice rules
+
+- Status: Accepted
+- Context: Real usage showed that medium aggressiveness was too close to low, the prompt contract had no explicit anti-filler or human-sounding voice guidance, and the previous high-only title-rewrite rule was too binary for users who wanted medium to do more than cleanup while still keeping roles grounded in the original title.
+- Decision:
+  1. Keep low aggressiveness fully title-fixed: Professional Experience role titles remain source-exact.
+  2. Allow medium aggressiveness to lightly reframe Professional Experience titles only when the rewritten title stays grounded in the same core role family and preserves source seniority.
+  3. Keep high aggressiveness as the most flexible mode, and explicitly allow bounded professional inference from demonstrated source patterns in Summary and role framing, while still forbidding invented employers, dates, institutions, credentials, metrics, technologies, or seniority changes.
+  4. Preserve company and date ranges as deterministic invariants in every mode, and preserve source duration by rehydrating company/date from Professional Experience anchors after generation.
+  5. Add an explicit voice contract to resume prompts: banned filler phrases, varied bullet structure, candidate-specific specificity guidance, and at least one concrete source-backed detail per role when available.
+  6. Add a dedicated worked example for bounded inference in high aggressiveness, remove the filler-phrase loophole even when the source uses those phrases, explicitly permit medium-mode bullet consolidation, and document that medium title-family checking is only approximated by deterministic validation.
+- Consequences: Medium now produces a meaningfully stronger rewrite than low without becoming free-form retitling, high becomes more honest about bounded inference while remaining fail-closed on factual drift, the prompts give the model fewer loopholes for generic AI phrasing, and future maintainers have a clearer picture of which title checks are deterministic heuristics versus prompt-layer intent.
+
 ## 2026-04-12 16:10:00 EDT — Treat DOCX as a first-class export alongside PDF
 
 - Status: Accepted

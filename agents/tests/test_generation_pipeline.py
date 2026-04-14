@@ -11,6 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import generation
+from experience_contract import extract_professional_experience_anchors
 from privacy import sanitize_resume_markdown
 from validation import validate_resume
 
@@ -542,7 +543,7 @@ async def test_call_json_with_fallback_preserves_timeout_error(monkeypatch):
         )
 
 
-def test_generation_prompt_includes_expert_role_no_em_dash_and_length_budget():
+def test_generation_prompt_includes_expert_role_voice_rules_no_em_dash_and_length_budget():
     prompt = generation._build_generation_prompt(
         operation="generation",
         base_resume_content="## Summary\nBuilt backend systems.\n",
@@ -559,12 +560,14 @@ def test_generation_prompt_includes_expert_role_no_em_dash_and_length_budget():
     system_prompt = prompt[0][1]
     assert "expert ATS resume writer and editor" in system_prompt
     assert "Do not use first-person narration or em dashes" in system_prompt
+    assert 'Avoid resume filler such as "proven ability to"' in system_prompt
+    assert "even when those phrases appear in the source" in system_prompt
     assert "Do not change skills content or grouping." in system_prompt
     assert "Preferred total length when it fits the source naturally: 450-700 words." in system_prompt
     assert "Do not prune or regroup skills to satisfy length guidance in low-aggressiveness mode." in system_prompt
 
 
-def test_medium_generation_prompt_keeps_length_caps():
+def test_medium_generation_prompt_keeps_length_caps_and_allows_bounded_title_reframing():
     prompt = generation._build_generation_prompt(
         operation="generation",
         base_resume_content="## Summary\nBuilt backend systems.\n",
@@ -581,7 +584,9 @@ def test_medium_generation_prompt_keeps_length_caps():
     system_prompt = prompt[0][1]
     assert "Target total length: 450-700 words." in system_prompt
     assert "cap bullets at 4 per role" in system_prompt
-    assert "keep each role title exactly as it appears in the source" in system_prompt.lower()
+    assert "Two source bullets covering related grounded work may be consolidated into one stronger bullet" in system_prompt
+    assert "lightly reframe the role title only when it preserves the same core role family and seniority" in system_prompt.lower()
+    assert "Worked example of bounded professional inference in high aggressiveness" not in system_prompt
 
 
 def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_experience():
@@ -606,8 +611,29 @@ def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_expe
     )
 
     system_prompt = prompt[0][1]
-    assert "you may retitle the role name for alignment only when it remains a truthful reframing of the same source role" in system_prompt.lower()
-    assert "keep employers and dates unchanged" in system_prompt.lower()
+    assert "you may make bounded professional inferences from demonstrated patterns in the source" in system_prompt.lower()
+    assert "you may retitle the role name for alignment or adjacent role framing only when it still matches the demonstrated responsibilities" in system_prompt.lower()
+    assert "keep company and dates unchanged" in system_prompt.lower()
+    assert "Worked example of bounded professional inference in high aggressiveness" in system_prompt
+    assert 'Acceptable high-aggressiveness inference: retitle the role as "QA Engineering Lead"' in system_prompt
+
+
+def test_low_generation_prompt_does_not_include_high_inference_example():
+    prompt = generation._build_generation_prompt(
+        operation="generation",
+        base_resume_content="## Summary\nBuilt backend systems.\n",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs.",
+        enabled_sections=["summary"],
+        aggressiveness="low",
+        target_length="1_page",
+        additional_instructions="Keep it concise.",
+        professional_experience_anchors=[],
+    )
+
+    system_prompt = prompt[0][1]
+    assert "Worked example of bounded professional inference in high aggressiveness" not in system_prompt
 
 
 def test_response_contract_payload_uses_section_minimum_snippet_examples():
@@ -722,6 +748,9 @@ async def test_validate_resume_rejects_unsupported_role_and_company_claims():
 
 @pytest.mark.asyncio
 async def test_validate_resume_allows_high_aggressiveness_experience_role_title_rewrite():
+    anchors = extract_professional_experience_anchors(
+        "## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n"
+    )
     result = await validate_resume(
         generated_sections=[
             {
@@ -734,6 +763,7 @@ async def test_validate_resume_allows_high_aggressiveness_experience_role_title_
         base_resume_content="## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n",
         section_preferences=[{"name": "professional_experience", "enabled": True, "order": 0}],
         generation_settings={"page_length": "1_page", "aggressiveness": "high"},
+        professional_experience_anchors=anchors,
     )
 
     error_types = {error["type"] for error in result["errors"]}
@@ -742,7 +772,10 @@ async def test_validate_resume_allows_high_aggressiveness_experience_role_title_
 
 
 @pytest.mark.asyncio
-async def test_validate_resume_still_rejects_medium_aggressiveness_experience_role_title_rewrite():
+async def test_validate_resume_allows_grounded_medium_aggressiveness_experience_role_title_rewrite():
+    anchors = extract_professional_experience_anchors(
+        "## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n"
+    )
     result = await validate_resume(
         generated_sections=[
             {
@@ -755,10 +788,37 @@ async def test_validate_resume_still_rejects_medium_aggressiveness_experience_ro
         base_resume_content="## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n",
         section_preferences=[{"name": "professional_experience", "enabled": True, "order": 0}],
         generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+        professional_experience_anchors=anchors,
     )
 
     error_types = {error["type"] for error in result["errors"]}
-    assert "unsupported_claim" in error_types
+    assert "unsupported_claim" not in error_types
+    assert result["valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_rejects_ungrounded_medium_aggressiveness_experience_role_title_rewrite():
+    anchors = extract_professional_experience_anchors(
+        "## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n"
+    )
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "professional_experience",
+                "heading": "Professional Experience",
+                "content": "## Professional Experience\nEngagement Lead | Acme | 2022 - Present\n- Built backend systems.",
+                "supporting_snippets": ["Built backend systems.", "Acme"],
+            }
+        ],
+        base_resume_content="## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n",
+        section_preferences=[{"name": "professional_experience", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+        professional_experience_anchors=anchors,
+    )
+
+    error_types = {error["type"] for error in result["errors"]}
+    assert "experience_structure_violation" in error_types
+    assert result["valid"] is False
 
 
 @pytest.mark.asyncio

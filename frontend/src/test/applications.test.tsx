@@ -1604,12 +1604,12 @@ describe("phase 1 applications UI", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /high aggressiveness details/i }));
 
-    expect(await screen.findByText(/professional experience: aggressively reframe, reprioritize, and condense grounded bullets/i)).toBeInTheDocument();
-    expect(screen.getByText(/role titles may be rewritten when the new title is still a truthful match for the same role\./i)).toBeInTheDocument();
+    expect(await screen.findByText(/professional experience: aggressively reframe, reprioritize, consolidate, and condense grounded bullets/i)).toBeInTheDocument();
+    expect(screen.getByText(/role titles may be rewritten when the new title still matches the demonstrated work\. company and dates remain fixed\./i)).toBeInTheDocument();
     expect(screen.getByText(/education: no factual rewrites beyond minimal formatting cleanup\./i)).toBeInTheDocument();
     await userEvent.click(screen.getByText("High"));
     expect(
-      await screen.findByText(/high aggressiveness can make substantial changes to wording, emphasis, and professional experience role titles/i),
+      await screen.findByText(/high aggressiveness can make substantial changes to wording, emphasis, and professional experience role framing, but company and dates stay fixed/i),
     ).toBeInTheDocument();
   });
 
