@@ -1624,7 +1624,7 @@ describe("phase 1 applications UI", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps the review-flags panel visible, shows Compare, and renders the generated preview without diff highlighting", async () => {
+  it("removes the review-flags panel, shows Compare, and renders the generated preview without diff highlighting", async () => {
     api.fetchApplicationDetail.mockResolvedValue(
       buildApplicationDetail({
         id: "app-1",
@@ -1676,8 +1676,7 @@ describe("phase 1 applications UI", () => {
     );
 
     expect(await screen.findByRole("button", { name: /^compare$/i })).toBeInTheDocument();
-    expect(screen.getByText(/review flagged additions/i)).toBeInTheDocument();
-    expect(screen.getByText(/summary:/i)).toBeInTheDocument();
+    expect(screen.queryByText(/review flagged additions/i)).not.toBeInTheDocument();
     expect(screen.queryByText("## Professional Experience")).not.toBeInTheDocument();
     expect(container.querySelector("mark.generated-diff-highlight")).toBeNull();
     expect(container.querySelector(".generated-diff-block")).toBeNull();

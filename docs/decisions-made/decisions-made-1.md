@@ -1,5 +1,15 @@
 # Decisions Made
 
+## 2026-04-16 23:50:07 EDT — Make compare the MVP review path for JD-driven additions
+
+- Status: Accepted
+- Context: The product had briefly diverged between code review feedback and the intended UX contract for medium/high tailoring. The compare workflow was already the active review surface in the application detail workspace, but the PRD still required a separate generated-draft warning panel for `review_flags`, which no longer matched the desired frontend behavior.
+- Decision:
+  1. Keep emitting draft `review_flags` in the backend payload for provenance and future use, but do not require a standalone generated-draft warning panel in the MVP detail view.
+  2. Treat compare mode as the explicit MVP review path for JD-driven additions that are not explicit in the source resume.
+  3. Update the PRD to describe compare as the required review workflow before apply/export for medium/high runs.
+- Consequences: The frontend remains simpler and aligned with the current compare-first detail experience, the product contract no longer conflicts with the implemented UI, and `review_flags` data remains available without creating a second mandatory review surface.
+
 ## 2026-04-16 22:38:50 EDT — Move generation reasoning effort into env config and default it to none
 
 - Status: Accepted

@@ -72,11 +72,6 @@ const ACTIVE_GENERATION_PROGRESS_STATES = [
 ];
 const EXTRACTION_DETAIL_REFRESH_FALLBACK_MESSAGE =
   "Extraction finished, but results could not be synchronized. Retry extraction or complete manual entry.";
-const REVIEW_SECTION_LABELS: Record<string, string> = {
-  summary: "Summary",
-  professional_experience: "Professional Experience",
-  skills: "Skills",
-};
 function isGenerationWorkflowActive(detail: ApplicationDetail | null) {
   return Boolean(detail && !detail.failure_reason && ACTIVE_GENERATION_STATES.includes(detail.internal_state));
 }
@@ -337,7 +332,6 @@ export function ApplicationDetailPage() {
     () => AGGRESSIVENESS_OPTIONS.find((option) => option.value === aggressiveness) ?? null,
     [aggressiveness],
   );
-  const draftReviewFlags = draft?.review_flags ?? [];
   const generationStartBlocker = getGenerationStartBlocker(detail, selectedResumeId, baseResumes.length);
   const fullRegenerationBlocker = getFullRegenerationBlocker(detail);
   const sectionRegenerationBlocker = getSectionRegenerationBlocker(detail, regenSectionName, regenInstructions);
@@ -1102,27 +1096,6 @@ export function ApplicationDetailPage() {
             )}
           </div>
         </div>
-
-        {draftReviewFlags.length > 0 ? (
-          <Card variant="warning" density="compact" className="mt-3 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-65)" }}>
-              Review Flagged Additions
-            </p>
-            <p className="mt-1 text-xs" style={{ color: "var(--color-ink-65)" }}>
-              Medium/High generation added job-description-driven phrases that are not explicit in your source resume. Verify before applying.
-            </p>
-            <ul className="mt-2 space-y-1 text-xs" style={{ color: "var(--color-ink)" }}>
-              {draftReviewFlags.slice(0, 8).map((flag, index) => (
-                <li key={`${flag.section_name}-${flag.text}-${index}`}>
-                  <span className="font-medium">
-                    {REVIEW_SECTION_LABELS[flag.section_name] ?? flag.section_name}:
-                  </span>{" "}
-                  {flag.text}
-                </li>
-              ))}
-            </ul>
-          </Card>
-        ) : null}
 
         {!compareMode && (isCompareBaselineLoading || compareBaselineError) ? (
           <p className="mt-3 text-xs" style={{ color: "var(--color-ink-50)" }}>
