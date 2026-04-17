@@ -42,7 +42,7 @@ Opus
 - [x] When configs are changed after generation in the UI, it resets back to the original but I think the actual request is sent in the backend. Just on the frontend it looks like it's the same config. 
 
 
-- [] Ask Claude to come up with some rules to validate the human readable aspect and the ATS score essentially. Um come up with a prompt to score it and then I want it to run this validator after each generation and display it. Uh if it's low we can regenerate with reasons. 
+- [x] Ask Claude to come up with some rules to validate the human readable aspect and the ATS score essentially. Um come up with a prompt to score it and then I want it to run this validator after each generation and display it. Uh if it's low we can regenerate with reasons. 
 - [] Create a test suite integration in pytest with reporting request library - i make the scenarios sanity test suite
 - [] Look into the page count logic. Is it working when the base resume is small? 
 - [] sockets instead of polling?
