@@ -9,7 +9,7 @@
 
 Build a private, invite-only web application that helps users generate ATS-friendly resumes tailored to specific job postings.
 
-A user logs in, creates a job application from a job link or Chrome current-tab capture, and the system attempts to extract the job details and posting origin asynchronously. The user then selects a base resume, chooses generation settings, and the system produces a tailored resume draft in Markdown. The user can review, edit, regenerate sections, regenerate the full resume, and export a PDF.
+A user logs in, creates a job application from a job link or Chrome current-tab capture, and the system attempts to extract the job details and posting origin asynchronously. The user then selects a base resume, chooses generation settings, and the system produces a tailored resume draft in Markdown. The user can review, edit, regenerate sections, regenerate the full resume, inspect a Resume Judge quality score and breakdown, and export a PDF.
 
 This is an MVP. The focus is a clean, reliable workflow with strong user feedback during async processing, clear attention states, and ATS-safe PDF and DOCX export formats.
 
@@ -104,10 +104,11 @@ The app must provide meaningful loading, progress, success, error, and attention
 7. User resolves any duplicate warning
 8. User selects a base resume and generation settings
 9. System generates a tailored Markdown resume
-10. User reviews, edits, regenerates sections or the full resume as needed
-11. User exports the resume as a PDF
-12. User may continue editing after export — doing so returns the status to **In Progress**
-13. User may toggle the **Applied** flag independently at any point
+10. System runs Resume Judge in the background and attaches a score once evaluation completes
+11. User reviews, edits, regenerates sections or the full resume as needed
+12. User exports the resume as a PDF
+13. User may continue editing after export — doing so returns the status to **In Progress**
+14. User may toggle the **Applied** flag independently at any point
 
 ---
 
@@ -490,6 +491,9 @@ The main working page for a single application.
 - **Preview mode (default):** Rendered Markdown that reads like a finished resume
 - **Edit mode:** Plain Markdown text editor (e.g., `<textarea>` or CodeMirror)
 - Clear visual distinction between the two modes
+- **Resume Judge card:** A dedicated left-rail review card sits above the job description once a draft exists. It owns all judge states, including pending, queued, stale, failed, and scored results, and opens the full breakdown when review details are available.
+- **Resume Judge breakdown:** Shows exact score, verdict, weighted dimension notes, evaluator notes, and regeneration instructions. Judge failure or stale score must not block editing or export.
+- **Stale judge behavior:** If the user edits the draft after scoring, the previous score may stay visible but must be marked stale and offer manual re-evaluation instead of pretending it still matches the latest draft.
 
 **Action buttons:**
 - Delete Application
@@ -498,6 +502,7 @@ The main working page for a single application.
 - Regenerate Full Resume
 - Retry Extraction (if extraction failed)
 - Export PDF / DOCX
+- Re-evaluate Resume Judge for stale edited drafts
 
 ---
 
@@ -761,6 +766,7 @@ Admin has exactly two product responsibilities in MVP:
 | internal_state | enum | See §8 |
 | failure_reason | enum | See §8; nullable |
 | extraction_failure_details | JSONB | nullable; sanitized blocked-source diagnostics and future recoverable extraction metadata |
+| resume_judge_result | JSONB | nullable; latest Resume Judge lifecycle state, score breakdown, and stale-draft metadata |
 | applied | boolean | User-controlled flag |
 | duplicate_similarity_score | float | nullable |
 | duplicate_match_fields | JSONB | nullable |

@@ -51,6 +51,7 @@ class ApplicationRecord(BaseModel):
     failure_reason: Optional[str]
     extraction_failure_details: Optional[dict[str, Any]] = None
     generation_failure_details: Optional[dict[str, Any]] = None
+    resume_judge_result: Optional[dict[str, Any]] = None
     applied: bool
     duplicate_similarity_score: Optional[float]
     duplicate_match_fields: Optional[dict[str, Any]]
@@ -103,6 +104,7 @@ select
   a.failure_reason::text,
   a.extraction_failure_details,
   a.generation_failure_details,
+  a.resume_judge_result,
   a.applied,
   a.duplicate_similarity_score::float8,
   a.duplicate_match_fields,
@@ -376,6 +378,7 @@ class ApplicationRepository:
         jsonb_fields = {
             "extraction_failure_details",
             "generation_failure_details",
+            "resume_judge_result",
             "duplicate_match_fields",
         }
         if field_name in jsonb_fields:
@@ -392,7 +395,12 @@ class ApplicationRepository:
             "duplicate_resolution_status": "public.duplicate_resolution_status_enum",
         }
         uuid_casts = {"base_resume_id"}
-        jsonb_casts = {"extraction_failure_details", "generation_failure_details", "duplicate_match_fields"}
+        jsonb_casts = {
+            "extraction_failure_details",
+            "generation_failure_details",
+            "resume_judge_result",
+            "duplicate_match_fields",
+        }
         if field_name in enum_casts:
             return sql.SQL("%s::{}").format(sql.SQL(enum_casts[field_name]))
         if field_name in uuid_casts:

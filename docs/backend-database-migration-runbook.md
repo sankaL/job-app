@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-04-10
+**Last updated:** 2026-04-17
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -249,3 +249,22 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - admin users can queue full regeneration when count is already `3` or greater
   - queue failures do not consume a full-regeneration slot
   - stalled-job recovery and worker timeouts match the `240s` full-generation/full-regeneration and `120s` section-regeneration contract
+
+## Current Additive Change Note: Resume Judge Result Persistence
+
+- Add the additive migration `supabase/migrations/20260417_000012_phase_5_resume_judge_result.sql`.
+- This migration adds `applications.resume_judge_result jsonb` to store the latest Resume Judge lifecycle state and score for the current draft.
+- Rollout order for this change:
+  1. Apply the additive migration.
+  2. Deploy backend and worker code that queues Resume Judge jobs, persists queued/running/succeeded/failed states, and ignores stale callbacks using `evaluated_draft_updated_at`.
+  3. Deploy frontend score-tile and breakdown-dialog UI that reads `resume_judge_result` directly from the application payload.
+- No backfill is required. Existing applications may keep `NULL` `resume_judge_result` until a new generation, regeneration, or manual judge run occurs.
+- Read paths must stay compatible with mixed rows where:
+  - no judge result exists yet
+  - a judge result exists for an older draft and must be treated as stale
+  - the last judge attempt failed but the application remains exportable and editable
+- Post-deploy verification should confirm:
+  - initial generation, full regeneration, and section regeneration queue Resume Judge only after the new draft persists successfully
+  - stale judge callbacks do not overwrite scores for newer edited drafts
+  - `resume_judge_result` never changes `visible_status`, `failure_reason`, or export availability
+  - manual `POST /api/applications/{id}/judge` enqueues a fresh run for an existing ready draft

@@ -36,6 +36,7 @@ import {
   submitManualEntry,
   saveDraft,
   triggerFullRegeneration,
+  triggerResumeJudge,
   triggerSectionRegeneration,
   exportDocx,
   exportPdf,
@@ -72,6 +73,115 @@ const ACTIVE_GENERATION_PROGRESS_STATES = [
 ];
 const EXTRACTION_DETAIL_REFRESH_FALLBACK_MESSAGE =
   "Extraction finished, but results could not be synchronized. Retry extraction or complete manual entry.";
+const RESUME_JUDGE_DIMENSION_LABELS: Record<string, string> = {
+  role_alignment: "Role Alignment",
+  specificity_and_concreteness: "Specificity",
+  voice_and_human_quality: "Voice",
+  grounding_integrity: "Grounding",
+  ats_safety_and_formatting: "ATS Safety",
+  length_and_density: "Length",
+};
+
+function getResumeJudgeDimensionEntries(result: ApplicationDetail["resume_judge_result"]) {
+  if (!result?.dimension_scores) return [];
+  const priorities = new Set(result.regeneration_priority_dimensions ?? []);
+  return Object.entries(result.dimension_scores).sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+    const leftPriority = priorities.has(leftKey) ? 0 : 1;
+    const rightPriority = priorities.has(rightKey) ? 0 : 1;
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    if (leftValue.score !== rightValue.score) return leftValue.score - rightValue.score;
+    return leftKey.localeCompare(rightKey);
+  });
+}
+
+function getDefaultExpandedResumeJudgeDimension(result: ApplicationDetail["resume_judge_result"]) {
+  const entries = getResumeJudgeDimensionEntries(result);
+  if (!entries.length) return null;
+  const priorities = result?.regeneration_priority_dimensions ?? [];
+  if (priorities.length) {
+    const prioritizedEntries = entries.filter(([key]) => priorities.includes(key));
+    if (prioritizedEntries.length) {
+      return prioritizedEntries.reduce((lowest, current) => (current[1].score < lowest[1].score ? current : lowest))[0];
+    }
+  }
+  return entries.reduce((lowest, current) => (current[1].score < lowest[1].score ? current : lowest))[0];
+}
+
+function appendResumeJudgeFeedback(
+  baseInstructions: string,
+  judgeInstructions: string | null | undefined,
+) {
+  const feedback = judgeInstructions?.trim();
+  if (!feedback) return baseInstructions.trim();
+  const header = "Resume Judge Feedback:";
+  const trimmedBase = baseInstructions.trim();
+  if (!trimmedBase) return `${header}\n${feedback}`;
+  return `${trimmedBase}\n\n${header}\n${feedback}`;
+}
+
+function normalizeResumeJudgeContextValue(value: string | null | undefined) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getCurrentResumeJudgeJobContextSignature(detail: ApplicationDetail | null) {
+  if (!detail) return null;
+  return [
+    normalizeResumeJudgeContextValue(detail.job_title),
+    normalizeResumeJudgeContextValue(detail.company),
+    normalizeResumeJudgeContextValue(detail.job_description),
+  ].join("\u001f");
+}
+
+function isResumeJudgePending(detail: ApplicationDetail | null, draft: ResumeDraft | null) {
+  const judge = detail?.resume_judge_result;
+  if (!judge || !["queued", "running"].includes(judge.status)) return false;
+  if (draft && judge.evaluated_draft_updated_at && judge.evaluated_draft_updated_at !== draft.updated_at) return false;
+  const currentJobSignature = getCurrentResumeJudgeJobContextSignature(detail);
+  if (judge.job_context_signature && currentJobSignature && judge.job_context_signature !== currentJobSignature) return false;
+  return true;
+}
+
+function isResumeJudgeStale(detail: ApplicationDetail | null, draft: ResumeDraft | null) {
+  const judge = detail?.resume_judge_result;
+  if (!judge) return false;
+  if (draft && judge.evaluated_draft_updated_at && judge.evaluated_draft_updated_at !== draft.updated_at) return true;
+  const currentJobSignature = getCurrentResumeJudgeJobContextSignature(detail);
+  if (judge.job_context_signature && currentJobSignature && judge.job_context_signature !== currentJobSignature) return true;
+  return false;
+}
+
+function resumeJudgeTone(verdict: string | null | undefined) {
+  if (verdict === "pass") {
+    return {
+      accent: "var(--color-spruce)",
+      bg: "var(--color-spruce-05)",
+      border: "var(--color-spruce-10)",
+      muted: "var(--color-ink-65)",
+    };
+  }
+  if (verdict === "warn") {
+    return {
+      accent: "var(--color-amber)",
+      bg: "var(--color-amber-10)",
+      border: "rgba(180,83,9,0.2)",
+      muted: "var(--color-ink-65)",
+    };
+  }
+  return {
+    accent: "var(--color-ember)",
+    bg: "var(--color-ember-05)",
+    border: "var(--color-ember-10)",
+    muted: "var(--color-ink-65)",
+  };
+}
+
+function resumeJudgeVerdictLabel(verdict: string | null | undefined) {
+  if (verdict === "pass") return "Pass";
+  if (verdict === "warn") return "Review";
+  if (verdict === "fail") return "Needs work";
+  return "Unavailable";
+}
+
 function isGenerationWorkflowActive(detail: ApplicationDetail | null) {
   return Boolean(detail && !detail.failure_reason && ACTIVE_GENERATION_STATES.includes(detail.internal_state));
 }
@@ -268,6 +378,7 @@ export function ApplicationDetailPage() {
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [regenMenuOpen, setRegenMenuOpen] = useState(false);
   const [showSectionRegen, setShowSectionRegen] = useState(false);
   const [regenSectionName, setRegenSectionName] = useState("");
   const [regenInstructions, setRegenInstructions] = useState("");
@@ -279,12 +390,16 @@ export function ApplicationDetailPage() {
   const [showAppliedConfirm, setShowAppliedConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelExtractionConfirm, setShowCancelExtractionConfirm] = useState(false);
+  const [showResumeJudgeDialog, setShowResumeJudgeDialog] = useState(false);
+  const [expandedResumeJudgeDimension, setExpandedResumeJudgeDimension] = useState<string | null>(null);
+  const [isTriggeringResumeJudge, setIsTriggeringResumeJudge] = useState(false);
   const [compareMode, setCompareMode] = useState(false);
   const [compareBaseline, setCompareBaseline] = useState<BaseResumeDetail | null>(null);
   const [isCompareBaselineLoading, setIsCompareBaselineLoading] = useState(false);
   const [compareBaselineError, setCompareBaselineError] = useState<string | null>(null);
   const leftColumnRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+  const regenMenuRef = useRef<HTMLDivElement>(null);
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
   const [hasUserModifiedSettings, setHasUserModifiedSettings] = useState(false);
@@ -335,6 +450,14 @@ export function ApplicationDetailPage() {
   const generationStartBlocker = getGenerationStartBlocker(detail, selectedResumeId, baseResumes.length);
   const fullRegenerationBlocker = getFullRegenerationBlocker(detail);
   const sectionRegenerationBlocker = getSectionRegenerationBlocker(detail, regenSectionName, regenInstructions);
+  const resumeJudgePending = isResumeJudgePending(detail, draft);
+  const resumeJudgeStale = isResumeJudgeStale(detail, draft);
+  const resumeJudge = detail?.resume_judge_result ?? null;
+  const resumeJudgeDimensionEntries = useMemo(() => getResumeJudgeDimensionEntries(resumeJudge), [resumeJudge]);
+  const defaultExpandedResumeJudgeDimension = useMemo(
+    () => getDefaultExpandedResumeJudgeDimension(resumeJudge),
+    [resumeJudge],
+  );
   const comparisonBaseResumeId = useMemo(() => {
     const generationResumeId = draft?.generation_params?.base_resume_id;
     if (typeof generationResumeId === "string" && generationResumeId.trim()) {
@@ -408,6 +531,14 @@ export function ApplicationDetailPage() {
   }
 
   useEffect(() => {
+    if (!showResumeJudgeDialog) {
+      setExpandedResumeJudgeDimension(null);
+      return;
+    }
+    setExpandedResumeJudgeDimension(defaultExpandedResumeJudgeDimension);
+  }, [showResumeJudgeDialog, defaultExpandedResumeJudgeDimension]);
+
+  useEffect(() => {
     if (!exportMenuOpen) return;
 
     function handlePointerDown(event: MouseEvent) {
@@ -419,6 +550,19 @@ export function ApplicationDetailPage() {
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [exportMenuOpen]);
+
+  useEffect(() => {
+    if (!regenMenuOpen) return;
+
+    function handlePointerDown(event: MouseEvent) {
+      if (regenMenuRef.current && !regenMenuRef.current.contains(event.target as Node)) {
+        setRegenMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [regenMenuOpen]);
 
   useEffect(() => {
     if (!applicationId) return;
@@ -534,6 +678,36 @@ export function ApplicationDetailPage() {
     if (!["resume_ready", "regenerating_full", "regenerating_section"].includes(detail.internal_state)) return;
     fetchDraft(applicationId).then(applyDraftState).catch(() => {});
   }, [applicationId, detail?.internal_state]);
+
+  useEffect(() => {
+    if (!applicationId || !resumeJudgePending) return;
+    let isCancelled = false;
+
+    const pollJudge = async () => {
+      if (isCancelled) return;
+      try {
+        const response = await fetchApplicationDetail(applicationId);
+        if (isCancelled) return;
+        applyDetailState(response);
+        if (
+          response.internal_state === "resume_ready" &&
+          response.resume_judge_result?.evaluated_draft_updated_at &&
+          response.resume_judge_result.evaluated_draft_updated_at !== draft?.updated_at
+        ) {
+          return;
+        }
+      } catch {
+        /* retry on next interval */
+      }
+    };
+
+    void pollJudge();
+    const interval = window.setInterval(() => void pollJudge(), 2500);
+    return () => {
+      isCancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [applicationId, resumeJudgePending, draft?.updated_at]);
 
   useEffect(() => {
     if (!draft || !comparisonBaseResumeId) {
@@ -843,7 +1017,7 @@ export function ApplicationDetailPage() {
     setEditContent("");
   }
 
-  async function handleFullRegeneration() {
+  async function handleFullRegeneration(overrideInstructions?: string) {
     if (fullRegenerationBlocker) {
       console.warn("[generation-ui]", {
         event: "blocked_before_request",
@@ -861,7 +1035,7 @@ export function ApplicationDetailPage() {
       const response = await triggerFullRegeneration(activeApplicationId, {
         target_length: pageLength,
         aggressiveness,
-        additional_instructions: additionalInstructions || undefined,
+        additional_instructions: (overrideInstructions ?? additionalInstructions) || undefined,
       });
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
@@ -915,6 +1089,22 @@ export function ApplicationDetailPage() {
       setError(err instanceof Error ? err.message : "Unable to cancel generation.");
     } finally {
       setIsCancelling(false);
+    }
+  }
+
+  async function handleTriggerResumeJudge() {
+    if (!draft || generationActive || isTriggeringResumeJudge) return;
+    setIsTriggeringResumeJudge(true);
+    setError(null);
+    try {
+      const response = await triggerResumeJudge(activeApplicationId);
+      applyDetailState(response);
+      toast(resumeJudgeStale ? "Resume re-evaluation queued" : "Resume Judge queued");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to run Resume Judge.");
+      toast("Failed to run Resume Judge", "error");
+    } finally {
+      setIsTriggeringResumeJudge(false);
     }
   }
 
@@ -1014,86 +1204,354 @@ export function ApplicationDetailPage() {
   }, [isPastExtraction, compareMode, detail?.internal_state, draft, editMode, notesDraft, additionalInstructions, pageLength, aggressiveness, selectedResumeId, baseResumes.length, jobForm.job_description, jobForm.job_location_text, jobForm.compensation_text, jobForm.job_posting_origin, jobForm.job_posting_origin_other_text, jobForm.job_title, jobForm.company]);
 
   const activeWorkspaceCardStyle = compareMode ? undefined : workspaceCardStyle;
+  const generatedTimestampLabel = draft ? `Generated ${new Date(draft.last_generated_at).toLocaleString()}` : null;
+  const exportedTimestampLabel = draft?.last_exported_at
+    ? `Exported ${new Date(draft.last_exported_at).toLocaleString()}`
+    : null;
+  const compareBaselineLabel = compareBaseline?.name ?? "Generation-time baseline";
+  const workspaceMetaChipClass =
+    "inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none";
+  const workspaceMetaChipStyle = {
+    borderColor: "var(--color-border)",
+    background: "var(--color-ink-05)",
+    color: "var(--color-ink-50)",
+  };
+  const resumePreviewSurfaceClass = "mt-0.5 flex min-h-0 flex-1 overflow-y-auto px-3 pb-1 sm:px-4";
+  const resumeJudgeToneStyle = resumeJudgeTone(resumeJudge?.verdict);
+  const resumeJudgeHasCompletedScore = Boolean(
+    resumeJudge &&
+      resumeJudge.status === "succeeded" &&
+      resumeJudge.final_score != null &&
+      resumeJudge.dimension_scores &&
+      Object.keys(resumeJudge.dimension_scores).length > 0,
+  );
+  const resumeJudgeCanRegenerateWithFeedback =
+    Boolean(
+      resumeJudge &&
+        resumeJudge.status === "succeeded" &&
+        resumeJudge.regeneration_instructions &&
+        !resumeJudgeStale,
+    ) && !generationActive;
+  const resumeJudgeCanRun =
+    Boolean(draft) && !generationActive && !isRegenerating && !isTriggeringResumeJudge && !resumeJudgePending;
+  const resumeJudgeSummary = resumeJudge?.score_summary?.trim() ?? "Review available";
+
+  const clampedResumeJudgeSummaryStyle = {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical" as const,
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+  };
+
+  function renderResumeJudgeCard() {
+    if (!draft) return null;
+
+    if (resumeJudgePending) {
+      return (
+        <Card
+          density="compact"
+          className="w-full p-3"
+          data-testid="resume-judge-card"
+          style={{
+            borderColor: "var(--color-spruce-10)",
+            background:
+              "linear-gradient(145deg, color-mix(in srgb, var(--color-spruce) 8%, white) 0%, white 88%)",
+          }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.22em]" style={{ color: "var(--color-ink-50)" }}>
+                Resume Judge
+              </span>
+              <p className="mt-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                Scoring draft
+              </p>
+            </div>
+            <span
+              className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+              style={{ background: "var(--color-spruce-05)", color: "var(--color-spruce)" }}
+            >
+              Running
+            </span>
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-full"
+              style={{ background: "var(--color-spruce)", boxShadow: "0 0 0 6px var(--color-spruce-05)" }}
+            />
+            <span className="text-xs leading-5" style={{ color: "var(--color-ink-65)" }}>
+              The draft is ready. Judge feedback will appear here shortly.
+            </span>
+          </div>
+        </Card>
+      );
+    }
+
+    if (!resumeJudge || !resumeJudgeHasCompletedScore) {
+      const staleNonTerminalResult =
+        Boolean(resumeJudgeStale && resumeJudge && ["queued", "running"].includes(resumeJudge.status));
+      const unavailableTitle =
+        resumeJudgeStale || resumeJudge?.status === "failed" || staleNonTerminalResult
+          ? "Scoring unavailable"
+          : "Pending review";
+      const unavailableBadge =
+        resumeJudgeStale || staleNonTerminalResult
+          ? "Stale"
+          : resumeJudge?.status === "failed"
+            ? "Retry"
+            : "Pending";
+      const unavailableMessage = resumeJudgeStale
+        ? "The saved score no longer matches the current draft or job details. Run Resume Judge again to refresh it."
+        : staleNonTerminalResult
+          ? "The in-flight review no longer matches the current draft or job details. Run Resume Judge again for a fresh score."
+          : resumeJudge?.status === "failed"
+            ? resumeJudge.message ?? "The latest scoring attempt failed. Retry when you want a fresh review."
+            : "This draft has not been reviewed yet. Run Resume Judge any time after generation.";
+      const actionLabel = isTriggeringResumeJudge
+        ? "Starting…"
+        : resumeJudgeStale || staleNonTerminalResult
+          ? "Re-evaluate"
+          : resumeJudge?.status === "failed"
+            ? "Try Again"
+            : "Run Judge";
+      return (
+        <Card
+          density="compact"
+          className="w-full p-3"
+          data-testid="resume-judge-card"
+          style={{
+            borderColor:
+              resumeJudgeStale || staleNonTerminalResult || resumeJudge?.status === "failed"
+                ? "var(--color-ember-10)"
+                : "var(--color-border)",
+            background:
+              resumeJudgeStale || staleNonTerminalResult || resumeJudge?.status === "failed"
+                ? "linear-gradient(145deg, var(--color-ember-05) 0%, white 86%)"
+                : "linear-gradient(145deg, var(--color-ink-05) 0%, white 86%)",
+          }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.22em]" style={{ color: "var(--color-ink-50)" }}>
+                Resume Judge
+              </span>
+              <p className="mt-1.5 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                {unavailableTitle}
+              </p>
+            </div>
+            <span
+              className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+              style={{
+                background:
+                  resumeJudgeStale || staleNonTerminalResult || resumeJudge?.status === "failed"
+                    ? "var(--color-ember-05)"
+                    : "var(--color-ink-05)",
+                color:
+                  resumeJudgeStale || staleNonTerminalResult || resumeJudge?.status === "failed"
+                    ? "var(--color-ember)"
+                    : "var(--color-ink-50)",
+              }}
+            >
+              {unavailableBadge}
+            </span>
+          </div>
+          <p className="mt-2.5 text-xs leading-5" style={{ color: "var(--color-ink-65)" }}>
+            {unavailableMessage}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <Button size="sm" variant="secondary" disabled={!resumeJudgeCanRun} onClick={() => void handleTriggerResumeJudge()}>
+              {actionLabel}
+            </Button>
+          </div>
+        </Card>
+      );
+    }
+
+    return (
+      <button
+        type="button"
+        className="block w-full rounded-[1.35rem] text-left transition-transform duration-150 hover:-translate-y-0.5"
+        data-testid="resume-judge-card"
+        onClick={() => setShowResumeJudgeDialog(true)}
+      >
+        <Card
+          density="compact"
+          className="p-3"
+          style={{
+            borderColor: resumeJudgeStale ? "var(--color-amber)" : resumeJudgeToneStyle.border,
+            background: resumeJudgeStale
+              ? "linear-gradient(145deg, var(--color-amber-10) 0%, white 90%)"
+              : `linear-gradient(145deg, ${resumeJudgeToneStyle.bg} 0%, white 88%)`,
+            boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+          }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.22em]" style={{ color: "var(--color-ink-50)" }}>
+                Resume Judge
+              </span>
+              <p
+                className="mt-2 text-[11px] leading-5"
+                title={resumeJudgeSummary}
+                style={{ color: "var(--color-ink-65)", ...clampedResumeJudgeSummaryStyle }}
+              >
+                {resumeJudgeSummary}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <span
+                className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                style={{
+                  background: resumeJudgeStale ? "rgba(180, 83, 9, 0.12)" : "rgba(255,255,255,0.7)",
+                  color: resumeJudgeStale ? "var(--color-amber)" : resumeJudgeToneStyle.accent,
+                }}
+              >
+                {resumeJudgeStale ? "Stale" : resumeJudgeVerdictLabel(resumeJudge.verdict)}
+              </span>
+              <span
+                className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                style={{
+                  background: "rgba(255,255,255,0.82)",
+                  color: resumeJudgeStale ? "var(--color-amber)" : resumeJudgeToneStyle.accent,
+                }}
+              >
+                {resumeJudge.display_score ?? "—"}/100
+              </span>
+            </div>
+          </div>
+          <div className="mt-3 flex items-end justify-between gap-3">
+            <span className="text-[10px]" style={{ color: "var(--color-ink-50)" }}>
+              Hover to read more.
+            </span>
+            <span
+              className="text-[10px] font-semibold"
+              style={{ color: "var(--color-ember)" }}
+            >
+              Click for details.
+            </span>
+          </div>
+        </Card>
+      </button>
+    );
+  }
 
   function renderGeneratedWorkspacePane() {
     return (
       <Card
-        className={`${workspaceCardClass} ${compareMode ? "compare-pane-card compare-generated-pane" : ""} p-4`}
+        className={`${workspaceCardClass} ${compareMode ? "compare-pane-card compare-generated-pane" : ""} px-4 pb-4 pt-2`}
         style={activeWorkspaceCardStyle}
       >
-        <div className="flex min-w-0 items-center justify-between gap-3 overflow-hidden">
-          <div className="min-w-0">
+        <div className="flex min-w-0 flex-col gap-2 overflow-visible sm:min-h-8 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <h3 className="shrink-0 text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>
               Generated Resume
             </h3>
-            {compareMode ? (
-              <p className="mt-1 text-xs" style={{ color: "var(--color-ink-50)" }}>
-                Tailored draft shown beside the generation-time base resume for manual comparison.
-              </p>
+            {generatedTimestampLabel ? (
+              <span className={workspaceMetaChipClass} style={workspaceMetaChipStyle}>
+                {generatedTimestampLabel}
+              </span>
             ) : null}
-          </div>
-          <div className="flex min-w-0 items-center gap-3 text-xs" style={{ color: "var(--color-ink-40)" }}>
-            {draft?.last_exported_at && <span className="hidden shrink-0 sm:inline">Exported {new Date(draft.last_exported_at).toLocaleString()}</span>}
-            {draft ? <span className="truncate">Generated {new Date(draft.last_generated_at).toLocaleString()}</span> : null}
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div
-            className="inline-flex items-center rounded-full border p-1"
-            style={{
-              borderColor: editMode ? "var(--color-spruce-10)" : "var(--color-border)",
-              background: editMode ? "var(--color-spruce-05)" : "var(--color-ink-05)",
-            }}
-          >
-            <button
-              className="rounded-full px-3 py-1.5 text-xs font-semibold transition-colors"
-              style={{
-                background: !editMode ? "var(--color-ink)" : "transparent",
-                color: !editMode ? "#fff" : "var(--color-ink-50)",
-              }}
-              type="button"
-              onClick={() => {
-                if (editMode) handleCancelEdit();
-              }}
-            >
-              Preview
-            </button>
-            <button
-              className="rounded-full px-3 py-1.5 text-xs font-semibold transition-colors"
-              style={{
-                background: editMode ? "var(--color-sidebar-bg-active)" : "transparent",
-                color: editMode ? "#fff" : "var(--color-ink-50)",
-              }}
-              type="button"
-              onClick={() => {
-                if (!editMode) handleEnterEditMode();
-              }}
-            >
-              Edit
-            </button>
+            {exportedTimestampLabel ? (
+              <span className={`${workspaceMetaChipClass} hidden sm:inline-flex`} style={workspaceMetaChipStyle}>
+                {exportedTimestampLabel}
+              </span>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button size="sm" onClick={handleToggleCompareMode}>
-              {compareMode ? "Close comparison" : "Compare"}
-            </Button>
+            <div
+              className="inline-flex items-center rounded-full border p-1"
+              style={{
+                borderColor: editMode ? "var(--color-spruce-10)" : "var(--color-border)",
+                background: editMode ? "var(--color-spruce-05)" : "var(--color-ink-05)",
+              }}
+            >
+              <button
+                className="rounded-full px-3 py-1.5 text-xs font-semibold transition-colors"
+                style={{
+                  background: !editMode ? "var(--color-ink)" : "transparent",
+                  color: !editMode ? "#fff" : "var(--color-ink-50)",
+                }}
+                type="button"
+                onClick={() => {
+                  if (editMode) handleCancelEdit();
+                }}
+              >
+                Preview
+              </button>
+              <button
+                className="rounded-full px-3 py-1.5 text-xs font-semibold transition-colors"
+                style={{
+                  background: editMode ? "var(--color-sidebar-bg-active)" : "transparent",
+                  color: editMode ? "#fff" : "var(--color-ink-50)",
+                }}
+                type="button"
+                onClick={() => {
+                  if (!editMode) handleEnterEditMode();
+                }}
+              >
+                Edit
+              </button>
+            </div>
+
             {!generationActive && (
-              <>
-                <Button size="sm" variant="secondary" disabled={isRegenerating || exportingFormat !== null} onClick={() => setShowSectionRegen(true)}>
-                  Regen Section
-                </Button>
+              <div ref={regenMenuRef} className="relative">
                 <button
                   type="button"
                   disabled={isRegenerating || exportingFormat !== null}
                   className="ai-button inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={() => void handleFullRegeneration()}
+                  aria-haspopup="menu"
+                  aria-expanded={regenMenuOpen}
+                  onClick={() => setRegenMenuOpen((open) => !open)}
                 >
-                  <Sparkles size={12} />
-                  {isRegenerating ? "Starting…" : "Full Regen"}
+                  <Sparkles size={12} aria-hidden="true" />
+                  Regenerate
+                  <ChevronDown size={14} aria-hidden="true" />
                 </button>
-              </>
+                {regenMenuOpen && !isRegenerating && exportingFormat === null && (
+                  <div
+                    className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-xl border py-1 shadow-lg"
+                    style={{
+                      borderColor: "var(--color-border)",
+                      background: "var(--color-white)",
+                      maxHeight: "calc(100vh - 200px)",
+                      overflowY: "auto",
+                    }}
+                    role="menu"
+                    aria-label="Regenerate options"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                      style={{ color: "var(--color-ink)" }}
+                      onClick={() => {
+                        setRegenMenuOpen(false);
+                        setShowSectionRegen(true);
+                      }}
+                    >
+                      Regen Section
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                      style={{ color: "var(--color-ink)" }}
+                      onClick={() => {
+                        setRegenMenuOpen(false);
+                        void handleFullRegeneration();
+                      }}
+                    >
+                      {isRegenerating ? "Starting…" : "Full Regen"}
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
+
+            <Button size="sm" onClick={handleToggleCompareMode}>
+              {compareMode ? "Close comparison" : "Compare"}
+            </Button>
           </div>
         </div>
 
@@ -1106,7 +1564,7 @@ export function ApplicationDetailPage() {
         ) : null}
 
         {editMode ? (
-          <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden" style={{ minHeight: compareMode ? "60vh" : "50vh" }}>
+          <div className="mt-0.5 flex min-h-0 flex-1 flex-col overflow-hidden" style={{ minHeight: compareMode ? "60vh" : "50vh" }}>
             <MarkdownEditor
               className="no-bottom-radius flex-1 min-h-0"
               value={editContent}
@@ -1124,7 +1582,7 @@ export function ApplicationDetailPage() {
             </div>
           </div>
         ) : (
-          <div className="mt-4 flex min-h-0 flex-1 overflow-y-auto rounded-lg border bg-white px-5 py-4" style={{ borderColor: "var(--color-border)" }}>
+          <div className={resumePreviewSurfaceClass}>
             <MarkdownPreview content={draft?.content_md ?? ""} className="resume-preview-markdown" />
           </div>
         )}
@@ -1134,19 +1592,19 @@ export function ApplicationDetailPage() {
 
   function renderBaseWorkspacePane() {
     return (
-      <Card className={`${workspaceCardClass} compare-pane-card compare-base-pane p-4`}>
-        <div className="flex min-w-0 items-center justify-between gap-3 overflow-hidden">
-          <div className="min-w-0">
+      <Card className={`${workspaceCardClass} compare-pane-card compare-base-pane px-4 pb-4 pt-2`}>
+        <div className="flex min-w-0 flex-col gap-2 overflow-hidden sm:min-h-8 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
             <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>
               Base Resume
             </h3>
-            <p className="mt-1 truncate text-xs" style={{ color: "var(--color-ink-50)" }}>
-              {compareBaseline?.name ?? "Generation-time baseline"}
-            </p>
+            <span className={workspaceMetaChipClass} style={workspaceMetaChipStyle}>
+              {compareBaselineLabel}
+            </span>
           </div>
         </div>
 
-        <div className="mt-4 flex min-h-0 flex-1 overflow-y-auto rounded-lg border bg-white px-5 py-4" style={{ borderColor: "var(--color-border)" }}>
+        <div className={resumePreviewSurfaceClass}>
           <MarkdownPreview content={compareBaseline?.content_md ?? ""} className="resume-preview-markdown" />
         </div>
       </Card>
@@ -1503,8 +1961,10 @@ export function ApplicationDetailPage() {
                 }
                 aria-hidden={compareMode}
               >
+                {renderResumeJudgeCard()}
+
                 {/* Job Description Card */}
-                <Card density="compact" className="p-4">
+                <Card density="compact" className="p-4" data-testid="job-description-card">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-1.5">
                       <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Job Description</h3>
@@ -1919,6 +2379,283 @@ export function ApplicationDetailPage() {
                     <Sparkles size={14} />
                     {isRegenerating ? "Regenerating…" : "Regenerate"}
                   </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )}
+
+          {showResumeJudgeDialog && resumeJudge && resumeJudgeHasCompletedScore && createPortal(
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 100000,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "24px",
+              }}
+            >
+              <div
+                onClick={() => setShowResumeJudgeDialog(false)}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "rgba(16, 24, 40, 0.52)",
+                  backdropFilter: "blur(8px)",
+                  animation: "fadeIn 200ms var(--ease-out) both",
+                }}
+              />
+              <div
+                className="animate-scaleIn"
+                style={{
+                  position: "relative",
+                  zIndex: 1,
+                  width: "min(920px, 100%)",
+                  maxHeight: "calc(100vh - 48px)",
+                  overflowY: "auto",
+                  borderRadius: "24px",
+                  background:
+                    "linear-gradient(180deg, color-mix(in srgb, var(--color-ink) 2%, white) 0%, white 24%, white 100%)",
+                  boxShadow: "var(--shadow-panel)",
+                  padding: "24px",
+                }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Resume Judge breakdown"
+              >
+                <div className="border-b pb-5" style={{ borderColor: "var(--color-border)" }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: "var(--color-ink-50)" }}>
+                      Resume Judge
+                    </p>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <span
+                        className="inline-flex items-center rounded-full px-3 py-1.5 text-sm font-semibold"
+                        style={{
+                          background: resumeJudgeStale ? "var(--color-amber-10)" : resumeJudgeToneStyle.bg,
+                          color: resumeJudgeStale ? "var(--color-amber)" : resumeJudgeToneStyle.accent,
+                        }}
+                      >
+                        {resumeJudge.display_score ?? "—"}/100
+                      </span>
+                      <button
+                        type="button"
+                        className="rounded-full px-3 py-1.5 text-sm font-semibold transition-colors"
+                        style={{ color: "var(--color-ink-50)", background: "var(--color-ink-05)" }}
+                        onClick={() => setShowResumeJudgeDialog(false)}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-50)" }}>
+                      Summary
+                    </p>
+                    <p className="mt-2 text-[15px] leading-6" style={{ color: "var(--color-ink)" }}>
+                      {resumeJudge.score_summary ?? "Resume score breakdown"}
+                    </p>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs" style={{ color: "var(--color-ink-50)" }}>
+                    <span
+                      className="rounded-full px-2.5 py-1 font-semibold uppercase tracking-wide"
+                      style={{
+                        background: resumeJudgeStale ? "var(--color-amber-10)" : resumeJudgeToneStyle.bg,
+                        color: resumeJudgeStale ? "var(--color-amber)" : resumeJudgeToneStyle.accent,
+                      }}
+                    >
+                      {resumeJudgeStale ? "Stale" : resumeJudgeVerdictLabel(resumeJudge.verdict)}
+                    </span>
+                    <span>Pass threshold: {resumeJudge.pass_threshold ?? 80}</span>
+                    {resumeJudge.scored_at ? <span>Scored {new Date(resumeJudge.scored_at).toLocaleString()}</span> : null}
+                  </div>
+                  <p className="mt-3 text-xs leading-5" style={{ color: "var(--color-ink-65)" }}>
+                    {resumeJudgeStale
+                      ? "This score was calculated for an older draft. Re-evaluate after reviewing the breakdown."
+                      : `Verdict: ${resumeJudgeVerdictLabel(resumeJudge.verdict)} at ${resumeJudge.final_score?.toFixed(1) ?? "0.0"} / 100.`}
+                  </p>
+                </div>
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
+                  <div className="space-y-3">
+                    {resumeJudgeDimensionEntries.map(([key, value]) => {
+                      const expanded = expandedResumeJudgeDimension === key;
+                      return (
+                        <div
+                          key={key}
+                          className="overflow-hidden rounded-[1.25rem] border"
+                          style={{ borderColor: expanded ? resumeJudgeToneStyle.border : "var(--color-border)", background: "rgba(255,255,255,0.92)" }}
+                        >
+                          <button
+                            type="button"
+                            className="flex w-full items-start justify-between gap-4 px-4 py-4 text-left"
+                            aria-expanded={expanded}
+                            aria-controls={`resume-judge-dimension-${key}`}
+                            onClick={() =>
+                              setExpandedResumeJudgeDimension((current) => (current === key ? null : key))
+                            }
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                                  {RESUME_JUDGE_DIMENSION_LABELS[key] ?? key}
+                                </p>
+                                {(resumeJudge.regeneration_priority_dimensions ?? []).includes(key) ? (
+                                  <span
+                                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                    style={{ background: "var(--color-ember-05)", color: "var(--color-ember)" }}
+                                  >
+                                    Priority
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                                <div>
+                                  <div style={{ color: "var(--color-ink-50)" }}>Score</div>
+                                  <div className="mt-1 font-semibold" style={{ color: "var(--color-ink)" }}>
+                                    {value.score.toFixed(1)} / 10
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ color: "var(--color-ink-50)" }}>Weight</div>
+                                  <div className="mt-1 font-semibold" style={{ color: "var(--color-ink)" }}>
+                                    {(value.weight * 100).toFixed(0)}%
+                                  </div>
+                                </div>
+                                <div>
+                                  <div style={{ color: "var(--color-ink-50)" }}>Weighted impact</div>
+                                  <div className="mt-1 font-semibold" style={{ color: "var(--color-ink)" }}>
+                                    {value.weighted_contribution.toFixed(1)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <ChevronDown
+                              size={18}
+                              aria-hidden="true"
+                              className="mt-1 shrink-0 transition-transform"
+                              style={{ color: "var(--color-ink-50)", transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+                            />
+                          </button>
+                          {expanded ? (
+                            <div
+                              id={`resume-judge-dimension-${key}`}
+                              className="border-t px-4 py-4 text-xs leading-5"
+                              style={{ borderColor: "var(--color-border)", color: "var(--color-ink-65)", background: "var(--color-ink-05)" }}
+                            >
+                              {value.notes}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "rgba(255,255,255,0.88)" }}>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                        Verdict
+                      </p>
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                          {resumeJudgeStale ? "Out of date" : resumeJudgeVerdictLabel(resumeJudge.verdict)}
+                        </span>
+                        <span
+                          className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                          style={{
+                            background: resumeJudgeStale ? "var(--color-amber-10)" : resumeJudgeToneStyle.bg,
+                            color: resumeJudgeStale ? "var(--color-amber)" : resumeJudgeToneStyle.accent,
+                          }}
+                        >
+                          {resumeJudge.verdict ?? "n/a"}
+                        </span>
+                      </div>
+                      {resumeJudge.regeneration_priority_dimensions?.length ? (
+                        <div className="mt-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                            Priority Dimensions
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {resumeJudge.regeneration_priority_dimensions.map((dimension) => (
+                              <span
+                                key={dimension}
+                                className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                                style={{ background: "var(--color-ink-05)", color: "var(--color-ink-65)" }}
+                              >
+                                {RESUME_JUDGE_DIMENSION_LABELS[dimension] ?? dimension}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {(resumeJudgeStale || resumeJudge.status === "failed" || resumeJudge.final_score == null) && (
+                      <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-amber-10)" }}>
+                        <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                          {resumeJudgeStale ? "This score is stale." : "Resume Judge needs another run."}
+                        </p>
+                        <p className="mt-2 text-xs leading-5" style={{ color: "var(--color-ink-65)" }}>
+                          {resumeJudgeStale
+                            ? "You edited the draft after it was scored. Re-evaluate to refresh the breakdown."
+                            : resumeJudge.message ?? "Run Resume Judge again to restore the score."}
+                        </p>
+                        <Button className="mt-4" size="sm" variant="secondary" disabled={!resumeJudgeCanRun} onClick={() => void handleTriggerResumeJudge()}>
+                          {isTriggeringResumeJudge ? "Starting…" : "Re-evaluate"}
+                        </Button>
+                      </div>
+                    )}
+
+                    {resumeJudge.regeneration_instructions ? (
+                      <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-ink-05)" }}>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                          Regeneration Instructions
+                        </p>
+                        <p className="mt-3 text-xs leading-5" style={{ color: "var(--color-ink)" }}>
+                          {resumeJudge.regeneration_instructions}
+                        </p>
+                        {resumeJudgeCanRegenerateWithFeedback ? (
+                          <>
+                            <p className="mt-3 text-xs" style={{ color: "var(--color-ink-50)" }}>
+                              Full regeneration will keep your current instructions and append the judge’s corrective guidance.
+                            </p>
+                            <button
+                              type="button"
+                              disabled={Boolean(fullRegenerationBlocker)}
+                              className="ai-button mt-4 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => {
+                                setShowResumeJudgeDialog(false);
+                                void handleFullRegeneration(
+                                  appendResumeJudgeFeedback(additionalInstructions, resumeJudge.regeneration_instructions),
+                                );
+                              }}
+                            >
+                              <Sparkles size={14} />
+                              Regenerate with Judge Feedback
+                            </button>
+                          </>
+                        ) : null}
+                        {fullRegenerationBlocker && resumeJudgeCanRegenerateWithFeedback ? (
+                          <p className="mt-2 text-xs" style={{ color: "var(--color-ink-50)" }}>
+                            {fullRegenerationBlocker}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {resumeJudge.evaluator_notes ? (
+                      <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "rgba(255,255,255,0.88)" }}>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                          Evaluator Notes
+                        </p>
+                        <p className="mt-3 text-xs leading-5" style={{ color: "var(--color-ink-65)" }}>
+                          {resumeJudge.evaluator_notes}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>,

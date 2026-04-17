@@ -16,6 +16,7 @@ from app.services.application_manager import (
     ApplicationDetailPayload,
     ApplicationService,
     DuplicateWarningPayload,
+    ResumeJudgeResultPayload,
     SourceCapturePayload,
     get_application_service,
 )
@@ -213,6 +214,7 @@ class ApplicationDetail(BaseModel):
     failure_reason: Optional[str]
     extraction_failure_details: Optional[ExtractionFailureDetails]
     generation_failure_details: Optional[dict[str, Any]]
+    resume_judge_result: Optional[ResumeJudgeResultPayload]
     applied: bool
     duplicate_similarity_score: Optional[float]
     duplicate_resolution_status: Optional[str]
@@ -404,7 +406,13 @@ def to_application_detail(payload: ApplicationDetailPayload) -> ApplicationDetai
     record = payload.application
     return ApplicationDetail(
         **record.model_dump(
-            exclude={"exported_at", "duplicate_match_fields", "extraction_failure_details", "generation_failure_details"},
+            exclude={
+                "exported_at",
+                "duplicate_match_fields",
+                "extraction_failure_details",
+                "generation_failure_details",
+                "resume_judge_result",
+            },
         ),
         extraction_failure_details=(
             ExtractionFailureDetails.model_validate(record.extraction_failure_details)
@@ -412,6 +420,11 @@ def to_application_detail(payload: ApplicationDetailPayload) -> ApplicationDetai
             else None
         ),
         generation_failure_details=record.generation_failure_details,
+        resume_judge_result=(
+            ResumeJudgeResultPayload.model_validate(record.resume_judge_result)
+            if record.resume_judge_result
+            else None
+        ),
         duplicate_warning=to_duplicate_warning(payload.duplicate_warning),
     )
 
@@ -662,6 +675,23 @@ async def get_draft(
             "review_flags": [flag.model_dump() for flag in review_flags],
         }
         return ResumeDraftResponse.model_validate(payload)
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+
+@router.post("/{application_id}/judge", response_model=ApplicationDetail, status_code=status.HTTP_202_ACCEPTED)
+async def trigger_resume_judge_for_application(
+    application_id: str,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> ApplicationDetail:
+    try:
+        return to_application_detail(
+            await service.trigger_resume_judge(
+                user_id=current_user.id,
+                application_id=application_id,
+            )
+        )
     except Exception as error:
         raise _map_service_error(error) from error
 

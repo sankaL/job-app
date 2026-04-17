@@ -31,6 +31,7 @@ from generation import (
     regenerate_single_section,
     repair_generated_response,
 )
+from resume_judge import judge_resume
 from validation import validate_resume
 
 root_logger = logging.getLogger()
@@ -72,6 +73,7 @@ REFERENCE_PATTERNS = (
 )
 FULL_GENERATION_MAX_TIMEOUT_SECONDS = 240.0
 SECTION_REGENERATION_TIMEOUT_SECONDS = 120.0
+RESUME_JUDGE_TIMEOUT_SECONDS = 60.0
 EXTRACTION_TEXT_LIMIT = 40_000
 EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT = 8_000
 
@@ -92,6 +94,9 @@ class WorkerSettingsEnv(BaseSettings):
     generation_agent_model: Optional[str] = None
     generation_agent_fallback_model: Optional[str] = None
     generation_agent_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "none"
+    resume_judge_agent_model: Optional[str] = "openai/gpt-5.4-mini"
+    resume_judge_agent_fallback_model: Optional[str] = "openai/gpt-5-mini"
+    resume_judge_agent_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "none"
     validation_agent_model: Optional[str] = None
     validation_agent_fallback_model: Optional[str] = None
 
@@ -104,6 +109,18 @@ class WorkerSettingsEnv(BaseSettings):
             allowed_display = ", ".join(sorted(allowed))
             raise ValueError(
                 f"generation_agent_reasoning_effort must be one of: {allowed_display}."
+            )
+        return normalized
+
+    @field_validator("resume_judge_agent_reasoning_effort", mode="before")
+    @classmethod
+    def normalize_resume_judge_agent_reasoning_effort(cls, value: Any) -> str:
+        normalized = str(value or "none").strip().lower()
+        allowed = {"none", "low", "medium", "high", "xhigh"}
+        if normalized not in allowed:
+            allowed_display = ", ".join(sorted(allowed))
+            raise ValueError(
+                f"resume_judge_agent_reasoning_effort must be one of: {allowed_display}."
             )
         return normalized
 
@@ -274,6 +291,45 @@ def build_generation_failure_payload(
             "message": message,
             "terminal_error_code": terminal_error_code,
             "failure_details": normalized_details or None,
+        },
+    }
+
+
+def build_resume_judge_success_payload(
+    *,
+    application_id: str,
+    user_id: str,
+    job_id: str,
+    evaluated_draft_updated_at: str,
+    resume_judge_result: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "application_id": application_id,
+        "user_id": user_id,
+        "job_id": job_id,
+        "event": "succeeded",
+        "evaluated_draft_updated_at": evaluated_draft_updated_at,
+        "result": resume_judge_result,
+    }
+
+
+def build_resume_judge_failure_payload(
+    *,
+    application_id: str,
+    user_id: str,
+    job_id: str,
+    evaluated_draft_updated_at: str,
+    resume_judge_result: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "application_id": application_id,
+        "user_id": user_id,
+        "job_id": job_id,
+        "event": "failed",
+        "evaluated_draft_updated_at": evaluated_draft_updated_at,
+        "failure": {
+            "message": resume_judge_result.get("message"),
+            "result": resume_judge_result,
         },
     }
 
@@ -1082,6 +1138,7 @@ async def run_extraction_job(
 
 GENERATION_CALLBACK_PATH = "/api/internal/worker/generation-callback"
 REGENERATION_CALLBACK_PATH = "/api/internal/worker/regeneration-callback"
+RESUME_JUDGE_CALLBACK_PATH = "/api/internal/worker/resume-judge-callback"
 
 
 async def _validate_generated_sections_with_repair(
@@ -1282,6 +1339,7 @@ async def run_generation_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
+    stored_generation_settings = dict(generation_settings)
     public_generation_settings = {
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
@@ -1484,7 +1542,7 @@ async def run_generation_job(
             user_id=user_id,
             job_id=job_id,
             content_md=content,
-            generation_params=public_generation_settings,
+            generation_params=stored_generation_settings,
             sections_snapshot={
                 "enabled_sections": [s["name"] for s in enabled_ordered],
                 "section_order": [s["name"] for s in enabled_ordered],
@@ -1641,6 +1699,7 @@ async def run_regeneration_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
+    stored_generation_settings = dict(generation_settings)
     public_generation_settings = {
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
@@ -1999,7 +2058,7 @@ async def run_regeneration_job(
             user_id=user_id,
             job_id=job_id,
             content_md=content,
-            generation_params=public_generation_settings,
+            generation_params=stored_generation_settings,
             sections_snapshot=sections_snapshot,
         )
         await set_generation_result_best_effort(
@@ -2128,7 +2187,202 @@ async def run_regeneration_job(
         raise
 
 
+async def run_resume_judge_job(
+    ctx: dict[str, Any],
+    *,
+    application_id: str,
+    user_id: str,
+    job_id: str,
+    job_title: str,
+    company_name: Optional[str],
+    job_description: str,
+    base_resume_content: str,
+    generated_resume_content: str,
+    generation_settings: dict[str, Any],
+    evaluated_draft_updated_at: str,
+    job_context_signature: str,
+) -> None:
+    settings = WorkerSettingsEnv()
+    callback = BackendCallbackClient(settings)
+    attempt_diagnostics: list[dict[str, Any]] = []
+
+    if not settings.openrouter_api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not configured.")
+    if not settings.resume_judge_agent_model:
+        raise RuntimeError("RESUME_JUDGE_AGENT_MODEL is not configured.")
+    if not settings.resume_judge_agent_fallback_model:
+        raise RuntimeError("RESUME_JUDGE_AGENT_FALLBACK_MODEL is not configured.")
+
+    await post_callback_best_effort(
+        callback,
+        {
+            "application_id": application_id,
+            "user_id": user_id,
+            "job_id": job_id,
+            "event": "started",
+            "evaluated_draft_updated_at": evaluated_draft_updated_at,
+            "job_context_signature": job_context_signature,
+        },
+        path=RESUME_JUDGE_CALLBACK_PATH,
+        app_id=application_id,
+        job_id=job_id,
+        callback_stage="resume judge started",
+    )
+
+    try:
+        _log_generation_event(
+            "job_start",
+            workflow_kind="resume_judge",
+            application_id=application_id,
+            user_id=user_id,
+            job_id=job_id,
+            model=settings.resume_judge_agent_model,
+            fallback_model=settings.resume_judge_agent_fallback_model,
+            target_length=generation_settings.get("page_length"),
+            aggressiveness=generation_settings.get("aggressiveness"),
+        )
+        judge_result = await asyncio.wait_for(
+            judge_resume(
+                job_title=job_title,
+                company_name=company_name,
+                job_description=job_description,
+                base_resume_content=base_resume_content,
+                generated_resume_content=generated_resume_content,
+                aggressiveness=str(generation_settings.get("aggressiveness") or "medium"),
+                target_length=str(generation_settings.get("page_length") or "1_page"),
+                model=settings.resume_judge_agent_model,
+                fallback_model=settings.resume_judge_agent_fallback_model,
+                api_key=settings.openrouter_api_key,
+                base_url=settings.openrouter_base_url,
+                reasoning_effort=settings.resume_judge_agent_reasoning_effort,
+                evaluated_draft_updated_at=evaluated_draft_updated_at,
+                scored_at=now_iso(),
+                timeout=RESUME_JUDGE_TIMEOUT_SECONDS,
+            ),
+            timeout=RESUME_JUDGE_TIMEOUT_SECONDS,
+        )
+        attempt_diagnostics = _sanitize_attempts(judge_result.get("attempt_diagnostics"))
+        resume_judge_result = dict(judge_result["resume_judge_result"])
+        resume_judge_result["job_context_signature"] = job_context_signature
+        _log_generation_event(
+            "llm_attempts_completed",
+            workflow_kind="resume_judge",
+            application_id=application_id,
+            job_id=job_id,
+            attempt_count=len(attempt_diagnostics),
+            attempts=attempt_diagnostics,
+            model_used=judge_result.get("model_used"),
+        )
+        await post_callback_best_effort(
+            callback,
+            build_resume_judge_success_payload(
+                application_id=application_id,
+                user_id=user_id,
+                job_id=job_id,
+                evaluated_draft_updated_at=evaluated_draft_updated_at,
+                resume_judge_result=resume_judge_result,
+            ),
+            path=RESUME_JUDGE_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="resume judge succeeded",
+        )
+        _log_generation_event(
+            "job_succeeded",
+            workflow_kind="resume_judge",
+            application_id=application_id,
+            job_id=job_id,
+            attempt_count=len(attempt_diagnostics),
+            attempts=attempt_diagnostics,
+        )
+    except asyncio.TimeoutError as error:
+        failure_result = {
+            "status": "failed",
+            "message": "Resume Judge timed out. Score unavailable.",
+            "evaluated_draft_updated_at": evaluated_draft_updated_at,
+            "scored_at": now_iso(),
+            "job_context_signature": job_context_signature,
+            "failure_stage": _llm_failure_stage_from_attempts(
+                attempt_diagnostics,
+                primary_model=settings.resume_judge_agent_model,
+                fallback_model=settings.resume_judge_agent_fallback_model,
+            ),
+            "attempt_count": len(attempt_diagnostics),
+            "attempts": attempt_diagnostics,
+            "error": _sanitize_error(error),
+        }
+        _log_generation_event(
+            "job_timeout",
+            workflow_kind="resume_judge",
+            application_id=application_id,
+            job_id=job_id,
+            failure_stage=failure_result["failure_stage"],
+            attempts=attempt_diagnostics,
+        )
+        await post_callback_best_effort(
+            callback,
+            build_resume_judge_failure_payload(
+                application_id=application_id,
+                user_id=user_id,
+                job_id=job_id,
+                evaluated_draft_updated_at=evaluated_draft_updated_at,
+                resume_judge_result=failure_result,
+            ),
+            path=RESUME_JUDGE_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="resume judge failed",
+        )
+        raise
+    except Exception as error:
+        failure_result = {
+            "status": "failed",
+            "message": "Resume Judge failed. Score unavailable.",
+            "evaluated_draft_updated_at": evaluated_draft_updated_at,
+            "scored_at": now_iso(),
+            "job_context_signature": job_context_signature,
+            "failure_stage": _llm_failure_stage_from_attempts(
+                attempt_diagnostics,
+                primary_model=settings.resume_judge_agent_model,
+                fallback_model=settings.resume_judge_agent_fallback_model,
+            ),
+            "attempt_count": len(attempt_diagnostics),
+            "attempts": attempt_diagnostics,
+            "error": _sanitize_error(error),
+        }
+        _log_generation_event(
+            "job_failed",
+            workflow_kind="resume_judge",
+            application_id=application_id,
+            job_id=job_id,
+            failure_stage=failure_result["failure_stage"],
+            error=_sanitize_error(error),
+            attempts=attempt_diagnostics,
+        )
+        await post_callback_best_effort(
+            callback,
+            build_resume_judge_failure_payload(
+                application_id=application_id,
+                user_id=user_id,
+                job_id=job_id,
+                evaluated_draft_updated_at=evaluated_draft_updated_at,
+                resume_judge_result=failure_result,
+            ),
+            path=RESUME_JUDGE_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="resume judge failed",
+        )
+        raise
+
+
 class WorkerSettings:
-    functions = [report_bootstrap_progress, run_extraction_job, run_generation_job, run_regeneration_job]
+    functions = [
+        report_bootstrap_progress,
+        run_extraction_job,
+        run_generation_job,
+        run_regeneration_job,
+        run_resume_judge_job,
+    ]
     redis_settings = RedisSettings.from_dsn(WorkerSettingsEnv().redis_url)
     max_tries = 1

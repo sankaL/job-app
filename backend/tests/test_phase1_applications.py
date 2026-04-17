@@ -24,6 +24,7 @@ from app.services import application_manager as application_manager_service
 from app.services.application_manager import (
     ApplicationService,
     GenerationCallbackPayload,
+    ResumeJudgeCallbackPayload,
     SourceCapturePayload,
     WorkerCallbackPayload,
     WorkerSuccessPayload,
@@ -59,6 +60,8 @@ class FakeApplicationRepository:
             job_title=None,
             company=None,
             job_description=None,
+            job_location_text=None,
+            compensation_text=None,
             extracted_reference_id=None,
             job_posting_origin=None,
             job_posting_origin_other_text=None,
@@ -68,6 +71,8 @@ class FakeApplicationRepository:
             internal_state=internal_state,
             failure_reason=None,
             extraction_failure_details=None,
+            generation_failure_details=None,
+            resume_judge_result=None,
             applied=False,
             duplicate_similarity_score=None,
             duplicate_match_fields=None,
@@ -351,6 +356,25 @@ class FakeDraftRepository:
         self.drafts[application_id] = draft
         return draft
 
+    def update_draft_content(
+        self,
+        *,
+        application_id: str,
+        user_id: str,
+        content_md: str,
+    ) -> ResumeDraftRecord:
+        draft = self.fetch_draft(user_id, application_id)
+        if draft is None:
+            raise LookupError("Resume draft not found.")
+        updated = draft.model_copy(
+            update={
+                "content_md": content_md,
+                "updated_at": "2026-04-07T12:11:00+00:00",
+            }
+        )
+        self.drafts[application_id] = updated
+        return updated
+
     def update_exported_at(self, *, application_id: str, user_id: str) -> None:
         draft = self.fetch_draft(user_id, application_id)
         if draft is None:
@@ -385,6 +409,7 @@ class FakeGenerationJobQueue:
     def __init__(self) -> None:
         self.enqueued: list[dict[str, Any]] = []
         self.regenerations: list[dict[str, Any]] = []
+        self.judge_jobs: list[dict[str, Any]] = []
 
     async def enqueue(self, **kwargs) -> str:
         self.enqueued.append(kwargs)
@@ -393,6 +418,10 @@ class FakeGenerationJobQueue:
     async def enqueue_regeneration(self, **kwargs) -> str:
         self.regenerations.append(kwargs)
         return f"regen-job-{len(self.regenerations)}"
+
+    async def enqueue_resume_judge(self, **kwargs) -> str:
+        self.judge_jobs.append(kwargs)
+        return f"judge-job-{len(self.judge_jobs)}"
 
 
 class StubVerifier(AuthVerifier):
@@ -458,6 +487,14 @@ def build_service(
         )(),
     )
     return service, repository, notifications, progress, queue, email, drafts
+
+
+def test_application_repository_prepare_value_wraps_resume_judge_result_as_jsonb():
+    repository = ApplicationRepository("postgresql://unused")
+
+    prepared = repository._prepare_value("resume_judge_result", {"status": "queued"})
+
+    assert isinstance(prepared, Jsonb)
 
 
 @pytest.mark.asyncio
@@ -1572,14 +1609,76 @@ def test_full_regeneration_endpoint_returns_409_when_limit_is_reached():
     assert "Please contact an administrator" in response.json()["detail"]
 
 
+def test_resume_judge_endpoint_returns_202_and_queues_re_evaluation():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nBuilt reliable APIs.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-endpoint",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/applications/{created.id}/judge",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["resume_judge_result"]["status"] == "queued"
+    assert len(service.generation_job_queue.judge_jobs) == 1
+
+
 @pytest.mark.asyncio
-async def test_generation_success_callback_persists_draft_and_marks_resume_ready():
+async def test_generation_success_callback_persists_draft_marks_resume_ready_and_queues_resume_judge():
     service, repository, notifications, progress_store, _, _, drafts = build_service()
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nBuilt reliable APIs.\n",
+    )
     created = repository.create_application(
         user_id="user-1",
         job_url="https://example.com/jobs/1",
         visible_status="draft",
         internal_state="generating",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+        },
     )
     await progress_store.set(
         created.id,
@@ -1616,8 +1715,439 @@ async def test_generation_success_callback_persists_draft_and_marks_resume_ready
     assert updated.failure_reason is None
     assert drafts.fetch_draft("user-1", created.id) is not None
     assert drafts.fetch_draft("user-1", created.id).content_md == "# Resume"
+    assert updated.resume_judge_result is not None
+    assert updated.resume_judge_result["status"] == "queued"
     assert (await progress_store.get(created.id)).state == "resume_ready"
     assert notifications.notifications[-1]["notification_type"] == "success"
+    assert len(service.generation_job_queue.judge_jobs) == 1
+    assert service.generation_job_queue.judge_jobs[0]["generated_resume_content"] == "# Resume"
+
+
+@pytest.mark.asyncio
+async def test_regeneration_success_callback_queues_resume_judge_for_updated_full_draft():
+    drafts = FakeDraftRepository()
+    service, repository, notifications, progress_store, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nBuilt reliable APIs.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/section-regen",
+        visible_status="in_progress",
+        internal_state="regenerating_section",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Old Resume",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-regen-1",
+            workflow_kind="regeneration_section",
+            state="regenerating_section",
+            message="Section regeneration is running.",
+            percent_complete=50,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:05:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    updated = await service.handle_regeneration_callback(
+        application_manager_service.RegenerationCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "job-regen-1",
+                "event": "succeeded",
+                "regeneration_target": "section",
+                "generated": {
+                    "content_md": "# New Resume\n\n## Summary\nSharper section output.\n",
+                    "generation_params": {
+                        "page_length": "1_page",
+                        "aggressiveness": "medium",
+                        "base_resume_id": "resume-1",
+                    },
+                    "sections_snapshot": {
+                        "enabled_sections": ["summary"],
+                        "section_order": ["summary"],
+                    },
+                },
+            }
+        )
+    )
+
+    assert updated.internal_state == "resume_ready"
+    assert updated.resume_judge_result is not None
+    assert updated.resume_judge_result["status"] == "queued"
+    assert drafts.fetch_draft("user-1", created.id).content_md.startswith("# New Resume")
+    assert len(service.generation_job_queue.judge_jobs) == 1
+    assert service.generation_job_queue.judge_jobs[0]["generated_resume_content"].startswith("# New Resume")
+    assert notifications.notifications[-1]["notification_type"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_trigger_resume_judge_queues_manual_re_evaluation():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nBuilt reliable APIs.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+            "resume_judge_result": {
+                "status": "succeeded",
+                "display_score": 82,
+                "evaluated_draft_updated_at": "2026-04-07T12:09:00+00:00",
+            },
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    detail = await service.trigger_resume_judge(user_id="user-1", application_id=created.id)
+
+    assert detail.application.resume_judge_result is not None
+    assert detail.application.resume_judge_result["status"] == "queued"
+    assert len(service.generation_job_queue.judge_jobs) == 1
+    assert service.generation_job_queue.judge_jobs[0]["application_id"] == created.id
+
+
+@pytest.mark.asyncio
+async def test_trigger_resume_judge_uses_generation_time_base_resume_snapshot():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nCurrent live base resume.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-snapshot",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+            "_base_resume_snapshot_content": "## Summary\nGeneration-time base resume.\n",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    await service.trigger_resume_judge(user_id="user-1", application_id=created.id)
+
+    assert len(service.generation_job_queue.judge_jobs) == 1
+    assert (
+        service.generation_job_queue.judge_jobs[0]["base_resume_content"]
+        == "## Summary\nGeneration-time base resume.\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_patch_application_invalidates_resume_judge_when_job_details_change():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-invalidated",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "company": "Acme",
+            "job_description": "Build APIs",
+            "resume_judge_result": {
+                "status": "succeeded",
+                "display_score": 83,
+                "evaluated_draft_updated_at": "2026-04-07T12:10:00+00:00",
+                "job_context_signature": "backend engineer\x1facme\x1fbuild apis",
+            },
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    detail = await service.patch_application(
+        user_id="user-1",
+        application_id=created.id,
+        updates={"job_description": "Build distributed APIs"},
+    )
+
+    assert detail.application.resume_judge_result is not None
+    assert detail.application.resume_judge_result["status"] == "failed"
+    assert detail.application.resume_judge_result["failure_stage"] == "stale_job_context"
+
+
+@pytest.mark.asyncio
+async def test_handle_resume_judge_callback_ignores_stale_results():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-stale",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    updated = await service.handle_resume_judge_callback(
+        ResumeJudgeCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "judge-job-1",
+                "event": "succeeded",
+                "evaluated_draft_updated_at": "2026-04-07T12:00:00+00:00",
+                "result": {
+                    "status": "succeeded",
+                    "final_score": 81.2,
+                    "display_score": 81,
+                    "verdict": "pass",
+                    "pass_threshold": 80,
+                    "score_summary": "Strong fit.",
+                    "dimension_scores": {
+                        "role_alignment": {"score": 8, "weight": 0.25, "weighted_contribution": 20.0, "notes": "Aligned."},
+                        "specificity_and_concreteness": {"score": 8, "weight": 0.2, "weighted_contribution": 16.0, "notes": "Specific."},
+                        "voice_and_human_quality": {"score": 8, "weight": 0.2, "weighted_contribution": 16.0, "notes": "Natural."},
+                        "grounding_integrity": {"score": 8, "weight": 0.2, "weighted_contribution": 16.0, "notes": "Grounded."},
+                        "ats_safety_and_formatting": {"score": 8, "weight": 0.1, "weighted_contribution": 8.0, "notes": "Clean."},
+                        "length_and_density": {"score": 5, "weight": 0.05, "weighted_contribution": 2.5, "notes": "Dense enough."},
+                    },
+                    "regeneration_instructions": None,
+                    "regeneration_priority_dimensions": [],
+                    "evaluator_notes": "Solid draft.",
+                    "evaluated_draft_updated_at": "2026-04-07T12:00:00+00:00",
+                    "scored_at": "2026-04-07T12:12:00+00:00",
+                },
+            }
+        )
+    )
+
+    assert updated.resume_judge_result is None
+
+
+@pytest.mark.asyncio
+async def test_handle_resume_judge_callback_ignores_job_context_mismatch():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-mismatch",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "company": "Acme",
+            "job_description": "Build distributed APIs",
+            "resume_judge_result": {
+                "status": "failed",
+                "message": "Resume Judge needs another run because the job details changed.",
+                "evaluated_draft_updated_at": "2026-04-07T12:10:00+00:00",
+                "job_context_signature": "backend engineer\x1facme\x1fbuild distributed apis",
+                "failure_stage": "stale_job_context",
+            },
+        },
+    )
+    draft = drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    updated = await service.handle_resume_judge_callback(
+        ResumeJudgeCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "judge-job-3",
+                "event": "started",
+                "evaluated_draft_updated_at": draft.updated_at,
+                "job_context_signature": "backend engineer\x1facme\x1fbuild apis",
+            }
+        )
+    )
+
+    assert updated.resume_judge_result is not None
+    assert updated.resume_judge_result["failure_stage"] == "stale_job_context"
+
+
+@pytest.mark.asyncio
+async def test_handle_resume_judge_callback_persists_running_success_and_failure_states():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-fresh",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    draft = drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    running = await service.handle_resume_judge_callback(
+        ResumeJudgeCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "judge-job-2",
+                "event": "started",
+                "evaluated_draft_updated_at": draft.updated_at,
+            }
+        )
+    )
+    assert running.resume_judge_result is not None
+    assert running.resume_judge_result["status"] == "running"
+
+    succeeded = await service.handle_resume_judge_callback(
+        ResumeJudgeCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "judge-job-2",
+                "event": "succeeded",
+                "evaluated_draft_updated_at": draft.updated_at,
+                "result": {
+                    "status": "succeeded",
+                    "final_score": 76.5,
+                    "display_score": 77,
+                    "verdict": "warn",
+                    "pass_threshold": 80,
+                    "score_summary": "Good fit with cleanup needed.",
+                    "dimension_scores": {
+                        "role_alignment": {"score": 8, "weight": 0.25, "weighted_contribution": 20.0, "notes": "Aligned."},
+                        "specificity_and_concreteness": {"score": 7, "weight": 0.2, "weighted_contribution": 14.0, "notes": "Mostly specific."},
+                        "voice_and_human_quality": {"score": 6, "weight": 0.2, "weighted_contribution": 12.0, "notes": "Template-ish."},
+                        "grounding_integrity": {"score": 8, "weight": 0.2, "weighted_contribution": 16.0, "notes": "Grounded."},
+                        "ats_safety_and_formatting": {"score": 9, "weight": 0.1, "weighted_contribution": 9.0, "notes": "ATS safe."},
+                        "length_and_density": {"score": 5, "weight": 0.05, "weighted_contribution": 2.5, "notes": "Slightly long."},
+                    },
+                    "regeneration_instructions": "Tighten voice and density.",
+                    "regeneration_priority_dimensions": ["voice_and_human_quality", "length_and_density"],
+                    "evaluator_notes": "Mostly solid.",
+                    "evaluated_draft_updated_at": draft.updated_at,
+                    "scored_at": "2026-04-07T12:12:00+00:00",
+                },
+            }
+        )
+    )
+    assert succeeded.resume_judge_result is not None
+    assert succeeded.resume_judge_result["status"] == "succeeded"
+    assert succeeded.resume_judge_result["display_score"] == 77
+
+    failed = await service.handle_resume_judge_callback(
+        ResumeJudgeCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "judge-job-2",
+                "event": "failed",
+                "evaluated_draft_updated_at": draft.updated_at,
+                "failure": {
+                    "message": "Resume Judge failed. Score unavailable.",
+                    "result": {
+                        "status": "failed",
+                        "message": "Resume Judge failed. Score unavailable.",
+                        "evaluated_draft_updated_at": draft.updated_at,
+                        "scored_at": "2026-04-07T12:13:00+00:00",
+                        "failure_stage": "provider",
+                        "attempt_count": 2,
+                        "attempts": [
+                            {"model": "primary", "outcome": "provider_error"},
+                            {"model": "fallback", "outcome": "provider_error"},
+                        ],
+                        "error": {"error_type": "RuntimeError", "message": "provider failed"},
+                    },
+                },
+            }
+        )
+    )
+    assert failed.resume_judge_result is not None
+    assert failed.resume_judge_result["status"] == "failed"
+    assert failed.resume_judge_result["failure_stage"] == "provider"
 
 
 @pytest.mark.asyncio

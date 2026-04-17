@@ -1,8 +1,8 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-04-16
-**Sources:** `agents/generation.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
+**Last updated:** 2026-04-17
+**Sources:** `agents/generation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
 
@@ -13,8 +13,118 @@ This document records the latest live prompt definitions in the repository. The 
 | Job posting extraction | `agents/worker.py` | One live prompt shape | Extract structured job-posting fields from captured webpage context without inventing facts and with explicit noise filtering. |
 | Resume generation / full regeneration | `agents/generation.py` | `operation x aggressiveness x target_length`, plus dynamic section permutations | Produce ordered ATS-safe JSON resume sections grounded in the sanitized base resume and job description. |
 | Single-section regeneration | `agents/generation.py` | `aggressiveness x target_length`, scoped to one section | Rewrite only the selected section while keeping it coherent with the rest of the draft. |
+| Resume Judge | `agents/resume_judge.py` | One live prompt shape with deterministic observations | Score a generated draft against the job description and sanitized base resume without rewriting it. |
 | Validation-aware repair | `agents/generation.py` | `full-draft or single-section`, repair-only | Repair a previously returned JSON payload using sanitized deterministic validation errors without relaxing the response contract. |
 | Resume upload cleanup | `backend/app/services/resume_parser.py` | One live prompt shape | Improve Markdown structure of parsed resume content without changing substance and signal when manual review is still needed. |
+
+## Resume Judge Prompt
+
+Resume Judge is a dedicated post-generation evaluator. It runs after initial generation, full regeneration, and section regeneration, and it can also be triggered manually for stale edited drafts.
+
+### Runtime behavior
+
+- Resume Judge uses OpenRouter via LangChain `ChatOpenAI`.
+- Model selection is env-configured with:
+  - `RESUME_JUDGE_AGENT_MODEL`
+  - `RESUME_JUDGE_AGENT_FALLBACK_MODEL`
+  - `RESUME_JUDGE_AGENT_REASONING_EFFORT`
+- Current tracked defaults are:
+  - primary `openai/gpt-5.4-mini`
+  - fallback `openai/gpt-5-mini`
+  - reasoning `none`
+- The judge allows one primary-model attempt and one fallback-model attempt. If the provider rejects the configured reasoning field, the same model is retried once without reasoning before moving on.
+- Judge failure is fail-open for the application workflow: score state is stored, but resume export, editing, and visible status remain usable.
+
+### Privacy and input rules
+
+- The judge never receives raw profile or contact data.
+- `generated_resume_content` is sanitized locally before prompt construction and sent as `sanitized_generated_resume_markdown`.
+- The base resume is also sanitized and sent as `sanitized_base_resume_markdown`.
+- ATS-safety and density checks rely partly on local deterministic observations rather than asking the model to infer everything from raw text.
+
+### Deterministic observations payload
+
+The human payload includes:
+
+```json
+{
+  "target_role": {
+    "job_title": "{{job_title}}",
+    "company_name": "{{company_name}}"
+  },
+  "aggressiveness": "{{aggressiveness}}",
+  "target_length": "{{target_length}}",
+  "job_description": "{{normalized_job_description}}",
+  "sanitized_base_resume_markdown": "{{normalized_sanitized_base_resume}}",
+  "sanitized_generated_resume_markdown": "{{normalized_sanitized_generated_resume}}",
+  "deterministic_observations": {
+    "word_count": 0,
+    "target_length": "1_page",
+    "target_range_words": { "min": 450, "max": 700 },
+    "outside_target_range": false,
+    "em_dash_found": false,
+    "html_found": false,
+    "table_found": false,
+    "code_fence_found": false,
+    "first_person_found": false,
+    "contact_leak_found": false,
+    "contact_leak_types": []
+  }
+}
+```
+
+### System prompt contract
+
+The system prompt defines Resume Judge as an evaluator only, never a writer, and requires:
+
+- six fixed dimension ids
+- `0-10` integer scores per dimension
+- concise evidence-based notes
+- no local arithmetic in the model output
+- no `final_score`, `display_score`, or `verdict` computed by the LLM
+- `regeneration_instructions = null` and `regeneration_priority_dimensions = []` when the draft clearly passes
+- exactly one JSON object with no prose outside JSON
+
+### Model response contract
+
+The model returns:
+
+```json
+{
+  "score_summary": "short overall assessment",
+  "dimension_scores": {
+    "role_alignment": { "score": 0, "notes": "..." },
+    "specificity_and_concreteness": { "score": 0, "notes": "..." },
+    "voice_and_human_quality": { "score": 0, "notes": "..." },
+    "grounding_integrity": { "score": 0, "notes": "..." },
+    "ats_safety_and_formatting": { "score": 0, "notes": "..." },
+    "length_and_density": { "score": 0, "notes": "..." }
+  },
+  "regeneration_instructions": "..." ,
+  "regeneration_priority_dimensions": ["dimension_id"],
+  "evaluator_notes": "short evaluator note"
+}
+```
+
+### Local post-processing
+
+The application computes the final persisted result locally after parsing the model JSON:
+
+- Weighted dimensions:
+  - `role_alignment = 25%`
+  - `specificity_and_concreteness = 20%`
+  - `voice_and_human_quality = 20%`
+  - `grounding_integrity = 20%`
+  - `ats_safety_and_formatting = 10%`
+  - `length_and_density = 5%`
+- `final_score` is the weighted `0-100` score rounded to one decimal place.
+- `display_score` is the rounded whole-number score shown prominently in the UI.
+- `verdict` is derived locally:
+  - `pass >= 80`
+  - `warn = 60-79.9`
+  - `fail < 60`
+- For `pass`, regeneration fields are cleared locally even if the model returned text.
+- Priority dimensions are re-sorted locally so the weakest highest-impact dimensions appear first.
 
 ## Resume Generation Prompts
 

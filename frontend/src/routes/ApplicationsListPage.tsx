@@ -667,7 +667,7 @@ export function ApplicationsListPage() {
           pageSize={25}
           density="compact"
           tableLayout="fixed"
-          verticalAlign="middle"
+          verticalAlign="top"
           onVisibleRowsChange={handleVisibleRowsChange}
           emptyState={
             <EmptyState

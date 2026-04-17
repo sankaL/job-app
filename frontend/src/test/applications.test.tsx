@@ -49,6 +49,7 @@ const api = vi.hoisted(() => ({
   submitManualEntry: vi.fn(),
   triggerFullRegeneration: vi.fn(),
   triggerGeneration: vi.fn(),
+  triggerResumeJudge: vi.fn(),
   triggerSectionRegeneration: vi.fn(),
   updateBaseResume: vi.fn(),
   updateProfile: vi.fn(),
@@ -106,7 +107,9 @@ function buildApplicationDetail(overrides: Record<string, unknown> = {}) {
     notes: null,
     extraction_failure_details: null,
     generation_failure_details: null,
+    resume_judge_result: null,
     duplicate_warning: null,
+    ...overrides,
   };
 }
 
@@ -1624,7 +1627,7 @@ describe("phase 1 applications UI", () => {
     ).toBeInTheDocument();
   });
 
-  it("removes the review-flags panel, shows Compare, and renders the generated preview without diff highlighting", async () => {
+  it("removes the review-flags panel, shows the regenerate menu, and renders the generated preview without diff highlighting", async () => {
     api.fetchApplicationDetail.mockResolvedValue(
       buildApplicationDetail({
         id: "app-1",
@@ -1676,10 +1679,17 @@ describe("phase 1 applications UI", () => {
     );
 
     expect(await screen.findByRole("button", { name: /^compare$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^regenerate$/i })).toBeInTheDocument();
     expect(screen.queryByText(/review flagged additions/i)).not.toBeInTheDocument();
     expect(screen.queryByText("## Professional Experience")).not.toBeInTheDocument();
     expect(container.querySelector("mark.generated-diff-highlight")).toBeNull();
     expect(container.querySelector(".generated-diff-block")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: /^regenerate$/i }));
+
+    const regenerateMenu = await screen.findByRole("menu", { name: /regenerate options/i });
+    expect(within(regenerateMenu).getByRole("menuitem", { name: /^regen section$/i })).toBeInTheDocument();
+    expect(within(regenerateMenu).getByRole("menuitem", { name: /^full regen$/i })).toBeInTheDocument();
   });
 
   it("opens compare mode, keeps generated edit mode available, and closes back to the default layout", async () => {
@@ -1729,7 +1739,11 @@ describe("phase 1 applications UI", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^compare$/i }));
 
     expect(await screen.findByRole("button", { name: /close comparison/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /base resume/i })).toBeInTheDocument();
+    expect(screen.queryByText(/tailored draft shown beside the generation-time base resume/i)).not.toBeInTheDocument();
+    const baseHeading = screen.getByRole("heading", { name: /base resume/i });
+    const basePane = baseHeading.closest(".compare-pane-card");
+    expect(basePane).not.toBeNull();
+    expect(within(basePane as HTMLElement).getByText("Default Resume")).toBeInTheDocument();
     expect(screen.getAllByText(/base summary/i).length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
@@ -2468,9 +2482,9 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByRole("button", { name: /full regen/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /full regen/i }));
+    const regenerateButton = await screen.findByRole("button", { name: /^regenerate$/i });
+    await user.click(regenerateButton);
+    await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
 
     await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/please contact an administrator for additional regenerations/i)).toBeInTheDocument();
@@ -2570,7 +2584,7 @@ describe("phase 1 applications UI", () => {
     );
 
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledTimes(1));
-    expect(screen.getByLabelText("3 Pages")).toBeChecked();
+    await waitFor(() => expect(screen.getByLabelText("3 Pages")).toBeChecked());
     expect(screen.getByRole("radio", { name: /high/i })).toBeChecked();
     expect(screen.getByDisplayValue("Emphasize architecture leadership.")).toBeInTheDocument();
   });
@@ -2649,5 +2663,430 @@ describe("phase 1 applications UI", () => {
 
     expect(screen.getByLabelText("2 Pages")).toBeChecked();
     expect(saveButton).toBeEnabled();
+  });
+
+  it("renders the resume judge score tile and opens the breakdown dialog", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "succeeded",
+          final_score: 77.6,
+          display_score: 78,
+          verdict: "warn",
+          pass_threshold: 80,
+          score_summary: "Strong alignment with a few voice issues.",
+          dimension_scores: {
+            role_alignment: { score: 8, weight: 0.25, weighted_contribution: 20, notes: "Aligned to the JD." },
+            specificity_and_concreteness: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Mostly specific." },
+            voice_and_human_quality: { score: 5, weight: 0.2, weighted_contribution: 10, notes: "Voice still feels templated." },
+            grounding_integrity: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Grounded." },
+            ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
+            length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable length." },
+          },
+          regeneration_instructions: "Tighten the summary voice.",
+          regeneration_priority_dimensions: ["voice_and_human_quality"],
+          evaluator_notes: "A targeted rewrite should push this above the pass threshold.",
+          evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+          scored_at: "2026-04-07T12:12:00Z",
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    expect(screen.getAllByText(/resume judge/i)).toHaveLength(1);
+    const jobDescriptionCard = await screen.findByTestId("job-description-card");
+    expect(judgeCard.compareDocumentPosition(jobDescriptionCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(judgeCard).getByText(/78\/100/i)).toBeInTheDocument();
+    expect(within(judgeCard).getByText(/strong alignment with a few voice issues/i)).toBeInTheDocument();
+
+    await userEvent.click(judgeCard.closest("button") as HTMLButtonElement);
+
+    expect(await screen.findByRole("dialog", { name: /resume judge breakdown/i })).toBeInTheDocument();
+    expect(screen.getByText(/verdict: review at 77\.6 \/ 100\./i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /regenerate with judge feedback/i })).toBeInTheDocument();
+    expect(screen.queryByText(/aligned to the jd/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /role alignment/i }));
+    expect(screen.getByText(/aligned to the jd/i)).toBeInTheDocument();
+    expect(screen.getByText(/a targeted rewrite should push this above the pass threshold/i)).toBeInTheDocument();
+  });
+
+  it("renders an unscored left-rail judge card above the job description", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: null,
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    const jobDescriptionCard = await screen.findByTestId("job-description-card");
+    expect(judgeCard.compareDocumentPosition(jobDescriptionCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(judgeCard).getByText(/pending review/i)).toBeInTheDocument();
+    expect(within(judgeCard).getByRole("button", { name: /run judge/i })).toBeInTheDocument();
+  });
+
+  it("renders the queued judge state in the left rail", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "queued",
+          message: "Resume Judge is queued.",
+          evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    expect(within(judgeCard).getByText(/scoring draft/i)).toBeInTheDocument();
+    expect(within(judgeCard).getByText(/judge feedback will appear here shortly/i)).toBeInTheDocument();
+  });
+
+  it("does not render a stale queued judge result as a completed score card", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        job_description: "Build APIs",
+        resume_judge_result: {
+          status: "queued",
+          message: "Resume Judge is queued.",
+          evaluated_draft_updated_at: "2026-04-07T12:08:00Z",
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nEdited summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    expect(within(judgeCard).getByText(/scoring unavailable/i)).toBeInTheDocument();
+    expect(within(judgeCard).queryByText(/—\/100/i)).not.toBeInTheDocument();
+    expect(within(judgeCard).getByRole("button", { name: /re-evaluate/i })).toBeInTheDocument();
+  });
+
+  it("marks stale judge results and lets the user re-evaluate the current draft", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "succeeded",
+          final_score: 72.4,
+          display_score: 72,
+          verdict: "warn",
+          pass_threshold: 80,
+          score_summary: "Usable but out of date.",
+          dimension_scores: {
+            role_alignment: { score: 7, weight: 0.25, weighted_contribution: 17.5, notes: "Aligned." },
+            specificity_and_concreteness: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Specific." },
+            voice_and_human_quality: { score: 6, weight: 0.2, weighted_contribution: 12, notes: "Natural enough." },
+            grounding_integrity: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Grounded." },
+            ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
+            length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Dense enough." },
+          },
+          regeneration_instructions: "Refresh the score after edits.",
+          regeneration_priority_dimensions: ["role_alignment"],
+          evaluator_notes: "This score predates the latest draft edits.",
+          evaluated_draft_updated_at: "2026-04-07T12:08:00Z",
+          scored_at: "2026-04-07T12:09:00Z",
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nEdited summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.triggerResumeJudge.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "queued",
+          message: "Resume Judge is queued.",
+          evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+        },
+      }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    const judgeTile = judgeCard.closest("button");
+    expect(judgeTile).not.toBeNull();
+    expect(within(judgeCard).getByText(/stale/i)).toBeInTheDocument();
+
+    await userEvent.click(judgeTile as HTMLButtonElement);
+    await userEvent.click(await screen.findByRole("button", { name: /re-evaluate/i }));
+
+    await waitFor(() => expect(api.triggerResumeJudge).toHaveBeenCalledWith("app-1"));
+  });
+
+  it("passes judge feedback into full regeneration without overwriting user instructions", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "succeeded",
+          final_score: 51.2,
+          display_score: 51,
+          verdict: "fail",
+          pass_threshold: 80,
+          score_summary: "Tailoring and voice need a rewrite.",
+          dimension_scores: {
+            role_alignment: { score: 5, weight: 0.25, weighted_contribution: 12.5, notes: "Misses core priorities." },
+            specificity_and_concreteness: { score: 5, weight: 0.2, weighted_contribution: 10, notes: "Too generic." },
+            voice_and_human_quality: { score: 4, weight: 0.2, weighted_contribution: 8, notes: "Reads AI-generated." },
+            grounding_integrity: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Mostly grounded." },
+            ats_safety_and_formatting: { score: 8, weight: 0.1, weighted_contribution: 8, notes: "ATS-safe." },
+            length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Length is okay." },
+          },
+          regeneration_instructions: "Rewrite the summary to be candidate-specific and vary bullet openings.",
+          regeneration_priority_dimensions: ["voice_and_human_quality", "role_alignment"],
+          evaluator_notes: "The draft should be regenerated with targeted feedback.",
+          evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+          scored_at: "2026-04-07T12:12:00Z",
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "2_page",
+        aggressiveness: "high",
+        additional_instructions: "Keep infrastructure metrics prominent.",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.triggerFullRegeneration.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "draft",
+        internal_state: "regenerating_full",
+        failure_reason: null,
+      }),
+    );
+    api.fetchApplicationProgress.mockResolvedValue({
+      job_id: "job-regen-1",
+      workflow_kind: "generation",
+      state: "regenerating_full",
+      message: "Regeneration is running.",
+      percent_complete: 25,
+      created_at: "2026-04-07T12:12:00Z",
+      updated_at: "2026-04-07T12:12:05Z",
+      completed_at: null,
+      terminal_error_code: null,
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeTile = (await screen.findByTestId("resume-judge-card")).closest("button");
+    expect(judgeTile).not.toBeNull();
+
+    await userEvent.click(judgeTile as HTMLButtonElement);
+    await userEvent.click(await screen.findByRole("button", { name: /regenerate with judge feedback/i }));
+
+    await waitFor(() =>
+      expect(api.triggerFullRegeneration).toHaveBeenCalledWith("app-1", {
+        target_length: "2_page",
+        aggressiveness: "high",
+        additional_instructions:
+          "Keep infrastructure metrics prominent.\n\nResume Judge Feedback:\nRewrite the summary to be candidate-specific and vary bullet openings.",
+      }),
+    );
+  });
+
+  it("renders a failed judge card with retry in the left rail", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "failed",
+          message: "Judge provider timed out.",
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.triggerResumeJudge.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "queued",
+          message: "Resume Judge is queued.",
+          evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+        },
+      }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    expect(within(judgeCard).getByText(/scoring unavailable/i)).toBeInTheDocument();
+    expect(within(judgeCard).getByText(/judge provider timed out/i)).toBeInTheDocument();
+
+    await userEvent.click(within(judgeCard).getByRole("button", { name: /try again/i }));
+
+    await waitFor(() => expect(api.triggerResumeJudge).toHaveBeenCalledWith("app-1"));
   });
 });

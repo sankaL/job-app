@@ -128,6 +128,46 @@ class GenerationJobQueue:
 
         return job_id
 
+    async def enqueue_resume_judge(
+        self,
+        *,
+        application_id: str,
+        user_id: str,
+        job_title: str,
+        company_name: Optional[str],
+        job_description: str,
+        base_resume_content: str,
+        generated_resume_content: str,
+        generation_settings: dict[str, Any],
+        evaluated_draft_updated_at: str,
+        job_context_signature: str,
+    ) -> str:
+        job_id = uuid4().hex
+        redis = await create_pool(self.redis_settings)
+        try:
+            result = await redis.enqueue_job(
+                "run_resume_judge_job",
+                application_id=application_id,
+                user_id=user_id,
+                job_id=job_id,
+                job_title=job_title,
+                company_name=company_name,
+                job_description=job_description,
+                base_resume_content=base_resume_content,
+                generated_resume_content=generated_resume_content,
+                generation_settings=generation_settings,
+                evaluated_draft_updated_at=evaluated_draft_updated_at,
+                job_context_signature=job_context_signature,
+                _job_id=job_id,
+            )
+        finally:
+            await redis.aclose()
+
+        if result is None:
+            raise RuntimeError("Failed to enqueue Resume Judge job.")
+
+        return job_id
+
 
 def get_extraction_job_queue() -> ExtractionJobQueue:
     return ExtractionJobQueue(get_settings().redis_url)

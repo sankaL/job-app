@@ -107,6 +107,44 @@ export type GenerationFailureDetails = {
   } | null;
 };
 
+export type ResumeJudgeDimensionScore = {
+  score: number;
+  weight: number;
+  weighted_contribution: number;
+  notes: string;
+};
+
+export type ResumeJudgeResult = {
+  status: "queued" | "running" | "succeeded" | "failed";
+  message?: string | null;
+  final_score?: number | null;
+  display_score?: number | null;
+  verdict?: "pass" | "warn" | "fail" | null;
+  pass_threshold?: number | null;
+  score_summary?: string | null;
+  dimension_scores?: Record<string, ResumeJudgeDimensionScore> | null;
+  regeneration_instructions?: string | null;
+  regeneration_priority_dimensions?: string[];
+  evaluator_notes?: string | null;
+  evaluated_draft_updated_at?: string | null;
+  scored_at?: string | null;
+  job_context_signature?: string | null;
+  failure_stage?: string | null;
+  attempt_count?: number | null;
+  attempts?: Array<{
+    model?: string | null;
+    reasoning_effort?: string | null;
+    transport_mode?: string | null;
+    outcome?: string | null;
+    elapsed_ms?: number | null;
+    retry_reason?: string | null;
+  }> | null;
+  error?: {
+    error_type?: string | null;
+    message?: string | null;
+  } | null;
+};
+
 export type ResumeDraft = {
   id: string;
   application_id: string;
@@ -146,6 +184,7 @@ export type ApplicationDetail = {
   failure_reason: string | null;
   extraction_failure_details: ExtractionFailureDetails | null;
   generation_failure_details: GenerationFailureDetails | null;
+  resume_judge_result: ResumeJudgeResult | null;
   applied: boolean;
   duplicate_similarity_score: number | null;
   duplicate_resolution_status: string | null;
@@ -751,6 +790,12 @@ export async function triggerGeneration(
 
 export async function fetchDraft(applicationId: string): Promise<ResumeDraft | null> {
   return authenticatedRequest<ResumeDraft | null>(`/api/applications/${applicationId}/draft`);
+}
+
+export async function triggerResumeJudge(applicationId: string): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/judge`, {
+    method: "POST",
+  });
 }
 
 export async function saveDraft(

@@ -1,5 +1,18 @@
 # Decisions Made
 
+## 2026-04-17 10:30:00 EDT — Add Resume Judge as a dedicated post-generation evaluator with local scoring arithmetic
+
+- Status: Accepted
+- Context: The resume workflow needed a maintained evaluator agent that could score generated drafts, expose the score prominently in the detail workspace, and provide actionable regeneration feedback without blocking draft availability or giving the model responsibility for arithmetic and pass/fail bookkeeping.
+- Decision:
+  1. Add a dedicated OpenRouter-backed `Resume Judge` agent with its own primary model, fallback model, and reasoning-effort env configuration.
+  2. Run Resume Judge automatically after initial generation, full regeneration, and section regeneration, but keep generation non-blocking so the draft becomes available before scoring completes.
+  3. Persist the latest judge lifecycle state on `applications.resume_judge_result` and include `evaluated_draft_updated_at` so stale callbacks and stale UI scores can be fenced against later draft edits.
+  4. Sanitize the generated draft before the LLM call and provide ATS/density facts through deterministic local observations instead of asking the model to infer everything from raw text.
+  5. Keep the LLM contract evaluator-only: the model returns dimension scores, notes, summary, regeneration instructions, and evaluator notes, while local code computes weighted contributions, final score, display score, and verdict.
+  6. Treat judge failures as fail-open. Resume Judge may show `failed` or stale score state, but it must not alter `visible_status`, `failure_reason`, export availability, or draft editability.
+- Consequences: The application detail page now has a first-class score tile and breakdown dialog, full regeneration can optionally append judge feedback to user instructions, and the prompt/schema/runbook contract now includes a new persisted JSONB state plus a separate evaluator prompt family.
+
 ## 2026-04-16 23:50:07 EDT — Make compare the MVP review path for JD-driven additions
 
 - Status: Accepted

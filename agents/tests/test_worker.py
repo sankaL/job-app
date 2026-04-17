@@ -30,6 +30,7 @@ from worker import (
     normalize_origin_from_url,
     run_extraction_job,
     run_generation_job,
+    run_resume_judge_job,
     set_progress,
 )
 
@@ -158,6 +159,12 @@ def test_worker_settings_normalizes_generation_reasoning_effort():
 def test_worker_settings_rejects_invalid_generation_reasoning_effort():
     with pytest.raises(ValueError, match="generation_agent_reasoning_effort must be one of"):
         WorkerSettingsEnv(generation_agent_reasoning_effort="turbo")
+
+
+def test_worker_settings_normalizes_resume_judge_reasoning_effort():
+    settings = WorkerSettingsEnv(resume_judge_agent_reasoning_effort="NONE")
+
+    assert settings.resume_judge_agent_reasoning_effort == "none"
 
 
 class FakeExtractionAgent(OpenRouterExtractionAgent):
@@ -473,7 +480,7 @@ async def test_backend_callback_client_retries_transient_server_errors(monkeypat
         async def post(self, _url: str, *, json, headers):
             del json, headers
             attempts["count"] += 1
-            return FakeResponse(503 if attempts["count"] < 3 else 200)
+            return FakeResponse(503 if attempts["count"] < 2 else 200)
 
     monkeypatch.setattr("worker.httpx.AsyncClient", FakeAsyncClient)
 
@@ -484,7 +491,7 @@ async def test_backend_callback_client_retries_transient_server_errors(monkeypat
     client = BackendCallbackClient(settings)
     await client.post({"ok": True})
 
-    assert attempts["count"] == 3
+    assert attempts["count"] == 2
 
 
 @pytest.mark.asyncio
@@ -1018,6 +1025,119 @@ async def test_run_generation_job_uses_prd_full_timeout(monkeypatch):
     )
 
     assert observed_timeouts == [FULL_GENERATION_MAX_TIMEOUT_SECONDS]
+
+
+@pytest.mark.asyncio
+async def test_run_resume_judge_job_posts_started_and_succeeded_callbacks(monkeypatch):
+    callback_payloads: list[dict[str, object]] = []
+
+    async def fake_post_callback_best_effort(callback, payload, *, path: str, app_id: str, job_id: str, callback_stage: str):
+        del callback, path, app_id, job_id, callback_stage
+        callback_payloads.append(payload)
+
+    async def fake_judge_resume(**kwargs):
+        assert kwargs["model"] == "judge-primary"
+        assert kwargs["fallback_model"] == "judge-fallback"
+        assert kwargs["reasoning_effort"] == "none"
+        return {
+            "resume_judge_result": {
+                "status": "succeeded",
+                "final_score": 84.3,
+                "display_score": 84,
+                "verdict": "pass",
+                "pass_threshold": 80.0,
+                "score_summary": "Strong draft.",
+                "dimension_scores": {},
+                "regeneration_instructions": None,
+                "regeneration_priority_dimensions": [],
+                "evaluator_notes": "Looks good.",
+                "evaluated_draft_updated_at": kwargs["evaluated_draft_updated_at"],
+                "scored_at": kwargs["scored_at"],
+            },
+            "model_used": "judge-primary",
+            "attempt_diagnostics": [{"model": "judge-primary", "outcome": "success"}],
+        }
+
+    monkeypatch.setattr(
+        "worker.WorkerSettingsEnv",
+        lambda: WorkerSettingsEnv(
+            openrouter_api_key="test-key",
+            resume_judge_agent_model="judge-primary",
+            resume_judge_agent_fallback_model="judge-fallback",
+            resume_judge_agent_reasoning_effort="none",
+        ),
+    )
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: object())
+    monkeypatch.setattr("worker.post_callback_best_effort", fake_post_callback_best_effort)
+    monkeypatch.setattr("worker.judge_resume", fake_judge_resume)
+
+    await run_resume_judge_job(
+        {},
+        application_id="app-judge-1",
+        user_id="user-judge-1",
+        job_id="job-judge-1",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs",
+        base_resume_content="## Summary\nBuilt APIs.\n",
+        generated_resume_content="# Resume",
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+        evaluated_draft_updated_at="2026-04-07T12:10:00+00:00",
+        job_context_signature="backend engineer\x1facme\x1fbuild apis",
+    )
+
+    assert [payload["event"] for payload in callback_payloads] == ["started", "succeeded"]
+    assert callback_payloads[0]["job_context_signature"] == "backend engineer\x1facme\x1fbuild apis"
+    assert callback_payloads[-1]["result"]["job_context_signature"] == "backend engineer\x1facme\x1fbuild apis"
+    assert callback_payloads[-1]["result"]["display_score"] == 84
+
+
+@pytest.mark.asyncio
+async def test_run_resume_judge_job_posts_failure_payload_on_error(monkeypatch):
+    callback_payloads: list[dict[str, object]] = []
+
+    async def fake_post_callback_best_effort(callback, payload, *, path: str, app_id: str, job_id: str, callback_stage: str):
+        del callback, path, app_id, job_id, callback_stage
+        callback_payloads.append(payload)
+
+    async def fake_judge_resume(**kwargs):
+        del kwargs
+        raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr(
+        "worker.WorkerSettingsEnv",
+        lambda: WorkerSettingsEnv(
+            openrouter_api_key="test-key",
+            resume_judge_agent_model="judge-primary",
+            resume_judge_agent_fallback_model="judge-fallback",
+            resume_judge_agent_reasoning_effort="none",
+        ),
+    )
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: object())
+    monkeypatch.setattr("worker.post_callback_best_effort", fake_post_callback_best_effort)
+    monkeypatch.setattr("worker.judge_resume", fake_judge_resume)
+
+    with pytest.raises(RuntimeError, match="provider exploded"):
+        await run_resume_judge_job(
+            {},
+            application_id="app-judge-2",
+            user_id="user-judge-2",
+            job_id="job-judge-2",
+            job_title="Backend Engineer",
+            company_name="Acme",
+            job_description="Build APIs",
+        base_resume_content="## Summary\nBuilt APIs.\n",
+        generated_resume_content="# Resume",
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+        evaluated_draft_updated_at="2026-04-07T12:10:00+00:00",
+        job_context_signature="backend engineer\x1facme\x1fbuild apis",
+    )
+
+    assert [payload["event"] for payload in callback_payloads] == ["started", "failed"]
+    failure_result = callback_payloads[-1]["failure"]["result"]
+    assert failure_result["status"] == "failed"
+    assert failure_result["job_context_signature"] == "backend engineer\x1facme\x1fbuild apis"
+    assert failure_result["error"]["error_type"] == "RuntimeError"
 
 
 def test_worker_settings_disable_whole_job_generation_retries():
