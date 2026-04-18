@@ -1,5 +1,5 @@
 import { useLocation, Link } from "react-router-dom";
-import { useAppContext } from "@/components/layout/AppContext";
+import { useApplicationDetailQuery } from "@/lib/queries";
 
 type CrumbOverride = {
   label: string;
@@ -75,19 +75,18 @@ export function Breadcrumbs({ overrides }: BreadcrumbsProps) {
 
 /* Wrapper that uses app context for dynamic labels */
 export function AppBreadcrumbs() {
-  const { applications } = useAppContext();
   const { pathname } = useLocation();
 
   const overrides: Record<string, CrumbOverride> = {};
 
   // If we're on an application detail page, override the ID segment with company + title
   const appDetailMatch = pathname.match(/\/app\/applications\/([^/]+)/);
+  const applicationId = appDetailMatch?.[1];
+  const { data: application } = useApplicationDetailQuery(applicationId, { enabled: Boolean(applicationId) });
   if (appDetailMatch) {
-    const appId = appDetailMatch[1];
-    const app = applications?.find((a) => a.id === appId);
-    if (app) {
-      const label = [app.company, app.job_title].filter(Boolean).join(" — ") || "Application";
-      overrides[appId] = { label };
+    if (application) {
+      const label = [application.company, application.job_title].filter(Boolean).join(" — ") || "Application";
+      overrides[applicationId ?? appDetailMatch[1]] = { label };
     }
   }
 

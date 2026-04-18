@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -12,32 +13,25 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import {
   deleteBaseResume,
-  listBaseResumes,
   setDefaultBaseResume,
   type BaseResumeSummary,
 } from "@/lib/api";
+import { invalidateBaseResumeQueries, useBaseResumesQuery } from "@/lib/queries";
 
 export function BaseResumesPage() {
   const navigate = useNavigate();
-  const [resumes, setResumes] = useState<BaseResumeSummary[] | null>(null);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<BaseResumeSummary | null>(null);
   const { toast } = useToast();
   const deferredSearch = useDeferredValue(search);
-
-  useEffect(() => {
-    loadResumes();
-  }, []);
-
-  function loadResumes() {
-    setResumes(null);
-    setError(null);
-    listBaseResumes()
-      .then(setResumes)
-      .catch((err: Error) => setError(err.message));
-  }
+  const {
+    data: resumes,
+    error: queryError,
+  } = useBaseResumesQuery();
+  const displayedError = error ?? (queryError instanceof Error ? queryError.message : null);
 
   async function handleSetDefault(resumeId: string) {
     setActionInProgress(resumeId);
@@ -45,7 +39,7 @@ export function BaseResumesPage() {
     try {
       await setDefaultBaseResume(resumeId);
       toast("Default resume updated");
-      loadResumes();
+      await invalidateBaseResumeQueries(queryClient);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to set default resume.");
       toast("Failed to set default", "error");
@@ -61,7 +55,7 @@ export function BaseResumesPage() {
     try {
       await deleteBaseResume(deleteTarget.id);
       toast(`"${deleteTarget.name}" deleted`);
-      loadResumes();
+      await invalidateBaseResumeQueries(queryClient);
       setDeleteTarget(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete resume.");
@@ -88,14 +82,14 @@ export function BaseResumesPage() {
         }
       />
 
-      {error && (
+      {displayedError && (
         <Card variant="danger" density="compact">
           <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>Request failed</p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{error}</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{displayedError}</p>
         </Card>
       )}
 
-      {resumes === null ? (
+      {resumes == null ? (
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
           {Array.from({ length: 2 }).map((_, i) => <SkeletonCard key={i} density="compact" />)}
         </div>

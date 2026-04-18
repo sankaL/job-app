@@ -1,9 +1,9 @@
 import { useDeferredValue, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CircleStop, Trash2 } from "lucide-react";
 import { CreateApplicationModal } from "@/components/applications/CreateApplicationModal";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { useAppContext } from "@/components/layout/AppContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,7 @@ import {
   patchApplication,
   type ApplicationSummary,
 } from "@/lib/api";
-import { NOTIFICATIONS_CLEARED_EVENT } from "@/lib/events";
+import { invalidateApplicationQueries, queryKeys, useApplicationsQuery } from "@/lib/queries";
 
 const ACTIVE_EXTRACTION_STATES = new Set(["extraction_pending", "extracting"]);
 const ACTIVE_DELETE_BLOCKING_STATES = new Set([
@@ -90,9 +90,8 @@ function SelectionCheckbox({
 
 export function ApplicationsListPage() {
   const navigate = useNavigate();
-  const { refreshApplications } = useAppContext();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [applications, setApplications] = useState<ApplicationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [search, setSearch] = useState("");
@@ -111,33 +110,13 @@ export function ApplicationsListPage() {
   } | null>(null);
   const [isRowActionSubmitting, setIsRowActionSubmitting] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
-
-  async function loadApplications() {
-    try {
-      const response = await listApplications();
-      setApplications(response);
-      setError(null);
-      return response;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load applications.");
-      return null;
-    }
-  }
-
-  useEffect(() => {
-    void loadApplications();
-  }, []);
-
-  useEffect(() => {
-    function handleNotificationsCleared() {
-      void loadApplications();
-    }
-
-    window.addEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
-    return () => window.removeEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
-  }, []);
-
+  const {
+    data: applications,
+    error: queryError,
+  } = useApplicationsQuery();
   const sourceApplications = applications ?? [];
+  const requestError = queryError instanceof Error ? queryError.message : null;
+  const displayedError = error ?? requestError;
   const searchTerm = deferredSearch.trim().toLowerCase();
   const filteredApplications = sourceApplications.filter((app) => {
     const matchesSearch =
@@ -169,21 +148,23 @@ export function ApplicationsListPage() {
 
   async function handleCreateApplication(payload: { job_url: string; source_text?: string }) {
     const detail = await createApplication(payload);
-    void refreshApplications();
+    queryClient.setQueryData(queryKeys.application(detail.id), detail);
+    await invalidateApplicationQueries(queryClient, detail.id);
     toast("Application created successfully");
     navigate(`/app/applications/${detail.id}`);
   }
 
   async function handleAppliedToggle(applicationId: string, applied: boolean) {
     if (!applications) return;
-    const previous = applications;
-    setApplications(
-      applications.map((a) => (a.id === applicationId ? { ...a, applied } : a)),
+    const previous = queryClient.getQueryData<ApplicationSummary[]>(queryKeys.applications);
+    queryClient.setQueryData<ApplicationSummary[] | undefined>(queryKeys.applications, (current) =>
+      current?.map((a) => (a.id === applicationId ? { ...a, applied } : a)),
     );
     try {
       const detail = await patchApplication(applicationId, { applied });
-      setApplications(
-        previous.map((a) =>
+      queryClient.setQueryData(queryKeys.application(applicationId), detail);
+      queryClient.setQueryData<ApplicationSummary[] | undefined>(queryKeys.applications, (current) =>
+        current?.map((a) =>
           a.id === applicationId
             ? {
                 ...a,
@@ -199,10 +180,10 @@ export function ApplicationsListPage() {
             : a,
         ),
       );
-      refreshApplications();
+      await invalidateApplicationQueries(queryClient, applicationId);
       toast(applied ? "Marked as applied" : "Unmarked as applied");
     } catch (err) {
-      setApplications(previous);
+      queryClient.setQueryData(queryKeys.applications, previous);
       setError(err instanceof Error ? err.message : "Unable to update applied state.");
       toast("Failed to update applied status", "error");
     }
@@ -244,8 +225,7 @@ export function ApplicationsListPage() {
   }
 
   async function syncApplicationLists() {
-    await loadApplications();
-    void refreshApplications();
+    await invalidateApplicationQueries(queryClient);
   }
 
   async function handleBulkMarkApplied() {
@@ -516,7 +496,7 @@ export function ApplicationsListPage() {
       <PageHeader
         title="Applications"
         subtitle={
-          applications !== null
+          applications != null
             ? `${applications.length} total · ${applications.filter((a) => a.applied).length} applied`
             : "Loading…"
         }
@@ -527,12 +507,12 @@ export function ApplicationsListPage() {
         }
       />
 
-      {error && (
+      {displayedError && (
         <Card variant="danger" density="compact">
           <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>
             Request failed
           </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{error}</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{displayedError}</p>
         </Card>
       )}
 
@@ -656,7 +636,7 @@ export function ApplicationsListPage() {
         </Card>
       )}
 
-      {applications === null ? (
+      {applications == null ? (
         <SkeletonTable rows={8} columns={7} />
       ) : (
         <DataTable

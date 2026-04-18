@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { ChevronDown, CircleStop, FileText, Gauge, MessageSquare, Ruler, Sparkles, Trash2 } from "lucide-react";
@@ -49,7 +50,15 @@ import {
   type ResumeDraft,
 } from "@/lib/api";
 import { AGGRESSIVENESS_OPTIONS, jobPostingOriginOptions, PAGE_LENGTH_OPTIONS } from "@/lib/application-options";
-import { NOTIFICATIONS_CLEARED_EVENT } from "@/lib/events";
+import {
+  invalidateApplicationDraftQueries,
+  invalidateApplicationQueries,
+  queryKeys,
+  useApplicationDetailQuery,
+  useApplicationDraftQuery,
+  useApplicationProgressQuery,
+  useBaseResumesQuery,
+} from "@/lib/queries";
 
 type JobFormState = {
   job_title: string;
@@ -342,7 +351,7 @@ function getSectionRegenerationBlocker(
 
 export function ApplicationDetailPage() {
   const navigate = useNavigate();
-  const { refreshApplications } = useAppContext();
+  const queryClient = useQueryClient();
   const { setMode: setShellLayoutMode, clearMode: clearShellLayoutMode } = useShellLayout();
   const { toast } = useToast();
   const { applicationId } = useParams<{ applicationId: string }>();
@@ -403,6 +412,25 @@ export function ApplicationDetailPage() {
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
   const [hasUserModifiedSettings, setHasUserModifiedSettings] = useState(false);
+  const resumeJudgePending = isResumeJudgePending(detail, draft);
+  const detailQuery = useApplicationDetailQuery(applicationId, {
+    refetchInterval: resumeJudgePending ? 5000 : false,
+  });
+  const shouldLoadDraft = Boolean(
+    applicationId && detail && ["resume_ready", "regenerating_full", "regenerating_section"].includes(detail.internal_state),
+  );
+  const draftQuery = useApplicationDraftQuery(applicationId, shouldLoadDraft);
+  const shouldPollProgress = Boolean(
+    applicationId &&
+      detail &&
+      (EXTRACTION_POLL_STATES.includes(detail.internal_state) || isGenerationWorkflowActive(detail)),
+  );
+  const progressQuery = useApplicationProgressQuery(applicationId, {
+    enabled: shouldPollProgress,
+    refetchInterval: shouldPollProgress ? 3000 : false,
+  });
+  const extractionStates = ["extraction_pending", "extracting", "manual_entry_required", "duplicate_review_required"];
+  const baseResumesQuery = useBaseResumesQuery(Boolean(detail && !extractionStates.includes(detail.internal_state)));
 
   // Track last saved values for dirty state detection
   const savedJobForm = useMemo(() => ({
@@ -450,7 +478,6 @@ export function ApplicationDetailPage() {
   const generationStartBlocker = getGenerationStartBlocker(detail, selectedResumeId, baseResumes.length);
   const fullRegenerationBlocker = getFullRegenerationBlocker(detail);
   const sectionRegenerationBlocker = getSectionRegenerationBlocker(detail, regenSectionName, regenInstructions);
-  const resumeJudgePending = isResumeJudgePending(detail, draft);
   const resumeJudgeStale = isResumeJudgeStale(detail, draft);
   const resumeJudge = detail?.resume_judge_result ?? null;
   const resumeJudgeDimensionEntries = useMemo(() => getResumeJudgeDimensionEntries(resumeJudge), [resumeJudge]);
@@ -474,6 +501,7 @@ export function ApplicationDetailPage() {
 
   function applyDetailState(response: ApplicationDetail, options?: { refreshShell?: boolean }) {
     const generationActive = isGenerationWorkflowActive(response);
+    queryClient.setQueryData(queryKeys.application(response.id), response);
     setDetail(response);
     setNotesDraft(response.notes ?? "");
     setJobForm({
@@ -496,7 +524,7 @@ export function ApplicationDetailPage() {
       setShowOptimisticProgress(false);
     }
     if (options?.refreshShell) {
-      void refreshApplications();
+      void invalidateApplicationQueries(queryClient, response.id);
     }
   }
 
@@ -514,6 +542,9 @@ export function ApplicationDetailPage() {
   }
 
   function applyDraftState(response: ResumeDraft | null) {
+    if (applicationId) {
+      queryClient.setQueryData(queryKeys.applicationDraft(applicationId), response);
+    }
     setDraft(response);
     if (!response) return;
     // Only apply draft generation params if:
@@ -565,149 +596,105 @@ export function ApplicationDetailPage() {
   }, [regenMenuOpen]);
 
   useEffect(() => {
-    if (!applicationId) return;
-    fetchApplicationDetail(applicationId)
-      .then((response) => { applyDetailState(response); setError(null); })
-      .catch((err: Error) => setError(err.message));
-  }, [applicationId]);
+    if (!detailQuery.data) return;
+    applyDetailState(detailQuery.data);
+    setError(null);
+  }, [detailQuery.data]);
 
   useEffect(() => {
-    if (!applicationId) return;
-    const currentApplicationId = applicationId;
+    if (!(detailQuery.error instanceof Error)) return;
+    setError(detailQuery.error.message);
+  }, [detailQuery.error]);
 
-    function handleNotificationsCleared() {
-      fetchApplicationDetail(currentApplicationId)
-        .then((response) => {
-          applyDetailState(response);
-          setError(null);
-        })
-        .catch((err: Error) => setError(err.message));
+  useEffect(() => {
+    if (!applicationId || !detail || !progressQuery.data) return;
+    if (!EXTRACTION_POLL_STATES.includes(detail.internal_state)) {
+      setProgress(null);
+      return;
     }
-
-    window.addEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
-    return () => window.removeEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
-  }, [applicationId]);
-
-  useEffect(() => {
-    if (!applicationId) return;
-    const shouldPoll = detail && EXTRACTION_POLL_STATES.includes(detail.internal_state);
-    if (!shouldPoll) { setProgress(null); return; }
-    let isCancelled = false;
-    const pollProgress = async () => {
-      if (isCancelled) return;
-      try {
-        const nextProgress = await fetchApplicationProgress(applicationId);
-        if (isCancelled) return;
-        setProgress(nextProgress);
-        if (!EXTRACTION_POLL_STATES.includes(nextProgress.state) || nextProgress.completed_at || nextProgress.terminal_error_code) {
-          if (isCancelled) return;
-          try {
-            const response = await fetchApplicationDetail(applicationId);
-            if (isCancelled) return;
-            applyDetailState(response, { refreshShell: true });
-            if (EXTRACTION_POLL_STATES.includes(response.internal_state) && response.failure_reason === null) {
-              applyTerminalExtractionFallback(nextProgress);
-              if (isTerminalExtractionSuccess(nextProgress)) {
-                setError(null);
-              } else {
-                setError(extractionFallbackMessage(nextProgress));
-              }
-            } else {
-              setError(null);
-            }
-          } catch (requestError) {
-            if (isCancelled) return;
-            applyTerminalExtractionFallback(nextProgress);
-            if (isTerminalExtractionSuccess(nextProgress)) {
-              setError(null);
-            } else {
-              setError(
-                requestError instanceof Error
-                  ? requestError.message
-                  : extractionFallbackMessage(nextProgress),
-              );
-            }
+    const nextProgress = progressQuery.data;
+    setProgress(nextProgress);
+    if (EXTRACTION_POLL_STATES.includes(nextProgress.state) && !nextProgress.completed_at && !nextProgress.terminal_error_code) {
+      return;
+    }
+    detailQuery
+      .refetch()
+      .then((result) => {
+        const response = result.data;
+        if (!response) {
+          applyTerminalExtractionFallback(nextProgress);
+          if (isTerminalExtractionSuccess(nextProgress)) {
+            setError(null);
+          } else {
+            setError(extractionFallbackMessage(nextProgress));
           }
-        }
-      } catch { /* retry on next interval */ }
-    };
-    void pollProgress();
-    const interval = window.setInterval(() => void pollProgress(), 2000);
-    return () => { isCancelled = true; window.clearInterval(interval); };
-  }, [applicationId, detail?.internal_state]);
-
-  useEffect(() => {
-    if (!applicationId) return;
-    const shouldPoll = isGenerationWorkflowActive(detail);
-    if (!shouldPoll) { setGenerationProgress(null); return; }
-    let isCancelled = false;
-    const pollProgress = async () => {
-      if (isCancelled) return;
-      try {
-        const nextProgress = await fetchApplicationProgress(applicationId);
-        if (isCancelled) return;
-        setShowOptimisticProgress(false);
-        setGenerationProgress(nextProgress);
-        const stillGenerating = isGenerationProgressActive(nextProgress);
-        if (!stillGenerating) {
-          if (isCancelled) return;
-          try {
-            const response = await fetchApplicationDetail(applicationId);
-            if (!isCancelled) {
-              applyDetailState(response, { refreshShell: true });
-              if (nextProgress.state === "resume_ready" && !nextProgress.terminal_error_code) {
-                void fetchDraft(applicationId).then(applyDraftState).catch(() => {});
-              }
-              setError(null);
-            }
-          } catch (requestError) {
-            if (isCancelled) return;
-            applyTerminalGenerationFallback(nextProgress);
-            setError(requestError instanceof Error ? requestError.message : "Generation finished, but the application could not be refreshed.");
-          }
-        }
-      } catch { /* retry on next interval */ }
-    };
-    void pollProgress();
-    const interval = window.setInterval(() => void pollProgress(), 2000);
-    return () => { isCancelled = true; window.clearInterval(interval); };
-  }, [applicationId, detail?.internal_state, detail?.failure_reason]);
-
-  useEffect(() => {
-    if (!applicationId || !detail) return;
-    if (!["resume_ready", "regenerating_full", "regenerating_section"].includes(detail.internal_state)) return;
-    fetchDraft(applicationId).then(applyDraftState).catch(() => {});
-  }, [applicationId, detail?.internal_state]);
-
-  useEffect(() => {
-    if (!applicationId || !resumeJudgePending) return;
-    let isCancelled = false;
-
-    const pollJudge = async () => {
-      if (isCancelled) return;
-      try {
-        const response = await fetchApplicationDetail(applicationId);
-        if (isCancelled) return;
-        applyDetailState(response);
-        if (
-          response.internal_state === "resume_ready" &&
-          response.resume_judge_result?.evaluated_draft_updated_at &&
-          response.resume_judge_result.evaluated_draft_updated_at !== draft?.updated_at
-        ) {
           return;
         }
-      } catch {
-        /* retry on next interval */
-      }
-    };
+        applyDetailState(response, { refreshShell: true });
+        if (EXTRACTION_POLL_STATES.includes(response.internal_state) && response.failure_reason === null) {
+          applyTerminalExtractionFallback(nextProgress);
+          if (isTerminalExtractionSuccess(nextProgress)) {
+            setError(null);
+          } else {
+            setError(extractionFallbackMessage(nextProgress));
+          }
+          return;
+        }
+        setError(null);
+      })
+      .catch((requestError) => {
+        applyTerminalExtractionFallback(nextProgress);
+        if (isTerminalExtractionSuccess(nextProgress)) {
+          setError(null);
+        } else {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : extractionFallbackMessage(nextProgress),
+          );
+        }
+      });
+  }, [applicationId, detail, detailQuery, progressQuery.data]);
 
-    void pollJudge();
-    const interval = window.setInterval(() => void pollJudge(), 2500);
-    return () => {
-      isCancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [applicationId, resumeJudgePending, draft?.updated_at]);
+  useEffect(() => {
+    if (!applicationId || !detail || !progressQuery.data) return;
+    if (!isGenerationWorkflowActive(detail)) {
+      setGenerationProgress(null);
+      return;
+    }
+    const nextProgress = progressQuery.data;
+    setShowOptimisticProgress(false);
+    setGenerationProgress(nextProgress);
+    if (isGenerationProgressActive(nextProgress)) {
+      return;
+    }
+    detailQuery
+      .refetch()
+      .then(async (result) => {
+        const response = result.data;
+        if (!response) {
+          applyTerminalGenerationFallback(nextProgress);
+          setError("Generation finished, but the application could not be refreshed.");
+          return;
+        }
+        applyDetailState(response, { refreshShell: true });
+        if (nextProgress.state === "resume_ready" && !nextProgress.terminal_error_code) {
+          await invalidateApplicationDraftQueries(queryClient, applicationId);
+        }
+        setError(null);
+      })
+      .catch((requestError) => {
+        applyTerminalGenerationFallback(nextProgress);
+        setError(requestError instanceof Error ? requestError.message : "Generation finished, but the application could not be refreshed.");
+      });
+  }, [applicationId, detail, detailQuery, progressQuery.data, queryClient]);
+
+  useEffect(() => {
+    if (draftQuery.data === undefined && shouldLoadDraft) {
+      return;
+    }
+    applyDraftState(draftQuery.data ?? null);
+  }, [draftQuery.data, shouldLoadDraft]);
 
   useEffect(() => {
     if (!draft || !comparisonBaseResumeId) {
@@ -767,26 +754,25 @@ export function ApplicationDetailPage() {
     const timeout = window.setTimeout(() => {
       setNotesState("saving");
       patchApplication(applicationId, { notes: notesDraft })
-        .then((response) => { setDetail(response); setNotesState("saved"); })
+        .then((response) => {
+          setDetail(response);
+          setNotesState("saved");
+        })
         .catch((err: Error) => { setError(err.message); setNotesState("idle"); });
     }, 500);
     return () => window.clearTimeout(timeout);
   }, [applicationId, detail, notesDraft]);
 
   useEffect(() => {
-    if (!detail) return;
-    const extractionStates = ["extraction_pending", "extracting", "manual_entry_required", "duplicate_review_required"];
-    if (extractionStates.includes(detail.internal_state)) return;
-    listBaseResumes()
-      .then((resumes) => {
-        setBaseResumes(resumes);
-        if (!selectedResumeId && resumes.length > 0) {
-          const defaultResume = resumes.find((r) => r.is_default);
-          if (defaultResume) setSelectedResumeId(defaultResume.id);
-        }
-      })
-      .catch(() => {});
-  }, [detail, selectedResumeId]);
+    if (!baseResumesQuery.data) return;
+    setBaseResumes(baseResumesQuery.data);
+    if (!selectedResumeId && baseResumesQuery.data.length > 0) {
+      const defaultResume = baseResumesQuery.data.find((resume) => resume.is_default);
+      if (defaultResume) {
+        setSelectedResumeId(defaultResume.id);
+      }
+    }
+  }, [baseResumesQuery.data, selectedResumeId]);
 
   if (!applicationId) return null;
   const activeApplicationId = applicationId;
@@ -891,7 +877,7 @@ export function ApplicationDetailPage() {
     setError(null);
     try {
       await deleteApplication(activeApplicationId);
-      void refreshApplications();
+      await invalidateApplicationQueries(queryClient, activeApplicationId);
       setShowDeleteConfirm(false);
       toast("Application deleted.");
       navigate("/app/applications");
@@ -997,7 +983,9 @@ export function ApplicationDetailPage() {
     setError(null);
     try {
       const updated = await saveDraft(activeApplicationId, editContent);
+      queryClient.setQueryData(queryKeys.applicationDraft(activeApplicationId), updated);
       applyDraftState(updated);
+      await invalidateApplicationDraftQueries(queryClient, activeApplicationId);
       setEditMode(false);
       toast("Draft saved successfully");
     } catch (err) {
@@ -1099,6 +1087,7 @@ export function ApplicationDetailPage() {
     try {
       const response = await triggerResumeJudge(activeApplicationId);
       applyDetailState(response);
+      await invalidateApplicationQueries(queryClient, activeApplicationId);
       toast(resumeJudgeStale ? "Resume re-evaluation queued" : "Resume Judge queued");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to run Resume Judge.");
@@ -1131,8 +1120,11 @@ export function ApplicationDetailPage() {
         }
         URL.revokeObjectURL(url);
       }
-      const updated = await fetchApplicationDetail(activeApplicationId);
-      applyDetailState(updated, { refreshShell: true });
+      await invalidateApplicationDraftQueries(queryClient, activeApplicationId);
+      const updated = await detailQuery.refetch();
+      if (updated.data) {
+        applyDetailState(updated.data, { refreshShell: true });
+      }
       toast(`${format.toUpperCase()} exported successfully`);
     } catch (err) {
       setError(err instanceof Error ? err.message : `Unable to export ${format.toUpperCase()}.`);

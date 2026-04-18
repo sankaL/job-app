@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,12 +12,13 @@ import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { AppShell } from "@/routes/AppShell";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
 import { ApplicationsListPage } from "@/routes/ApplicationsListPage";
+import { AdminUsersPage } from "@/routes/AdminUsersPage";
 import { BaseResumeEditorPage } from "@/routes/BaseResumeEditorPage";
 import { BaseResumesPage } from "@/routes/BaseResumesPage";
 import { DashboardPage } from "@/routes/DashboardPage";
 import { ExtensionPage } from "@/routes/ExtensionPage";
 import { ProfilePage } from "@/routes/ProfilePage";
-import { NOTIFICATIONS_CLEARED_EVENT } from "@/lib/events";
+import { createAppQueryClient } from "@/lib/query-client";
 
 const api = vi.hoisted(() => ({
   cancelExtraction: vi.fn(),
@@ -24,22 +26,28 @@ const api = vi.hoisted(() => ({
   createApplication: vi.fn(),
   createBaseResume: vi.fn(),
   clearNotifications: vi.fn(),
+  deactivateAdminUser: vi.fn(),
   deleteApplication: vi.fn(),
+  deleteAdminUser: vi.fn(),
   deleteBaseResume: vi.fn(),
   exportDocx: vi.fn(),
   exportPdf: vi.fn(),
   fetchExtensionStatus: vi.fn(),
   fetchApplicationDetail: vi.fn(),
+  fetchAdminMetrics: vi.fn(),
   fetchProfile: vi.fn(),
   fetchApplicationProgress: vi.fn(),
   fetchBaseResume: vi.fn(),
   fetchDraft: vi.fn(),
   fetchSessionBootstrap: vi.fn(),
+  inviteAdminUser: vi.fn(),
   issueExtensionToken: vi.fn(),
+  listAdminUsers: vi.fn(),
   listBaseResumes: vi.fn(),
   listApplications: vi.fn(),
   listNotifications: vi.fn(),
   patchApplication: vi.fn(),
+  reactivateAdminUser: vi.fn(),
   recoverApplicationFromSource: vi.fn(),
   resolveDuplicate: vi.fn(),
   revokeExtensionToken: vi.fn(),
@@ -51,6 +59,7 @@ const api = vi.hoisted(() => ({
   triggerGeneration: vi.fn(),
   triggerResumeJudge: vi.fn(),
   triggerSectionRegeneration: vi.fn(),
+  updateAdminUser: vi.fn(),
   updateBaseResume: vi.fn(),
   updateProfile: vi.fn(),
   uploadBaseResume: vi.fn(),
@@ -67,7 +76,34 @@ vi.mock("@/lib/supabase", () => ({
 
 const defaultBootstrap = {
   user: { id: "u1", email: "test@test.com", role: null },
-  profile: null,
+  profile: {
+    id: "user-1",
+    email: "test@test.com",
+    first_name: "Alex",
+    last_name: "Example",
+    name: "Alex Example",
+    phone: "555-0100",
+    address: "Toronto, ON",
+    linkedin_url: "https://linkedin.com/in/alex-example",
+    is_admin: false,
+    is_active: true,
+    onboarding_completed_at: "2026-04-07T12:00:00Z",
+    default_base_resume_id: null,
+    section_preferences: {
+      summary: true,
+      professional_experience: true,
+      education: true,
+      skills: true,
+    },
+    section_order: ["summary", "professional_experience", "education", "skills"],
+    created_at: "2026-04-07T12:00:00Z",
+    updated_at: "2026-04-07T12:00:00Z",
+  },
+  application_summary: {
+    total_count: 0,
+    applied_count: 0,
+    needs_action_count: 0,
+  },
   workflow_contract_version: "1",
 };
 
@@ -113,20 +149,45 @@ function buildApplicationDetail(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildAdminUser(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "user-2",
+    email: "member@example.com",
+    first_name: "Casey",
+    last_name: "Member",
+    name: "Casey Member",
+    address: "Toronto, ON",
+    phone: "555-0134",
+    linkedin_url: "https://linkedin.com/in/casey-member",
+    is_admin: false,
+    is_active: true,
+    onboarding_completed_at: "2026-04-07T12:00:00Z",
+    latest_invite_status: "accepted",
+    latest_invite_sent_at: "2026-04-07T12:00:00Z",
+    latest_invite_expires_at: "2026-04-14T12:00:00Z",
+    created_at: "2026-04-07T12:00:00Z",
+    updated_at: "2026-04-07T12:05:00Z",
+    ...overrides,
+  };
+}
+
 function renderWithAppProvider(
   ui: ReactNode,
   options?: {
     initialEntries?: string[];
   },
 ) {
+  const queryClient = createAppQueryClient();
   return render(
-    <MemoryRouter initialEntries={options?.initialEntries}>
-      <AppProvider>
-        <ToastProvider>
-          <ShellLayoutProvider>{ui}</ShellLayoutProvider>
-        </ToastProvider>
-      </AppProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={options?.initialEntries}>
+        <AppProvider>
+          <ToastProvider>
+            <ShellLayoutProvider>{ui}</ShellLayoutProvider>
+          </ToastProvider>
+        </AppProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -188,6 +249,7 @@ describe("phase 1 applications UI", () => {
       created_at: "2026-04-07T12:00:00Z",
       updated_at: "2026-04-07T12:00:00Z",
     });
+    api.listAdminUsers.mockResolvedValue([]);
     api.listBaseResumes.mockResolvedValue([]);
     api.listApplications.mockResolvedValue([]);
     api.listNotifications.mockResolvedValue([]);
@@ -222,6 +284,54 @@ describe("phase 1 applications UI", () => {
 
     expect(await screen.findByText(/no applications yet/i)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /new application/i })).not.toHaveLength(0);
+  });
+
+  it("loads the applications page with one bootstrap request and one applications request", async () => {
+    api.listApplications.mockResolvedValue([]);
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    expect(await screen.findByText(/no applications yet/i)).toBeInTheDocument();
+    expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
+    expect(api.listApplications).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads the dashboard with one bootstrap request and one applications request", async () => {
+    api.listApplications.mockResolvedValue([]);
+
+    renderWithAppProvider(<DashboardPage />);
+
+    expect(await screen.findByText(/no applications yet/i)).toBeInTheDocument();
+    expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
+    expect(api.listApplications).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads the resumes page with one bootstrap request and one base resumes request", async () => {
+    api.listBaseResumes.mockResolvedValue([]);
+
+    renderWithAppProvider(<BaseResumesPage />);
+
+    expect(await screen.findByText(/no resumes yet/i)).toBeInTheDocument();
+    expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
+    expect(api.listBaseResumes).toHaveBeenCalledTimes(1);
+    expect(api.listApplications).toHaveBeenCalledTimes(0);
+  });
+
+  it("initializes the profile page from bootstrap without calling the profile endpoint", async () => {
+    renderWithAppProvider(<ProfilePage />);
+
+    expect(await screen.findByDisplayValue("Alex Example")).toBeInTheDocument();
+    expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
+    expect(api.fetchProfile).not.toHaveBeenCalled();
+  });
+
+  it("shows a recoverable error on the profile page when bootstrap fails", async () => {
+    api.fetchSessionBootstrap.mockRejectedValue(new Error("Session bootstrap failed."));
+
+    renderWithAppProvider(<ProfilePage />);
+
+    expect(await screen.findByText(/profile unavailable/i, {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByText("Session bootstrap failed.")).toBeInTheDocument();
   });
 
   it("opens a new application modal with only the URL field visible by default", async () => {
@@ -406,47 +516,45 @@ describe("phase 1 applications UI", () => {
     expect(await screen.findByText(/no notifications yet/i)).toBeInTheDocument();
   });
 
-  it("refreshes the applications list when notifications are cleared elsewhere", async () => {
-    api.listApplications
-      .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: true })])
-      .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: true })])
-      .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: false })]);
-
-    renderWithAppProvider(<ApplicationsListPage />);
-
-    expect(await screen.findByText(/action required/i)).toBeInTheDocument();
-
-    await act(async () => {
-      window.dispatchEvent(new Event(NOTIFICATIONS_CLEARED_EVENT));
-    });
-
-    await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(3));
-    expect(screen.queryByText(/action required/i)).not.toBeInTheDocument();
-  });
-
   it("clears only notifications that do not need attention", async () => {
     api.listApplications
       .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: true })])
-      .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: true })]);
-    api.listNotifications.mockResolvedValue([
-      buildNotificationSummary({
-        id: "notif-clear",
-        application_id: "app-1",
-        message: "Resume needs manual review.",
-        action_required: true,
-        type: "warning",
-      }),
-      buildNotificationSummary({
-        id: "notif-clearable",
-        application_id: null,
-        message: "Export completed successfully.",
-        action_required: false,
-        type: "success",
-      }),
-    ]);
+      .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: false })]);
+    api.listNotifications
+      .mockResolvedValueOnce([
+        buildNotificationSummary({
+          id: "notif-clear",
+          application_id: "app-1",
+          message: "Resume needs manual review.",
+          action_required: true,
+          type: "warning",
+        }),
+        buildNotificationSummary({
+          id: "notif-clearable",
+          application_id: null,
+          message: "Export completed successfully.",
+          action_required: false,
+          type: "success",
+        }),
+      ])
+      .mockResolvedValueOnce([
+        buildNotificationSummary({
+          id: "notif-clear",
+          application_id: "app-1",
+          message: "Resume needs manual review.",
+          action_required: true,
+          type: "warning",
+        }),
+      ]);
     api.clearNotifications.mockResolvedValue(undefined);
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
 
-    renderTopBar();
+    renderWithAppProvider(
+      <>
+        <TopBar />
+        <ApplicationsListPage />
+      </>,
+    );
 
     await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
     await userEvent.click(await screen.findByRole("button", { name: /clear all/i }));
@@ -456,6 +564,7 @@ describe("phase 1 applications UI", () => {
     expect(await screen.findByText("Resume needs manual review.")).toBeInTheDocument();
     expect(screen.queryByText("Export completed successfully.")).not.toBeInTheDocument();
     expect(screen.getByText("Cleared notifications that do not need attention.")).toBeInTheDocument();
+    expect(dispatchSpy).not.toHaveBeenCalled();
   });
 
   it("shows a sanitized error state when notifications fail to load", async () => {
@@ -676,11 +785,7 @@ describe("phase 1 applications UI", () => {
   it("surfaces dashboard load failures instead of showing the empty state", async () => {
     api.listApplications.mockRejectedValueOnce(new Error("Session expired."));
 
-    render(
-      <MemoryRouter>
-        <DashboardPage />
-      </MemoryRouter>,
-    );
+    renderWithAppProvider(<DashboardPage />);
 
     expect(await screen.findByText(/dashboard unavailable/i)).toBeInTheDocument();
     expect(screen.getByText(/session expired/i)).toBeInTheDocument();
@@ -790,11 +895,7 @@ describe("phase 1 applications UI", () => {
       },
     ]);
 
-    render(
-      <MemoryRouter>
-        <DashboardPage />
-      </MemoryRouter>,
-    );
+    renderWithAppProvider(<DashboardPage />);
 
     expect(await screen.findByText("Monthly Activity")).toBeInTheDocument();
     expect(screen.getByText("Job Sources")).toBeInTheDocument();
@@ -831,11 +932,7 @@ describe("phase 1 applications UI", () => {
       buildApplicationSummary({ id: "app-8", job_posting_origin: "monster" }),
     ]);
 
-    render(
-      <MemoryRouter>
-        <DashboardPage />
-      </MemoryRouter>,
-    );
+    renderWithAppProvider(<DashboardPage />);
 
     expect(await screen.findByText("Job Sources")).toBeInTheDocument();
     expect(screen.getByText("LinkedIn")).toBeInTheDocument();
@@ -850,17 +947,19 @@ describe("phase 1 applications UI", () => {
 
   it("renders authenticated pages inside the fluid shell without a desktop max-width cap", async () => {
     render(
-      <MemoryRouter initialEntries={["/app"]}>
-        <AppProvider>
-          <ToastProvider>
-            <Routes>
-              <Route path="/app" element={<AppShell />}>
-                <Route index element={<div>Shell Child</div>} />
-              </Route>
-            </Routes>
-          </ToastProvider>
-        </AppProvider>
-      </MemoryRouter>,
+      <QueryClientProvider client={createAppQueryClient()}>
+        <MemoryRouter initialEntries={["/app"]}>
+          <AppProvider>
+            <ToastProvider>
+              <Routes>
+                <Route path="/app" element={<AppShell />}>
+                  <Route index element={<div>Shell Child</div>} />
+                </Route>
+              </Routes>
+            </ToastProvider>
+          </AppProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     const shellChild = await screen.findByText("Shell Child");
@@ -1307,61 +1406,51 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
   });
 
-  it("refreshes the detail header attention state when notifications are cleared elsewhere", async () => {
-    api.fetchApplicationDetail
-      .mockResolvedValueOnce({
-        id: "app-1",
-        job_url: "https://example.com/job",
-        job_title: "Backend Engineer",
-        company: "Acme",
-        job_description: "Build APIs",
-        extracted_reference_id: null,
-        job_posting_origin: "linkedin",
-        job_posting_origin_other_text: null,
-        base_resume_id: null,
-        base_resume_name: null,
-        visible_status: "in_progress",
-        internal_state: "resume_ready",
-        failure_reason: null,
-        extraction_failure_details: null,
-        generation_failure_details: null,
-        applied: false,
-        duplicate_similarity_score: null,
-        duplicate_resolution_status: null,
-        duplicate_matched_application_id: null,
-        notes: null,
-        created_at: "2026-04-07T12:00:00Z",
-        updated_at: "2026-04-07T12:05:00Z",
-        has_action_required_notification: true,
-        duplicate_warning: null,
-      })
-      .mockResolvedValueOnce({
-        id: "app-1",
-        job_url: "https://example.com/job",
-        job_title: "Backend Engineer",
-        company: "Acme",
-        job_description: "Build APIs",
-        extracted_reference_id: null,
-        job_posting_origin: "linkedin",
-        job_posting_origin_other_text: null,
-        base_resume_id: null,
-        base_resume_name: null,
-        visible_status: "in_progress",
-        internal_state: "resume_ready",
-        failure_reason: null,
-        extraction_failure_details: null,
-        generation_failure_details: null,
-        applied: false,
-        duplicate_similarity_score: null,
-        duplicate_resolution_status: null,
-        duplicate_matched_application_id: null,
-        notes: null,
-        created_at: "2026-04-07T12:00:00Z",
-        updated_at: "2026-04-07T12:06:00Z",
-        has_action_required_notification: false,
-        duplicate_warning: null,
-      });
+  it("does not re-request base resumes when notes autosave updates unrelated detail state", async () => {
+    api.fetchApplicationDetail.mockResolvedValue({
+      id: "app-1",
+      job_url: "https://example.com/job",
+      job_title: "Backend Engineer",
+      company: "Acme",
+      job_description: "Build APIs",
+      extracted_reference_id: null,
+      job_posting_origin: "linkedin",
+      job_posting_origin_other_text: null,
+      base_resume_id: "resume-1",
+      base_resume_name: "Default Resume",
+      visible_status: "in_progress",
+      internal_state: "resume_ready",
+      failure_reason: null,
+      extraction_failure_details: null,
+      generation_failure_details: null,
+      applied: false,
+      duplicate_similarity_score: null,
+      duplicate_resolution_status: null,
+      duplicate_matched_application_id: null,
+      notes: null,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:05:00Z",
+      has_action_required_notification: false,
+      duplicate_warning: null,
+    });
     api.fetchDraft.mockResolvedValue(null);
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
+    api.patchApplication.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+        notes: "Remember recruiter context",
+      }),
+    );
 
     renderWithAppProvider(
       <Routes>
@@ -1370,14 +1459,112 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/action required/i)).toBeInTheDocument();
+    const notesInput = await screen.findByPlaceholderText(/add your own notes/i);
+    expect(api.listBaseResumes).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(notesInput, { target: { value: "Remember recruiter context" } });
+
+    await waitFor(() =>
+      expect(api.patchApplication).toHaveBeenCalledWith("app-1", { notes: "Remember recruiter context" }),
+    );
+    expect(api.listBaseResumes).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves unsaved job edits while notes autosave completes", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+        notes: null,
+      }),
+    );
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
+
+    let resolveNotesSave: ((value: ReturnType<typeof buildApplicationDetail>) => void) | null = null;
+    api.patchApplication.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveNotesSave = resolve as typeof resolveNotesSave;
+        }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const notesInput = await screen.findByPlaceholderText(/add your own notes/i);
+    const jobTitleInput = screen.getByLabelText("Job Title");
+
+    fireEvent.change(notesInput, { target: { value: "Remember recruiter context" } });
+    fireEvent.change(jobTitleInput, { target: { value: "Staff Backend Engineer" } });
+
+    await waitFor(() =>
+      expect(api.patchApplication).toHaveBeenCalledWith("app-1", { notes: "Remember recruiter context" }),
+    );
 
     await act(async () => {
-      window.dispatchEvent(new Event(NOTIFICATIONS_CLEARED_EVENT));
+      resolveNotesSave?.(
+        buildApplicationDetail({
+          id: "app-1",
+          base_resume_id: "resume-1",
+          base_resume_name: "Default Resume",
+          notes: "Remember recruiter context",
+        }),
+      );
     });
 
-    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
-    expect(screen.queryByText(/action required/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Job Title")).toHaveValue("Staff Backend Engineer");
+    expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates cached admin user filters after a status change", async () => {
+    const user = userEvent.setup();
+    let isActive = true;
+
+    api.listAdminUsers.mockImplementation(async (params?: { search?: string; status?: string }) => {
+      const adminUser = buildAdminUser({ is_active: isActive, updated_at: isActive ? "2026-04-07T12:05:00Z" : "2026-04-07T12:10:00Z" });
+      if (params?.status === "active") {
+        return isActive ? [adminUser] : [];
+      }
+      if (params?.status === "deactivated") {
+        return isActive ? [] : [adminUser];
+      }
+      return [adminUser];
+    });
+    api.deactivateAdminUser.mockImplementation(async () => {
+      isActive = false;
+      return buildAdminUser({ is_active: false, updated_at: "2026-04-07T12:10:00Z" });
+    });
+
+    renderWithAppProvider(<AdminUsersPage />);
+
+    expect(await screen.findByText("Casey Member")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox"), "active");
+    expect(await screen.findByText("Casey Member")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox"), "all");
+    expect(await screen.findByText("Casey Member")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /deactivate/i }));
+    await waitFor(() => expect(api.deactivateAdminUser).toHaveBeenCalledWith("user-2"));
+
+    await user.selectOptions(screen.getByRole("combobox"), "active");
+
+    expect(await screen.findByText(/no users found/i)).toBeInTheDocument();
+    expect(screen.queryByText("Casey Member")).not.toBeInTheDocument();
   });
 
   it("renders a stop icon on the detail page while extraction is active", async () => {

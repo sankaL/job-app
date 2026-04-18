@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SkeletonCard } from "@/components/ui/skeleton";
-import { fetchProfile, updateProfile, type ProfileData } from "@/lib/api";
+import { updateProfile, type ProfileData } from "@/lib/api";
+import { updateBootstrapProfile } from "@/lib/queries";
 
 const SECTION_LABELS: Record<string, string> = {
   summary: "Summary",
@@ -17,6 +20,8 @@ const SECTION_LABELS: Record<string, string> = {
 const DEFAULT_SECTIONS = ["summary", "professional_experience", "education", "skills"];
 
 export function ProfilePage() {
+  const queryClient = useQueryClient();
+  const { bootstrap, bootstrapError } = useAppContext();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -38,30 +43,47 @@ export function ProfilePage() {
   } | null>(null);
 
   useEffect(() => {
+    const nextProfile = bootstrap?.profile ?? null;
+    if (nextProfile) {
+      setProfile(nextProfile);
+      setName(nextProfile.name ?? "");
+      setEmail(nextProfile.email);
+      setPhone(nextProfile.phone ?? "");
+      setAddress(nextProfile.address ?? "");
+      setLinkedinUrl(nextProfile.linkedin_url ?? "");
+      setSectionPreferences(nextProfile.section_preferences ?? {});
+      setSectionOrder(nextProfile.section_order?.length ? nextProfile.section_order : DEFAULT_SECTIONS);
+      setOriginalState({
+        name: nextProfile.name ?? "",
+        phone: nextProfile.phone ?? "",
+        address: nextProfile.address ?? "",
+        linkedinUrl: nextProfile.linkedin_url ?? "",
+        sectionPreferences: nextProfile.section_preferences ?? {},
+        sectionOrder: nextProfile.section_order?.length ? nextProfile.section_order : DEFAULT_SECTIONS,
+      });
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
+    if (bootstrapError) {
+      setProfile(null);
+      setOriginalState(null);
+      setError(bootstrapError);
+      setIsLoading(false);
+      return;
+    }
+
+    if (bootstrap && !bootstrap.profile) {
+      setProfile(null);
+      setOriginalState(null);
+      setError("Profile unavailable. Refresh the page or sign in again.");
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
-    fetchProfile()
-      .then((response) => {
-        setProfile(response);
-        setName(response.name ?? "");
-        setEmail(response.email);
-        setPhone(response.phone ?? "");
-        setAddress(response.address ?? "");
-        setLinkedinUrl(response.linkedin_url ?? "");
-        setSectionPreferences(response.section_preferences ?? {});
-        setSectionOrder(response.section_order?.length ? response.section_order : DEFAULT_SECTIONS);
-        setOriginalState({
-          name: response.name ?? "",
-          phone: response.phone ?? "",
-          address: response.address ?? "",
-          linkedinUrl: response.linkedin_url ?? "",
-          sectionPreferences: response.section_preferences ?? {},
-          sectionOrder: response.section_order?.length ? response.section_order : DEFAULT_SECTIONS,
-        });
-        setError(null);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load profile"))
-      .finally(() => setIsLoading(false));
-  }, []);
+  }, [bootstrap, bootstrapError]);
 
   const isDirty = originalState
     ? name !== originalState.name ||
@@ -103,6 +125,7 @@ export function ProfilePage() {
         section_order: sectionOrder,
       });
       setProfile(response);
+      updateBootstrapProfile(queryClient, () => response);
       setName(response.name ?? "");
       setPhone(response.phone ?? "");
       setAddress(response.address ?? "");
@@ -125,16 +148,33 @@ export function ProfilePage() {
     }
   }
 
-    if (isLoading) {
-      return (
-        <div className="page-enter space-y-5">
-          <PageHeader title="Profile & Preferences" subtitle="Manage your personal information and resume settings" />
+  if (isLoading) {
+    return (
+      <div className="page-enter space-y-5">
+        <PageHeader title="Profile & Preferences" subtitle="Manage your personal information and resume settings" />
         <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-            <SkeletonCard density="compact" />
-            <SkeletonCard density="compact" />
-          </div>
+          <SkeletonCard density="compact" />
+          <SkeletonCard density="compact" />
         </div>
-      );
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <div className="page-enter space-y-5">
+        <PageHeader
+          title="Profile & Preferences"
+          subtitle="Manage your personal information and resume section preferences"
+        />
+        <Card variant="danger" density="compact">
+          <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>Profile unavailable</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
+            {error ?? "Refresh the page or sign in again."}
+          </p>
+        </Card>
+      </div>
+    );
   }
 
   return (

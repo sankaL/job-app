@@ -25,6 +25,11 @@ export type SessionBootstrapResponse = {
     created_at: string;
     updated_at: string;
   } | null;
+  application_summary: {
+    total_count: number;
+    applied_count: number;
+    needs_action_count: number;
+  };
   workflow_contract_version: string;
 };
 

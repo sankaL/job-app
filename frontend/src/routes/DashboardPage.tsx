@@ -27,7 +27,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/select";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { visibleStatusLabels } from "@/lib/application-options";
-import { listApplications, type ApplicationSummary } from "@/lib/api";
+import type { ApplicationSummary } from "@/lib/api";
+import { useApplicationsQuery } from "@/lib/queries";
 
 type StatusKey = keyof typeof visibleStatusLabels;
 
@@ -166,11 +167,15 @@ function polarToCartesian(cx: number, cy: number, radius: number, angle: number)
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const [applications, setApplications] = useState<ApplicationSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(() => getCurrentYear());
   const [chartExpanded, setChartExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  const {
+    data: applications,
+    error: applicationsError,
+    refetch,
+  } = useApplicationsQuery();
+  const error = applicationsError instanceof Error ? applicationsError.message : null;
 
   useEffect(() => {
     function handleResize() {
@@ -180,22 +185,7 @@ export function DashboardPage() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  async function loadApplications() {
-    setError(null);
-    try {
-      const response = await listApplications();
-      setApplications(response);
-    } catch (err) {
-      setApplications(null);
-      setError(err instanceof Error ? err.message : "Unable to load dashboard.");
-    }
-  }
-
-  useEffect(() => {
-    void loadApplications();
-  }, []);
-
-  if (applications === null) {
+  if (applications == null) {
     if (error) {
       return (
         <div className="page-enter space-y-5">
@@ -208,7 +198,7 @@ export function DashboardPage() {
               {error}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button onClick={() => void loadApplications()}>Retry</Button>
+              <Button onClick={() => void refetch()}>Retry</Button>
               <Button variant="secondary" onClick={() => navigate("/app/applications")}>
                 Go to Applications
               </Button>

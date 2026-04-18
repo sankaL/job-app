@@ -3,6 +3,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: dev
     environment:
       VITE_APP_ENV: ${APP_ENV:-development}
       VITE_APP_DEV_MODE: ${DEV_MODE:-true}

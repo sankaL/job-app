@@ -1,5 +1,17 @@
 # Decisions Made
 
+## 2026-04-17 20:45:00 EDT — Standardize the frontend on a production runtime plus shared query caching
+
+- Status: Accepted
+- Context: Railway was serving the frontend through Vite development mode, which kept React dev-only behavior such as duplicate `StrictMode` mount effects live in production. At the same time, the shell and route pages were independently fetching the same bootstrap, applications, base-resume, profile, and notification resources, multiplying backend requests and making each redundant GET more expensive because repositories still open fresh Postgres connections per call.
+- Decision:
+  1. Replace the frontend’s Railway runtime with a production build served from `nginx:alpine`, while keeping a separate Docker `dev` target for the local Compose stack.
+  2. Inject runtime frontend configuration through a generated `env-config.js` so the same production image can read Railway-provided values without falling back to `vite dev`.
+  3. Add a shared React Query cache as the single client-side data layer for session bootstrap, applications, application detail, drafts, base resumes, notifications, admin metrics, and admin users.
+  4. Remove the shell-wide eager applications fetch and stop using a custom window event to fan out notification clears; use query invalidation instead.
+  5. Extend session bootstrap with aggregate application summary counts so shell badges and attention indicators no longer require a full applications list fetch.
+- Consequences: Hosted frontend traffic now runs through a production bundle instead of the Vite dev server, shared route data is deduped across pages and shell chrome, and the shell can render badge counts from a small aggregate bootstrap payload. Backend connection pooling remains a separate follow-up if Railway costs stay elevated after these request-volume reductions.
+
 ## 2026-04-17 10:30:00 EDT — Add Resume Judge as a dedicated post-generation evaluator with local scoring arithmetic
 
 - Status: Accepted
