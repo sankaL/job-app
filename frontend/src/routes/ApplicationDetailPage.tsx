@@ -1346,7 +1346,7 @@ export function ApplicationDetailPage() {
             ? "Retry"
             : "Pending";
       const unavailableMessage = limitReachedResult
-        ? resumeJudge.message ?? "Resume Judge reached the maximum of 3 attempts for this draft."
+        ? resumeJudge?.message ?? "Resume Judge reached the maximum of 3 attempts for this draft."
         : resumeJudgeStale
         ? "The saved score no longer matches the current draft or job details. Run Resume Judge again to refresh it."
         : staleNonTerminalResult
