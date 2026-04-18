@@ -1,5 +1,5 @@
 import { z } from "zod";
-import contract from "@shared/workflow-contract.json";
+import contract from "./workflow-contract.json";
 
 const visibleStatusSchema = z.object({
   id: z.string(),
