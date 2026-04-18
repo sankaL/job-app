@@ -219,6 +219,15 @@ export type ExtensionConnectionStatus = {
   token_last_used_at: string | null;
 };
 
+export type ApplicationEventSnapshot = {
+  detail: ApplicationDetail;
+  progress: ExtractionProgress | null;
+};
+
+export type ApplicationHeartbeat = {
+  sent_at: string;
+};
+
 export type ExtensionTokenResponse = {
   token: string;
   status: ExtensionConnectionStatus;
@@ -373,6 +382,39 @@ async function getAccessToken() {
   return session.access_token;
 }
 
+function parseSseChunk(
+  chunk: string,
+): { event: string; payload: unknown } | null {
+  const trimmed = chunk.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let eventName = "message";
+  const dataLines: string[] = [];
+  for (const rawLine of trimmed.split(/\r?\n/)) {
+    if (rawLine.startsWith(":")) {
+      continue;
+    }
+    if (rawLine.startsWith("event:")) {
+      eventName = rawLine.slice("event:".length).trim();
+      continue;
+    }
+    if (rawLine.startsWith("data:")) {
+      dataLines.push(rawLine.slice("data:".length).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return null;
+  }
+
+  return {
+    event: eventName,
+    payload: JSON.parse(dataLines.join("\n")),
+  };
+}
+
 async function authenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const token = await getAccessToken();
   const response = await fetch(`${env.VITE_API_URL}${path}`, {
@@ -397,6 +439,80 @@ async function authenticatedRequest<T>(path: string, options: RequestOptions = {
   }
 
   return response.json();
+}
+
+export async function openApplicationEventStream(
+  applicationId: string,
+  options: {
+    signal: AbortSignal;
+    onSnapshot: (snapshot: ApplicationEventSnapshot) => void;
+    onProgress: (progress: ExtractionProgress) => void;
+    onDetail: (detail: ApplicationDetail) => void;
+    onHeartbeat?: (heartbeat: ApplicationHeartbeat) => void;
+  },
+): Promise<void> {
+  const token = await getAccessToken();
+  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}/events`, {
+    method: "GET",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+    },
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    let detail = "Unable to open live updates.";
+    try {
+      const payload = await response.json();
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = "Unable to open live updates.";
+    }
+    throw new Error(detail);
+  }
+
+  if (!response.body) {
+    throw new Error("Live updates are unavailable.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+
+    for (const chunk of chunks) {
+      const parsed = parseSseChunk(chunk);
+      if (!parsed) {
+        continue;
+      }
+
+      if (parsed.event === "snapshot") {
+        options.onSnapshot(parsed.payload as ApplicationEventSnapshot);
+        continue;
+      }
+      if (parsed.event === "progress") {
+        options.onProgress(parsed.payload as ExtractionProgress);
+        continue;
+      }
+      if (parsed.event === "detail") {
+        options.onDetail(parsed.payload as ApplicationDetail);
+        continue;
+      }
+      if (parsed.event === "heartbeat") {
+        options.onHeartbeat?.(parsed.payload as ApplicationHeartbeat);
+      }
+    }
+  }
 }
 
 function logGenerationRequest(event: string, payload: Record<string, unknown>) {

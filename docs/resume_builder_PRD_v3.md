@@ -878,7 +878,7 @@ These are implementation decisions, not product decisions:
 | Decision | Notes |
 |---|---|
 | Background job strategy | `FastAPI BackgroundTasks` vs. ARQ vs. Celery+Redis; consider job persistence across Railway restarts |
-| Real-time progress delivery | Polling vs. SSE vs. WebSocket for streaming generation progress to the frontend |
+| Real-time progress delivery | Use per-application SSE for live detail-page workflow updates, with 5-second polling retained as a watchdog/reconnect fallback |
 | Playwright on Railway | Confirm headless Chromium runs in Railway containers; may require custom Dockerfile with system deps |
 | PDF rendering engine | WeasyPrint vs. Playwright print-to-PDF; validate ATS output quality |
 | Fuzzy match threshold | Default 85% recommended; must be environment-configurable, not hardcoded |

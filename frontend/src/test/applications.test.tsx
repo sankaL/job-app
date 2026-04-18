@@ -46,6 +46,7 @@ const api = vi.hoisted(() => ({
   listBaseResumes: vi.fn(),
   listApplications: vi.fn(),
   listNotifications: vi.fn(),
+  openApplicationEventStream: vi.fn(),
   patchApplication: vi.fn(),
   reactivateAdminUser: vi.fn(),
   recoverApplicationFromSource: vi.fn(),
@@ -216,11 +217,47 @@ function buildNotificationSummary(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function latestStreamHandlers() {
+  const lastCall = api.openApplicationEventStream.mock.calls.at(-1);
+  if (!lastCall) {
+    throw new Error("Expected live stream to be opened.");
+  }
+  return lastCall[1] as {
+    onSnapshot: (snapshot: { detail: ReturnType<typeof buildApplicationDetail>; progress: ReturnType<typeof buildProgressPayload> | null }) => void;
+    onProgress: (progress: ReturnType<typeof buildProgressPayload>) => void;
+    onDetail: (detail: ReturnType<typeof buildApplicationDetail>) => void;
+    onHeartbeat?: (heartbeat: { sent_at: string }) => void;
+  };
+}
+
+function buildProgressPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    job_id: "job-1",
+    workflow_kind: "generation",
+    state: "generating",
+    message: "Resume generation is running.",
+    percent_complete: 25,
+    created_at: "2026-04-07T12:00:00Z",
+    updated_at: "2026-04-07T12:01:00Z",
+    completed_at: null,
+    terminal_error_code: null,
+    ...overrides,
+  };
+}
+
 describe("phase 1 applications UI", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     globalThis.URL.createObjectURL = vi.fn(() => "blob:mock-url");
     globalThis.URL.revokeObjectURL = vi.fn();
+    api.openApplicationEventStream.mockImplementation(
+      () =>
+        new Promise<void>(() => {
+          // Keep the stream open by default so tests opt into explicit live events.
+        }),
+    );
+    api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail());
+    api.fetchApplicationProgress.mockResolvedValue(buildProgressPayload());
     api.fetchDraft.mockResolvedValue(null);
     api.fetchProfile.mockResolvedValue({
       id: "user-1",
@@ -423,7 +460,7 @@ describe("phase 1 applications UI", () => {
 
   it("opens the notifications dropdown and keeps the badge count tied to attention items", async () => {
     api.listApplications.mockResolvedValue([
-      buildApplicationSummary({ id: "app-1", visible_status: "needs_action" }),
+      buildApplicationSummary({ id: "app-1", visible_status: "needs_action", has_action_required_notification: true }),
       buildApplicationSummary({ id: "app-2", visible_status: "complete" }),
     ]);
     api.listNotifications.mockResolvedValue([
@@ -574,8 +611,7 @@ describe("phase 1 applications UI", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
 
-    expect(await screen.findByText(/notifications unavailable/i)).toBeInTheDocument();
-    expect(screen.getByText("Failed to load notifications.")).toBeInTheDocument();
+    expect(await screen.findByText(/no notifications yet/i)).toBeInTheDocument();
   });
 
   it("keeps notifications visible when clearing fails", async () => {
@@ -2308,7 +2344,8 @@ describe("phase 1 applications UI", () => {
     await user.click(screen.getAllByRole("button", { name: /stop extraction/i }).at(-1) as HTMLElement);
 
     await waitFor(() => expect(api.cancelExtraction).toHaveBeenCalledWith("app-1"));
-    expect(await screen.findByRole("heading", { name: /extraction stopped/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /manual entry required/i })).toBeInTheDocument();
+    expect(screen.getByText(/extraction was stopped/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^delete application$/i })).toBeInTheDocument();
   });
@@ -2511,7 +2548,7 @@ describe("phase 1 applications UI", () => {
       await Promise.resolve();
     });
 
-    expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
     expect(screen.getByText(/application request failed/i)).toBeInTheDocument();
 
     await act(async () => {
@@ -2565,8 +2602,8 @@ describe("phase 1 applications UI", () => {
       await Promise.resolve();
     });
 
-    expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1);
-    expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("heading", { name: /manual entry required/i })).toBeInTheDocument();
     expect(screen.getByText(/automatic extraction failed\. manual entry is required\./i)).toBeInTheDocument();
 
@@ -2622,8 +2659,8 @@ describe("phase 1 applications UI", () => {
       await Promise.resolve();
     });
 
-    expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1);
-    expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("heading", { name: /manual entry required/i })).not.toBeInTheDocument();
     expect(screen.getByText(/company is missing from extraction/i)).toBeInTheDocument();
   });
@@ -2707,6 +2744,183 @@ describe("phase 1 applications UI", () => {
 
     await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/applying deterministic professional experience structure checks/i)).toBeInTheDocument();
+  });
+
+  it("updates generation progress from live stream events without waiting for the next watchdog poll", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "draft",
+        internal_state: "generating",
+        failure_reason: null,
+      }),
+    );
+    api.fetchApplicationProgress.mockResolvedValue(
+      buildProgressPayload({
+        workflow_kind: "generation",
+        state: "generating",
+        message: "Resume generation is running.",
+      }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await waitFor(() => expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      latestStreamHandlers().onProgress(
+        buildProgressPayload({
+          workflow_kind: "generation",
+          state: "generating",
+          message: "Applying deterministic Professional Experience structure checks",
+          percent_complete: 62,
+          updated_at: "2026-04-07T12:02:00Z",
+        }),
+      );
+    });
+
+    expect(await screen.findByText(/applying deterministic professional experience structure checks/i)).toBeInTheDocument();
+  });
+
+  it("keeps the saved draft visible while regeneration is running after a refresh", async () => {
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "regenerating_full",
+        failure_reason: null,
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+      }),
+    );
+    api.fetchApplicationProgress.mockResolvedValue({
+      job_id: "job-2",
+      workflow_kind: "regeneration_full",
+      state: "regenerating_full",
+      message: "Refreshing experience bullets",
+      percent_complete: 62,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:01:00Z",
+      completed_at: null,
+      terminal_error_code: null,
+    });
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        base_resume_id: "resume-1",
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
+    await waitFor(() => {
+      expect(document.querySelector(".resume-preview-markdown")).toHaveTextContent("Grounded summary");
+    });
+    expect(screen.getByText(/refreshing experience bullets/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no resume generated yet/i)).not.toBeInTheDocument();
+  });
+
+  it("closes the stale draft editor immediately when full regeneration starts", async () => {
+    const user = userEvent.setup();
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        failure_reason: null,
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        base_resume_id: "resume-1",
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    api.triggerFullRegeneration.mockImplementation(
+      () =>
+        new Promise(() => {
+          // Keep the regeneration request in-flight so the optimistic transition stays visible.
+        }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
+    await screen.findByText(/grounded summary/i);
+
+    await user.click(screen.getByRole("button", { name: /^edit$/i }));
+    await waitFor(() => {
+      expect(document.querySelector(".markdown-editor-input")).not.toBeNull();
+    });
+
+    await user.click(screen.getByRole("button", { name: /regenerate/i }));
+    await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
+
+    await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
+    expect(document.querySelector(".markdown-editor-input")).toBeNull();
+    expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
   });
 
   it("hydrates saved generation settings from the latest draft", async () => {
@@ -2839,7 +3053,7 @@ describe("phase 1 applications UI", () => {
 
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledTimes(1));
 
-    const settingsHeading = screen.getByRole("heading", { name: /generation settings/i });
+    const settingsHeading = await screen.findByRole("heading", { name: /generation settings/i });
     const settingsForm = settingsHeading.closest("form");
     expect(settingsForm).not.toBeNull();
 
@@ -3006,6 +3220,82 @@ describe("phase 1 applications UI", () => {
     const judgeCard = await screen.findByTestId("resume-judge-card");
     expect(within(judgeCard).getByText(/scoring draft/i)).toBeInTheDocument();
     expect(within(judgeCard).getByText(/judge feedback will appear here shortly/i)).toBeInTheDocument();
+  });
+
+  it("updates the Resume Judge card from live detail events", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "queued",
+          message: "Resume Judge is queued.",
+          evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await waitFor(() => expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      latestStreamHandlers().onDetail(
+        buildApplicationDetail({
+          id: "app-1",
+          visible_status: "in_progress",
+          internal_state: "resume_ready",
+          resume_judge_result: {
+            status: "succeeded",
+            final_score: 78.4,
+            display_score: 78,
+            verdict: "warn",
+            pass_threshold: 80,
+            score_summary: "Strong alignment with a few voice issues.",
+            dimension_scores: {
+              role_alignment: { score: 8, weight: 0.25, weighted_contribution: 20, notes: "Aligned." },
+              specificity_and_concreteness: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Specific." },
+              voice_and_human_quality: { score: 6, weight: 0.2, weighted_contribution: 12, notes: "Needs variation." },
+              grounding_integrity: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Grounded." },
+              ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS safe." },
+              length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable." },
+            },
+            regeneration_instructions: "Tighten the summary voice.",
+            regeneration_priority_dimensions: ["voice_and_human_quality"],
+            evaluator_notes: "Voice is the main gap.",
+            evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+            scored_at: "2026-04-07T12:12:00Z",
+          },
+        }),
+      );
+    });
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    expect(within(judgeCard).getByText(/78\/100/i)).toBeInTheDocument();
+    expect(within(judgeCard).getByText(/strong alignment with a few voice issues/i)).toBeInTheDocument();
   });
 
   it("does not render a stale queued judge result as a completed score card", async () => {

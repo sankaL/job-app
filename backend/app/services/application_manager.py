@@ -33,6 +33,7 @@ from app.services.jobs import (
 )
 from app.services.pdf_export import generate_docx, generate_pdf
 from app.services.progress import (
+    ApplicationEvent,
     ProgressRecord,
     RedisProgressStore,
     build_progress,
@@ -699,7 +700,7 @@ class ApplicationService:
             blocked_url=record.job_url,
             detected_at=datetime.now(timezone.utc).isoformat(),
         )
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=application_id,
             user_id=user_id,
             updates=self._workflow_updates(
@@ -767,7 +768,7 @@ class ApplicationService:
             else f"{workflow_label} exceeded the maximum processing window. You can retry with the same settings."
         )
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -840,7 +841,7 @@ class ApplicationService:
             ):
                 return record
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -890,7 +891,7 @@ class ApplicationService:
         ):
             return record
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -962,7 +963,7 @@ class ApplicationService:
             ):
                 return record
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1018,7 +1019,7 @@ class ApplicationService:
         ):
             return record
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -1073,7 +1074,7 @@ class ApplicationService:
             logger.exception("Failed validating cached extraction payload for %s", record.id)
             return None
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates={
@@ -1141,7 +1142,7 @@ class ApplicationService:
             sections_snapshot=generated.sections_snapshot,
         )
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -1265,7 +1266,7 @@ class ApplicationService:
             return record
 
         if payload.event == "started":
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1286,7 +1287,7 @@ class ApplicationService:
             if payload.extracted is None:
                 raise ValueError("Missing extracted payload for success callback.")
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={
@@ -1476,7 +1477,7 @@ class ApplicationService:
                     percent_complete=25,
                 ),
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1538,7 +1539,7 @@ class ApplicationService:
                 sections_snapshot=payload.generated.sections_snapshot,
             )
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1925,7 +1926,7 @@ class ApplicationService:
                     percent_complete=25,
                 ),
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1970,7 +1971,7 @@ class ApplicationService:
                 sections_snapshot=payload.generated.sections_snapshot,
             )
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -2045,7 +2046,7 @@ class ApplicationService:
             return record
 
         if payload.event == "started":
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={
@@ -2061,7 +2062,7 @@ class ApplicationService:
         if payload.event == "failed":
             if payload.failure is None:
                 raise ValueError("Missing Resume Judge failure payload.")
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={
@@ -2072,7 +2073,7 @@ class ApplicationService:
         if payload.event == "succeeded":
             if payload.result is None:
                 raise ValueError("Missing Resume Judge success payload.")
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={
@@ -2312,7 +2313,7 @@ class ApplicationService:
                 user_id=record.user_id,
                 application_id=record.id,
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -2333,7 +2334,7 @@ class ApplicationService:
                 user_id=record.user_id,
                 application_id=record.id,
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -2353,7 +2354,7 @@ class ApplicationService:
                 user_id=record.user_id,
                 application_id=record.id,
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -2367,7 +2368,7 @@ class ApplicationService:
                 ),
             )
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -2398,7 +2399,7 @@ class ApplicationService:
         message: str,
         failure_details: Optional[ExtractionFailureDetailsPayload] = None,
     ) -> ApplicationRecord:
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -2431,7 +2432,7 @@ class ApplicationService:
         failure_details: Optional[dict[str, Any]] = None,
         failure_reason: str = "generation_failed",
     ) -> ApplicationRecord:
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -2519,7 +2520,7 @@ class ApplicationService:
         record: ApplicationRecord,
     ) -> ApplicationDetailPayload:
         failure_details = self._blocked_source_failure_details(record)
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -2649,6 +2650,57 @@ class ApplicationService:
                 )
         return ApplicationDetailPayload(application=record, duplicate_warning=warning)
 
+    def _stream_detail_payload(self, record: ApplicationRecord) -> dict[str, Any]:
+        payload = self._detail_payload(record)
+        duplicate_warning = None
+        if payload.duplicate_warning is not None:
+            duplicate_warning = {
+                "similarity_score": payload.duplicate_warning.similarity_score,
+                "matched_fields": payload.duplicate_warning.matched_fields,
+                "match_basis": payload.duplicate_warning.match_basis,
+                "matched_application": payload.duplicate_warning.matched_application.model_dump(mode="json"),
+            }
+
+        return {
+            **record.model_dump(
+                mode="json",
+                exclude={
+                    "exported_at",
+                    "duplicate_match_fields",
+                    "full_regeneration_count",
+                    "user_id",
+                },
+            ),
+            "duplicate_warning": duplicate_warning,
+        }
+
+    async def _publish_detail_event(self, record: ApplicationRecord) -> None:
+        try:
+            await self.progress_store.publish_event(
+                record.id,
+                ApplicationEvent(
+                    event="detail",
+                    payload=self._stream_detail_payload(record),
+                ),
+            )
+        except Exception:
+            logger.warning("Failed publishing detail event for application %s", record.id, exc_info=True)
+
+    async def _update_application_and_publish_detail(
+        self,
+        *,
+        application_id: str,
+        user_id: str,
+        updates: dict[str, Any],
+    ) -> ApplicationRecord:
+        updated = self.repository.update_application(
+            application_id=application_id,
+            user_id=user_id,
+            updates=updates,
+        )
+        await self._publish_detail_event(updated)
+        return updated
+
     @staticmethod
     def _resume_judge_status_payload(
         *,
@@ -2766,7 +2818,7 @@ class ApplicationService:
                 draft.generation_params.get("base_resume_id") or record.base_resume_id or ""
             ).strip()
             if not base_resume_id:
-                return self.repository.update_application(
+                return await self._update_application_and_publish_detail(
                     application_id=record.id,
                     user_id=record.user_id,
                     updates={
@@ -2783,7 +2835,7 @@ class ApplicationService:
 
             base_resume = self.base_resume_repository.fetch_resume(record.user_id, base_resume_id)
             if base_resume is None:
-                return self.repository.update_application(
+                return await self._update_application_and_publish_detail(
                     application_id=record.id,
                     user_id=record.user_id,
                     updates={
@@ -2800,7 +2852,7 @@ class ApplicationService:
             base_resume_content = base_resume.content_md
 
         if not record.job_title or not record.job_description:
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={
@@ -2815,7 +2867,7 @@ class ApplicationService:
                 },
             )
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates={
@@ -2846,7 +2898,7 @@ class ApplicationService:
             )
             return updated
         except Exception as error:
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={

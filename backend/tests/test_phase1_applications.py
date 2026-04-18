@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import copy
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -9,6 +11,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from psycopg.types.json import Jsonb
 
+from app.api.applications import stream_application_events
 from app.core.auth import AuthVerifier, AuthenticatedUser, get_auth_verifier
 from app.db.applications import (
     ApplicationRepository,
@@ -30,7 +33,7 @@ from app.services.application_manager import (
     WorkerSuccessPayload,
     get_application_service,
 )
-from app.services.progress import ProgressRecord
+from app.services.progress import ApplicationEvent, ProgressRecord
 
 
 class FakeApplicationRepository:
@@ -261,12 +264,19 @@ class FakeProgressStore:
         self.progress: dict[str, ProgressRecord] = {}
         self.extraction_results: dict[str, dict[str, Any]] = {}
         self.generation_results: dict[str, dict[str, Any]] = {}
+        self.events: dict[str, list[ApplicationEvent]] = {}
+        self.subscribers: dict[str, list[asyncio.Queue[ApplicationEvent]]] = {}
+        self.subscription_opened = False
 
     async def get(self, application_id: str) -> Optional[ProgressRecord]:
         return self.progress.get(application_id)
 
     async def set(self, application_id: str, progress: ProgressRecord, ttl_seconds: int = 86400) -> None:
         self.progress[application_id] = progress
+        await self.publish_event(
+            application_id,
+            ApplicationEvent(event="progress", payload=progress.model_dump(mode="json")),
+        )
 
     async def delete(self, application_id: str) -> None:
         self.progress.pop(application_id, None)
@@ -284,6 +294,29 @@ class FakeProgressStore:
 
     async def clear_generation_result(self, application_id: str) -> None:
         self.generation_results.pop(application_id, None)
+
+    async def publish_event(self, application_id: str, event: ApplicationEvent) -> None:
+        self.events.setdefault(application_id, []).append(event)
+        for subscriber in self.subscribers.get(application_id, []):
+            subscriber.put_nowait(event)
+
+    async def open_event_subscription(self, application_id: str):
+        queue: asyncio.Queue[ApplicationEvent] = asyncio.Queue()
+        self.subscribers.setdefault(application_id, []).append(queue)
+        self.subscription_opened = True
+        return queue
+
+    async def read_event(self, subscription, *, timeout_seconds: float = 1.0) -> Optional[ApplicationEvent]:
+        try:
+            return await asyncio.wait_for(subscription.get(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+
+    async def close_event_subscription(self, application_id: str, subscription) -> None:
+        subscribers = self.subscribers.get(application_id, [])
+        if subscription in subscribers:
+            subscribers.remove(subscription)
+        self.subscription_opened = False
 
 
 class FakeExtractionJobQueue:
@@ -489,6 +522,24 @@ def build_service(
     return service, repository, notifications, progress, queue, email, drafts
 
 
+def read_first_sse_event(response) -> tuple[str, dict[str, Any]]:
+    event_name = "message"
+    data_lines: list[str] = []
+
+    for line in response.iter_lines():
+        if isinstance(line, bytes):
+            line = line.decode("utf-8")
+        if line == "":
+            break
+        if line.startswith("event:"):
+            event_name = line.split(":", 1)[1].strip()
+            continue
+        if line.startswith("data:"):
+            data_lines.append(line.split(":", 1)[1].strip())
+
+    return event_name, json.loads("\n".join(data_lines))
+
+
 def test_application_repository_prepare_value_wraps_resume_judge_result_as_jsonb():
     repository = ApplicationRepository("postgresql://unused")
 
@@ -507,6 +558,8 @@ async def test_create_application_queues_extraction_and_seeds_progress():
     assert queue.enqueued[0]["application_id"] == record.id
     assert (await progress_store.get(record.id)) is not None
     assert (await progress_store.get(record.id)).job_id == "job-1"
+    assert progress_store.events[record.id][-1].event == "progress"
+    assert progress_store.events[record.id][-1].payload["state"] == "extraction_pending"
 
 
 @pytest.mark.asyncio
@@ -1416,6 +1469,184 @@ def test_create_application_endpoint_accepts_optional_source_text_and_queues_cap
     assert queue.enqueued[0]["source_capture"]["source_url"] == "https://example.com/jobs/1"
 
 
+def test_application_events_endpoint_rejects_invalid_auth():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/live",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    asyncio.run(
+        progress_store.set(
+            created.id,
+            ProgressRecord(
+                job_id="job-live",
+                workflow_kind="extraction",
+                state="extracting",
+                message="Extraction is running.",
+                percent_complete=25,
+                created_at="2026-04-07T12:00:00+00:00",
+                updated_at="2026-04-07T12:01:00+00:00",
+            ),
+        )
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/applications/{created.id}/events",
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_application_events_endpoint_rejects_cross_user_access():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-2",
+        job_url="https://example.com/jobs/private",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/applications/{created.id}/events",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Application not found."
+
+
+@pytest.mark.asyncio
+async def test_application_events_endpoint_streams_initial_snapshot():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/live",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-live",
+            workflow_kind="extraction",
+            state="extracting",
+            message="Extraction is running.",
+            percent_complete=25,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:01:00+00:00",
+        ),
+    )
+
+    class StubRequest:
+        def __init__(self) -> None:
+            self.disconnect_checks = 0
+
+        async def is_disconnected(self) -> bool:
+            self.disconnect_checks += 1
+            return self.disconnect_checks > 1
+
+    response = await stream_application_events(
+        application_id=created.id,
+        request=StubRequest(),
+        current_user=AuthenticatedUser(
+            id="user-1",
+            email="invite-only@example.com",
+            role="authenticated",
+            claims={"sub": "user-1"},
+        ),
+        service=service,
+    )
+
+    chunk = await response.body_iterator.__anext__()
+    event_name, payload = read_first_sse_event(
+        type(
+            "StubResponse",
+            (),
+            {"iter_lines": lambda self: (chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk).splitlines()},
+        )()
+    )
+
+    assert response.status_code == 200
+    assert event_name == "snapshot"
+    assert payload["detail"]["id"] == created.id
+    assert payload["detail"]["internal_state"] == "extracting"
+    assert payload["progress"]["job_id"] == "job-live"
+    assert payload["progress"]["state"] == "extracting"
+
+
+@pytest.mark.asyncio
+async def test_application_events_endpoint_subscribes_before_building_snapshot():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/live",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-live",
+            workflow_kind="extraction",
+            state="extracting",
+            message="Extraction is running.",
+            percent_complete=25,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:01:00+00:00",
+        ),
+    )
+
+    detail_subscription_checks: list[bool] = []
+    progress_subscription_checks: list[bool] = []
+    original_get_application_detail = service.get_application_detail
+    original_get_progress = service.get_progress
+
+    async def get_application_detail_after_subscribe(*, user_id: str, application_id: str):
+        detail_subscription_checks.append(progress_store.subscription_opened)
+        return await original_get_application_detail(user_id=user_id, application_id=application_id)
+
+    async def get_progress_after_subscribe(*, user_id: str, application_id: str):
+        progress_subscription_checks.append(progress_store.subscription_opened)
+        return await original_get_progress(user_id=user_id, application_id=application_id)
+
+    service.get_application_detail = get_application_detail_after_subscribe
+    service.get_progress = get_progress_after_subscribe
+
+    class StubRequest:
+        def __init__(self) -> None:
+            self.disconnect_checks = 0
+
+        async def is_disconnected(self) -> bool:
+            self.disconnect_checks += 1
+            return self.disconnect_checks > 1
+
+    response = await stream_application_events(
+        application_id=created.id,
+        request=StubRequest(),
+        current_user=AuthenticatedUser(
+            id="user-1",
+            email="invite-only@example.com",
+            role="authenticated",
+            claims={"sub": "user-1"},
+        ),
+        service=service,
+    )
+
+    await response.body_iterator.__anext__()
+
+    assert detail_subscription_checks == [True]
+    assert progress_subscription_checks == [True]
+
+
 def test_delete_application_endpoint_returns_404_for_missing_record():
     service, _, _, _, _, _, _ = build_service()
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
@@ -2053,7 +2284,7 @@ async def test_handle_resume_judge_callback_ignores_job_context_mismatch():
 @pytest.mark.asyncio
 async def test_handle_resume_judge_callback_persists_running_success_and_failure_states():
     drafts = FakeDraftRepository()
-    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service, repository, _, progress_store, _, _, drafts = build_service(draft_repository=drafts)
     created = repository.create_application(
         user_id="user-1",
         job_url="https://example.com/jobs/judge-fresh",
@@ -2148,6 +2379,8 @@ async def test_handle_resume_judge_callback_persists_running_success_and_failure
     assert failed.resume_judge_result is not None
     assert failed.resume_judge_result["status"] == "failed"
     assert failed.resume_judge_result["failure_stage"] == "provider"
+    detail_events = [event for event in progress_store.events[created.id] if event.event == "detail"]
+    assert [event.payload["resume_judge_result"]["status"] for event in detail_events[-3:]] == ["running", "succeeded", "failed"]
 
 
 @pytest.mark.asyncio

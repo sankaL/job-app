@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.access import get_current_active_user
@@ -20,10 +22,11 @@ from app.services.application_manager import (
     SourceCapturePayload,
     get_application_service,
 )
-from app.services.progress import ProgressRecord
+from app.services.progress import ProgressRecord, now_iso
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 logger = logging.getLogger(__name__)
+STREAM_HEARTBEAT_SECONDS = 15.0
 
 INSTRUCTION_WHITESPACE_RE = re.compile(r"\s+")
 UNSAFE_INSTRUCTION_PATTERNS = (
@@ -382,6 +385,11 @@ class WorkflowProgress(BaseModel):
     terminal_error_code: Optional[str]
 
 
+class ApplicationEventSnapshot(BaseModel):
+    detail: ApplicationDetail
+    progress: Optional[WorkflowProgress]
+
+
 def to_application_summary(record: ApplicationListRecord) -> ApplicationSummary:
     return ApplicationSummary(
         **record.model_dump(),
@@ -438,6 +446,10 @@ def _map_service_error(error: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
     logger.exception("Unhandled application service error.", exc_info=error)
     return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Application request failed.")
+
+
+def _format_sse_event(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
 @router.get("", response_model=list[ApplicationSummary])
@@ -655,6 +667,74 @@ async def get_progress(
         return WorkflowProgress.model_validate(progress.model_dump())
     except Exception as error:
         raise _map_service_error(error) from error
+
+
+@router.get("/{application_id}/events")
+async def stream_application_events(
+    application_id: str,
+    request: Request,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> StreamingResponse:
+    try:
+        service._require_application(
+            user_id=current_user.id,
+            application_id=application_id,
+        )
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+    async def event_stream():
+        subscription = await service.progress_store.open_event_subscription(application_id)
+        try:
+            detail = to_application_detail(
+                await service.get_application_detail(
+                    user_id=current_user.id,
+                    application_id=application_id,
+                )
+            )
+            progress = WorkflowProgress.model_validate(
+                (
+                    await service.get_progress(
+                        user_id=current_user.id,
+                        application_id=application_id,
+                    )
+                ).model_dump()
+            )
+            snapshot = ApplicationEventSnapshot(detail=detail, progress=progress)
+            yield _format_sse_event("snapshot", snapshot.model_dump(mode="json"))
+
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    event = await service.progress_store.read_event(
+                        subscription,
+                        timeout_seconds=STREAM_HEARTBEAT_SECONDS,
+                    )
+                except asyncio.CancelledError:
+                    break
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
+                    event = None
+                if event is None:
+                    yield _format_sse_event("heartbeat", {"sent_at": now_iso()})
+                    continue
+                yield _format_sse_event(event.event, event.payload)
+        finally:
+            await service.progress_store.close_event_subscription(application_id, subscription)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{application_id}/draft", response_model=Optional[ResumeDraftResponse])

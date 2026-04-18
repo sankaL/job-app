@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-04-17 22:10:54 EDT — Use per-application SSE for detail-page workflow updates with polling retained as a watchdog
+
+- Status: Accepted
+- Context: The application detail page was polling `/progress` every 3 seconds for extraction and generation state plus polling application detail every 5 seconds for Resume Judge state. That contract already had important Redis-backed reconciliation and stalled-job recovery behavior, so simply replacing it with a client-only live transport would have risked losing the fail-closed recovery paths while still keeping the same backend complexity.
+- Decision:
+  1. Add an authenticated per-application SSE endpoint for detail-page workflows instead of introducing a broader app-wide stream.
+  2. Keep Redis progress records and terminal reconciliation as the source of truth, and publish `progress` plus `detail` events from those existing backend paths.
+  3. Use a fetch-based stream client in the frontend rather than native `EventSource`, because the app authenticates API requests with a Supabase bearer token header.
+  4. Keep 5-second detail/progress polling as a watchdog and reconnect fallback while active extraction, generation, regeneration, or Resume Judge work is in flight.
+- Consequences: Detail-page progress now updates immediately when backend callbacks land, but stalled-job recovery and callback-missed reconciliation still run through the existing read paths. The rollout avoids WebSocket infrastructure, preserves fail-closed behavior, and limits long-lived connections to pages that actually need live workflow state.
+
 ## 2026-04-17 20:45:00 EDT — Standardize the frontend on a production runtime plus shared query caching
 
 - Status: Accepted

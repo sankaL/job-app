@@ -59,6 +59,7 @@ import {
   useApplicationProgressQuery,
   useBaseResumesQuery,
 } from "@/lib/queries";
+import { useApplicationEventStream } from "@/lib/use-application-event-stream";
 
 type JobFormState = {
   job_title: string;
@@ -279,6 +280,17 @@ function isTerminalExtractionSuccess(progress: ExtractionProgress): boolean {
   return progress.terminal_error_code === null && progress.state === "generation_pending";
 }
 
+function progressEventKey(progress: ExtractionProgress) {
+  return [
+    progress.job_id,
+    progress.workflow_kind,
+    progress.state,
+    progress.updated_at,
+    progress.completed_at ?? "",
+    progress.terminal_error_code ?? "",
+  ].join(":");
+}
+
 function applyTerminalExtractionProgress(
   current: ApplicationDetail,
   progress: ExtractionProgress,
@@ -406,6 +418,8 @@ export function ApplicationDetailPage() {
   const [compareBaseline, setCompareBaseline] = useState<BaseResumeDetail | null>(null);
   const [isCompareBaselineLoading, setIsCompareBaselineLoading] = useState(false);
   const [compareBaselineError, setCompareBaselineError] = useState<string | null>(null);
+  const lastHandledExtractionProgressRef = useRef<string | null>(null);
+  const lastHandledGenerationProgressRef = useRef<string | null>(null);
   const leftColumnRef = useRef<HTMLDivElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const regenMenuRef = useRef<HTMLDivElement>(null);
@@ -413,12 +427,15 @@ export function ApplicationDetailPage() {
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
   const [hasUserModifiedSettings, setHasUserModifiedSettings] = useState(false);
   const resumeJudgePending = isResumeJudgePending(detail, draft);
-  const detailQuery = useApplicationDetailQuery(applicationId, {
-    refetchInterval: resumeJudgePending ? 5000 : false,
-  });
-  const shouldLoadDraft = Boolean(
-    applicationId && detail && ["resume_ready", "regenerating_full", "regenerating_section"].includes(detail.internal_state),
+  const shouldWatchApplication = Boolean(
+    applicationId &&
+      detail &&
+      (EXTRACTION_POLL_STATES.includes(detail.internal_state) || isGenerationWorkflowActive(detail) || resumeJudgePending),
   );
+  const detailQuery = useApplicationDetailQuery(applicationId, {
+    refetchInterval: shouldWatchApplication ? 5000 : false,
+  });
+  const shouldLoadDraft = Boolean(applicationId);
   const draftQuery = useApplicationDraftQuery(applicationId, shouldLoadDraft);
   const shouldPollProgress = Boolean(
     applicationId &&
@@ -427,8 +444,9 @@ export function ApplicationDetailPage() {
   );
   const progressQuery = useApplicationProgressQuery(applicationId, {
     enabled: shouldPollProgress,
-    refetchInterval: shouldPollProgress ? 3000 : false,
+    refetchInterval: shouldPollProgress ? 5000 : false,
   });
+  useApplicationEventStream(applicationId, shouldWatchApplication);
   const extractionStates = ["extraction_pending", "extracting", "manual_entry_required", "duplicate_review_required"];
   const baseResumesQuery = useBaseResumesQuery(Boolean(detail && !extractionStates.includes(detail.internal_state)));
 
@@ -499,6 +517,11 @@ export function ApplicationDetailPage() {
     compareBaseline?.id === comparisonBaseResumeId &&
     !compareBaselineError;
 
+  function dismissDraftEditor() {
+    setEditMode(false);
+    setEditContent("");
+  }
+
   function applyDetailState(response: ApplicationDetail, options?: { refreshShell?: boolean }) {
     const generationActive = isGenerationWorkflowActive(response);
     queryClient.setQueryData(queryKeys.application(response.id), response);
@@ -519,6 +542,9 @@ export function ApplicationDetailPage() {
       ["regenerating_full", "regenerating_section"].includes(response.internal_state) &&
         response.failure_reason === null,
     );
+    if (generationActive) {
+      dismissDraftEditor();
+    }
     if (!generationActive) {
       setIsCancelling(false);
       setShowOptimisticProgress(false);
@@ -613,6 +639,11 @@ export function ApplicationDetailPage() {
       return;
     }
     const nextProgress = progressQuery.data;
+    const nextKey = progressEventKey(nextProgress);
+    if (lastHandledExtractionProgressRef.current === nextKey) {
+      return;
+    }
+    lastHandledExtractionProgressRef.current = nextKey;
     setProgress(nextProgress);
     if (EXTRACTION_POLL_STATES.includes(nextProgress.state) && !nextProgress.completed_at && !nextProgress.terminal_error_code) {
       return;
@@ -663,6 +694,11 @@ export function ApplicationDetailPage() {
       return;
     }
     const nextProgress = progressQuery.data;
+    const nextKey = progressEventKey(nextProgress);
+    if (lastHandledGenerationProgressRef.current === nextKey) {
+      return;
+    }
+    lastHandledGenerationProgressRef.current = nextKey;
     setShowOptimisticProgress(false);
     setGenerationProgress(nextProgress);
     if (isGenerationProgressActive(nextProgress)) {
@@ -959,6 +995,7 @@ export function ApplicationDetailPage() {
     }
     setIsGenerating(true);
     setShowOptimisticProgress(true);
+    dismissDraftEditor();
     setError(null);
     try {
       const response = await triggerGeneration(activeApplicationId, {
@@ -1001,8 +1038,7 @@ export function ApplicationDetailPage() {
   }
 
   function handleCancelEdit() {
-    setEditMode(false);
-    setEditContent("");
+    dismissDraftEditor();
   }
 
   async function handleFullRegeneration(overrideInstructions?: string) {
@@ -1018,6 +1054,7 @@ export function ApplicationDetailPage() {
     }
     setIsRegenerating(true);
     setShowOptimisticProgress(true);
+    dismissDraftEditor();
     setError(null);
     try {
       const response = await triggerFullRegeneration(activeApplicationId, {
@@ -1049,6 +1086,7 @@ export function ApplicationDetailPage() {
     }
     setIsRegenerating(true);
     setShowOptimisticProgress(true);
+    dismissDraftEditor();
     setError(null);
     try {
       const response = await triggerSectionRegeneration(activeApplicationId, regenSectionName, regenInstructions);
@@ -1427,7 +1465,9 @@ export function ApplicationDetailPage() {
     );
   }
 
-  function renderGeneratedWorkspacePane() {
+  function renderGeneratedWorkspacePane(options?: { lockInteractions?: boolean }) {
+    const lockInteractions = options?.lockInteractions ?? false;
+
     return (
       <Card
         className={`${workspaceCardClass} ${compareMode ? "compare-pane-card compare-generated-pane" : ""} px-4 pb-4 pt-2`}
@@ -1465,6 +1505,7 @@ export function ApplicationDetailPage() {
                   color: !editMode ? "#fff" : "var(--color-ink-50)",
                 }}
                 type="button"
+                disabled={lockInteractions}
                 onClick={() => {
                   if (editMode) handleCancelEdit();
                 }}
@@ -1478,6 +1519,7 @@ export function ApplicationDetailPage() {
                   color: editMode ? "#fff" : "var(--color-ink-50)",
                 }}
                 type="button"
+                disabled={lockInteractions}
                 onClick={() => {
                   if (!editMode) handleEnterEditMode();
                 }}
@@ -2161,19 +2203,37 @@ export function ApplicationDetailPage() {
               <div className={compareMode ? "min-w-0" : "order-1 min-w-0 xl:order-2"}>
                 {/* Resume Content Area */}
                 {generationActive || showOptimisticProgress ? (
-                  /* Resume Skeleton during generation with overlay */
-                  <Card className={`${workspaceCardClass} relative p-0`} style={activeWorkspaceCardStyle}>
-                    <div className="flex-1 h-full overflow-hidden">
-                      <ResumeSkeleton />
+                  draft ? (
+                    <div className="relative">
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-0 z-[1] rounded-[1.5rem]"
+                        style={{ background: "rgba(255, 255, 255, 0.45)", backdropFilter: "blur(1px)" }}
+                      />
+                      {renderGeneratedWorkspacePane({ lockInteractions: true })}
+                      <GenerationProgress
+                        progress={generationProgress}
+                        isOptimistic={showOptimisticProgress}
+                        isActive={generationActive}
+                        isCancelling={isCancelling}
+                        onCancel={() => void handleCancelGeneration()}
+                      />
                     </div>
-                    <GenerationProgress
-                      progress={generationProgress}
-                      isOptimistic={showOptimisticProgress}
-                      isActive={generationActive}
-                      isCancelling={isCancelling}
-                      onCancel={() => void handleCancelGeneration()}
-                    />
-                  </Card>
+                  ) : (
+                    /* Resume Skeleton during first-time generation */
+                    <Card className={`${workspaceCardClass} relative p-0`} style={activeWorkspaceCardStyle}>
+                      <div className="flex-1 h-full overflow-hidden">
+                        <ResumeSkeleton />
+                      </div>
+                      <GenerationProgress
+                        progress={generationProgress}
+                        isOptimistic={showOptimisticProgress}
+                        isActive={generationActive}
+                        isCancelling={isCancelling}
+                        onCancel={() => void handleCancelGeneration()}
+                      />
+                    </Card>
+                  )
                 ) : draft ? (
                   compareMode ? (
                     <div className="compare-layout-grid grid gap-4 lg:grid-cols-2">
