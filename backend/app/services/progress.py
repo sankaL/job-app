@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import logging
 import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class ProgressRecord(BaseModel):
@@ -20,6 +23,11 @@ class ProgressRecord(BaseModel):
     updated_at: str
     completed_at: Optional[str] = None
     terminal_error_code: Optional[str] = None
+
+
+class ApplicationEvent(BaseModel):
+    event: str
+    payload: dict[str, Any]
 
 
 def now_iso() -> str:
@@ -66,6 +74,10 @@ class RedisProgressStore:
     def _generation_result_key(application_id: str) -> str:
         return f"phase1:applications:{application_id}:generated"
 
+    @staticmethod
+    def _events_channel(application_id: str) -> str:
+        return f"phase1:applications:{application_id}:events"
+
     async def get(self, application_id: str) -> Optional[ProgressRecord]:
         payload = await self._redis.get(self._key(application_id))
         if payload is None:
@@ -80,6 +92,16 @@ class RedisProgressStore:
         ttl_seconds: int = 86400,
     ) -> None:
         await self._redis.set(self._key(application_id), progress.model_dump_json(), ex=ttl_seconds)
+        try:
+            await self.publish_event(
+                application_id,
+                ApplicationEvent(
+                    event="progress",
+                    payload=progress.model_dump(mode="json"),
+                ),
+            )
+        except Exception:
+            logger.warning("Failed publishing progress event for application %s", application_id, exc_info=True)
 
     async def delete(self, application_id: str) -> None:
         await self._redis.delete(self._key(application_id))
@@ -101,6 +123,38 @@ class RedisProgressStore:
 
     async def clear_generation_result(self, application_id: str) -> None:
         await self._redis.delete(self._generation_result_key(application_id))
+
+    async def publish_event(self, application_id: str, event: ApplicationEvent) -> None:
+        await self._redis.publish(
+            self._events_channel(application_id),
+            event.model_dump_json(),
+        )
+
+    async def open_event_subscription(self, application_id: str):
+        pubsub = self._redis.pubsub()
+        await pubsub.subscribe(self._events_channel(application_id))
+        return pubsub
+
+    async def read_event(self, subscription, *, timeout_seconds: float = 1.0) -> Optional[ApplicationEvent]:
+        message = await subscription.get_message(
+            ignore_subscribe_messages=True,
+            timeout=timeout_seconds,
+        )
+        if not message:
+            return None
+
+        payload = message.get("data")
+        if payload is None:
+            return None
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8")
+        return ApplicationEvent.model_validate_json(payload)
+
+    async def close_event_subscription(self, application_id: str, subscription) -> None:
+        try:
+            await subscription.unsubscribe(self._events_channel(application_id))
+        finally:
+            await subscription.close()
 
 
 def get_progress_store() -> RedisProgressStore:

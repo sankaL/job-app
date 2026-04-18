@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { normalizeRuntimeConfig } from "@/lib/runtime-config";
+
+const runtimeConfig =
+  typeof window === "undefined"
+    ? {}
+    : normalizeRuntimeConfig((window.__APP_CONFIG__ ?? {}) satisfies Record<string, unknown>);
 
 const envSchema = z.object({
   VITE_APP_ENV: z.string().default("development"),
@@ -11,4 +17,7 @@ const envSchema = z.object({
   VITE_API_URL: z.string().url(),
 });
 
-export const env = envSchema.parse(import.meta.env);
+export const env = envSchema.parse({
+  ...import.meta.env,
+  ...runtimeConfig,
+});

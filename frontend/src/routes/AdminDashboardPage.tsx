@@ -8,11 +8,11 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/card";
 import { SkeletonCard } from "@/components/ui/skeleton";
-import { fetchAdminMetrics, type AdminMetrics, type AdminOperationMetric } from "@/lib/api";
+import type { AdminOperationMetric } from "@/lib/api";
+import { useAdminMetricsQuery } from "@/lib/queries";
 
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
@@ -138,25 +138,10 @@ function OperationCard({
 }
 
 export function AdminDashboardPage() {
-  const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: metrics, error } = useAdminMetricsQuery();
+  const displayedError = error instanceof Error ? error.message : null;
 
-  async function loadMetrics() {
-    setError(null);
-    try {
-      const response = await fetchAdminMetrics();
-      setMetrics(response);
-    } catch (err) {
-      setMetrics(null);
-      setError(err instanceof Error ? err.message : "Unable to load admin metrics.");
-    }
-  }
-
-  useEffect(() => {
-    void loadMetrics();
-  }, []);
-
-  if (!metrics && !error) {
+  if (!metrics && !displayedError) {
     return (
       <div className="page-enter space-y-5">
         <PageHeader title="Admin Metrics" subtitle="Invite and usage funnel performance." />
@@ -183,7 +168,7 @@ export function AdminDashboardPage() {
             Metrics unavailable
           </p>
           <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
-            {error}
+            {displayedError}
           </p>
         </Card>
       </div>

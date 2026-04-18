@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useDeferredValue, useMemo, useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, RefreshCcw, Send, Trash2, UserPlus } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -15,11 +16,11 @@ import {
   deactivateAdminUser,
   deleteAdminUser,
   inviteAdminUser,
-  listAdminUsers,
   reactivateAdminUser,
   updateAdminUser,
   type AdminUser,
 } from "@/lib/api";
+import { invalidateAdminUsersQueries, useAdminUsersQuery } from "@/lib/queries";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All users" },
@@ -47,12 +48,12 @@ function fullName(user: AdminUser) {
 
 export function AdminUsersPage() {
   const { bootstrap } = useAppContext();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [isLoading, setIsLoading] = useState(false);
+  const deferredSearch = useDeferredValue(search);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteFirstName, setInviteFirstName] = useState("");
@@ -67,42 +68,19 @@ export function AdminUsersPage() {
   const [editPhone, setEditPhone] = useState("");
   const [editLinkedin, setEditLinkedin] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const {
+    data: users,
+    error: queryError,
+    isFetching: isLoading,
+    refetch,
+  } = useAdminUsersQuery(deferredSearch, statusFilter);
+  const displayedError = error ?? (queryError instanceof Error ? queryError.message : null);
 
   const currentUserId = bootstrap?.user.id ?? null;
   const editingUser = useMemo(
     () => users?.find((user) => user.id === editingUserId) ?? null,
     [users, editingUserId],
   );
-
-  async function loadUsers() {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await listAdminUsers({
-        search: search.trim() || undefined,
-        status: statusFilter === "all" ? undefined : statusFilter,
-      });
-      setUsers(response);
-    } catch (err) {
-      setUsers(null);
-      setError(err instanceof Error ? err.message : "Unable to load users.");
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadUsers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadUsers();
-    }, 250);
-    return () => window.clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
 
   function beginEdit(user: AdminUser) {
     setEditingUserId(user.id);
@@ -127,7 +105,7 @@ export function AdminUsersPage() {
       setInviteEmail("");
       setInviteFirstName("");
       setInviteLastName("");
-      await loadUsers();
+      await invalidateAdminUsersQueries(queryClient);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Invite failed.", "error");
     } finally {
@@ -150,7 +128,7 @@ export function AdminUsersPage() {
       });
       toast("User updated.");
       setEditingUserId(null);
-      await loadUsers();
+      await invalidateAdminUsersQueries(queryClient);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Update failed.", "error");
     } finally {
@@ -167,7 +145,7 @@ export function AdminUsersPage() {
         await reactivateAdminUser(user.id);
         toast("User reactivated.");
       }
-      await loadUsers();
+      await invalidateAdminUsersQueries(queryClient);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Status update failed.", "error");
     }
@@ -179,13 +157,13 @@ export function AdminUsersPage() {
     try {
       await deleteAdminUser(user.id);
       toast("User deleted.");
-      await loadUsers();
+      await invalidateAdminUsersQueries(queryClient);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Delete failed.", "error");
     }
   }
 
-  if (isLoading && users === null) {
+  if (isLoading && users == null) {
     return (
       <div className="page-enter space-y-5">
         <PageHeader title="User Management" subtitle="Invite, update, and control user access." />
@@ -200,20 +178,20 @@ export function AdminUsersPage() {
         title="User Management"
         subtitle="Invite, update, and control user access."
         actions={
-          <Button variant="secondary" onClick={() => void loadUsers()} loading={isLoading}>
+          <Button variant="secondary" onClick={() => void refetch()} loading={isLoading}>
             <RefreshCcw size={14} />
             Refresh
           </Button>
         }
       />
 
-      {error ? (
+      {displayedError ? (
         <Card variant="danger" density="compact">
           <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>
             User list unavailable
           </p>
           <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
-            {error}
+            {displayedError}
           </p>
         </Card>
       ) : null}

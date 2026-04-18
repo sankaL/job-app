@@ -9,9 +9,9 @@
 
 Build a private, invite-only web application that helps users generate ATS-friendly resumes tailored to specific job postings.
 
-A user logs in, creates a job application from a job link or Chrome current-tab capture, and the system attempts to extract the job details and posting origin asynchronously. The user then selects a base resume, chooses generation settings, and the system produces a tailored resume draft in Markdown. The user can review, edit, regenerate sections, regenerate the full resume, and export a PDF.
+A user logs in, creates a job application from a job link or Chrome current-tab capture, and the system attempts to extract the job details and posting origin asynchronously. The user then selects a base resume, chooses generation settings, and the system produces a tailored resume draft in Markdown. The user can review, edit, regenerate sections, regenerate the full resume, inspect a Resume Judge quality score and breakdown, and export a PDF.
 
-This is an MVP. The focus is a clean, reliable workflow with strong user feedback during async processing, clear attention states, and a single ATS-safe PDF output format.
+This is an MVP. The focus is a clean, reliable workflow with strong user feedback during async processing, clear attention states, and ATS-safe PDF and DOCX export formats.
 
 ---
 
@@ -104,10 +104,11 @@ The app must provide meaningful loading, progress, success, error, and attention
 7. User resolves any duplicate warning
 8. User selects a base resume and generation settings
 9. System generates a tailored Markdown resume
-10. User reviews, edits, regenerates sections or the full resume as needed
-11. User exports the resume as a PDF
-12. User may continue editing after export — doing so returns the status to **In Progress**
-13. User may toggle the **Applied** flag independently at any point
+10. System runs Resume Judge in the background and attaches a score once evaluation completes
+11. User reviews, edits, regenerates sections or the full resume as needed
+12. User exports the resume as a PDF
+13. User may continue editing after export — doing so returns the status to **In Progress**
+14. User may toggle the **Applied** flag independently at any point
 
 ---
 
@@ -122,7 +123,7 @@ Application statuses are kept lightweight and action-oriented for the user.
 | **Draft** | Application exists but no usable tailored resume draft yet. Covers: just submitted URL, extraction pending or running, details extracted but generation not started. |
 | **Needs Action** | User must do something before the workflow can continue. Covers: extraction failed (manual entry required), duplicate review unresolved, generation failed, generation timed out, generation cancelled, regeneration failed, export failed. |
 | **In Progress** | A tailored resume draft exists and the user is reviewing or iterating. Covers: generation complete, user editing, after section or full regeneration, after editing a previously exported resume. |
-| **Complete** | The current draft has been successfully exported as a PDF. **Not permanent** — if the user edits or regenerates after export, status returns to In Progress. |
+| **Complete** | The current draft has been successfully exported as a supported export format (`PDF` or `DOCX`). **Not permanent** — if the user edits or regenerates after export, status returns to In Progress. |
 
 ### 7.2 Applied Flag (Secondary)
 
@@ -167,7 +168,7 @@ Async operations must enforce timeouts to prevent silent hangs. These are the re
 | Playwright extraction | 30 seconds |
 | Full resume generation and full regeneration (all sections) | 240 seconds without progress, with a 240 second maximum wall-clock window |
 | Single section regeneration | 120 seconds without progress, with a 120 second maximum wall-clock window |
-| PDF export | 20 seconds |
+| Resume export | 20 seconds |
 
 On timeout, the operation is treated as a failure and follows the failure handling path defined for that operation. For generation and regeneration, meaningful progress updates from the active job should extend the remaining processing window until the maximum cap is reached, but the workflow must still fail once it stalls past the idle boundary. Engineers may tune these values during implementation, but must have explicit timeouts in place. "Reasonable for MVP" is not sufficient — every async operation must have a defined failure boundary.
 
@@ -356,10 +357,11 @@ Before initial generation, the user configures:
 
 **Aggressiveness definitions:**
 - **Low:** Light Summary cleanup, light Professional Experience rephrasing or reordering only, no role-title changes, Skills unchanged, and Education unchanged except minimal formatting cleanup
-- **Medium:** Rewrite Summary for stronger alignment, rephrase or reorder Professional Experience with selective pruning, keep professional-experience role titles unchanged, reorder or regroup Skills, and keep Education fact-fixed apart from minimal formatting cleanup
-- **High:** Strongest grounded rewrite of Summary, aggressive reframing or reprioritization of Professional Experience, professional-experience role titles may be rewritten when the new title is still a truthful reframing of the same source role, aggressive regrouping or pruning of Skills, and Education still fact-fixed apart from minimal formatting cleanup. This mode is an explicit user opt-in and may materially change wording, emphasis, and role framing, so the generated output must be presented with a clear warning that careful user review is required.
+- **Medium:** Rewrite Summary for stronger alignment, make Professional Experience the primary tailoring surface by materially rewriting bullet framing in the first up to 2 source-ordered roles with bullets, explicitly allow merging two related source bullets into one stronger grounded bullet when that improves focus, allow light professional-experience title reframing only when the title stays grounded in the same core role family and seniority, reorder or regroup Skills with the strongest relevant cluster first, allow job-description keyword-skill additions for fit, and keep Education fact-fixed apart from minimal formatting cleanup
+- **High:** Strongest rewrite of Summary, including bounded professional inference from demonstrated source patterns, make Professional Experience the primary tailoring surface by materially rewriting bullet framing in the first up to 2 source-ordered roles with bullets, professional-experience role titles may be rewritten when the new title still matches the demonstrated work and preserves seniority, aggressive regrouping or pruning of Skills with the strongest relevant cluster first, allow broader job-description keyword-skill additions for fit, and Education still fact-fixed apart from minimal formatting cleanup. This mode is an explicit user opt-in and may materially change wording, emphasis, role framing, and keyword coverage, so the generated output must be presented with a clear warning that careful user review is required.
 
 **Settings UI note:** The Generation Settings card may stay compact as long as the full low, medium, and high behavior breakdown remains available inline through a tooltip or popover. When High is selected, the UI must also show an inline warning that this mode can make substantial changes and should be used only when the user wants a more aggressive rewrite and will review the result carefully.
+For medium and high runs, the application detail workspace must preserve an explicit review path for job-description-driven additions that are not explicit in the source resume. In MVP, that review path is the compare workflow, which lets the user inspect the tailored draft beside the generation-time base resume before applying or exporting.
 
 **Length note:** Page count is a target, not a guarantee. The system optimizes toward the selected length; final pagination may vary slightly based on content and formatting.
 
@@ -392,9 +394,14 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - Use one LLM request for initial generation and one LLM request for full regeneration
 - Use one LLM request for single-section regeneration of the selected section
 - Professional Experience must use deterministic source anchors (`title`, `company`, `date_range`, source order) extracted from the sanitized base resume
-- Low and medium aggressiveness must keep Professional Experience titles source-exact; high may retitle only when truthful to the same role
+- Professional Experience role order must stay fixed to the source anchors; reprioritization happens by changing bullet emphasis inside each anchored role
+- Low aggressiveness must keep Professional Experience titles source-exact
+- Medium may lightly reframe Professional Experience titles only when the new title stays grounded in the same core role family and seniority as the source title
+- High may retitle Professional Experience roles more freely only when the new title still matches the demonstrated work and preserves seniority
+- Medium and High may add non-factual job-description keyword/skill phrasing for role fit, but must still fail closed on invented employers, dates, institutions, credentials, awards, scope, or outcomes
+- When Professional Experience is enabled, medium and high must visibly tailor it instead of leaving the first up to 2 roles with bullets effectively source-identical while spending nearly all rewrite effort on Summary or Skills
 - Company and date range for every Professional Experience role are deterministic invariants and must remain source-exact for all aggressiveness levels
-- Apply a deterministic post-LLM normalization pass that rehydrates Professional Experience company and date values from anchors before validation or assembly
+- Apply a deterministic post-LLM normalization pass that rehydrates Professional Experience company and date values from anchors before validation or assembly; low also rehydrates source-exact titles while medium and high preserve the generated title for validation
 - The model must return a strict JSON envelope that includes ordered sections and per-section grounding snippets copied from the sanitized base resume
 - Prompt variants must explicitly reflect the selected page target and aggressiveness level
 - A second model request is allowed only when the first request fails at the provider or transport level, or returns invalid structured output
@@ -407,6 +414,8 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - No tables
 - No images
 - Clean bullet formatting
+- Human-sounding output with explicit anti-filler guidance, varied bullet structure, and candidate-specific detail requirements
+- Explicit bounded-inference examples for high aggressiveness so the model can distinguish grounded role framing from invented outcomes or metrics
 - Strong keyword relevance to the job description
 - Grounded, source-based content — no invented credentials or history
 - No personal or contact information in the model prompt or output contract
@@ -421,8 +430,10 @@ After generation returns structured JSON, the application validates it locally b
 - Strict JSON parsing and schema compliance
 - ATS-safe structure (no tables, no columns, no special characters)
 - Valid Markdown formatting
-- Hallucinated content not present in the base resume — specifically: invented employers, dates, credentials, or educational institutions, plus invented job titles outside the high-aggressiveness professional-experience title-rewrite allowance
-- Professional Experience structure contract enforcement after deterministic normalization: same role-block count as source anchors, source-exact company and date per role, and source-exact titles in low or medium aggressiveness
+- Hallucinated factual content not present in the base resume — specifically: invented employers, dates, credentials, educational institutions, awards, or outcomes, plus invented job titles outside the medium and high professional-experience title-rewrite allowances
+- Professional Experience structure contract enforcement after deterministic normalization: same role-block count as source anchors, source-exact company and date per role, source-exact titles in low aggressiveness, medium title grounding to the same core role family and seniority, and preserved seniority in high aggressiveness
+- A medium/high-only heuristic for insufficient Professional Experience tailoring: when that section is enabled, the first up to 2 source-ordered roles with bullets must show visible bullet or title rewrites according to the aggressiveness rules, or validation fails closed
+- Document where validation is heuristic rather than semantic proof; medium title grounding is only approximated deterministically and ultimately depends on the prompt contract plus model behavior
 - Consistency across sections (no conflicting dates, duplicate entries)
 - All enabled sections are present and in the correct order
 - Personal or contact information leakage in generated sections
@@ -480,6 +491,9 @@ The main working page for a single application.
 - **Preview mode (default):** Rendered Markdown that reads like a finished resume
 - **Edit mode:** Plain Markdown text editor (e.g., `<textarea>` or CodeMirror)
 - Clear visual distinction between the two modes
+- **Resume Judge card:** A dedicated left-rail review card sits above the job description once a draft exists. It owns all judge states, including pending, queued, stale, failed, and scored results, and opens the full breakdown when review details are available.
+- **Resume Judge breakdown:** Shows exact score, verdict, weighted dimension notes, evaluator notes, and regeneration instructions. Judge failure or stale score must not block editing or export.
+- **Stale judge behavior:** If the user edits the draft after scoring, the previous score may stay visible but must be marked stale and offer manual re-evaluation instead of pretending it still matches the latest draft.
 
 **Action buttons:**
 - Delete Application
@@ -487,7 +501,8 @@ The main working page for a single application.
 - Regenerate Section
 - Regenerate Full Resume
 - Retry Extraction (if extraction failed)
-- Export PDF
+- Export PDF / DOCX
+- Re-evaluate Resume Judge for stale edited drafts
 
 ---
 
@@ -534,27 +549,28 @@ Users can manually edit the generated Markdown at any time.
 
 ---
 
-### 10.14 PDF Export
+### 10.14 Resume Export
 
-**Trigger:** User clicks **Export PDF**
+**Trigger:** User clicks **Export PDF** or **Export DOCX**
 
 **Process:**
 1. Take the latest `resume_drafts.content_md` at the moment of export (not cached; always fresh)
 2. Inject user personal information if not already present
-3. Convert Markdown → styled HTML → PDF via the chosen PDF engine
+3. Convert Markdown into the requested output format using the committed renderer for that format
 4. Stream the file directly to the browser as a download
-5. **Do not store the PDF in persistent storage for MVP** — it is always regenerated on demand from the latest draft
+5. **Do not store exported files in persistent storage for MVP** — they are always regenerated on demand from the latest draft
 
-**Filename format:** `{full_name}_resume_{YYYYMMDD_HHMMSS}.pdf`
+**Filename format:** `{full_name}_resume_{YYYYMMDD_HHMMSS}.{ext}`
 
-**PDF output requirements:**
-- Single ATS-safe format only (MVP owns the output template — no user choice)
+**Output requirements:**
+- Two ATS-safe formats only: PDF and DOCX
 - Clean, industry-standard single-column layout
 - No tables, no images, no decorative elements
 - Standard fonts (e.g., Georgia, Calibri, or equivalent)
 - Margins: 0.75–1 inch
 - Section headings as bold text with appropriate spacing
 - Sections in the order defined by user's `section_order` preferences
+- DOCX uses Word-native formatting with Letter page size and best-effort spacing aligned to the saved page-length target; exact pagination parity with PDF is not required
 
 **On success:**
 - Visible status → **Complete**
@@ -643,7 +659,7 @@ Examples:
 | Extraction failed — manual entry required | ✅ |
 | Resume generation completed | ✅ |
 | Resume generation failed | ✅ |
-| PDF export failed | ✅ |
+| Resume export failed | ✅ |
 
 All emails must include a direct link to the relevant application.
 
@@ -750,6 +766,7 @@ Admin has exactly two product responsibilities in MVP:
 | internal_state | enum | See §8 |
 | failure_reason | enum | See §8; nullable |
 | extraction_failure_details | JSONB | nullable; sanitized blocked-source diagnostics and future recoverable extraction metadata |
+| resume_judge_result | JSONB | nullable; latest Resume Judge lifecycle state, score breakdown, and stale-draft metadata |
 | applied | boolean | User-controlled flag |
 | duplicate_similarity_score | float | nullable |
 | duplicate_match_fields | JSONB | nullable |
@@ -861,7 +878,7 @@ These are implementation decisions, not product decisions:
 | Decision | Notes |
 |---|---|
 | Background job strategy | `FastAPI BackgroundTasks` vs. ARQ vs. Celery+Redis; consider job persistence across Railway restarts |
-| Real-time progress delivery | Polling vs. SSE vs. WebSocket for streaming generation progress to the frontend |
+| Real-time progress delivery | Use per-application SSE for live detail-page workflow updates, with 5-second polling retained as a watchdog/reconnect fallback |
 | Playwright on Railway | Confirm headless Chromium runs in Railway containers; may require custom Dockerfile with system deps |
 | PDF rendering engine | WeasyPrint vs. Playwright print-to-PDF; validate ATS output quality |
 | Fuzzy match threshold | Default 85% recommended; must be environment-configurable, not hardcoded |
@@ -893,7 +910,7 @@ The MVP is successful if a user can:
 - [ ] Edit the resume in plain Markdown mode and save
 - [ ] Regenerate a single section with required instructions
 - [ ] Regenerate the full resume with updated settings and optional instructions
-- [ ] Export the current draft as a PDF download
+- [ ] Export the current draft as a PDF or DOCX download
 - [ ] See status return to In Progress after editing or regenerating a previously exported resume
 - [ ] Toggle the Applied flag independently of the primary status
 - [ ] Receive in-app notifications for all workflow events

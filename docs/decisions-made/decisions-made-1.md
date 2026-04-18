@@ -1,5 +1,126 @@
 # Decisions Made
 
+## 2026-04-17 22:10:54 EDT — Use per-application SSE for detail-page workflow updates with polling retained as a watchdog
+
+- Status: Accepted
+- Context: The application detail page was polling `/progress` every 3 seconds for extraction and generation state plus polling application detail every 5 seconds for Resume Judge state. That contract already had important Redis-backed reconciliation and stalled-job recovery behavior, so simply replacing it with a client-only live transport would have risked losing the fail-closed recovery paths while still keeping the same backend complexity.
+- Decision:
+  1. Add an authenticated per-application SSE endpoint for detail-page workflows instead of introducing a broader app-wide stream.
+  2. Keep Redis progress records and terminal reconciliation as the source of truth, and publish `progress` plus `detail` events from those existing backend paths.
+  3. Use a fetch-based stream client in the frontend rather than native `EventSource`, because the app authenticates API requests with a Supabase bearer token header.
+  4. Keep 5-second detail/progress polling as a watchdog and reconnect fallback while active extraction, generation, regeneration, or Resume Judge work is in flight.
+- Consequences: Detail-page progress now updates immediately when backend callbacks land, but stalled-job recovery and callback-missed reconciliation still run through the existing read paths. The rollout avoids WebSocket infrastructure, preserves fail-closed behavior, and limits long-lived connections to pages that actually need live workflow state.
+
+## 2026-04-17 20:45:00 EDT — Standardize the frontend on a production runtime plus shared query caching
+
+- Status: Accepted
+- Context: Railway was serving the frontend through Vite development mode, which kept React dev-only behavior such as duplicate `StrictMode` mount effects live in production. At the same time, the shell and route pages were independently fetching the same bootstrap, applications, base-resume, profile, and notification resources, multiplying backend requests and making each redundant GET more expensive because repositories still open fresh Postgres connections per call.
+- Decision:
+  1. Replace the frontend’s Railway runtime with a production build served from `nginx:alpine`, while keeping a separate Docker `dev` target for the local Compose stack.
+  2. Inject runtime frontend configuration through a generated `env-config.js` so the same production image can read Railway-provided values without falling back to `vite dev`.
+  3. Add a shared React Query cache as the single client-side data layer for session bootstrap, applications, application detail, drafts, base resumes, notifications, admin metrics, and admin users.
+  4. Remove the shell-wide eager applications fetch and stop using a custom window event to fan out notification clears; use query invalidation instead.
+  5. Extend session bootstrap with aggregate application summary counts so shell badges and attention indicators no longer require a full applications list fetch.
+- Consequences: Hosted frontend traffic now runs through a production bundle instead of the Vite dev server, shared route data is deduped across pages and shell chrome, and the shell can render badge counts from a small aggregate bootstrap payload. Backend connection pooling remains a separate follow-up if Railway costs stay elevated after these request-volume reductions.
+
+## 2026-04-17 10:30:00 EDT — Add Resume Judge as a dedicated post-generation evaluator with local scoring arithmetic
+
+- Status: Accepted
+- Context: The resume workflow needed a maintained evaluator agent that could score generated drafts, expose the score prominently in the detail workspace, and provide actionable regeneration feedback without blocking draft availability or giving the model responsibility for arithmetic and pass/fail bookkeeping.
+- Decision:
+  1. Add a dedicated OpenRouter-backed `Resume Judge` agent with its own primary model, fallback model, and reasoning-effort env configuration.
+  2. Run Resume Judge automatically after initial generation, full regeneration, and section regeneration, but keep generation non-blocking so the draft becomes available before scoring completes.
+  3. Persist the latest judge lifecycle state on `applications.resume_judge_result` and include `evaluated_draft_updated_at` so stale callbacks and stale UI scores can be fenced against later draft edits.
+  4. Sanitize the generated draft before the LLM call and provide ATS/density facts through deterministic local observations instead of asking the model to infer everything from raw text.
+  5. Keep the LLM contract evaluator-only: the model returns dimension scores, notes, summary, regeneration instructions, and evaluator notes, while local code computes weighted contributions, final score, display score, and verdict.
+  6. Treat judge failures as fail-open. Resume Judge may show `failed` or stale score state, but it must not alter `visible_status`, `failure_reason`, export availability, or draft editability.
+- Consequences: The application detail page now has a first-class score tile and breakdown dialog, full regeneration can optionally append judge feedback to user instructions, and the prompt/schema/runbook contract now includes a new persisted JSONB state plus a separate evaluator prompt family.
+
+## 2026-04-16 23:50:07 EDT — Make compare the MVP review path for JD-driven additions
+
+- Status: Accepted
+- Context: The product had briefly diverged between code review feedback and the intended UX contract for medium/high tailoring. The compare workflow was already the active review surface in the application detail workspace, but the PRD still required a separate generated-draft warning panel for `review_flags`, which no longer matched the desired frontend behavior.
+- Decision:
+  1. Keep emitting draft `review_flags` in the backend payload for provenance and future use, but do not require a standalone generated-draft warning panel in the MVP detail view.
+  2. Treat compare mode as the explicit MVP review path for JD-driven additions that are not explicit in the source resume.
+  3. Update the PRD to describe compare as the required review workflow before apply/export for medium/high runs.
+- Consequences: The frontend remains simpler and aligned with the current compare-first detail experience, the product contract no longer conflicts with the implemented UI, and `review_flags` data remains available without creating a second mandatory review surface.
+
+## 2026-04-16 22:38:50 EDT — Move generation reasoning effort into env config and default it to none
+
+- Status: Accepted
+- Context: Generation and regeneration reasoning effort was still hardcoded in `agents/generation.py`, which meant model changes were configurable but reasoning intensity was not. You wanted the same runtime flexibility for reasoning effort, with the ability to set `none`, `low`, `medium`, `high`, or `xhigh` without another code change.
+- Decision:
+  1. Add a validated worker env setting, `GENERATION_AGENT_REASONING_EFFORT`, with allowed values `none`, `low`, `medium`, `high`, and `xhigh`.
+  2. Thread that setting through full generation, full regeneration, and section regeneration for both primary and fallback attempts instead of hardcoding reasoning in `agents/generation.py`.
+  3. Keep validation-repair non-reasoning regardless of the configured generation setting.
+  4. Set the tracked dotenv defaults to `none` for now.
+- Consequences: Runtime model configuration now also controls generation/regeration reasoning intensity, local and compose defaults are aligned on `none`, and repair stays narrow and deterministic even when generation reasoning is increased later.
+
+## 2026-04-16 22:20:00 EDT — Make medium/high Professional Experience visibly stronger and restore bounded reasoning defaults
+
+- Status: Accepted
+- Context: Live medium/high outputs were still often changing Summary and Skills while leaving Professional Experience nearly untouched, which made aggressiveness feel weaker than the UI contract. The current dirty-tree generation code had also disabled reasoning entirely, diverging from the intended bounded reasoning policy for full drafts and section regeneration.
+- Decision:
+  1. Restore bounded reasoning defaults for generation and regeneration at `medium` effort on both primary and fallback attempts, and keep validation-repair attempts non-reasoning.
+  2. Make Professional Experience the primary tailoring surface in medium and high mode by requiring visible bullet rewrites in the first up to 2 source-ordered roles with bullets, while keeping anchored role order fixed.
+  3. Keep medium targeted rather than broad: allow opportunistic grounded title reframing when fit clearly improves, but do not require title rewrites.
+  4. Keep high as the most assertive mode: actively retitle grounded roles when alignment is clear, especially the most recent role, while preserving company, dates, duration, and seniority.
+  5. Add a medium/high-only heuristic validation failure for insufficient Professional Experience tailoring, and feed that failure through the existing repair prompt so repair attempts push on experience bullets instead of only Summary or Skills.
+  6. Expand read-time draft review flags so medium/high Professional Experience header/title rewrites that introduce JD-only wording are surfaced for user review under the existing payload shape.
+- Consequences: Medium/high outputs now have a stronger default obligation to visibly rewrite experience content, the repair pass gets a clearer target when experience stays too close to source wording, and the generation stack uses a cheaper consistent `medium` reasoning policy for generation/regeneration while keeping repair narrow.
+
+## 2026-04-15 21:20:00 EDT — Let medium/high inject JD-driven keywords and add explicit draft review flags
+
+- Status: Accepted
+- Context: Live usage showed low, medium, and high generation outputs were often too similar. The prompt contract required source-only skills in medium/high and explicitly blocked adding new skills, which made tailoring feel like light cleanup instead of true role targeting.
+- Decision:
+  1. Keep low mode strictly source-preserving for skills and factual claims.
+  2. Allow medium and high modes to inject job-description-driven non-factual keyword/skill phrasing for role fit.
+  3. Keep deterministic Professional Experience invariants unchanged: role-block count, company/date source-exactness, low title exactness, medium title grounding + seniority preservation, high seniority preservation.
+  4. Keep factual hallucination guardrails fail-closed for employers, dates, institutions, credentials, awards, scope, and outcomes.
+  5. Add read-time draft `review_flags` for medium/high so JD-only additions are visibly surfaced in the application detail UI for explicit user review.
+  6. Increase generation sampling variance by aggressiveness (`low=0.2`, `medium=0.35`, `high=0.5`) so mode choices produce meaningfully different outputs.
+- Consequences: Medium/high now perform materially stronger tailoring, user review burden is made explicit through flagged additions instead of hidden behavior shifts, and deterministic structural safeguards continue to prevent factual drift in work history.
+
+## 2026-04-14 21:34:11 EDT — Bound generation to one primary attempt, one fallback attempt, and one repair-only pass with stage diagnostics
+
+- Status: Accepted
+- Context: Generation had two distinct failure modes in live use. Some requests were slow because the pipeline could fan out into multiple full LLM calls before success or failure, especially when structured output failed or a provider rejected the reasoning field. Other requests never reached the backend generation endpoint at all, but the frontend and backend did not emit enough structured diagnostics to show whether the request was blocked locally, failed during enqueue, died in the worker before OpenRouter, or was rejected after deterministic validation.
+- Decision:
+  1. Keep the generation pipeline bounded to one primary-model attempt followed by one fallback-model attempt, instead of allowing generic same-request resend fan-out across multiple transport modes on the same model.
+  2. Keep same-model retry only for the narrow case where the provider explicitly rejects the `reasoning` parameter; retry that model once without reasoning and otherwise move on.
+  3. Use primary structured output first and fallback prompt-level JSON second for full generation, full regeneration, and section regeneration.
+  4. After a successful LLM response fails deterministic validation, allow exactly one validation-aware repair attempt in prompt-level JSON mode before failing closed.
+  5. Remove whole-job automatic reruns for generation and regeneration by reducing worker job retries to a single attempt and relying on explicit model fallback plus the repair pass instead.
+  6. Add sanitized structured diagnostics across frontend guard handling, backend route entry and enqueue, worker LLM attempts, validation and repair, cache writes, and callback delivery, and persist enriched `generation_failure_details` so the UI can show where the request stopped.
+  7. Move generation defaults to faster lighter models for local/runtime defaults: `openai/gpt-5-mini` primary and `google/gemini-flash-1.5` fallback, with `medium` reasoning for generation and regeneration and no reasoning on repair.
+- Consequences: Resume-writing latency is now constrained by a small fixed attempt budget instead of an open-ended retry matrix, deterministic validation remains fail-closed while still getting one salvage pass, and operators can distinguish “blocked in the UI,” “enqueue failed,” “worker failed before LLM,” and “LLM or validation failed” without exposing sensitive resume or job-posting content in logs.
+
+## 2026-04-13 22:45:01 EDT — Make medium title reframing bounded, add high-mode bounded inference, and harden resume voice rules
+
+- Status: Accepted
+- Context: Real usage showed that medium aggressiveness was too close to low, the prompt contract had no explicit anti-filler or human-sounding voice guidance, and the previous high-only title-rewrite rule was too binary for users who wanted medium to do more than cleanup while still keeping roles grounded in the original title.
+- Decision:
+  1. Keep low aggressiveness fully title-fixed: Professional Experience role titles remain source-exact.
+  2. Allow medium aggressiveness to lightly reframe Professional Experience titles only when the rewritten title stays grounded in the same core role family and preserves source seniority.
+  3. Keep high aggressiveness as the most flexible mode, and explicitly allow bounded professional inference from demonstrated source patterns in Summary and role framing, while still forbidding invented employers, dates, institutions, credentials, metrics, technologies, or seniority changes.
+  4. Preserve company and date ranges as deterministic invariants in every mode, and preserve source duration by rehydrating company/date from Professional Experience anchors after generation.
+  5. Add an explicit voice contract to resume prompts: banned filler phrases, varied bullet structure, candidate-specific specificity guidance, and at least one concrete source-backed detail per role when available.
+  6. Add a dedicated worked example for bounded inference in high aggressiveness, remove the filler-phrase loophole even when the source uses those phrases, explicitly permit medium-mode bullet consolidation, and document that medium title-family checking is only approximated by deterministic validation.
+- Consequences: Medium now produces a meaningfully stronger rewrite than low without becoming free-form retitling, high becomes more honest about bounded inference while remaining fail-closed on factual drift, the prompts give the model fewer loopholes for generic AI phrasing, and future maintainers have a clearer picture of which title checks are deterministic heuristics versus prompt-layer intent.
+
+## 2026-04-12 16:10:00 EDT — Treat DOCX as a first-class export alongside PDF
+
+- Status: Accepted
+- Context: The product already had a tuned PDF export pipeline, but users also needed a clean DOCX download that preserved the same grounded resume structure, fit a Letter-sized page cleanly, and behaved consistently in workflow status and notifications.
+- Decision:
+  1. Add DOCX as a second on-demand export format generated from the latest draft with no persistent file storage.
+  2. Refactor export rendering around one shared normalized resume document structure so PDF and DOCX consume the same header replacement, section parsing, bullet handling, and split-row semantics.
+  3. Treat successful DOCX exports as workflow-equivalent to successful PDF exports by updating export timestamps, setting visible status to `Complete`, and recording the same generic export usage event.
+  4. Use Word-native DOCX formatting with Letter page size, fixed clean margins, real list paragraphs, and tab-stop split rows; keep page-length behavior best-effort rather than requiring exact PDF pagination parity.
+- Consequences: Users can export either PDF or DOCX without changing the storage model, the backend keeps one export status contract instead of format-specific state, and future export-format changes can build on the shared parsing layer instead of duplicating Markdown normalization logic.
+
 ## 2026-04-10 17:00:08 EDT — Use GitHub Actions path-filtered Railway CLI deploys for selective push-to-main releases
 
 - Status: Accepted

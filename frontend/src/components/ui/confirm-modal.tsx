@@ -90,7 +90,7 @@ export function ConfirmModal({
           boxShadow: "var(--shadow-panel)",
           padding: "28px 28px 24px",
           maxWidth: "420px",
-          width: "calc(100% - 48px)",
+          width: "calc(100% - 32px)",
         }}
       >
         <h3

@@ -25,6 +25,11 @@ export type SessionBootstrapResponse = {
     created_at: string;
     updated_at: string;
   } | null;
+  application_summary: {
+    total_count: number;
+    applied_count: number;
+    needs_action_count: number;
+  };
   workflow_contract_version: string;
 };
 
@@ -85,6 +90,64 @@ export type ApplicationSummary = {
 export type GenerationFailureDetails = {
   message: string | null;
   validation_errors: string[] | null;
+  failure_stage?: string | null;
+  attempt_count?: number | null;
+  attempts?: Array<{
+    model?: string | null;
+    reasoning_effort?: string | null;
+    transport_mode?: string | null;
+    outcome?: string | null;
+    elapsed_ms?: number | null;
+    retry_reason?: string | null;
+  }> | null;
+  terminal_error_code?: string | null;
+  repair_model?: string | null;
+  error?: {
+    error_type?: string | null;
+    message?: string | null;
+  } | null;
+  repair_error?: {
+    error_type?: string | null;
+    message?: string | null;
+  } | null;
+};
+
+export type ResumeJudgeDimensionScore = {
+  score: number;
+  weight: number;
+  weighted_contribution: number;
+  notes: string;
+};
+
+export type ResumeJudgeResult = {
+  status: "queued" | "running" | "succeeded" | "failed";
+  message?: string | null;
+  final_score?: number | null;
+  display_score?: number | null;
+  verdict?: "pass" | "warn" | "fail" | null;
+  pass_threshold?: number | null;
+  score_summary?: string | null;
+  dimension_scores?: Record<string, ResumeJudgeDimensionScore> | null;
+  regeneration_instructions?: string | null;
+  regeneration_priority_dimensions?: string[];
+  evaluator_notes?: string | null;
+  evaluated_draft_updated_at?: string | null;
+  scored_at?: string | null;
+  job_context_signature?: string | null;
+  failure_stage?: string | null;
+  attempt_count?: number | null;
+  attempts?: Array<{
+    model?: string | null;
+    reasoning_effort?: string | null;
+    transport_mode?: string | null;
+    outcome?: string | null;
+    elapsed_ms?: number | null;
+    retry_reason?: string | null;
+  }> | null;
+  error?: {
+    error_type?: string | null;
+    message?: string | null;
+  } | null;
 };
 
 export type ResumeDraft = {
@@ -93,9 +156,19 @@ export type ResumeDraft = {
   content_md: string;
   generation_params: Record<string, unknown>;
   sections_snapshot: Record<string, unknown>;
+  review_flags?: Array<{
+    section_name: string;
+    text: string;
+    reason: "job_description_only_addition";
+  }>;
   last_generated_at: string;
   last_exported_at: string | null;
   updated_at: string;
+};
+
+export type DownloadResponse = {
+  blob: Blob;
+  filename: string | null;
 };
 
 export type ApplicationDetail = {
@@ -116,6 +189,7 @@ export type ApplicationDetail = {
   failure_reason: string | null;
   extraction_failure_details: ExtractionFailureDetails | null;
   generation_failure_details: GenerationFailureDetails | null;
+  resume_judge_result: ResumeJudgeResult | null;
   applied: boolean;
   duplicate_similarity_score: number | null;
   duplicate_resolution_status: string | null;
@@ -143,6 +217,15 @@ export type ExtensionConnectionStatus = {
   connected: boolean;
   token_created_at: string | null;
   token_last_used_at: string | null;
+};
+
+export type ApplicationEventSnapshot = {
+  detail: ApplicationDetail;
+  progress: ExtractionProgress | null;
+};
+
+export type ApplicationHeartbeat = {
+  sent_at: string;
 };
 
 export type ExtensionTokenResponse = {
@@ -299,6 +382,39 @@ async function getAccessToken() {
   return session.access_token;
 }
 
+function parseSseChunk(
+  chunk: string,
+): { event: string; payload: unknown } | null {
+  const trimmed = chunk.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let eventName = "message";
+  const dataLines: string[] = [];
+  for (const rawLine of trimmed.split(/\r?\n/)) {
+    if (rawLine.startsWith(":")) {
+      continue;
+    }
+    if (rawLine.startsWith("event:")) {
+      eventName = rawLine.slice("event:".length).trim();
+      continue;
+    }
+    if (rawLine.startsWith("data:")) {
+      dataLines.push(rawLine.slice("data:".length).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) {
+    return null;
+  }
+
+  return {
+    event: eventName,
+    payload: JSON.parse(dataLines.join("\n")),
+  };
+}
+
 async function authenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const token = await getAccessToken();
   const response = await fetch(`${env.VITE_API_URL}${path}`, {
@@ -323,6 +439,84 @@ async function authenticatedRequest<T>(path: string, options: RequestOptions = {
   }
 
   return response.json();
+}
+
+export async function openApplicationEventStream(
+  applicationId: string,
+  options: {
+    signal: AbortSignal;
+    onSnapshot: (snapshot: ApplicationEventSnapshot) => void;
+    onProgress: (progress: ExtractionProgress) => void;
+    onDetail: (detail: ApplicationDetail) => void;
+    onHeartbeat?: (heartbeat: ApplicationHeartbeat) => void;
+  },
+): Promise<void> {
+  const token = await getAccessToken();
+  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}/events`, {
+    method: "GET",
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+    },
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    let detail = "Unable to open live updates.";
+    try {
+      const payload = await response.json();
+      detail = payload.detail ?? detail;
+    } catch {
+      detail = "Unable to open live updates.";
+    }
+    throw new Error(detail);
+  }
+
+  if (!response.body) {
+    throw new Error("Live updates are unavailable.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+
+    for (const chunk of chunks) {
+      const parsed = parseSseChunk(chunk);
+      if (!parsed) {
+        continue;
+      }
+
+      if (parsed.event === "snapshot") {
+        options.onSnapshot(parsed.payload as ApplicationEventSnapshot);
+        continue;
+      }
+      if (parsed.event === "progress") {
+        options.onProgress(parsed.payload as ExtractionProgress);
+        continue;
+      }
+      if (parsed.event === "detail") {
+        options.onDetail(parsed.payload as ApplicationDetail);
+        continue;
+      }
+      if (parsed.event === "heartbeat") {
+        options.onHeartbeat?.(parsed.payload as ApplicationHeartbeat);
+      }
+    }
+  }
+}
+
+function logGenerationRequest(event: string, payload: Record<string, unknown>) {
+  console.info("[generation-request]", { event, ...payload });
 }
 
 async function authenticatedUpload<T>(path: string, formData: FormData): Promise<T> {
@@ -691,14 +885,38 @@ export async function triggerGeneration(
     additional_instructions?: string;
   },
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/generate`, {
-    method: "POST",
-    body: settings,
+  logGenerationRequest("start", {
+    workflow_kind: "generation",
+    application_id: applicationId,
+    base_resume_id: settings.base_resume_id,
+    target_length: settings.target_length,
+    aggressiveness: settings.aggressiveness,
+    additional_instructions_length: settings.additional_instructions?.length ?? 0,
   });
+  try {
+    return await authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/generate`, {
+      method: "POST",
+      body: settings,
+    });
+  } catch (error) {
+    console.warn("[generation-request]", {
+      event: "failure",
+      workflow_kind: "generation",
+      application_id: applicationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 export async function fetchDraft(applicationId: string): Promise<ResumeDraft | null> {
   return authenticatedRequest<ResumeDraft | null>(`/api/applications/${applicationId}/draft`);
+}
+
+export async function triggerResumeJudge(applicationId: string): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/judge`, {
+    method: "POST",
+  });
 }
 
 export async function saveDraft(
@@ -719,10 +937,27 @@ export async function triggerFullRegeneration(
     additional_instructions?: string;
   },
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/regenerate`, {
-    method: "POST",
-    body: settings,
+  logGenerationRequest("start", {
+    workflow_kind: "regeneration_full",
+    application_id: applicationId,
+    target_length: settings.target_length,
+    aggressiveness: settings.aggressiveness,
+    additional_instructions_length: settings.additional_instructions?.length ?? 0,
   });
+  try {
+    return await authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/regenerate`, {
+      method: "POST",
+      body: settings,
+    });
+  } catch (error) {
+    console.warn("[generation-request]", {
+      event: "failure",
+      workflow_kind: "regeneration_full",
+      application_id: applicationId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 export async function triggerSectionRegeneration(
@@ -730,10 +965,27 @@ export async function triggerSectionRegeneration(
   sectionName: string,
   instructions: string,
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/regenerate-section`, {
-    method: "POST",
-    body: { section_name: sectionName, instructions },
+  logGenerationRequest("start", {
+    workflow_kind: "regeneration_section",
+    application_id: applicationId,
+    section_name: sectionName,
+    instructions_length: instructions.length,
   });
+  try {
+    return await authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/regenerate-section`, {
+      method: "POST",
+      body: { section_name: sectionName, instructions },
+    });
+  } catch (error) {
+    console.warn("[generation-request]", {
+      event: "failure",
+      workflow_kind: "regeneration_section",
+      application_id: applicationId,
+      section_name: sectionName,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 export async function cancelGeneration(applicationId: string): Promise<ApplicationDetail> {
@@ -742,9 +994,23 @@ export async function cancelGeneration(applicationId: string): Promise<Applicati
   });
 }
 
-export async function exportPdf(applicationId: string): Promise<Blob> {
+function parseDownloadFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) return null;
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+  const quotedMatch = contentDisposition.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) {
+    return quotedMatch[1];
+  }
+  const unquotedMatch = contentDisposition.match(/filename=([^;]+)/i);
+  return unquotedMatch?.[1]?.trim() ?? null;
+}
+
+async function exportDownload(applicationId: string, path: string): Promise<DownloadResponse> {
   const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}/export-pdf`, {
+  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}/${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -761,5 +1027,16 @@ export async function exportPdf(applicationId: string): Promise<Blob> {
     throw new Error(detail);
   }
 
-  return response.blob();
+  return {
+    blob: await response.blob(),
+    filename: parseDownloadFilename(response.headers.get("Content-Disposition")),
+  };
+}
+
+export async function exportPdf(applicationId: string): Promise<DownloadResponse> {
+  return exportDownload(applicationId, "export-pdf");
+}
+
+export async function exportDocx(applicationId: string): Promise<DownloadResponse> {
+  return exportDownload(applicationId, "export-docx");
 }

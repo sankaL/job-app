@@ -5,7 +5,12 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from experience_contract import validate_professional_experience_contract
+from experience_contract import (
+    extract_generated_experience_blocks,
+    is_title_rewrite_allowed,
+    normalize_text,
+    validate_professional_experience_contract,
+)
 from privacy import EMAIL_RE, PHONE_RE, URL_RE, sanitize_resume_markdown
 
 SECTION_DISPLAY_NAMES: dict[str, str] = {
@@ -100,6 +105,20 @@ def _normalized_claim(value: str) -> str:
     return _normalize_search_text(_strip_markdown_formatting(value))
 
 
+def _normalize_experience_line(value: str) -> str:
+    return normalize_text(_strip_markdown_formatting(value))
+
+
+def _bullet_lines_for_experience_block(block: dict[str, Any]) -> list[str]:
+    lines = block.get("lines") or []
+    bullets: list[str] = []
+    for line in lines[1:]:
+        stripped = str(line).strip()
+        if stripped.startswith(("-", "*", "+")):
+            bullets.append(stripped)
+    return bullets
+
+
 def _collect_claim_candidates(content: str) -> list[dict[str, str]]:
     plain_content = _strip_markdown_formatting(content)
     candidates: list[dict[str, str]] = []
@@ -158,7 +177,7 @@ def _check_claim_grounding(
             if (
                 claim["kind"] == "role_title"
                 and section["name"] == "professional_experience"
-                and aggressiveness == "high"
+                and aggressiveness in {"medium", "high"}
             ):
                 continue
             if normalized_claim and normalized_claim not in searchable_source:
@@ -498,6 +517,105 @@ def _check_professional_experience_structure(
     return errors
 
 
+def _check_professional_experience_tailoring(
+    *,
+    generated_sections: list[dict[str, Any]],
+    sanitized_base_resume_content: str,
+    generation_settings: Optional[dict[str, Any]],
+    professional_experience_anchors: Optional[list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    if not professional_experience_anchors or not generation_settings:
+        return []
+
+    aggressiveness = str(generation_settings.get("aggressiveness", "medium")).lower()
+    if aggressiveness not in {"medium", "high"}:
+        return []
+
+    generated_experience = next(
+        (section for section in generated_sections if section.get("name") == "professional_experience"),
+        None,
+    )
+    if generated_experience is None:
+        return []
+
+    source_blocks = extract_generated_experience_blocks(sanitized_base_resume_content)
+    generated_blocks = extract_generated_experience_blocks(str(generated_experience.get("content") or ""))
+    if not source_blocks or len(source_blocks) != len(generated_blocks):
+        return []
+
+    role_indexes_to_check: list[int] = []
+    for index, source_block in enumerate(source_blocks):
+        if _bullet_lines_for_experience_block(source_block):
+            role_indexes_to_check.append(index)
+        if len(role_indexes_to_check) >= 2:
+            break
+    if not role_indexes_to_check:
+        return []
+
+    total_source_bullets = 0
+    rewritten_bullets = 0
+    rewritten_titles = 0
+
+    for index in role_indexes_to_check:
+        source_block = source_blocks[index]
+        generated_block = generated_blocks[index]
+        anchor = professional_experience_anchors[index]
+
+        source_bullet_lines = _bullet_lines_for_experience_block(source_block)
+        total_source_bullets += len(source_bullet_lines)
+        source_bullets = {
+            normalized
+            for normalized in (_normalize_experience_line(line) for line in source_bullet_lines)
+            if normalized
+        }
+        generated_bullets = [
+            normalized
+            for normalized in (
+                _normalize_experience_line(line) for line in _bullet_lines_for_experience_block(generated_block)
+            )
+            if normalized
+        ]
+        rewritten_bullets += sum(1 for bullet in generated_bullets if bullet not in source_bullets)
+
+        source_title = str(anchor.get("source_title") or "").strip()
+        generated_title = str(generated_block.get("header", {}).get("title") or "").strip()
+        if source_title and generated_title and normalize_text(source_title) != normalize_text(generated_title):
+            if is_title_rewrite_allowed(
+                source_title=source_title,
+                generated_title=generated_title,
+                aggressiveness=aggressiveness,
+            ):
+                rewritten_titles += 1
+
+    required_high_rewritten_bullets = min(2, total_source_bullets)
+    passes = (
+        rewritten_bullets >= 1 or rewritten_titles >= 1
+        if aggressiveness == "medium"
+        else rewritten_bullets >= required_high_rewritten_bullets
+        or (rewritten_bullets >= 1 and rewritten_titles >= 1)
+    )
+    if passes:
+        return []
+
+    if aggressiveness == "medium":
+        required_change = "at least 1 rewritten bullet or 1 grounded title rewrite"
+    elif required_high_rewritten_bullets <= 1:
+        required_change = "at least 1 rewritten bullet"
+    else:
+        required_change = "at least 2 rewritten bullets, or 1 rewritten bullet plus 1 grounded title rewrite"
+    return [
+        {
+            "type": "insufficient_experience_tailoring",
+            "section": "professional_experience",
+            "detail": (
+                "Insufficient Professional Experience tailoring for "
+                f"{aggressiveness} aggressiveness: the first up to 2 source-ordered roles with bullets must show "
+                f"{required_change}. Rewriting only Summary or Skills is not enough."
+            ),
+        }
+    ]
+
+
 def _check_length_guidance(
     *,
     generated_sections: list[dict[str, Any]],
@@ -579,6 +697,14 @@ async def validate_resume(
     all_errors.extend(
         _check_professional_experience_structure(
             generated_sections=generated_sections,
+            generation_settings=generation_settings,
+            professional_experience_anchors=professional_experience_anchors,
+        )
+    )
+    all_errors.extend(
+        _check_professional_experience_tailoring(
+            generated_sections=generated_sections,
+            sanitized_base_resume_content=sanitized_base_resume,
             generation_settings=generation_settings,
             professional_experience_anchors=professional_experience_anchors,
         )

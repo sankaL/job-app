@@ -71,8 +71,9 @@ export function GenerationProgress({
 
   return (
     <div
-      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center justify-center animate-fadeIn w-80 max-w-sm rounded-xl p-6"
+      className="absolute left-1/2 -translate-x-1/2 z-10 flex flex-col items-center justify-center animate-fadeIn w-80 max-w-sm rounded-xl p-6"
       style={{
+        top: "25%",
         background: "rgba(255, 255, 255, 0.97)",
         boxShadow: "0 8px 32px rgba(16, 24, 40, 0.12), 0 2px 8px rgba(16, 24, 40, 0.08)",
       }}

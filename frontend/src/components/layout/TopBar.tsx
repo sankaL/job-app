@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { SkeletonLine } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { useAppContext } from "@/components/layout/AppContext";
-import { clearNotifications, listNotifications, type NotificationSummary } from "@/lib/api";
-import { NOTIFICATIONS_CLEARED_EVENT } from "@/lib/events";
+import { clearNotifications, type NotificationSummary } from "@/lib/api";
+import { invalidateNotificationQueries, queryKeys, useNotificationsQuery } from "@/lib/queries";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 
 function formatNotificationTimestamp(createdAt: string) {
@@ -66,15 +67,19 @@ function getNotificationTone(notification: NotificationSummary) {
 
 export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const navigate = useNavigate();
-  const { bootstrap, needsActionCount, refreshApplications } = useAppContext();
+  const queryClient = useQueryClient();
+  const { bootstrap, needsActionCount } = useAppContext();
   const { toast } = useToast();
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationSummary[]>([]);
-  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationsClearing, setNotificationsClearing] = useState(false);
-  const [notificationsError, setNotificationsError] = useState<string | null>(null);
   const menusRef = useRef<HTMLDivElement>(null);
+  const {
+    data: notifications = [],
+    isLoading: notificationsLoading,
+    error: notificationsErrorState,
+  } = useNotificationsQuery(notificationsOpen);
+  const notificationsError = notificationsErrorState instanceof Error ? notificationsErrorState.message : null;
 
   const userEmail = bootstrap?.user.email ?? "";
   const userName =
@@ -102,38 +107,6 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  useEffect(() => {
-    if (!notificationsOpen) {
-      return;
-    }
-
-    let cancelled = false;
-    setNotificationsLoading(true);
-    setNotificationsError(null);
-
-    void listNotifications()
-      .then((response) => {
-        if (!cancelled) {
-          setNotifications(response);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setNotifications([]);
-          setNotificationsError(err instanceof Error ? err.message : "Failed to load notifications.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setNotificationsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [notificationsOpen]);
 
   async function handleSignOut() {
     const supabase = getSupabaseBrowserClient();
@@ -164,10 +137,11 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
     try {
       setNotificationsClearing(true);
       await clearNotifications();
-      setNotifications((current) => current.filter((notification) => notification.action_required));
-      setNotificationsError(null);
-      await refreshApplications();
-      window.dispatchEvent(new Event(NOTIFICATIONS_CLEARED_EVENT));
+      queryClient.setQueryData<NotificationSummary[]>(
+        queryKeys.notifications,
+        (current = []) => current.filter((notification) => notification.action_required),
+      );
+      await invalidateNotificationQueries(queryClient);
       toast("Cleared notifications that do not need attention.");
     } catch (err) {
       toast(err instanceof Error ? err.message : "Failed to clear notifications", "error");
@@ -247,7 +221,7 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
 
           {notificationsOpen && (
             <div
-              className="animate-scaleIn absolute right-0 top-full mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border"
+              className="notification-panel-mobile animate-scaleIn absolute right-0 top-full mt-2 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border"
               style={{
                 background: "var(--color-white)",
                 borderColor: "var(--color-border)",

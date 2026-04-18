@@ -51,6 +51,7 @@ class ApplicationRecord(BaseModel):
     failure_reason: Optional[str]
     extraction_failure_details: Optional[dict[str, Any]] = None
     generation_failure_details: Optional[dict[str, Any]] = None
+    resume_judge_result: Optional[dict[str, Any]] = None
     applied: bool
     duplicate_similarity_score: Optional[float]
     duplicate_match_fields: Optional[dict[str, Any]]
@@ -83,6 +84,12 @@ class MatchedApplicationRecord(BaseModel):
     visible_status: str
 
 
+class ApplicationSummaryCountsRecord(BaseModel):
+    total_count: int
+    applied_count: int
+    needs_action_count: int
+
+
 BASE_SELECT = """
 select
   a.id::text,
@@ -103,6 +110,7 @@ select
   a.failure_reason::text,
   a.extraction_failure_details,
   a.generation_failure_details,
+  a.resume_judge_result,
   a.applied,
   a.duplicate_similarity_score::float8,
   a.duplicate_match_fields,
@@ -165,6 +173,35 @@ class ApplicationRepository:
             rows = cursor.fetchall()
 
         return [ApplicationListRecord.model_validate(row) for row in rows]
+
+    def fetch_summary_counts(self, user_id: str) -> ApplicationSummaryCountsRecord:
+        query = """
+        select
+          count(*)::int as total_count,
+          count(*) filter (where a.applied = true)::int as applied_count,
+          count(*) filter (
+            where a.visible_status = 'needs_action'::public.visible_status_enum
+              or a.duplicate_resolution_status = 'pending'::public.duplicate_resolution_status_enum
+              or exists(
+                select 1
+                from public.notifications n
+                where n.user_id = a.user_id
+                  and n.application_id = a.id
+                  and n.action_required = true
+              )
+          )::int as needs_action_count
+        from public.applications a
+        where a.user_id = %s
+        """
+
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (user_id,))
+            row = cursor.fetchone()
+
+        if row is None:
+            return ApplicationSummaryCountsRecord(total_count=0, applied_count=0, needs_action_count=0)
+
+        return ApplicationSummaryCountsRecord.model_validate(row)
 
     def create_application(
         self,
@@ -376,6 +413,7 @@ class ApplicationRepository:
         jsonb_fields = {
             "extraction_failure_details",
             "generation_failure_details",
+            "resume_judge_result",
             "duplicate_match_fields",
         }
         if field_name in jsonb_fields:
@@ -392,7 +430,12 @@ class ApplicationRepository:
             "duplicate_resolution_status": "public.duplicate_resolution_status_enum",
         }
         uuid_casts = {"base_resume_id"}
-        jsonb_casts = {"extraction_failure_details", "generation_failure_details", "duplicate_match_fields"}
+        jsonb_casts = {
+            "extraction_failure_details",
+            "generation_failure_details",
+            "resume_judge_result",
+            "duplicate_match_fields",
+        }
         if field_name in enum_casts:
             return sql.SQL("%s::{}").format(sql.SQL(enum_casts[field_name]))
         if field_name in uuid_casts:

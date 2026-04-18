@@ -10,6 +10,11 @@ from fastapi.testclient import TestClient
 from app.api.session import SessionBootstrapResponse
 from app.core.auth import AuthVerifier, AuthenticatedUser, get_auth_verifier
 from app.core.workflow_contract import get_workflow_contract
+from app.db.applications import (
+    ApplicationRepository,
+    ApplicationSummaryCountsRecord,
+    get_application_repository,
+)
 from app.db.profiles import ProfileRecord, ProfileRepository, get_profile_repository
 from app.main import app
 
@@ -46,6 +51,17 @@ class MissingProfileRepository(ProfileRepository):
 
     def fetch_profile(self, user_id: str) -> Optional[ProfileRecord]:
         return None
+
+
+class StubApplicationRepository(ApplicationRepository):
+    def __init__(self, summary_counts: Optional[dict[str, ApplicationSummaryCountsRecord]] = None) -> None:
+        self.summary_counts = summary_counts or {}
+
+    def fetch_summary_counts(self, user_id: str) -> ApplicationSummaryCountsRecord:
+        return self.summary_counts.get(
+            user_id,
+            ApplicationSummaryCountsRecord(total_count=0, applied_count=0, needs_action_count=0),
+        )
 
 
 class StubVerifier(AuthVerifier):
@@ -95,6 +111,11 @@ def test_invalid_token_returns_401():
 def test_valid_token_bootstraps_authenticated_user_only():
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
     app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository()
+    app.dependency_overrides[get_application_repository] = lambda: StubApplicationRepository(
+        {
+            "user-123": ApplicationSummaryCountsRecord(total_count=4, applied_count=1, needs_action_count=2),
+        }
+    )
     client = TestClient(app)
 
     response = client.get(
@@ -108,12 +129,39 @@ def test_valid_token_bootstraps_authenticated_user_only():
     assert payload.user.email == "invite-only@example.com"
     assert payload.profile is not None
     assert payload.profile.id == "user-123"
+    assert payload.application_summary.total_count == 4
+    assert payload.application_summary.applied_count == 1
+    assert payload.application_summary.needs_action_count == 2
     assert payload.workflow_contract_version == get_workflow_contract().version
+
+
+def test_bootstrap_application_summary_is_scoped_to_authenticated_user():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository()
+    app.dependency_overrides[get_application_repository] = lambda: StubApplicationRepository(
+        {
+            "user-123": ApplicationSummaryCountsRecord(total_count=3, applied_count=2, needs_action_count=1),
+            "someone-else": ApplicationSummaryCountsRecord(total_count=99, applied_count=99, needs_action_count=99),
+        }
+    )
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/session/bootstrap",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+    payload = SessionBootstrapResponse.model_validate(response.json())
+    assert payload.application_summary.total_count == 3
+    assert payload.application_summary.applied_count == 2
+    assert payload.application_summary.needs_action_count == 1
 
 
 def test_valid_token_without_profile_fails_closed():
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
     app.dependency_overrides[get_profile_repository] = lambda: MissingProfileRepository()
+    app.dependency_overrides[get_application_repository] = lambda: StubApplicationRepository()
     client = TestClient(app)
 
     response = client.get(
@@ -128,6 +176,7 @@ def test_valid_token_without_profile_fails_closed():
 def test_deactivated_profile_blocks_session_bootstrap():
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
     app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_active=False)
+    app.dependency_overrides[get_application_repository] = lambda: StubApplicationRepository()
     client = TestClient(app)
 
     response = client.get(

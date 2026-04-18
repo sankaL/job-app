@@ -9,24 +9,25 @@ type PageHeaderProps = {
 
 export function PageHeader({ title, subtitle, badge, actions }: PageHeaderProps) {
   return (
-    <div className="animate-fadeIn flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-3">
+    <div className="page-header-mobile animate-fadeIn flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-start sm:justify-between" style={{ maxWidth: "100%" }}>
+      <div className="min-w-0 flex-1" style={{ maxWidth: "100%" }}>
+        <div className="flex items-center gap-2 sm:gap-3 overflow-hidden">
           <h1
-            className="font-display text-2xl font-semibold tracking-tight"
-            style={{ color: "var(--color-ink)" }}
+            className="font-display text-xl font-semibold tracking-tight sm:text-2xl truncate"
+            style={{ color: "var(--color-ink)", maxWidth: "100%" }}
+            title={title}
           >
             {title}
           </h1>
-          {badge}
+          {badge && <span className="flex-shrink-0">{badge}</span>}
         </div>
         {subtitle && (
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-50)" }}>
+          <p className="page-header-subtitle mt-1 text-sm" style={{ color: "var(--color-ink-50)" }}>
             {subtitle}
           </p>
         )}
       </div>
-      {actions && <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:flex-shrink-0 xl:justify-end">{actions}</div>}
+      {actions && <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-shrink-0">{actions}</div>}
     </div>
   );
 }

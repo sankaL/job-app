@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any, Optional
 
 from fastapi import Depends
@@ -29,21 +31,23 @@ from app.services.jobs import (
     get_extraction_job_queue,
     get_generation_job_queue,
 )
-from app.services.pdf_export import generate_pdf
+from app.services.pdf_export import generate_docx, generate_pdf
 from app.services.progress import (
+    ApplicationEvent,
     ProgressRecord,
     RedisProgressStore,
     build_progress,
     get_progress_store,
 )
+from app.services.resume_privacy import sanitize_resume_markdown
 from app.services.workflow import derive_visible_status
 
 logger = logging.getLogger(__name__)
 
 FULL_GENERATION_IDLE_TIMEOUT_SECONDS = 240
-FULL_GENERATION_MAX_TIMEOUT_SECONDS = 540
+FULL_GENERATION_MAX_TIMEOUT_SECONDS = 240
 SECTION_REGENERATION_IDLE_TIMEOUT_SECONDS = 120
-SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 280
+SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 120
 FULL_REGENERATION_LIMIT_PER_APPLICATION = 3
 ACTIVE_GENERATION_STATES = {"generating", "regenerating_full", "regenerating_section"}
 ACTIVE_GENERATION_PROGRESS_STATES = {
@@ -79,6 +83,43 @@ BLOCKED_PLACEHOLDER_DESCRIPTION_MARKERS = (
     "access denied",
     "attention required",
 )
+JOB_KEYWORD_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9+#/-]{2,}")
+EXPERIENCE_HEADER_DATE_RE = re.compile(
+    r"\b(?:\d{4}\s*[-/]\s*(?:\d{4}|present)|present|current)\b",
+    re.I,
+)
+JD_STOPWORDS = {
+    "about",
+    "across",
+    "also",
+    "and",
+    "are",
+    "build",
+    "building",
+    "candidate",
+    "company",
+    "experience",
+    "for",
+    "from",
+    "have",
+    "help",
+    "including",
+    "into",
+    "join",
+    "looking",
+    "must",
+    "our",
+    "role",
+    "team",
+    "that",
+    "the",
+    "their",
+    "this",
+    "will",
+    "with",
+    "you",
+    "your",
+}
 
 
 class DuplicateWarningPayload(BaseModel):
@@ -164,6 +205,55 @@ class GenerationFailurePayload(BaseModel):
     failure_details: Optional[dict[str, Any]] = None
 
 
+class ResumeJudgeDimensionPayload(BaseModel):
+    score: int
+    weight: float
+    weighted_contribution: float
+    notes: str
+
+
+class ResumeJudgeErrorPayload(BaseModel):
+    error_type: Optional[str] = None
+    message: Optional[str] = None
+
+
+class ResumeJudgeResultPayload(BaseModel):
+    status: str
+    message: Optional[str] = None
+    final_score: Optional[float] = None
+    display_score: Optional[int] = None
+    verdict: Optional[str] = None
+    pass_threshold: Optional[float] = None
+    score_summary: Optional[str] = None
+    dimension_scores: Optional[dict[str, ResumeJudgeDimensionPayload]] = None
+    regeneration_instructions: Optional[str] = None
+    regeneration_priority_dimensions: list[str] = Field(default_factory=list)
+    evaluator_notes: Optional[str] = None
+    evaluated_draft_updated_at: Optional[str] = None
+    scored_at: Optional[str] = None
+    job_context_signature: Optional[str] = None
+    failure_stage: Optional[str] = None
+    attempt_count: Optional[int] = None
+    attempts: Optional[list[dict[str, Any]]] = None
+    error: Optional[ResumeJudgeErrorPayload] = None
+
+
+class ResumeJudgeFailurePayload(BaseModel):
+    message: Optional[str] = None
+    result: ResumeJudgeResultPayload
+
+
+class ResumeJudgeCallbackPayload(BaseModel):
+    application_id: str
+    user_id: str
+    job_id: str
+    event: str
+    evaluated_draft_updated_at: str
+    job_context_signature: Optional[str] = None
+    result: Optional[ResumeJudgeResultPayload] = None
+    failure: Optional[ResumeJudgeFailurePayload] = None
+
+
 class GenerationCallbackPayload(BaseModel):
     application_id: str
     user_id: str
@@ -181,6 +271,12 @@ class RegenerationCallbackPayload(BaseModel):
     regeneration_target: str = "full"
     generated: Optional[GenerationSuccessPayload] = None
     failure: Optional[GenerationFailurePayload] = None
+
+
+class DraftReviewFlagPayload(BaseModel):
+    section_name: str
+    text: str
+    reason: str = "job_description_only_addition"
 
 
 class ApplicationService:
@@ -319,10 +415,31 @@ class ApplicationService:
             "job_posting_origin",
             "job_posting_origin_other_text",
         }
+        job_context_fields = {"job_title", "company", "job_description"}
+        merged_updates = dict(updates)
+        if (
+            current.resume_judge_result is not None
+            and job_context_fields.intersection(updates.keys())
+            and self._resume_judge_job_context_changed(record=current, updates=updates)
+        ):
+            draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
+            if draft is not None:
+                merged_updates["resume_judge_result"] = self._resume_judge_status_payload(
+                    status="failed",
+                    message="Resume Judge needs another run because the job details changed.",
+                    evaluated_draft_updated_at=draft.updated_at,
+                    scored_at=datetime.now(timezone.utc).isoformat(),
+                    job_context_signature=self._resume_judge_job_context_signature(
+                        job_title=updates.get("job_title", current.job_title),
+                        company_name=updates.get("company", current.company),
+                        job_description=updates.get("job_description", current.job_description),
+                    ),
+                    failure_stage="stale_job_context",
+                )
         updated = self.repository.update_application(
             application_id=application_id,
             user_id=user_id,
-            updates=updates,
+            updates=merged_updates,
         )
 
         if (
@@ -583,7 +700,7 @@ class ApplicationService:
             blocked_url=record.job_url,
             detected_at=datetime.now(timezone.utc).isoformat(),
         )
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=application_id,
             user_id=user_id,
             updates=self._workflow_updates(
@@ -651,7 +768,7 @@ class ApplicationService:
             else f"{workflow_label} exceeded the maximum processing window. You can retry with the same settings."
         )
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -724,7 +841,7 @@ class ApplicationService:
             ):
                 return record
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -774,7 +891,7 @@ class ApplicationService:
         ):
             return record
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -846,7 +963,7 @@ class ApplicationService:
             ):
                 return record
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -902,7 +1019,7 @@ class ApplicationService:
         ):
             return record
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -957,7 +1074,7 @@ class ApplicationService:
             logger.exception("Failed validating cached extraction payload for %s", record.id)
             return None
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates={
@@ -1017,7 +1134,7 @@ class ApplicationService:
             logger.exception("Failed validating cached generation payload for %s", record.id)
             return None
 
-        self.draft_repository.upsert_draft(
+        draft = self.draft_repository.upsert_draft(
             application_id=record.id,
             user_id=record.user_id,
             content_md=generated.content_md,
@@ -1025,7 +1142,7 @@ class ApplicationService:
             sections_snapshot=generated.sections_snapshot,
         )
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -1034,6 +1151,7 @@ class ApplicationService:
                 generation_failure_details=None,
             ),
         )
+        updated = await self._enqueue_resume_judge_for_draft(record=updated, draft=draft)
         await self.progress_store.clear_generation_result(record.id)
         try:
             self.notification_repository.clear_action_required(
@@ -1148,7 +1266,7 @@ class ApplicationService:
             return record
 
         if payload.event == "started":
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1169,7 +1287,7 @@ class ApplicationService:
             if payload.extracted is None:
                 raise ValueError("Missing extracted payload for success callback.")
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={
@@ -1240,6 +1358,8 @@ class ApplicationService:
             "page_length": target_length,
             "aggressiveness": aggressiveness,
             "additional_instructions": additional_instructions,
+            "base_resume_id": base_resume_id,
+            "_base_resume_snapshot_content": base_resume.content_md,
         }
 
         updated = self.repository.update_application(
@@ -1259,6 +1379,20 @@ class ApplicationService:
         )
 
         try:
+            enqueue_started_at = perf_counter()
+            logger.info(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_start",
+                    "workflow_kind": "generation",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "base_resume_id": base_resume_id,
+                    "target_length": target_length,
+                    "aggressiveness": aggressiveness,
+                    "has_additional_instructions": bool(additional_instructions),
+                },
+            )
             job_id = await self.generation_job_queue.enqueue(
                 application_id=application_id,
                 user_id=user_id,
@@ -1269,6 +1403,17 @@ class ApplicationService:
                 personal_info=personal_info,
                 section_preferences=section_prefs,
                 generation_settings=generation_settings,
+            )
+            logger.info(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_success",
+                    "workflow_kind": "generation",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "job_id": job_id,
+                    "latency_ms": round((perf_counter() - enqueue_started_at) * 1000),
+                },
             )
             await self.progress_store.set(
                 application_id,
@@ -1281,10 +1426,29 @@ class ApplicationService:
                 ),
             )
             return self._detail_payload(updated)
-        except Exception:
+        except Exception as error:
+            logger.warning(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_failure",
+                    "workflow_kind": "generation",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "error_type": type(error).__name__,
+                    "message": str(error),
+                },
+            )
             failed = await self._mark_generation_failure(
                 record=updated,
                 message="Generation could not be started. Try again or adjust settings.",
+                failure_details={
+                    "failure_stage": "enqueue",
+                    "terminal_error_code": "generation_failed",
+                    "error": {
+                        "error_type": type(error).__name__,
+                        "message": str(error),
+                    },
+                },
             )
             return self._detail_payload(failed)
 
@@ -1313,7 +1477,7 @@ class ApplicationService:
                     percent_complete=25,
                 ),
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1367,7 +1531,7 @@ class ApplicationService:
             if payload.generated is None:
                 raise ValueError("Missing generated payload for success callback.")
 
-            self.draft_repository.upsert_draft(
+            draft = self.draft_repository.upsert_draft(
                 application_id=record.id,
                 user_id=record.user_id,
                 content_md=payload.generated.content_md,
@@ -1375,7 +1539,7 @@ class ApplicationService:
                 sections_snapshot=payload.generated.sections_snapshot,
             )
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1384,6 +1548,7 @@ class ApplicationService:
                     generation_failure_details=None,
                 ),
             )
+            updated = await self._enqueue_resume_judge_for_draft(record=updated, draft=draft)
 
             completed_progress = build_progress(
                 job_id=payload.job_id,
@@ -1471,6 +1636,8 @@ class ApplicationService:
             "page_length": target_length,
             "aggressiveness": aggressiveness,
             "additional_instructions": additional_instructions,
+            "base_resume_id": base_resume_id,
+            "_base_resume_snapshot_content": base_resume.content_md,
         }
 
         updated = self.repository.update_application(
@@ -1487,6 +1654,19 @@ class ApplicationService:
         )
 
         try:
+            enqueue_started_at = perf_counter()
+            logger.info(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_start",
+                    "workflow_kind": "regeneration_full",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "target_length": target_length,
+                    "aggressiveness": aggressiveness,
+                    "has_additional_instructions": bool(additional_instructions),
+                },
+            )
             job_id = await self.generation_job_queue.enqueue_regeneration(
                 application_id=application_id,
                 user_id=user_id,
@@ -1500,6 +1680,17 @@ class ApplicationService:
                 generation_settings=generation_settings,
                 regeneration_target="full",
                 regeneration_instructions=additional_instructions,
+            )
+            logger.info(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_success",
+                    "workflow_kind": "regeneration_full",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "job_id": job_id,
+                    "latency_ms": round((perf_counter() - enqueue_started_at) * 1000),
+                },
             )
             if not is_admin_profile:
                 updated = self.repository.update_application(
@@ -1520,10 +1711,29 @@ class ApplicationService:
                 ),
             )
             return self._detail_payload(updated)
-        except Exception:
+        except Exception as error:
+            logger.warning(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_failure",
+                    "workflow_kind": "regeneration_full",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "error_type": type(error).__name__,
+                    "message": str(error),
+                },
+            )
             failed = await self._mark_generation_failure(
                 record=updated,
                 message="Full regeneration could not be started. Try again.",
+                failure_details={
+                    "failure_stage": "enqueue",
+                    "terminal_error_code": "regeneration_failed",
+                    "error": {
+                        "error_type": type(error).__name__,
+                        "message": str(error),
+                    },
+                },
                 failure_reason="regeneration_failed",
             )
             return self._detail_payload(failed)
@@ -1569,7 +1779,11 @@ class ApplicationService:
         personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
-        generation_settings = draft.generation_params
+        generation_settings = {
+            **draft.generation_params,
+            "base_resume_id": base_resume_id,
+            "_base_resume_snapshot_content": base_resume.content_md,
+        }
 
         updated = self.repository.update_application(
             application_id=application_id,
@@ -1585,6 +1799,18 @@ class ApplicationService:
         )
 
         try:
+            enqueue_started_at = perf_counter()
+            logger.info(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_start",
+                    "workflow_kind": "regeneration_section",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "section_name": section_name,
+                    "instructions_length": len(instructions.strip()),
+                },
+            )
             job_id = await self.generation_job_queue.enqueue_regeneration(
                 application_id=application_id,
                 user_id=user_id,
@@ -1599,6 +1825,17 @@ class ApplicationService:
                 regeneration_target=section_name,
                 regeneration_instructions=instructions.strip(),
             )
+            logger.info(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_success",
+                    "workflow_kind": "regeneration_section",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "job_id": job_id,
+                    "latency_ms": round((perf_counter() - enqueue_started_at) * 1000),
+                },
+            )
             await self.progress_store.set(
                 application_id,
                 build_progress(
@@ -1610,13 +1847,54 @@ class ApplicationService:
                 ),
             )
             return self._detail_payload(updated)
-        except Exception:
+        except Exception as error:
+            logger.warning(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_failure",
+                    "workflow_kind": "regeneration_section",
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "section_name": section_name,
+                    "error_type": type(error).__name__,
+                    "message": str(error),
+                },
+            )
             failed = await self._mark_generation_failure(
                 record=updated,
                 message="Section regeneration could not be started. Try again.",
+                failure_details={
+                    "failure_stage": "enqueue",
+                    "terminal_error_code": "regeneration_failed",
+                    "error": {
+                        "error_type": type(error).__name__,
+                        "message": str(error),
+                    },
+                },
                 failure_reason="regeneration_failed",
             )
             return self._detail_payload(failed)
+
+    async def trigger_resume_judge(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> ApplicationDetailPayload:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        if record.internal_state not in ("resume_ready",):
+            raise PermissionError("Application must have an existing ready draft for Resume Judge.")
+
+        draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
+        if draft is None:
+            raise PermissionError("No existing draft found for Resume Judge.")
+
+        updated = await self._enqueue_resume_judge_for_draft(
+            record=record,
+            draft=draft,
+            force=True,
+        )
+        return self._detail_payload(updated)
 
     async def handle_regeneration_callback(
         self, payload: RegenerationCallbackPayload,
@@ -1648,7 +1926,7 @@ class ApplicationService:
                     percent_complete=25,
                 ),
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1685,7 +1963,7 @@ class ApplicationService:
             if payload.generated is None:
                 raise ValueError("Missing generated payload for regeneration success callback.")
 
-            self.draft_repository.upsert_draft(
+            draft = self.draft_repository.upsert_draft(
                 application_id=record.id,
                 user_id=record.user_id,
                 content_md=payload.generated.content_md,
@@ -1693,7 +1971,7 @@ class ApplicationService:
                 sections_snapshot=payload.generated.sections_snapshot,
             )
 
-            updated = self.repository.update_application(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1702,6 +1980,7 @@ class ApplicationService:
                     generation_failure_details=None,
                 ),
             )
+            updated = await self._enqueue_resume_judge_for_draft(record=updated, draft=draft)
 
             completed_progress = build_progress(
                 job_id=payload.job_id,
@@ -1739,11 +2018,88 @@ class ApplicationService:
 
         raise ValueError("Unsupported regeneration callback event.")
 
+    async def handle_resume_judge_callback(
+        self, payload: ResumeJudgeCallbackPayload,
+    ) -> ApplicationRecord:
+        record = self.repository.fetch_application_unscoped(payload.application_id)
+        if record is None:
+            raise LookupError("Application not found.")
+        if record.user_id != payload.user_id:
+            raise PermissionError("Worker payload user mismatch.")
+
+        current_job_context_signature = self._resume_judge_signature_for_record(record)
+        callback_job_context_signature = self._resume_judge_callback_signature(payload)
+        if (
+            callback_job_context_signature
+            and callback_job_context_signature != current_job_context_signature
+        ):
+            return record
+
+        draft = self.draft_repository.fetch_draft(
+            user_id=record.user_id,
+            application_id=record.id,
+        )
+        if draft is None:
+            return record
+
+        if draft.updated_at != payload.evaluated_draft_updated_at:
+            return record
+
+        if payload.event == "started":
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "resume_judge_result": self._resume_judge_status_payload(
+                        status="running",
+                        message="Resume Judge is running.",
+                        evaluated_draft_updated_at=payload.evaluated_draft_updated_at,
+                        job_context_signature=callback_job_context_signature or current_job_context_signature,
+                    )
+                },
+            )
+
+        if payload.event == "failed":
+            if payload.failure is None:
+                raise ValueError("Missing Resume Judge failure payload.")
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "resume_judge_result": payload.failure.result.model_dump()
+                },
+            )
+
+        if payload.event == "succeeded":
+            if payload.result is None:
+                raise ValueError("Missing Resume Judge success payload.")
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "resume_judge_result": payload.result.model_dump()
+                },
+            )
+
+        raise ValueError("Unsupported Resume Judge callback event.")
+
     async def get_draft(
         self, *, user_id: str, application_id: str,
     ) -> Optional[ResumeDraftRecord]:
         self._require_application(user_id=user_id, application_id=application_id)
         return self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
+
+    async def get_draft_with_review_flags(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> tuple[Optional[ResumeDraftRecord], list[DraftReviewFlagPayload]]:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
+        if draft is None:
+            return None, []
+        return draft, self._build_job_description_addition_flags(record=record, draft=draft)
 
     async def save_draft_edit(
         self,
@@ -1770,6 +2126,7 @@ class ApplicationService:
         # After edit, draft is always changed since export
         draft_changed = True if has_export else False
 
+        application_updates: dict[str, Any] = {}
         if record.internal_state == "resume_ready" or has_export:
             updated_vs = derive_visible_status(
                 internal_state="resume_ready",
@@ -1777,14 +2134,27 @@ class ApplicationService:
                 has_successful_export=has_export,
                 draft_changed_since_export=draft_changed,
             )
-            self.repository.update_application(
-                application_id=application_id,
-                user_id=user_id,
-                updates={
+            application_updates.update(
+                {
                     "internal_state": "resume_ready",
                     "failure_reason": None,
                     "visible_status": updated_vs,
-                },
+                }
+            )
+        if record.resume_judge_result is not None:
+            application_updates["resume_judge_result"] = self._resume_judge_status_payload(
+                status="failed",
+                message="Resume Judge needs another run because the draft changed.",
+                evaluated_draft_updated_at=updated_draft.updated_at,
+                scored_at=datetime.now(timezone.utc).isoformat(),
+                job_context_signature=self._resume_judge_signature_for_record(record),
+                failure_stage="stale_draft",
+            )
+        if application_updates:
+            self.repository.update_application(
+                application_id=application_id,
+                user_id=user_id,
+                updates=application_updates,
             )
 
         return updated_draft
@@ -1795,26 +2165,50 @@ class ApplicationService:
         user_id: str,
         application_id: str,
     ) -> tuple[bytes, str]:
-        """Generate and return PDF bytes and filename.
+        return await self._export_resume(
+            user_id=user_id,
+            application_id=application_id,
+            export_format="pdf",
+        )
 
-        Returns (pdf_bytes, filename).
-        """
+    async def export_docx(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> tuple[bytes, str]:
+        return await self._export_resume(
+            user_id=user_id,
+            application_id=application_id,
+            export_format="docx",
+        )
+
+    async def _export_resume(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+        export_format: str,
+    ) -> tuple[bytes, str]:
         record = self._require_application(user_id=user_id, application_id=application_id)
 
         draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
         if draft is None:
             raise PermissionError("No draft exists. Generation must happen first.")
 
-        profile = self._require_profile(user_id=user_id, action="exporting a PDF")
-        self._require_profile_name(profile, action="exporting a PDF")
+        export_format_normalized = export_format.lower()
+        format_label = "PDF" if export_format_normalized == "pdf" else "DOCX"
+        generator = generate_pdf if export_format_normalized == "pdf" else generate_docx
+        profile = self._require_profile(user_id=user_id, action=f"exporting a {format_label}")
+        self._require_profile_name(profile, action=f"exporting a {format_label}")
         personal_info = self._build_personal_info(profile)
         full_name = (self._clean_profile_value(profile.name) or "resume").replace(" ", "_")
 
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        filename = f"{full_name}_resume_{timestamp}.pdf"
+        filename = f"{full_name}_resume_{timestamp}.{export_format_normalized}"
 
         try:
-            pdf_bytes = await generate_pdf(
+            export_bytes = await generator(
                 markdown_content=draft.content_md,
                 personal_info=personal_info,
                 page_length=str(draft.generation_params.get("page_length") or "1_page"),
@@ -1822,18 +2216,19 @@ class ApplicationService:
         except asyncio.TimeoutError:
             await self._handle_export_failure(
                 record=record,
-                message="PDF export timed out. Please try again.",
+                message=f"{format_label} export timed out. Please try again.",
+                format_label=format_label,
             )
-            raise ValueError("PDF export timed out.")
+            raise ValueError(f"{format_label} export timed out.")
         except Exception as exc:
-            logger.exception("PDF export failed for application %s", application_id)
+            logger.exception("%s export failed for application %s", format_label, application_id)
             await self._handle_export_failure(
                 record=record,
-                message="PDF export failed. Please try again.",
+                message=f"{format_label} export failed. Please try again.",
+                format_label=format_label,
             )
-            raise ValueError("PDF export failed.") from exc
+            raise ValueError(f"{format_label} export failed.") from exc
 
-        # Success: update exported_at, last_exported_at, status
         self.repository.update_application(
             application_id=application_id,
             user_id=user_id,
@@ -1858,7 +2253,7 @@ class ApplicationService:
             user_id=user_id,
             application_id=application_id,
             notification_type="success",
-            message="PDF export completed successfully.",
+            message=f"{format_label} export completed successfully.",
             action_required=False,
         )
         self._record_usage_event(
@@ -1868,13 +2263,14 @@ class ApplicationService:
             event_status="success",
         )
 
-        return pdf_bytes, filename
+        return export_bytes, filename
 
     async def _handle_export_failure(
         self,
         *,
         record: ApplicationRecord,
         message: str,
+        format_label: str,
     ) -> None:
         self.repository.update_application(
             application_id=record.id,
@@ -1901,7 +2297,7 @@ class ApplicationService:
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
-                    subject="Applix: PDF export failed",
+                    subject=f"Applix: {format_label} export failed",
                     text=(
                         f"{message}\n\n"
                         f"Open the application: {self._application_url(record.id)}"
@@ -1917,7 +2313,7 @@ class ApplicationService:
                 user_id=record.user_id,
                 application_id=record.id,
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1938,7 +2334,7 @@ class ApplicationService:
                 user_id=record.user_id,
                 application_id=record.id,
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1958,7 +2354,7 @@ class ApplicationService:
                 user_id=record.user_id,
                 application_id=record.id,
             )
-            return self.repository.update_application(
+            return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1972,7 +2368,7 @@ class ApplicationService:
                 ),
             )
 
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -2003,7 +2399,7 @@ class ApplicationService:
         message: str,
         failure_details: Optional[ExtractionFailureDetailsPayload] = None,
     ) -> ApplicationRecord:
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -2036,7 +2432,7 @@ class ApplicationService:
         failure_details: Optional[dict[str, Any]] = None,
         failure_reason: str = "generation_failed",
     ) -> ApplicationRecord:
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -2124,7 +2520,7 @@ class ApplicationService:
         record: ApplicationRecord,
     ) -> ApplicationDetailPayload:
         failure_details = self._blocked_source_failure_details(record)
-        updated = self.repository.update_application(
+        updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
             updates=self._workflow_updates(
@@ -2254,6 +2650,359 @@ class ApplicationService:
                 )
         return ApplicationDetailPayload(application=record, duplicate_warning=warning)
 
+    def _stream_detail_payload(self, record: ApplicationRecord) -> dict[str, Any]:
+        payload = self._detail_payload(record)
+        duplicate_warning = None
+        if payload.duplicate_warning is not None:
+            duplicate_warning = {
+                "similarity_score": payload.duplicate_warning.similarity_score,
+                "matched_fields": payload.duplicate_warning.matched_fields,
+                "match_basis": payload.duplicate_warning.match_basis,
+                "matched_application": payload.duplicate_warning.matched_application.model_dump(mode="json"),
+            }
+
+        return {
+            **record.model_dump(
+                mode="json",
+                exclude={
+                    "exported_at",
+                    "duplicate_match_fields",
+                    "full_regeneration_count",
+                    "user_id",
+                },
+            ),
+            "duplicate_warning": duplicate_warning,
+        }
+
+    async def _publish_detail_event(self, record: ApplicationRecord) -> None:
+        try:
+            await self.progress_store.publish_event(
+                record.id,
+                ApplicationEvent(
+                    event="detail",
+                    payload=self._stream_detail_payload(record),
+                ),
+            )
+        except Exception:
+            logger.warning("Failed publishing detail event for application %s", record.id, exc_info=True)
+
+    async def _update_application_and_publish_detail(
+        self,
+        *,
+        application_id: str,
+        user_id: str,
+        updates: dict[str, Any],
+    ) -> ApplicationRecord:
+        updated = self.repository.update_application(
+            application_id=application_id,
+            user_id=user_id,
+            updates=updates,
+        )
+        await self._publish_detail_event(updated)
+        return updated
+
+    @staticmethod
+    def _resume_judge_status_payload(
+        *,
+        status: str,
+        message: str,
+        evaluated_draft_updated_at: str,
+        scored_at: Optional[str] = None,
+        **extra_fields: Any,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "status": status,
+            "message": message,
+            "evaluated_draft_updated_at": evaluated_draft_updated_at,
+        }
+        if scored_at:
+            payload["scored_at"] = scored_at
+        for key, value in extra_fields.items():
+            if value is not None:
+                payload[key] = value
+        return payload
+
+    @staticmethod
+    def _normalize_resume_judge_context_value(value: Optional[str]) -> str:
+        collapsed = re.sub(r"\s+", " ", str(value or ""))
+        return collapsed.strip().lower()
+
+    @classmethod
+    def _resume_judge_job_context_signature(
+        cls,
+        *,
+        job_title: Optional[str],
+        company_name: Optional[str],
+        job_description: Optional[str],
+    ) -> str:
+        return "\x1f".join(
+            [
+                cls._normalize_resume_judge_context_value(job_title),
+                cls._normalize_resume_judge_context_value(company_name),
+                cls._normalize_resume_judge_context_value(job_description),
+            ]
+        )
+
+    @classmethod
+    def _resume_judge_signature_for_record(cls, record: ApplicationRecord) -> str:
+        return cls._resume_judge_job_context_signature(
+            job_title=record.job_title,
+            company_name=record.company,
+            job_description=record.job_description,
+        )
+
+    @classmethod
+    def _resume_judge_job_context_changed(
+        cls,
+        *,
+        record: ApplicationRecord,
+        updates: dict[str, Any],
+    ) -> bool:
+        return cls._resume_judge_signature_for_record(record) != cls._resume_judge_job_context_signature(
+            job_title=updates.get("job_title", record.job_title),
+            company_name=updates.get("company", record.company),
+            job_description=updates.get("job_description", record.job_description),
+        )
+
+    @classmethod
+    def _resume_judge_callback_signature(
+        cls,
+        payload: ResumeJudgeCallbackPayload,
+    ) -> Optional[str]:
+        if payload.job_context_signature:
+            return payload.job_context_signature
+        if payload.result and payload.result.job_context_signature:
+            return payload.result.job_context_signature
+        if payload.failure and payload.failure.result.job_context_signature:
+            return payload.failure.result.job_context_signature
+        return None
+
+    @staticmethod
+    def _should_enqueue_resume_judge(
+        resume_judge_result: Optional[dict[str, Any]],
+        *,
+        draft_updated_at: str,
+        force: bool = False,
+    ) -> bool:
+        if force:
+            return True
+        if not isinstance(resume_judge_result, dict) or not resume_judge_result:
+            return True
+        return str(resume_judge_result.get("evaluated_draft_updated_at") or "") != draft_updated_at
+
+    async def _enqueue_resume_judge_for_draft(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: ResumeDraftRecord,
+        force: bool = False,
+    ) -> ApplicationRecord:
+        if not self._should_enqueue_resume_judge(
+            record.resume_judge_result,
+            draft_updated_at=draft.updated_at,
+            force=force,
+        ):
+            return record
+
+        current_job_context_signature = self._resume_judge_signature_for_record(record)
+        base_resume_snapshot_content = draft.generation_params.get("_base_resume_snapshot_content")
+        if (
+            isinstance(base_resume_snapshot_content, str)
+            and base_resume_snapshot_content.strip()
+        ):
+            base_resume_content = base_resume_snapshot_content
+        else:
+            base_resume_content = ""
+        if not base_resume_content:
+            base_resume_id = str(
+                draft.generation_params.get("base_resume_id") or record.base_resume_id or ""
+            ).strip()
+            if not base_resume_id:
+                return await self._update_application_and_publish_detail(
+                    application_id=record.id,
+                    user_id=record.user_id,
+                    updates={
+                        "resume_judge_result": self._resume_judge_status_payload(
+                            status="failed",
+                            message="Resume Judge could not run because the source base resume is unavailable.",
+                            evaluated_draft_updated_at=draft.updated_at,
+                            scored_at=datetime.now(timezone.utc).isoformat(),
+                            job_context_signature=current_job_context_signature,
+                            failure_stage="precondition",
+                        )
+                    },
+                )
+
+            base_resume = self.base_resume_repository.fetch_resume(record.user_id, base_resume_id)
+            if base_resume is None:
+                return await self._update_application_and_publish_detail(
+                    application_id=record.id,
+                    user_id=record.user_id,
+                    updates={
+                        "resume_judge_result": self._resume_judge_status_payload(
+                            status="failed",
+                            message="Resume Judge could not run because the linked base resume was not found.",
+                            evaluated_draft_updated_at=draft.updated_at,
+                            scored_at=datetime.now(timezone.utc).isoformat(),
+                            job_context_signature=current_job_context_signature,
+                            failure_stage="precondition",
+                        )
+                    },
+                )
+            base_resume_content = base_resume.content_md
+
+        if not record.job_title or not record.job_description:
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "resume_judge_result": self._resume_judge_status_payload(
+                        status="failed",
+                        message="Resume Judge could not run because the application is missing job details.",
+                        evaluated_draft_updated_at=draft.updated_at,
+                        scored_at=datetime.now(timezone.utc).isoformat(),
+                        job_context_signature=current_job_context_signature,
+                        failure_stage="precondition",
+                    )
+                },
+            )
+
+        updated = await self._update_application_and_publish_detail(
+            application_id=record.id,
+            user_id=record.user_id,
+            updates={
+                "resume_judge_result": self._resume_judge_status_payload(
+                    status="queued",
+                    message="Resume Judge is queued.",
+                    evaluated_draft_updated_at=draft.updated_at,
+                    job_context_signature=current_job_context_signature,
+                )
+            },
+        )
+
+        try:
+            await self.generation_job_queue.enqueue_resume_judge(
+                application_id=record.id,
+                user_id=record.user_id,
+                job_title=record.job_title,
+                company_name=record.company,
+                job_description=record.job_description,
+                base_resume_content=base_resume_content,
+                generated_resume_content=draft.content_md,
+                generation_settings={
+                    "page_length": str(draft.generation_params.get("page_length") or "1_page"),
+                    "aggressiveness": str(draft.generation_params.get("aggressiveness") or "medium"),
+                },
+                evaluated_draft_updated_at=draft.updated_at,
+                job_context_signature=current_job_context_signature,
+            )
+            return updated
+        except Exception as error:
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "resume_judge_result": self._resume_judge_status_payload(
+                        status="failed",
+                        message="Resume Judge could not be started. Score unavailable.",
+                        evaluated_draft_updated_at=draft.updated_at,
+                        scored_at=datetime.now(timezone.utc).isoformat(),
+                        job_context_signature=current_job_context_signature,
+                        failure_stage="enqueue",
+                        error={
+                            "error_type": type(error).__name__,
+                            "message": str(error),
+                        },
+                    )
+                },
+            )
+
+    @staticmethod
+    def _normalize_search_text(value: str) -> str:
+        lowered = str(value or "").lower()
+        lowered = re.sub(r"[^a-z0-9+#/ -]+", " ", lowered)
+        return re.sub(r"\s+", " ", lowered).strip()
+
+    @staticmethod
+    def _extract_job_keyword_tokens(job_description: str) -> set[str]:
+        tokens = {
+            token.lower()
+            for token in JOB_KEYWORD_TOKEN_RE.findall(job_description.lower())
+            if len(token) >= 3 and token.lower() not in JD_STOPWORDS
+        }
+        return tokens
+
+    @staticmethod
+    def _line_candidates_by_section(content_md: str) -> list[tuple[str, str]]:
+        section_name = ""
+        rows: list[tuple[str, str]] = []
+        for line in content_md.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("## "):
+                section_name = stripped[3:].strip().lower().replace(" ", "_")
+                continue
+            if section_name not in {"summary", "professional_experience", "skills"}:
+                continue
+            if section_name == "professional_experience":
+                if stripped.startswith(("-", "*", "+")):
+                    rows.append((section_name, stripped))
+                    continue
+                if "|" in stripped and EXPERIENCE_HEADER_DATE_RE.search(stripped):
+                    rows.append((section_name, stripped))
+                continue
+            rows.append((section_name, stripped))
+        return rows
+
+    def _build_job_description_addition_flags(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: ResumeDraftRecord,
+    ) -> list[DraftReviewFlagPayload]:
+        aggressiveness = str(draft.generation_params.get("aggressiveness") or "medium").lower()
+        if aggressiveness not in {"medium", "high"}:
+            return []
+
+        base_resume_id = str(draft.generation_params.get("base_resume_id") or record.base_resume_id or "").strip()
+        if not base_resume_id:
+            return []
+        base_resume = self.base_resume_repository.fetch_resume(record.user_id, base_resume_id)
+        if base_resume is None:
+            return []
+
+        sanitized_base = sanitize_resume_markdown(base_resume.content_md).sanitized_markdown
+        sanitized_draft = sanitize_resume_markdown(draft.content_md).sanitized_markdown
+        searchable_base = self._normalize_search_text(sanitized_base)
+        job_tokens = self._extract_job_keyword_tokens(record.job_description or "")
+        if not searchable_base or not job_tokens:
+            return []
+
+        flags: list[DraftReviewFlagPayload] = []
+        seen: set[tuple[str, str]] = set()
+        for section_name, line in self._line_candidates_by_section(sanitized_draft):
+            normalized_line = self._normalize_search_text(line)
+            if not normalized_line:
+                continue
+            if normalized_line in searchable_base:
+                continue
+            line_tokens = {
+                token.lower()
+                for token in JOB_KEYWORD_TOKEN_RE.findall(normalized_line)
+                if len(token) >= 3 and token.lower() not in JD_STOPWORDS
+            }
+            if not (line_tokens & job_tokens):
+                continue
+            dedupe_key = (section_name, normalized_line)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            flags.append(DraftReviewFlagPayload(section_name=section_name, text=line))
+            if len(flags) >= 20:
+                break
+        return flags
+
     def _workflow_updates(
         self,
         *,
@@ -2311,6 +3060,47 @@ class ApplicationService:
         normalized: dict[str, Any] = {"message": message}
         if not failure_details:
             return normalized
+
+        for key in ("failure_stage", "attempt_count", "terminal_error_code", "repair_model"):
+            value = failure_details.get(key)
+            if value not in (None, ""):
+                normalized[key] = value
+
+        attempts = failure_details.get("attempts")
+        if isinstance(attempts, list):
+            sanitized_attempts: list[dict[str, Any]] = []
+            for attempt in attempts:
+                if not isinstance(attempt, dict):
+                    continue
+                sanitized_attempt: dict[str, Any] = {}
+                for key in ("model", "reasoning_effort", "transport_mode", "outcome", "elapsed_ms", "retry_reason"):
+                    value = attempt.get(key)
+                    if value not in (None, ""):
+                        sanitized_attempt[key] = value
+                if sanitized_attempt:
+                    sanitized_attempts.append(sanitized_attempt)
+            if sanitized_attempts:
+                normalized["attempts"] = sanitized_attempts
+
+        error_details = failure_details.get("error")
+        if isinstance(error_details, dict):
+            sanitized_error = {
+                key: value
+                for key, value in error_details.items()
+                if key in {"error_type", "message"} and value not in (None, "")
+            }
+            if sanitized_error:
+                normalized["error"] = sanitized_error
+
+        repair_error = failure_details.get("repair_error")
+        if isinstance(repair_error, dict):
+            sanitized_repair_error = {
+                key: value
+                for key, value in repair_error.items()
+                if key in {"error_type", "message"} and value not in (None, "")
+            }
+            if sanitized_repair_error:
+                normalized["repair_error"] = sanitized_repair_error
 
         validation_errors = failure_details.get("validation_errors")
         if isinstance(validation_errors, list):

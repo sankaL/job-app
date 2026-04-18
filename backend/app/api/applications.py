@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.access import get_current_active_user
@@ -16,13 +18,15 @@ from app.services.application_manager import (
     ApplicationDetailPayload,
     ApplicationService,
     DuplicateWarningPayload,
+    ResumeJudgeResultPayload,
     SourceCapturePayload,
     get_application_service,
 )
-from app.services.progress import ProgressRecord
+from app.services.progress import ProgressRecord, now_iso
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 logger = logging.getLogger(__name__)
+STREAM_HEARTBEAT_SECONDS = 15.0
 
 INSTRUCTION_WHITESPACE_RE = re.compile(r"\s+")
 UNSAFE_INSTRUCTION_PATTERNS = (
@@ -213,6 +217,7 @@ class ApplicationDetail(BaseModel):
     failure_reason: Optional[str]
     extraction_failure_details: Optional[ExtractionFailureDetails]
     generation_failure_details: Optional[dict[str, Any]]
+    resume_judge_result: Optional[ResumeJudgeResultPayload]
     applied: bool
     duplicate_similarity_score: Optional[float]
     duplicate_resolution_status: Optional[str]
@@ -362,6 +367,7 @@ class ResumeDraftResponse(BaseModel):
     content_md: str
     generation_params: dict[str, Any]
     sections_snapshot: dict[str, Any]
+    review_flags: list[dict[str, str]] = Field(default_factory=list)
     last_generated_at: str
     last_exported_at: Optional[str]
     updated_at: str
@@ -377,6 +383,11 @@ class WorkflowProgress(BaseModel):
     updated_at: str
     completed_at: Optional[str]
     terminal_error_code: Optional[str]
+
+
+class ApplicationEventSnapshot(BaseModel):
+    detail: ApplicationDetail
+    progress: Optional[WorkflowProgress]
 
 
 def to_application_summary(record: ApplicationListRecord) -> ApplicationSummary:
@@ -403,7 +414,13 @@ def to_application_detail(payload: ApplicationDetailPayload) -> ApplicationDetai
     record = payload.application
     return ApplicationDetail(
         **record.model_dump(
-            exclude={"exported_at", "duplicate_match_fields", "extraction_failure_details", "generation_failure_details"},
+            exclude={
+                "exported_at",
+                "duplicate_match_fields",
+                "extraction_failure_details",
+                "generation_failure_details",
+                "resume_judge_result",
+            },
         ),
         extraction_failure_details=(
             ExtractionFailureDetails.model_validate(record.extraction_failure_details)
@@ -411,6 +428,11 @@ def to_application_detail(payload: ApplicationDetailPayload) -> ApplicationDetai
             else None
         ),
         generation_failure_details=record.generation_failure_details,
+        resume_judge_result=(
+            ResumeJudgeResultPayload.model_validate(record.resume_judge_result)
+            if record.resume_judge_result
+            else None
+        ),
         duplicate_warning=to_duplicate_warning(payload.duplicate_warning),
     )
 
@@ -424,6 +446,10 @@ def _map_service_error(error: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
     logger.exception("Unhandled application service error.", exc_info=error)
     return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Application request failed.")
+
+
+def _format_sse_event(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
 @router.get("", response_model=list[ApplicationSummary])
@@ -643,6 +669,74 @@ async def get_progress(
         raise _map_service_error(error) from error
 
 
+@router.get("/{application_id}/events")
+async def stream_application_events(
+    application_id: str,
+    request: Request,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> StreamingResponse:
+    try:
+        service._require_application(
+            user_id=current_user.id,
+            application_id=application_id,
+        )
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+    async def event_stream():
+        subscription = await service.progress_store.open_event_subscription(application_id)
+        try:
+            detail = to_application_detail(
+                await service.get_application_detail(
+                    user_id=current_user.id,
+                    application_id=application_id,
+                )
+            )
+            progress = WorkflowProgress.model_validate(
+                (
+                    await service.get_progress(
+                        user_id=current_user.id,
+                        application_id=application_id,
+                    )
+                ).model_dump()
+            )
+            snapshot = ApplicationEventSnapshot(detail=detail, progress=progress)
+            yield _format_sse_event("snapshot", snapshot.model_dump(mode="json"))
+
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                try:
+                    event = await service.progress_store.read_event(
+                        subscription,
+                        timeout_seconds=STREAM_HEARTBEAT_SECONDS,
+                    )
+                except asyncio.CancelledError:
+                    break
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
+                    event = None
+                if event is None:
+                    yield _format_sse_event("heartbeat", {"sent_at": now_iso()})
+                    continue
+                yield _format_sse_event(event.event, event.payload)
+        finally:
+            await service.progress_store.close_event_subscription(application_id, subscription)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get("/{application_id}/draft", response_model=Optional[ResumeDraftResponse])
 async def get_draft(
     application_id: str,
@@ -650,13 +744,34 @@ async def get_draft(
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> Optional[ResumeDraftResponse]:
     try:
-        draft = await service.get_draft(
+        draft, review_flags = await service.get_draft_with_review_flags(
             user_id=current_user.id,
             application_id=application_id,
         )
         if draft is None:
             return None
-        return ResumeDraftResponse.model_validate(draft.model_dump(exclude={"user_id"}))
+        payload = {
+            **draft.model_dump(exclude={"user_id"}),
+            "review_flags": [flag.model_dump() for flag in review_flags],
+        }
+        return ResumeDraftResponse.model_validate(payload)
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+
+@router.post("/{application_id}/judge", response_model=ApplicationDetail, status_code=status.HTTP_202_ACCEPTED)
+async def trigger_resume_judge_for_application(
+    application_id: str,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> ApplicationDetail:
+    try:
+        return to_application_detail(
+            await service.trigger_resume_judge(
+                user_id=current_user.id,
+                application_id=application_id,
+            )
+        )
     except Exception as error:
         raise _map_service_error(error) from error
 
@@ -665,9 +780,25 @@ async def get_draft(
 async def generate_resume(
     application_id: str,
     request: GenerateResumeRequest,
+    raw_request: Request,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
+    logger.info(
+        "generation_route %s",
+        {
+            "event": "generation_route_entry",
+            "request_id": raw_request.headers.get("x-request-id"),
+            "user_id": current_user.id,
+            "application_id": application_id,
+            "workflow_kind": "generation",
+            "base_resume_id": request.base_resume_id,
+            "target_length": request.target_length,
+            "aggressiveness": request.aggressiveness,
+            "has_additional_instructions": bool(request.additional_instructions),
+            "additional_instructions_length": len(request.additional_instructions or ""),
+        },
+    )
     try:
         return to_application_detail(
             await service.trigger_generation(
@@ -680,6 +811,18 @@ async def generate_resume(
             )
         )
     except Exception as error:
+        logger.warning(
+            "generation_route %s",
+            {
+                "event": "generation_route_error",
+                "request_id": raw_request.headers.get("x-request-id"),
+                "user_id": current_user.id,
+                "application_id": application_id,
+                "workflow_kind": "generation",
+                "error_type": type(error).__name__,
+                "message": str(error),
+            },
+        )
         raise _map_service_error(error) from error
 
 
@@ -687,9 +830,24 @@ async def generate_resume(
 async def regenerate_full(
     application_id: str,
     request: FullRegenerationRequest,
+    raw_request: Request,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
+    logger.info(
+        "generation_route %s",
+        {
+            "event": "generation_route_entry",
+            "request_id": raw_request.headers.get("x-request-id"),
+            "user_id": current_user.id,
+            "application_id": application_id,
+            "workflow_kind": "regeneration_full",
+            "target_length": request.target_length,
+            "aggressiveness": request.aggressiveness,
+            "has_additional_instructions": bool(request.additional_instructions),
+            "additional_instructions_length": len(request.additional_instructions or ""),
+        },
+    )
     try:
         return to_application_detail(
             await service.trigger_full_regeneration(
@@ -701,6 +859,18 @@ async def regenerate_full(
             )
         )
     except Exception as error:
+        logger.warning(
+            "generation_route %s",
+            {
+                "event": "generation_route_error",
+                "request_id": raw_request.headers.get("x-request-id"),
+                "user_id": current_user.id,
+                "application_id": application_id,
+                "workflow_kind": "regeneration_full",
+                "error_type": type(error).__name__,
+                "message": str(error),
+            },
+        )
         raise _map_service_error(error) from error
 
 
@@ -708,9 +878,22 @@ async def regenerate_full(
 async def regenerate_section(
     application_id: str,
     request: SectionRegenerationRequest,
+    raw_request: Request,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
+    logger.info(
+        "generation_route %s",
+        {
+            "event": "generation_route_entry",
+            "request_id": raw_request.headers.get("x-request-id"),
+            "user_id": current_user.id,
+            "application_id": application_id,
+            "workflow_kind": "regeneration_section",
+            "section_name": request.section_name,
+            "instructions_length": len(request.instructions or ""),
+        },
+    )
     try:
         return to_application_detail(
             await service.trigger_section_regeneration(
@@ -721,6 +904,19 @@ async def regenerate_section(
             )
         )
     except Exception as error:
+        logger.warning(
+            "generation_route %s",
+            {
+                "event": "generation_route_error",
+                "request_id": raw_request.headers.get("x-request-id"),
+                "user_id": current_user.id,
+                "application_id": application_id,
+                "workflow_kind": "regeneration_section",
+                "section_name": request.section_name,
+                "error_type": type(error).__name__,
+                "message": str(error),
+            },
+        )
         raise _map_service_error(error) from error
 
 
@@ -773,6 +969,28 @@ async def export_pdf(
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+            },
+        )
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+
+@router.get("/{application_id}/export-docx")
+async def export_docx(
+    application_id: str,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> Response:
+    try:
+        docx_bytes, filename = await service.export_docx(
+            user_id=current_user.id,
+            application_id=application_id,
+        )
+        return Response(
+            content=docx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
             },

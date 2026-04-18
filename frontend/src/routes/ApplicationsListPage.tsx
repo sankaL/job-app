@@ -1,9 +1,9 @@
 import { useDeferredValue, useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CircleStop, Trash2 } from "lucide-react";
 import { CreateApplicationModal } from "@/components/applications/CreateApplicationModal";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { useAppContext } from "@/components/layout/AppContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,7 @@ import {
   patchApplication,
   type ApplicationSummary,
 } from "@/lib/api";
-import { NOTIFICATIONS_CLEARED_EVENT } from "@/lib/events";
+import { invalidateApplicationQueries, queryKeys, useApplicationsQuery } from "@/lib/queries";
 
 const ACTIVE_EXTRACTION_STATES = new Set(["extraction_pending", "extracting"]);
 const ACTIVE_DELETE_BLOCKING_STATES = new Set([
@@ -90,9 +90,8 @@ function SelectionCheckbox({
 
 export function ApplicationsListPage() {
   const navigate = useNavigate();
-  const { refreshApplications } = useAppContext();
+  const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [applications, setApplications] = useState<ApplicationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [search, setSearch] = useState("");
@@ -110,33 +109,14 @@ export function ApplicationsListPage() {
     application: ApplicationSummary;
   } | null>(null);
   const [isRowActionSubmitting, setIsRowActionSubmitting] = useState(false);
-
-  async function loadApplications() {
-    try {
-      const response = await listApplications();
-      setApplications(response);
-      setError(null);
-      return response;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load applications.");
-      return null;
-    }
-  }
-
-  useEffect(() => {
-    void loadApplications();
-  }, []);
-
-  useEffect(() => {
-    function handleNotificationsCleared() {
-      void loadApplications();
-    }
-
-    window.addEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
-    return () => window.removeEventListener(NOTIFICATIONS_CLEARED_EVENT, handleNotificationsCleared);
-  }, []);
-
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const {
+    data: applications,
+    error: queryError,
+  } = useApplicationsQuery();
   const sourceApplications = applications ?? [];
+  const requestError = queryError instanceof Error ? queryError.message : null;
+  const displayedError = error ?? requestError;
   const searchTerm = deferredSearch.trim().toLowerCase();
   const filteredApplications = sourceApplications.filter((app) => {
     const matchesSearch =
@@ -168,21 +148,23 @@ export function ApplicationsListPage() {
 
   async function handleCreateApplication(payload: { job_url: string; source_text?: string }) {
     const detail = await createApplication(payload);
-    void refreshApplications();
+    queryClient.setQueryData(queryKeys.application(detail.id), detail);
+    await invalidateApplicationQueries(queryClient, detail.id);
     toast("Application created successfully");
     navigate(`/app/applications/${detail.id}`);
   }
 
   async function handleAppliedToggle(applicationId: string, applied: boolean) {
     if (!applications) return;
-    const previous = applications;
-    setApplications(
-      applications.map((a) => (a.id === applicationId ? { ...a, applied } : a)),
+    const previous = queryClient.getQueryData<ApplicationSummary[]>(queryKeys.applications);
+    queryClient.setQueryData<ApplicationSummary[] | undefined>(queryKeys.applications, (current) =>
+      current?.map((a) => (a.id === applicationId ? { ...a, applied } : a)),
     );
     try {
       const detail = await patchApplication(applicationId, { applied });
-      setApplications(
-        previous.map((a) =>
+      queryClient.setQueryData(queryKeys.application(applicationId), detail);
+      queryClient.setQueryData<ApplicationSummary[] | undefined>(queryKeys.applications, (current) =>
+        current?.map((a) =>
           a.id === applicationId
             ? {
                 ...a,
@@ -198,10 +180,10 @@ export function ApplicationsListPage() {
             : a,
         ),
       );
-      refreshApplications();
+      await invalidateApplicationQueries(queryClient, applicationId);
       toast(applied ? "Marked as applied" : "Unmarked as applied");
     } catch (err) {
-      setApplications(previous);
+      queryClient.setQueryData(queryKeys.applications, previous);
       setError(err instanceof Error ? err.message : "Unable to update applied state.");
       toast("Failed to update applied status", "error");
     }
@@ -243,8 +225,7 @@ export function ApplicationsListPage() {
   }
 
   async function syncApplicationLists() {
-    await loadApplications();
-    void refreshApplications();
+    await invalidateApplicationQueries(queryClient);
   }
 
   async function handleBulkMarkApplied() {
@@ -377,6 +358,7 @@ export function ApplicationsListPage() {
         </div>
       ),
       width: "56px",
+      hiddenOnMobile: true,
       render: (app: ApplicationSummary) => (
         <div className="flex items-start" onClick={(event) => event.stopPropagation()}>
           <SelectionCheckbox
@@ -447,6 +429,7 @@ export function ApplicationsListPage() {
       header: "Base Resume",
       width: "180px",
       sortable: true,
+      hiddenOnMobile: true,
       sortValue: (app: ApplicationSummary) => app.base_resume_name?.toLowerCase() ?? "zzz",
       render: (app: ApplicationSummary) => (
         <span className="block truncate text-xs" style={{ color: "var(--color-ink-40)" }}>
@@ -459,6 +442,7 @@ export function ApplicationsListPage() {
       header: "Updated",
       width: "118px",
       sortable: true,
+      hiddenOnMobile: true,
       sortValue: (app: ApplicationSummary) => new Date(app.updated_at).getTime(),
       render: (app: ApplicationSummary) => (
         <span className="block text-xs tabular-nums" style={{ color: "var(--color-ink-40)" }}>
@@ -470,6 +454,7 @@ export function ApplicationsListPage() {
       key: "actions",
       header: "",
       width: "196px",
+      hiddenOnMobile: true,
       render: (app: ApplicationSummary) => (
         <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
           <AppliedToggleButton applied={app.applied} compact onClick={(e) => handleAppliedClick(app, e)} />
@@ -511,7 +496,7 @@ export function ApplicationsListPage() {
       <PageHeader
         title="Applications"
         subtitle={
-          applications !== null
+          applications != null
             ? `${applications.length} total · ${applications.filter((a) => a.applied).length} applied`
             : "Loading…"
         }
@@ -522,16 +507,17 @@ export function ApplicationsListPage() {
         }
       />
 
-      {error && (
+      {displayedError && (
         <Card variant="danger" density="compact">
           <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>
             Request failed
           </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{error}</p>
+          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{displayedError}</p>
         </Card>
       )}
 
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1.8fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)] xl:grid-cols-[minmax(320px,2.2fr)_240px_220px]">
+      {/* Desktop filters */}
+      <div className="hidden gap-3 md:grid md:grid-cols-[minmax(0,1.8fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)] xl:grid-cols-[minmax(320px,2.2fr)_240px_220px]">
         <Input
           aria-label="Search applications"
           placeholder="Search title or company…"
@@ -561,6 +547,55 @@ export function ApplicationsListPage() {
           <option value="applied">Applied</option>
           <option value="not_applied">Not Applied</option>
         </Select>
+      </div>
+
+      {/* Mobile filters */}
+      <div className="flex flex-col gap-2 md:hidden">
+        <div className="flex gap-2">
+          <Input
+            aria-label="Search applications"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1"
+          />
+          <button
+            type="button"
+            className="mobile-filters-toggle"
+            onClick={() => setShowMobileFilters(!showMobileFilters)}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M2 4h12M4 8h8M6 12h4" />
+            </svg>
+            Filters
+          </button>
+        </div>
+        {showMobileFilters && (
+          <div className="flex gap-2">
+            <Select
+              aria-label="Filter by status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="flex-1"
+            >
+              <option value="all">All statuses</option>
+              <option value="draft">Draft</option>
+              <option value="needs_action">Needs Action</option>
+              <option value="in_progress">In Progress</option>
+              <option value="complete">Complete</option>
+            </Select>
+            <Select
+              aria-label="Filter by applied"
+              value={appliedFilter}
+              onChange={(e) => setAppliedFilter(e.target.value)}
+              className="flex-1"
+            >
+              <option value="all">All</option>
+              <option value="applied">Applied</option>
+              <option value="not_applied">Not Applied</option>
+            </Select>
+          </div>
+        )}
       </div>
 
       {selectedIds.length > 0 && (
@@ -601,7 +636,7 @@ export function ApplicationsListPage() {
         </Card>
       )}
 
-      {applications === null ? (
+      {applications == null ? (
         <SkeletonTable rows={8} columns={7} />
       ) : (
         <DataTable

@@ -117,7 +117,7 @@ export function ExtensionPage() {
         </Card>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         {/* Connection Status */}
         <Card density="compact" className="flex h-full flex-col">
           <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Connection Status</h3>

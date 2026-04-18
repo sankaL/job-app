@@ -1,7 +1,7 @@
 # AI Resume Builder Database Schema
 
 **Document status:** Source of truth for the MVP database contract  
-**Last updated:** 2026-04-10
+**Last updated:** 2026-04-17
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Related rollout guide:** `docs/backend-database-migration-runbook.md`
 
@@ -40,6 +40,7 @@ Backend write paths must validate these shapes before persisting them.
 | `profiles.section_order` | Ordered JSON array of section identifiers, for example `["summary", "professional_experience", "education", "skills"]` | Must contain enabled sections in the order used for future generations. |
 | `applications.extraction_failure_details` | Object with `kind`, `provider`, `reference_id`, `blocked_url`, and `detected_at`, for example `{"kind": "blocked_source", "provider": "indeed", "reference_id": "9e8afb060bd31117", "blocked_url": "https://www.indeed.com/viewjob?jk=abc123", "detected_at": "2026-04-07T19:30:43+00:00"}` | Stores sanitized extraction failure diagnostics for recoverable failures. MVP currently persists blocked-source metadata only. |
 | `applications.generation_failure_details` | Object with `message` and optional `validation_errors` array, for example `{"message": "Validation failed", "validation_errors": ["Hallucinated employer detected", "Missing required section: skills"]}` | Stores generation, timeout, cancellation, validation, and regeneration failure details in a user-safe shape. |
+| `applications.resume_judge_result` | Object with `status`, optional `message`, optional score fields, `dimension_scores`, `regeneration_instructions`, `regeneration_priority_dimensions`, `evaluator_notes`, `evaluated_draft_updated_at`, `scored_at`, and optional sanitized failure diagnostics, for example `{"status": "succeeded", "final_score": 77.6, "display_score": 78, "verdict": "warn", "pass_threshold": 80, "score_summary": "Strong alignment with a few voice issues.", "dimension_scores": {"role_alignment": {"score": 8, "weight": 0.25, "weighted_contribution": 20.0, "notes": "Aligned to the JD."}}, "regeneration_instructions": "Tighten the summary voice.", "regeneration_priority_dimensions": ["voice_and_human_quality"], "evaluator_notes": "A targeted rewrite should push this above the pass threshold.", "evaluated_draft_updated_at": "2026-04-17T14:10:00+00:00", "scored_at": "2026-04-17T14:12:00+00:00"}` | Stores the latest Resume Judge state for the current draft, including queued/running/succeeded/failed states and stale-draft comparison metadata. |
 | `applications.extracted_reference_id` | Lowercase or normalized requisition/reference identifier, for example `"req-42"` | Stores the reference identifier extracted during capture so duplicate detection can use a persisted signal instead of re-parsing URLs or descriptions later. |
 | `applications.duplicate_match_fields` | Object with `matched_fields` array and `match_basis` string, for example `{"matched_fields": ["job_title", "company", "job_url"], "match_basis": "exact_job_url"}` | Stores what caused the duplicate warning, not the full comparison payload. `matched_fields` may include `job_posting_origin`, `job_url`, `reference_id`, or `job_description` only when those signals actually contributed to the duplicate warning. |
 | `resume_drafts.generation_params` | Object with `page_length`, `aggressiveness`, and `additional_instructions`, for example `{"page_length": "1_page", "aggressiveness": "medium", "additional_instructions": null}` | `page_length` values: `1_page`, `2_page`, `3_page`. `aggressiveness` values: `low`, `medium`, `high`. |
@@ -59,8 +60,8 @@ Application-owned extension of `auth.users`.
 | `last_name` | `text` | Yes | `null` | Nullable until invite onboarding is completed. |
 | `name` | `text` | Yes | `null` | Required by the product before final assembly/export, but nullable at rest until the user completes the profile. |
 | `phone` | `text` | Yes | `null` | Nullable until user provides it. |
-| `address` | `text` | Yes | `null` | Nullable until user provides it. Used as the short location line in resume assembly and PDF export. |
-| `linkedin_url` | `text` | Yes | `null` | Optional LinkedIn profile URL used in resume assembly and PDF export. |
+| `address` | `text` | Yes | `null` | Nullable until user provides it. Used as the short location line in resume assembly and export. |
+| `linkedin_url` | `text` | Yes | `null` | Optional LinkedIn profile URL used in resume assembly and export. |
 | `is_admin` | `boolean` | No | `false` | Grants access to admin routes and screens. |
 | `is_active` | `boolean` | No | `true` | Deactivated users are blocked from application access. |
 | `onboarding_completed_at` | `timestamptz` | Yes | `null` | Set when invite signup is accepted successfully. |
@@ -142,6 +143,7 @@ User-owned job application records and workflow state.
 | `failure_reason` | `failure_reason_enum` | Yes | `null` | Nullable recoverable failure type. |
 | `extraction_failure_details` | `jsonb` | Yes | `null` | See JSON contract above. |
 | `generation_failure_details` | `jsonb` | Yes | `null` | See JSON contract above. |
+| `resume_judge_result` | `jsonb` | Yes | `null` | See JSON contract above. Stores the latest Resume Judge score or failure state for the current draft only. |
 | `applied` | `boolean` | No | `false` | User-controlled flag independent from `visible_status`. |
 | `duplicate_similarity_score` | `numeric(5,2)` | Yes | `null` | Percentage score from `0.00` to `100.00`. |
 | `duplicate_match_fields` | `jsonb` | Yes | `null` | See JSON contract above. |
@@ -149,7 +151,7 @@ User-owned job application records and workflow state.
 | `duplicate_matched_application_id` | `uuid` | Yes | `null` | Self-reference to the application surfaced in duplicate review. Composite foreign key with `user_id` to `applications (id, user_id)` and `ON DELETE SET NULL`. |
 | `notes` | `text` | Yes | `null` | Free-text notes from the application detail page. |
 | `full_regeneration_count` | `integer` | No | `0` | Per-application count of successfully queued full regenerations for non-admin cap enforcement. |
-| `exported_at` | `timestamptz` | Yes | `null` | Last successful export timestamp for the application. |
+| `exported_at` | `timestamptz` | Yes | `null` | Last successful export timestamp for the application, regardless of supported export format. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
 
@@ -171,10 +173,12 @@ User-owned job application records and workflow state.
 - Extraction should separate `job_location_text` and `compensation_text` semantically from posting context, even when both appear on the same rendered line, and should leave either field null when the distinction is not clear.
 - `extraction_failure_details` stores sanitized recoverable diagnostics for extraction failures. MVP uses it for blocked-source metadata such as provider, reference ID, blocked URL, and detection timestamp.
 - `generation_failure_details` stores generation and regeneration failure diagnostics including timeout or cancellation copy plus an optional array of specific validation errors. Cleared on successful generation or regeneration.
+- `resume_judge_result` stores the latest Resume Judge lifecycle state for the current draft. It may be `queued`, `running`, `succeeded`, or `failed`, and it must not drive `visible_status` or `failure_reason`.
 - `extracted_reference_id` should be written from the extraction pipeline when present and reused by duplicate detection before falling back to URL or description parsing.
 - Duplicate dismissal is stored on the application so the warning does not re-evaluate for that application after dismissal.
 - Duplicate detection must include normalized `job_posting_origin` when it is populated on both compared applications, and fall back to `job_title` + `company` matching when origin is missing on either side.
 - `full_regeneration_count` is incremented when a full regeneration job is successfully queued for non-admin users, and is used to enforce a hard per-application cap of three full regenerations for non-admin accounts.
+- `resume_judge_result.evaluated_draft_updated_at` is the stale-result fence. Frontend and backend should compare it against `resume_drafts.updated_at` before treating the stored score as current.
 - The backend must clear stale `failure_reason` values when a recoverable workflow succeeds.
 
 **RLS requirements**
@@ -195,7 +199,7 @@ Single current Markdown draft for one application.
 | `generation_params` | `jsonb` | No | — | See JSON contract above. |
 | `sections_snapshot` | `jsonb` | No | — | See JSON contract above. |
 | `last_generated_at` | `timestamptz` | No | — | Updated on successful generation and full regeneration. |
-| `last_exported_at` | `timestamptz` | Yes | `null` | Updated on successful export. |
+| `last_exported_at` | `timestamptz` | Yes | `null` | Updated on successful export, regardless of supported export format. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write, including manual edits. |
 
 **Constraints**

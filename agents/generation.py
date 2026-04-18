@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from contextlib import suppress
+from time import perf_counter
 from typing import Any, Awaitable, Optional, TypeVar
 
 from langchain_openai import ChatOpenAI
@@ -20,6 +22,9 @@ from experience_contract import (
     normalize_professional_experience_section,
 )
 from privacy import sanitize_resume_markdown
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 OPERATION_PROMPTS: dict[str, str] = {
     "generation": "Generate a fresh tailored resume draft from the sanitized base resume.",
@@ -50,11 +55,17 @@ PROMPT_TRUNCATION_LIMITS = {
     "other_sections": 8_000,
 }
 
-GENERATION_HEARTBEAT_INTERVAL_SECONDS = 20.0
+GENERATION_HEARTBEAT_INTERVAL_SECONDS = 15.0
 GENERATION_HEARTBEAT_PERCENT = 45
 GENERATION_HEARTBEAT_MESSAGE = "Waiting for structured resume output"
 FULL_DRAFT_LLM_TIMEOUT_SECONDS = 240.0
 SECTION_REGENERATION_LLM_TIMEOUT_SECONDS = 120.0
+FULL_DRAFT_PRIMARY_ATTEMPT_TIMEOUT_SECONDS = 45.0
+FULL_DRAFT_FALLBACK_ATTEMPT_TIMEOUT_SECONDS = 120.0
+SECTION_REGENERATION_PRIMARY_ATTEMPT_TIMEOUT_SECONDS = 30.0
+SECTION_REGENERATION_FALLBACK_ATTEMPT_TIMEOUT_SECONDS = 60.0
+SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
+DEFAULT_GENERATION_REASONING_EFFORT = "none"
 
 TARGET_LENGTH_GUIDANCE: dict[str, dict[str, Any]] = {
     "1_page": {
@@ -94,50 +105,108 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
     },
     "medium": {
-        "summary": "Moderate rewrite for role alignment using only source-backed facts.",
-        "professional_experience": (
-            "Rephrase, reorder, prune, and emphasize grounded bullets for the target role. Keep each role title exactly as it appears in the source. "
-            "Do not add new facts."
+        "summary": (
+            "Substantial rewrite for role alignment using grounded source facts and job-description language. Reposition "
+            "the candidate's profile toward the target role and you may introduce JD-aligned non-factual keywords when helpful."
         ),
-        "skills": "Reorder, regroup, and prune to the most relevant source-backed skills. Do not add new skills.",
+        "professional_experience": (
+            "Professional Experience is the primary tailoring surface in medium mode. Materially rewrite bullet framing in the first up to 2 source-ordered roles that have bullets. "
+            "Keep the anchored role order fixed, but reprioritize by changing bullet emphasis within each role. "
+            "Reframe bullet angles, consolidate, prune, and emphasize grounded bullets for the target role. "
+            "Two source bullets covering related grounded work may be consolidated into one stronger bullet when that improves focus and specificity. "
+            "Do not spend nearly all tailoring budget on Summary or Skills while leaving Professional Experience bullets source-identical. "
+            "You may lightly reframe the role title only when it preserves the same core role family and seniority as the source title and target-role alignment clearly improves. "
+            "Keep company and dates unchanged. You may add JD-relevant non-factual keyword phrasing, but do not add invented facts."
+        ),
+        "skills": (
+            "Reorder, regroup, and prune to the most relevant skills for the target role. Lead with the most role-relevant "
+            "skill cluster and you may add JD-aligned keyword skills for fit."
+        ),
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
     },
     "high": {
-        "summary": "Fully rewrite the Summary for strongest role alignment using only source-backed facts.",
-        "professional_experience": (
-            "Aggressively reframe, reprioritize, condense, or expand grounded bullets for fit and impact. "
-            "You may retitle the role name for alignment only when it remains a truthful reframing of the same source role. "
-            "Keep employers and dates unchanged, and do not inflate scope, seniority, employers, or technologies."
+        "summary": (
+            "Fully rewrite the Summary for strongest role alignment. You may make bounded professional inferences from demonstrated patterns "
+            "in the source, and you may introduce JD-driven non-factual keywords for fit, but never invent specific employers, dates, institutions, credentials, or metrics."
         ),
-        "skills": "Aggressively prune, regroup, and prioritize source-backed skills for relevance. Do not add new skills.",
+        "professional_experience": (
+            "Professional Experience is the primary tailoring surface in high mode. Materially rewrite bullet framing in the first up to 2 source-ordered roles that have bullets. "
+            "Keep the anchored role order fixed, but reprioritize by changing bullet emphasis within each role. "
+            "Aggressively reframe, consolidate, condense, or expand grounded bullets for fit and impact. "
+            "Do not spend nearly all tailoring budget on Summary or Skills while leaving Professional Experience bullets source-identical. "
+            "You should actively retitle the role name for alignment or adjacent role framing when the target role clearly supports it and it still matches the demonstrated responsibilities, especially for the most recent role. "
+            "Keep company and dates unchanged, keep duration consistent with the source, do not change seniority, "
+            "and do not invent metrics, employers, institutions, or achievements. JD-driven keyword phrasing is allowed when it does not assert new facts."
+        ),
+        "skills": (
+            "Aggressively prune, regroup, prioritize, and expand skills for target-role relevance. Lead with the most role-relevant "
+            "skill cluster and include JD-driven keyword skills when helpful."
+        ),
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
     },
 }
 
 SECTION_RULES: dict[str, str] = {
     "summary": (
-        "Lead with the strongest source-backed fit for the target role. Keep the section concise, concrete, and specific. "
-        "Do not use generic filler, first-person narration, or em dashes."
+        "Lead with the strongest grounded fit for the target role. Keep the section concise, concrete, specific, and natural. "
+        "Do not use generic filler, first-person narration, or em dashes. If a sentence could describe almost anyone in the field, rewrite it until it feels candidate-specific."
     ),
     "professional_experience": (
         "Prioritize the most relevant experience first. Use concise accomplishment-oriented bullets grounded in the source. "
-        "Preserve chronology facts and do not invent metrics, scope, or technologies. "
-        "Low and medium aggressiveness must preserve role titles exactly; high aggressiveness may retitle role names only when the rewrite stays truthful to the same role and does not change employer, dates, or seniority."
+        "Preserve chronology facts and do not invent metrics or scope. "
+        "Keep source role order fixed; when you reprioritize, do it by changing which facts you emphasize within the anchored role blocks. "
+        "Bullet openings may vary; do not make every bullet follow the same verb-first pattern. "
+        "When Professional Experience is enabled, medium and high must visibly tailor it instead of leaving the key bullets source-identical. "
+        "Low aggressiveness must preserve role titles exactly. Medium may lightly reframe titles only when the core role family and seniority remain grounded in the source. "
+        "High may retitle more freely only when the rewrite still matches demonstrated work and does not change employer, dates, duration, or seniority."
     ),
     "education": (
         "Keep Education concise and factual. Never add or infer schools, degrees, honors, dates, coursework, or credentials."
     ),
     "skills": (
-        "Use only source-backed skills. Prioritize role-relevant skills and avoid keyword stuffing, duplicate categories, or generic buzzwords."
+        "Lead with the most role-relevant skill cluster and avoid keyword stuffing, duplicate categories, or generic buzzwords. "
+        "Low keeps source skills only; medium and high may include JD-driven keyword skills for fit."
     ),
 }
 
-BOUNDARY_EXAMPLE = (
-    "Worked example of acceptable vs unacceptable rewriting:\n"
+FACT_BOUNDARY_EXAMPLE = (
+    "Worked example of acceptable vs unacceptable fact expansion:\n"
     "- Source fact: \"Built CI/CD pipelines for 12 AWS services and supported production deployments.\"\n"
-    "- Acceptable high-aggressiveness rewrite: \"Built and supported CI/CD pipelines across 12 AWS services for production deployments.\"\n"
+    "- Acceptable grounded rewrite: \"Built and supported CI/CD pipelines across 12 AWS services for production deployments.\"\n"
     "- Unacceptable rewrite: \"Led DevOps strategy across 12 AWS microservices, reducing deployment failures by 40%.\"\n"
     "- Why: the unacceptable version adds leadership scope and a performance metric that are not present in the source."
+)
+
+INFERENCE_BOUNDARY_EXAMPLE = (
+    "Worked example of bounded professional inference in high aggressiveness:\n"
+    "- Source shows: managing a team of 15, coordinating delivery across clients, and owning test strategy.\n"
+    "- Acceptable high-aggressiveness inference: retitle the role as \"QA Engineering Lead\" when the rest of the role content stays grounded in those demonstrated responsibilities.\n"
+    "- Unacceptable inference: \"Reduced client attrition by 20%.\"\n"
+    "- Why: the title reframe is an interpretation of demonstrated work, but the metric is an invented outcome with no source basis."
+)
+
+MEDIUM_TITLE_REFRAME_EXAMPLE = (
+    "Worked example of bounded medium title reframing:\n"
+    "- Source title: \"Backend Engineer\"\n"
+    "- Acceptable medium rewrite: \"Platform Engineer\" when the source bullets already show platform APIs, deployment automation, and shared infrastructure work.\n"
+    "- Unacceptable medium rewrite: \"Engineering Manager\" when the source does not show people management.\n"
+    "- Why: medium may improve role alignment, but the rewrite still has to stay in the same grounded role family and preserve seniority."
+)
+
+EXPERIENCE_REWRITE_EXAMPLE = (
+    "Worked example of material Professional Experience tailoring inside fixed role order:\n"
+    "- Source bullets: \"Built backend APIs.\" and \"Maintained CI/CD pipelines.\"\n"
+    "- Acceptable medium rewrite: \"Built backend APIs and maintained CI/CD pipelines for internal platform services.\"\n"
+    "- Acceptable high rewrite: \"Built backend APIs and maintained CI/CD pipelines for internal platform services, emphasizing deployment reliability and shared tooling.\"\n"
+    "- Unacceptable rewrite: leave the first two roles' bullets effectively unchanged while moving all tailoring effort into Summary or Skills.\n"
+    "- Why: medium and high must visibly tailor Professional Experience when that section is enabled and the source supports stronger targeting."
+)
+
+VOICE_BOUNDARY_EXAMPLE = (
+    "Worked example of avoiding filler:\n"
+    "- Weak rewrite: \"Proven ability to leverage expertise in backend engineering to drive high-quality outcomes.\"\n"
+    "- Better rewrite when the source supports it: \"Built backend APIs and maintained the deployment pipeline for internal platform services.\"\n"
+    "- Why: the better version names real work instead of generic resume filler that could fit almost anyone."
 )
 
 
@@ -390,20 +459,34 @@ def _build_role_block() -> str:
     )
 
 
+def _build_voice_rules_block() -> str:
+    return (
+        "Voice and specificity rules:\n"
+        "- Avoid resume filler such as \"proven ability to\", \"leveraging expertise in\", \"adept at\", \"ensuring high-quality outcomes\", \"driving continuous improvement\", or \"spearheading\" in model-authored content, even when those phrases appear in the source.\n"
+        "- Vary bullet openings and sentence structure. Do not make every bullet use the same verb-first pattern.\n"
+        "- Prefer specific, grounded detail over general claims. If a line could fit almost anyone in the same field, rewrite it to make it more candidate-specific.\n"
+        "- For each Professional Experience role, include at least one concrete, source-backed detail when the source provides one, such as a tool, system, domain, team context, or result.\n"
+    )
+
+
 def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str], section_wrapper: bool) -> str:
     section_spec = ", ".join(f"{section_id}:{_display_name(section_id)}" for section_id in enabled_sections)
     experience_contract_line = ""
     if "professional_experience" in enabled_sections:
         experience_contract_line = (
-            "- Professional Experience structure contract: preserve source company and date range for every role. "
-            "Low and medium must preserve role titles exactly; high may retitle only while keeping company and dates unchanged.\n"
+            "- Professional Experience structure contract: preserve source company and date range for every role so duration stays consistent. "
+            "Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; "
+            "high may retitle more freely only when the rewrite still matches demonstrated work. Company and dates must stay unchanged in every mode.\n"
+            "- Keep Professional Experience role order fixed to the source anchors. Reprioritize by changing bullet emphasis inside each anchored role, not by reordering the roles themselves.\n"
+            "- When Professional Experience is enabled in medium or high mode, do not leave the first up to 2 roles with bullets effectively source-identical while spending nearly all tailoring effort on Summary or Skills.\n"
         )
     return (
         "Non-negotiables:\n"
         f"- {OPERATION_PROMPTS[operation]}\n"
-        "- Use only facts grounded in the sanitized base resume source.\n"
+        "- Use grounded source facts from the sanitized base resume. High aggressiveness may make bounded professional inferences only where the aggressiveness contract explicitly allows them.\n"
         "- Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.\n"
-        "- Do not invent employers, titles, dates, institutions, credentials, awards, metrics, scope, or technologies.\n"
+        "- Do not invent employers, dates, institutions, credentials, awards, metrics, or scope.\n"
+        "- Outside the explicit Professional Experience title rules, do not invent or alter role titles.\n"
         + experience_contract_line
         + "- User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.\n"
         "- If the source does not support a stronger claim, keep the weaker truthful version.\n"
@@ -421,13 +504,20 @@ def _build_section_rules_block(*, enabled_sections: list[str]) -> str:
 
 def _build_aggressiveness_block(*, aggressiveness: str) -> str:
     contract = AGGRESSIVENESS_CONTRACTS.get(aggressiveness, AGGRESSIVENESS_CONTRACTS["medium"])
+    inference_example = f"{INFERENCE_BOUNDARY_EXAMPLE}\n" if aggressiveness == "high" else ""
+    medium_title_example = f"{MEDIUM_TITLE_REFRAME_EXAMPLE}\n" if aggressiveness in {"medium", "high"} else ""
+    experience_rewrite_example = f"{EXPERIENCE_REWRITE_EXAMPLE}\n" if aggressiveness in {"medium", "high"} else ""
     return (
         f"Aggressiveness contract ({aggressiveness}):\n"
         f"- Summary: {contract['summary']}\n"
         f"- Professional Experience: {contract['professional_experience']}\n"
         f"- Skills: {contract['skills']}\n"
         f"- Education: {contract['education']}\n"
-        f"{BOUNDARY_EXAMPLE}\n"
+        f"{FACT_BOUNDARY_EXAMPLE}\n"
+        f"{medium_title_example}"
+        f"{experience_rewrite_example}"
+        f"{inference_example}"
+        f"{VOICE_BOUNDARY_EXAMPLE}\n"
     )
 
 
@@ -466,6 +556,8 @@ def _build_shared_system_prompt(
 ) -> str:
     return (
         _build_role_block()
+        + "\n"
+        + _build_voice_rules_block()
         + "\n"
         + _build_non_negotiables_block(
             operation=operation,
@@ -544,8 +636,10 @@ def _build_generation_prompt(
             "anchors": professional_experience_anchors,
             "invariants": {
                 "company_and_dates_must_match_source_for_every_role": True,
-                "low_and_medium_titles_must_match_source_exactly": True,
-                "high_titles_may_retitle_but_company_and_dates_must_stay_source_exact": True,
+                "duration_must_stay_consistent_with_source": True,
+                "low_titles_must_match_source_exactly": True,
+                "medium_titles_may_reframe_but_must_preserve_core_role_family_and_seniority": True,
+                "high_titles_may_retitle_when_supported_by_demonstrated_work_but_company_and_dates_must_stay_source_exact": True,
             },
         },
         "job_description": _normalize_prompt_text(job_description, PROMPT_TRUNCATION_LIMITS["job_description"]),
@@ -583,7 +677,7 @@ def _build_section_regeneration_prompt(
         )
         + "\nSection-regeneration coherence rules:\n"
         + "- Keep terminology and tone compatible with the rest of the draft.\n"
-        + "- Do not duplicate the strongest claims already emphasized elsewhere.\n"
+        + "- Read other_sections_context and do not repeat a claim that already appears there verbatim or as the dominant selling point.\n"
         + "- Do not contradict the rest of the draft unless the source resume requires correction.\n"
     )
     target_length_config = TARGET_LENGTH_GUIDANCE.get(target_length, TARGET_LENGTH_GUIDANCE["1_page"])
@@ -612,8 +706,10 @@ def _build_section_regeneration_prompt(
             "anchors": professional_experience_anchors,
             "invariants": {
                 "company_and_dates_must_match_source_for_every_role": True,
-                "low_and_medium_titles_must_match_source_exactly": True,
-                "high_titles_may_retitle_but_company_and_dates_must_stay_source_exact": True,
+                "duration_must_stay_consistent_with_source": True,
+                "low_titles_must_match_source_exactly": True,
+                "medium_titles_may_reframe_but_must_preserve_core_role_family_and_seniority": True,
+                "high_titles_may_retitle_when_supported_by_demonstrated_work_but_company_and_dates_must_stay_source_exact": True,
             },
         },
         "job_description": _normalize_prompt_text(job_description, PROMPT_TRUNCATION_LIMITS["job_description"]),
@@ -631,12 +727,55 @@ def _build_section_regeneration_prompt(
     return [("system", system_msg), ("human", json.dumps(human_payload, ensure_ascii=True))]
 
 
-def _reasoning_config_for_operation(operation: str) -> Optional[dict[str, Any]]:
-    if operation in {"generation", "regeneration_full"}:
-        return {"effort": "medium", "exclude": True}
-    if operation == "regeneration_section":
-        return {"effort": "high", "exclude": True}
+def _normalize_reasoning_effort(reasoning_effort: Optional[str]) -> str:
+    normalized = str(reasoning_effort or DEFAULT_GENERATION_REASONING_EFFORT).strip().lower()
+    if normalized not in SUPPORTED_REASONING_EFFORTS:
+        allowed = ", ".join(sorted(SUPPORTED_REASONING_EFFORTS))
+        raise ValueError(f"Unsupported reasoning effort '{reasoning_effort}'. Expected one of: {allowed}.")
+    return normalized
+
+
+def _reasoning_config_for_operation(
+    operation: str,
+    reasoning_effort: Optional[str],
+    *,
+    is_fallback: bool = False,
+) -> Optional[dict[str, Any]]:
+    normalized_effort = _normalize_reasoning_effort(reasoning_effort)
+    if operation in {"generation", "regeneration_full", "regeneration_section"}:
+        payload: dict[str, Any] = {"effort": normalized_effort}
+        if normalized_effort != "none":
+            payload["exclude"] = True
+        return payload
     return None
+
+
+def _reasoning_effort(reasoning_config: Optional[dict[str, Any]]) -> Optional[str]:
+    if not reasoning_config:
+        return None
+    effort = reasoning_config.get("effort")
+    return str(effort) if effort else None
+
+
+def _attempt_timeout_for_operation(operation: str, *, is_fallback: bool) -> float:
+    if operation in {"generation", "regeneration_full"}:
+        return FULL_DRAFT_FALLBACK_ATTEMPT_TIMEOUT_SECONDS if is_fallback else FULL_DRAFT_PRIMARY_ATTEMPT_TIMEOUT_SECONDS
+    if operation == "regeneration_section":
+        return (
+            SECTION_REGENERATION_FALLBACK_ATTEMPT_TIMEOUT_SECONDS
+            if is_fallback
+            else SECTION_REGENERATION_PRIMARY_ATTEMPT_TIMEOUT_SECONDS
+        )
+    return FULL_DRAFT_FALLBACK_ATTEMPT_TIMEOUT_SECONDS if is_fallback else FULL_DRAFT_PRIMARY_ATTEMPT_TIMEOUT_SECONDS
+
+
+def _temperature_for_aggressiveness(aggressiveness: str) -> float:
+    normalized = str(aggressiveness or "medium").lower()
+    if normalized == "low":
+        return 0.2
+    if normalized == "high":
+        return 0.5
+    return 0.35
 
 
 def _build_llm(
@@ -646,13 +785,14 @@ def _build_llm(
     base_url: str,
     timeout: float,
     reasoning_config: Optional[dict[str, Any]],
+    aggressiveness: str,
 ) -> ChatOpenAI:
     extra_body = {"reasoning": reasoning_config} if reasoning_config else None
     return ChatOpenAI(
         model=model_name,
         api_key=api_key,
         base_url=base_url,
-        temperature=0.2,
+        temperature=_temperature_for_aggressiveness(aggressiveness),
         request_timeout=timeout,
         max_retries=0,
         extra_body=extra_body,
@@ -661,7 +801,10 @@ def _build_llm(
 
 def _looks_like_reasoning_error(error: Exception) -> bool:
     message = str(error).lower()
-    return "reasoning" in message and any(token in message for token in ("unknown", "unsupported", "invalid", "field"))
+    return "reasoning" in message and any(
+        token in message
+        for token in ("unknown", "unsupported", "invalid", "field", "mandatory", "cannot be disabled")
+    )
 
 
 def _is_timeout_error(error: Optional[BaseException]) -> bool:
@@ -675,6 +818,46 @@ def _is_timeout_error(error: Optional[BaseException]) -> bool:
     return False
 
 
+def _classify_attempt_outcome(
+    error: Exception,
+    *,
+    transport_mode: str,
+    reasoning_config: Optional[dict[str, Any]],
+) -> tuple[str, Optional[str]]:
+    if _is_timeout_error(error):
+        return "timeout", "timeout"
+    if reasoning_config is not None and _looks_like_reasoning_error(error):
+        return "reasoning_rejected", "reasoning_unsupported"
+    if transport_mode == "structured":
+        if isinstance(error, ValidationError):
+            return "invalid_structured_output", "structured_validation_failed"
+        return "structured_failed", "structured_failed"
+    if isinstance(error, (json.JSONDecodeError, ValidationError)):
+        return "invalid_json", "invalid_json"
+    return "provider_error", "attempt_failed"
+
+
+def _build_attempt_record(
+    *,
+    model_name: str,
+    reasoning_config: Optional[dict[str, Any]],
+    transport_mode: str,
+    outcome: str,
+    elapsed_ms: int,
+    retry_reason: Optional[str] = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model_name,
+        "reasoning_effort": _reasoning_effort(reasoning_config),
+        "transport_mode": transport_mode,
+        "outcome": outcome,
+        "elapsed_ms": elapsed_ms,
+    }
+    if retry_reason:
+        payload["retry_reason"] = retry_reason
+    return payload
+
+
 async def _invoke_structured_output(
     *,
     prompt: list[tuple[str, str]],
@@ -684,6 +867,7 @@ async def _invoke_structured_output(
     base_url: str,
     timeout: float,
     reasoning_config: Optional[dict[str, Any]],
+    aggressiveness: str,
 ) -> BaseModel:
     llm = _build_llm(
         model_name=model_name,
@@ -691,6 +875,7 @@ async def _invoke_structured_output(
         base_url=base_url,
         timeout=timeout,
         reasoning_config=reasoning_config,
+        aggressiveness=aggressiveness,
     ).with_structured_output(response_model)
     result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
     if isinstance(result, response_model):
@@ -708,6 +893,7 @@ async def _invoke_prompt_json(
     base_url: str,
     timeout: float,
     reasoning_config: Optional[dict[str, Any]],
+    aggressiveness: str,
 ) -> BaseModel:
     llm = _build_llm(
         model_name=model_name,
@@ -715,6 +901,7 @@ async def _invoke_prompt_json(
         base_url=base_url,
         timeout=timeout,
         reasoning_config=reasoning_config,
+        aggressiveness=aggressiveness,
     )
     result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
     content = _extract_message_text(result.content)
@@ -725,6 +912,159 @@ async def _invoke_prompt_json(
         expected_section_ids=expected_section_ids,
     )
     return response_model.model_validate(normalized_payload)
+
+
+async def _attempt_transport(
+    *,
+    prompt: list[tuple[str, str]],
+    response_model: type[BaseModel],
+    expected_section_ids: Optional[list[str]],
+    operation: str,
+    model_name: str,
+    api_key: str,
+    base_url: str,
+    timeout: float,
+    reasoning_config: Optional[dict[str, Any]],
+    transport_mode: str,
+    attempts: list[dict[str, Any]],
+    aggressiveness: str,
+) -> BaseModel:
+    invoke = _invoke_structured_output if transport_mode == "structured" else _invoke_prompt_json
+    invoke_kwargs = {
+        "prompt": prompt,
+        "response_model": response_model,
+        "model_name": model_name,
+        "api_key": api_key,
+        "base_url": base_url,
+        "timeout": timeout,
+        "reasoning_config": reasoning_config,
+        "aggressiveness": aggressiveness,
+    }
+    if transport_mode != "structured":
+        invoke_kwargs["expected_section_ids"] = expected_section_ids
+
+    started_at = perf_counter()
+    logger.info(
+        "generation_llm_attempt_start %s",
+        {
+            "operation": operation,
+            "model": model_name,
+            "reasoning_effort": _reasoning_effort(reasoning_config),
+            "transport_mode": transport_mode,
+            "timeout_seconds": timeout,
+        },
+    )
+    try:
+        payload = await invoke(**invoke_kwargs)
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        attempts.append(
+            _build_attempt_record(
+                model_name=model_name,
+                reasoning_config=reasoning_config,
+                transport_mode=transport_mode,
+                outcome="success",
+                elapsed_ms=elapsed_ms,
+            )
+        )
+        logger.info(
+            "generation_llm_attempt_success %s",
+            {
+                "model": model_name,
+                "reasoning_effort": _reasoning_effort(reasoning_config),
+                "transport_mode": transport_mode,
+                "elapsed_ms": elapsed_ms,
+            },
+        )
+        return payload
+    except Exception as exc:
+        elapsed_ms = round((perf_counter() - started_at) * 1000)
+        outcome, retry_reason = _classify_attempt_outcome(
+            exc,
+            transport_mode=transport_mode,
+            reasoning_config=reasoning_config,
+        )
+        attempts.append(
+            _build_attempt_record(
+                model_name=model_name,
+                reasoning_config=reasoning_config,
+                transport_mode=transport_mode,
+                outcome=outcome,
+                elapsed_ms=elapsed_ms,
+                retry_reason=retry_reason,
+            )
+        )
+        logger.warning(
+            "generation_llm_attempt_failure %s",
+            {
+                "model": model_name,
+                "reasoning_effort": _reasoning_effort(reasoning_config),
+                "transport_mode": transport_mode,
+                "elapsed_ms": elapsed_ms,
+                "outcome": outcome,
+                "retry_reason": retry_reason,
+                "error_type": type(exc).__name__,
+                "message": str(exc),
+            },
+        )
+        if reasoning_config is not None and _looks_like_reasoning_error(exc):
+            started_at = perf_counter()
+            try:
+                invoke_kwargs["reasoning_config"] = None
+                payload = await invoke(**invoke_kwargs)
+                elapsed_ms = round((perf_counter() - started_at) * 1000)
+                attempts.append(
+                    _build_attempt_record(
+                        model_name=model_name,
+                        reasoning_config=None,
+                        transport_mode=transport_mode,
+                        outcome="success",
+                        elapsed_ms=elapsed_ms,
+                        retry_reason="reasoning_unsupported",
+                    )
+                )
+                logger.info(
+                    "generation_llm_attempt_success %s",
+                    {
+                        "model": model_name,
+                        "reasoning_effort": None,
+                        "transport_mode": transport_mode,
+                        "elapsed_ms": elapsed_ms,
+                        "retry_reason": "reasoning_unsupported",
+                    },
+                )
+                return payload
+            except Exception as inner_exc:
+                elapsed_ms = round((perf_counter() - started_at) * 1000)
+                inner_outcome, inner_retry_reason = _classify_attempt_outcome(
+                    inner_exc,
+                    transport_mode=transport_mode,
+                    reasoning_config=None,
+                )
+                attempts.append(
+                    _build_attempt_record(
+                        model_name=model_name,
+                        reasoning_config=None,
+                        transport_mode=transport_mode,
+                        outcome=inner_outcome,
+                        elapsed_ms=elapsed_ms,
+                        retry_reason=inner_retry_reason or "reasoning_unsupported",
+                    )
+                )
+                logger.warning(
+                    "generation_llm_attempt_failure %s",
+                    {
+                        "model": model_name,
+                        "reasoning_effort": None,
+                        "transport_mode": transport_mode,
+                        "elapsed_ms": elapsed_ms,
+                        "outcome": inner_outcome,
+                        "retry_reason": inner_retry_reason or "reasoning_unsupported",
+                        "error_type": type(inner_exc).__name__,
+                        "message": str(inner_exc),
+                    },
+                )
+                raise inner_exc
+        raise
 
 
 async def _call_json_with_fallback(
@@ -738,82 +1078,139 @@ async def _call_json_with_fallback(
     api_key: str,
     base_url: str,
     timeout: float,
-) -> tuple[BaseModel, str]:
+    aggressiveness: str,
+    reasoning_effort: Optional[str],
+) -> tuple[BaseModel, str, list[dict[str, Any]]]:
     last_error: Optional[Exception] = None
-    model_sequence = [model]
+    attempts: list[dict[str, Any]] = []
+    model_sequence = [(model, False, "structured")]
     if fallback_model and fallback_model != model:
-        model_sequence.append(fallback_model)
+        model_sequence.append((fallback_model, True, "json"))
 
-    reasoning_config = _reasoning_config_for_operation(operation)
-
-    for model_name in model_sequence:
-        model_reasoning = reasoning_config
-
+    for model_name, is_fallback, transport_mode in model_sequence:
+        reasoning_config = _reasoning_config_for_operation(
+            operation,
+            reasoning_effort,
+            is_fallback=is_fallback,
+        )
+        attempt_timeout = min(timeout, _attempt_timeout_for_operation(operation, is_fallback=is_fallback))
         try:
-            payload = await _invoke_structured_output(
-                prompt=prompt,
-                response_model=response_model,
-                model_name=model_name,
-                api_key=api_key,
-                base_url=base_url,
-                timeout=timeout,
-                reasoning_config=model_reasoning,
-            )
-            return payload, model_name
-        except Exception as exc:
-            last_error = exc
-            if model_reasoning is not None and _looks_like_reasoning_error(exc):
-                model_reasoning = None
-                try:
-                    payload = await _invoke_structured_output(
-                        prompt=prompt,
-                        response_model=response_model,
-                        model_name=model_name,
-                        api_key=api_key,
-                        base_url=base_url,
-                        timeout=timeout,
-                        reasoning_config=None,
-                    )
-                    return payload, model_name
-                except Exception as inner_exc:
-                    last_error = inner_exc
-            if _is_timeout_error(last_error):
-                # Move to fallback model immediately when a model times out.
-                continue
-
-        try:
-            payload = await _invoke_prompt_json(
+            payload = await _attempt_transport(
                 prompt=prompt,
                 response_model=response_model,
                 expected_section_ids=expected_section_ids,
+                operation=operation,
                 model_name=model_name,
                 api_key=api_key,
                 base_url=base_url,
-                timeout=timeout,
-                reasoning_config=model_reasoning,
+                timeout=attempt_timeout,
+                reasoning_config=reasoning_config,
+                transport_mode=transport_mode,
+                attempts=attempts,
+                aggressiveness=aggressiveness,
             )
-            return payload, model_name
+            return payload, model_name, attempts
         except Exception as exc:
             last_error = exc
-            if model_reasoning is not None and _looks_like_reasoning_error(exc):
-                try:
-                    payload = await _invoke_prompt_json(
-                        prompt=prompt,
-                        response_model=response_model,
-                        expected_section_ids=expected_section_ids,
-                        model_name=model_name,
-                        api_key=api_key,
-                        base_url=base_url,
-                        timeout=timeout,
-                        reasoning_config=None,
-                    )
-                    return payload, model_name
-                except Exception as inner_exc:
-                    last_error = inner_exc
 
     if _is_timeout_error(last_error):
         raise asyncio.TimeoutError("LLM generation timed out on both primary and fallback models.") from last_error
     raise RuntimeError("LLM generation failed on both primary and fallback models.") from last_error
+
+
+def _build_validation_repair_prompt(
+    *,
+    prompt: list[tuple[str, str]],
+    validation_errors: list[Any],
+    prior_response: dict[str, Any],
+) -> list[tuple[str, str]]:
+    normalized_errors = [
+        str(error.get("detail") or error.get("type") or "").strip() if isinstance(error, dict) else str(error).strip()
+        for error in validation_errors
+    ]
+    normalized_errors = [error for error in normalized_errors if error]
+    requires_experience_tailoring_repair = any(
+        (
+            isinstance(error, dict)
+            and str(error.get("type") or "").strip() == "insufficient_experience_tailoring"
+        )
+        or "insufficient professional experience tailoring" in str(error).lower()
+        for error in validation_errors
+    )
+    repair_task = (
+        "Repair the previous response so it satisfies the deterministic validation rules. "
+        "Keep all content grounded in the sanitized base resume and preserve the original response contract."
+    )
+    if requires_experience_tailoring_repair:
+        repair_task += (
+            " The repair must materially rewrite Professional Experience in the first up to 2 source-ordered roles with bullets. "
+            "Do not satisfy this repair by changing only Summary or Skills."
+        )
+    repair_payload = {
+        "repair_task": repair_task,
+        "validation_errors": normalized_errors[:12],
+        "previous_response": prior_response,
+    }
+    return [*prompt, ("human", json.dumps(repair_payload, ensure_ascii=True))]
+
+
+async def repair_generated_response(
+    *,
+    prompt: list[tuple[str, str]],
+    response_model: type[BaseModel],
+    expected_section_ids: list[str],
+    operation: str,
+    validation_errors: list[Any],
+    prior_response: dict[str, Any],
+    model: str,
+    fallback_model: str,
+    model_used: str,
+    prior_attempts: list[dict[str, Any]],
+    api_key: str,
+    base_url: str,
+    timeout: float,
+    aggressiveness: str,
+) -> tuple[Optional[BaseModel], str, list[dict[str, Any]], Optional[Exception]]:
+    if timeout <= 0:
+        return None, model_used, [], asyncio.TimeoutError("No remaining timeout budget for validation repair.")
+
+    attempted_models = {str(attempt.get("model")) for attempt in prior_attempts if attempt.get("model")}
+    repair_model = (
+        fallback_model
+        if fallback_model and fallback_model != model and fallback_model not in attempted_models
+        else model_used
+    )
+    repair_prompt = _build_validation_repair_prompt(
+        prompt=prompt,
+        validation_errors=validation_errors,
+        prior_response=prior_response,
+    )
+    repair_attempts: list[dict[str, Any]] = []
+    repair_timeout = min(
+        timeout,
+        _attempt_timeout_for_operation(
+            operation,
+            is_fallback=repair_model == fallback_model and fallback_model != model,
+        ),
+    )
+    try:
+        payload = await _attempt_transport(
+            prompt=repair_prompt,
+            response_model=response_model,
+            expected_section_ids=expected_section_ids,
+            operation=operation,
+            model_name=repair_model,
+            api_key=api_key,
+            base_url=base_url,
+            timeout=repair_timeout,
+            reasoning_config=None,
+            transport_mode="repair_json",
+            attempts=repair_attempts,
+            aggressiveness=aggressiveness,
+        )
+        return payload, repair_model, repair_attempts, None
+    except Exception as exc:
+        return None, repair_model, repair_attempts, exc
 
 
 async def _await_with_progress_heartbeat(
@@ -908,6 +1305,7 @@ async def generate_sections(
     api_key: str,
     base_url: str,
     on_progress,
+    reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
 ) -> dict[str, Any]:
     enabled = sorted(
         [section for section in section_preferences if section.get("enabled") and section.get("name") in SUPPORTED_SECTIONS],
@@ -943,7 +1341,7 @@ async def generate_sections(
         additional_instructions=additional_instructions,
         professional_experience_anchors=professional_experience_anchors,
     )
-    payload, model_used = await _await_with_progress_heartbeat(
+    payload, model_used, attempt_diagnostics = await _await_with_progress_heartbeat(
         operation=_call_json_with_fallback(
             prompt=prompt,
             response_model=GeneratedResumePayload,
@@ -954,6 +1352,8 @@ async def generate_sections(
             api_key=api_key,
             base_url=base_url,
             timeout=FULL_DRAFT_LLM_TIMEOUT_SECONDS,
+            aggressiveness=str(aggressiveness).lower(),
+            reasoning_effort=reasoning_effort,
         ),
         on_progress=on_progress,
         percent=GENERATION_HEARTBEAT_PERCENT,
@@ -986,6 +1386,10 @@ async def generate_sections(
     return {
         "sections": sections,
         "model_used": model_used,
+        "attempt_diagnostics": attempt_diagnostics,
+        "prompt": prompt,
+        "section_ids": section_ids,
+        "operation": operation if operation in OPERATION_PROMPTS else "generation",
         "sanitized_base_resume": sanitized_base_resume,
         "professional_experience_anchors": professional_experience_anchors,
     }
@@ -1025,6 +1429,7 @@ async def regenerate_single_section(
     api_key: str,
     base_url: str,
     on_progress=None,
+    reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
 ) -> dict[str, Any]:
     aggressiveness = generation_settings.get("aggressiveness", "medium")
     target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
@@ -1054,7 +1459,7 @@ async def regenerate_single_section(
     )
     if on_progress is not None:
         await on_progress(35, f"Preparing {display_name} regeneration context")
-        payload, model_used = await _await_with_progress_heartbeat(
+        payload, model_used, attempt_diagnostics = await _await_with_progress_heartbeat(
             operation=_call_json_with_fallback(
                 prompt=prompt,
                 response_model=RegeneratedSectionPayload,
@@ -1065,13 +1470,15 @@ async def regenerate_single_section(
                 api_key=api_key,
                 base_url=base_url,
                 timeout=SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
+                aggressiveness=str(aggressiveness).lower(),
+                reasoning_effort=reasoning_effort,
             ),
             on_progress=on_progress,
             percent=GENERATION_HEARTBEAT_PERCENT,
             message=f"Generating {display_name} section",
         )
     else:
-        payload, model_used = await _call_json_with_fallback(
+        payload, model_used, attempt_diagnostics = await _call_json_with_fallback(
             prompt=prompt,
             response_model=RegeneratedSectionPayload,
             expected_section_ids=[section_name],
@@ -1081,6 +1488,8 @@ async def regenerate_single_section(
             api_key=api_key,
             base_url=base_url,
             timeout=SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
+            aggressiveness=str(aggressiveness).lower(),
+            reasoning_effort=reasoning_effort,
         )
 
     section_content = payload.section.markdown.strip()
@@ -1104,6 +1513,10 @@ async def regenerate_single_section(
         "content": section_content,
         "supporting_snippets": payload.section.supporting_snippets,
         "model_used": model_used,
+        "attempt_diagnostics": attempt_diagnostics,
+        "prompt": prompt,
+        "section_ids": [section_name],
+        "operation": "regeneration_section",
         "sanitized_base_resume": sanitized_base_resume,
         "professional_experience_anchors": professional_experience_anchors,
     }
