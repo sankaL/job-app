@@ -6,6 +6,7 @@ PORT_VALUE="${PORT:-80}"
 NGINX_TEMPLATE="/etc/nginx/templates/default.conf.template"
 NGINX_CONFIG="/etc/nginx/conf.d/default.conf"
 ENV_CONFIG="/usr/share/nginx/html/env-config.js"
+ENV_CONFIG_ENTRY_COUNT=0
 
 escape_js_string() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
@@ -19,7 +20,13 @@ append_runtime_config() {
     return
   fi
 
-  printf ',\n  %s: "%s"' "$key" "$(escape_js_string "$value")" >> "$ENV_CONFIG"
+  if [ "$ENV_CONFIG_ENTRY_COUNT" -gt 0 ]; then
+    printf ',\n  %s: "%s"' "$key" "$(escape_js_string "$value")" >> "$ENV_CONFIG"
+  else
+    printf '\n  %s: "%s"' "$key" "$(escape_js_string "$value")" >> "$ENV_CONFIG"
+  fi
+
+  ENV_CONFIG_ENTRY_COUNT=$((ENV_CONFIG_ENTRY_COUNT + 1))
 }
 
 cat > "$ENV_CONFIG" <<'EOF'

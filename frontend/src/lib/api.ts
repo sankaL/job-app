@@ -135,6 +135,7 @@ export type ResumeJudgeResult = {
   scored_at?: string | null;
   job_context_signature?: string | null;
   failure_stage?: string | null;
+  run_attempt_count?: number | null;
   attempt_count?: number | null;
   attempts?: Array<{
     model?: string | null;

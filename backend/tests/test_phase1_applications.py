@@ -2082,8 +2082,56 @@ async def test_trigger_resume_judge_queues_manual_re_evaluation():
 
     assert detail.application.resume_judge_result is not None
     assert detail.application.resume_judge_result["status"] == "queued"
+    assert detail.application.resume_judge_result["run_attempt_count"] == 1
     assert len(service.generation_job_queue.judge_jobs) == 1
     assert service.generation_job_queue.judge_jobs[0]["application_id"] == created.id
+
+
+@pytest.mark.asyncio
+async def test_trigger_resume_judge_limits_manual_re_evaluation_to_three_runs_per_draft():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nBuilt reliable APIs.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-limit",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    for expected_count in (1, 2, 3):
+        detail = await service.trigger_resume_judge(user_id="user-1", application_id=created.id)
+        assert detail.application.resume_judge_result is not None
+        assert detail.application.resume_judge_result["run_attempt_count"] == expected_count
+
+    with pytest.raises(PermissionError, match="maximum of 3 attempts"):
+        await service.trigger_resume_judge(user_id="user-1", application_id=created.id)
+
+    assert len(service.generation_job_queue.judge_jobs) == 3
 
 
 @pytest.mark.asyncio
@@ -2298,6 +2346,18 @@ async def test_handle_resume_judge_callback_persists_running_success_and_failure
         generation_params={"page_length": "1_page", "aggressiveness": "medium"},
         sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
     )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "resume_judge_result": {
+                "status": "queued",
+                "message": "Resume Judge is queued.",
+                "evaluated_draft_updated_at": draft.updated_at,
+                "run_attempt_count": 2,
+            },
+        },
+    )
 
     running = await service.handle_resume_judge_callback(
         ResumeJudgeCallbackPayload.model_validate(
@@ -2312,6 +2372,7 @@ async def test_handle_resume_judge_callback_persists_running_success_and_failure
     )
     assert running.resume_judge_result is not None
     assert running.resume_judge_result["status"] == "running"
+    assert running.resume_judge_result["run_attempt_count"] == 2
 
     succeeded = await service.handle_resume_judge_callback(
         ResumeJudgeCallbackPayload.model_validate(
@@ -2348,6 +2409,7 @@ async def test_handle_resume_judge_callback_persists_running_success_and_failure
     assert succeeded.resume_judge_result is not None
     assert succeeded.resume_judge_result["status"] == "succeeded"
     assert succeeded.resume_judge_result["display_score"] == 77
+    assert succeeded.resume_judge_result["run_attempt_count"] == 2
 
     failed = await service.handle_resume_judge_callback(
         ResumeJudgeCallbackPayload.model_validate(
@@ -2379,6 +2441,7 @@ async def test_handle_resume_judge_callback_persists_running_success_and_failure
     assert failed.resume_judge_result is not None
     assert failed.resume_judge_result["status"] == "failed"
     assert failed.resume_judge_result["failure_stage"] == "provider"
+    assert failed.resume_judge_result["run_attempt_count"] == 2
     detail_events = [event for event in progress_store.events[created.id] if event.event == "detail"]
     assert [event.payload["resume_judge_result"]["status"] for event in detail_events[-3:]] == ["running", "succeeded", "failed"]
 

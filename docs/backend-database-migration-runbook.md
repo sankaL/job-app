@@ -262,9 +262,11 @@ This runbook applies whenever backend or database work changes schema, compatibi
 - Read paths must stay compatible with mixed rows where:
   - no judge result exists yet
   - a judge result exists for an older draft and must be treated as stale
+  - a judge result predates the `run_attempt_count` JSON contract and must default safely without breaking rerun caps for newer writes
   - the last judge attempt failed but the application remains exportable and editable
 - Post-deploy verification should confirm:
   - initial generation, full regeneration, and section regeneration queue Resume Judge only after the new draft persists successfully
   - stale judge callbacks do not overwrite scores for newer edited drafts
   - `resume_judge_result` never changes `visible_status`, `failure_reason`, or export availability
   - manual `POST /api/applications/{id}/judge` enqueues a fresh run for an existing ready draft
+  - manual `POST /api/applications/{id}/judge` stops accepting reruns after three queued attempts for the same draft

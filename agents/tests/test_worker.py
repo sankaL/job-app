@@ -511,6 +511,51 @@ async def test_backend_callback_client_retries_transient_server_errors(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_backend_callback_client_falls_back_from_stale_railway_internal_port(monkeypatch):
+    attempted_urls: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, timeout: float) -> None:
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url: str, *, json, headers):
+            del json, headers
+            attempted_urls.append(url)
+            if url.startswith("http://backend.railway.internal:8000"):
+                import httpx
+
+                raise httpx.ConnectError("connection refused", request=httpx.Request("POST", url))
+            return FakeResponse()
+
+    monkeypatch.setattr("worker.httpx.AsyncClient", FakeAsyncClient)
+
+    settings = WorkerSettingsEnv(
+        backend_api_url="http://backend.railway.internal:8000",
+        railway_service_backend_url="backend-production.example.up.railway.app",
+        worker_callback_secret="secret",
+    )
+    client = BackendCallbackClient(settings)
+    await client.post({"ok": True}, path="/api/internal/worker/resume-judge-callback")
+
+    assert attempted_urls == [
+        "http://backend.railway.internal:8000/api/internal/worker/resume-judge-callback",
+        "http://backend.railway.internal:8080/api/internal/worker/resume-judge-callback",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_run_extraction_job_continues_when_started_callback_fails(monkeypatch):
     class FakeWriter:
         def __init__(self) -> None:

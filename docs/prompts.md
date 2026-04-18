@@ -1,7 +1,7 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-04-17
+**Last updated:** 2026-04-18
 **Sources:** `agents/generation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
@@ -36,6 +36,8 @@ Resume Judge is a dedicated post-generation evaluator. It runs after initial gen
 - If a provider rejects disabled reasoning with an error such as "reasoning is mandatory" or "cannot be disabled", the same model is retried once without the `reasoning` field so provider-default reasoning can still proceed.
 - The judge allows one primary-model attempt and one fallback-model attempt. If the provider rejects the configured reasoning field, the same model is retried once without reasoning before moving on.
 - Judge failure is fail-open for the application workflow: score state is stored, but resume export, editing, and visible status remain usable.
+- Manual Resume Judge re-runs are capped at three queued runs for the same draft and job context. The persisted `resume_judge_result.run_attempt_count` tracks job-level runs for the current draft only; it remains separate from provider/model `attempt_count`, which still records per-run LLM attempt diagnostics.
+- Worker callback delivery now tries the configured `BACKEND_API_URL` first, then Railway-safe backend URL candidates when production callback config still points at the stale internal `:8000` port.
 
 ### Privacy and input rules
 

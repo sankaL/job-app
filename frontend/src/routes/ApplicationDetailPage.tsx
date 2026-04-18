@@ -498,6 +498,13 @@ export function ApplicationDetailPage() {
   const sectionRegenerationBlocker = getSectionRegenerationBlocker(detail, regenSectionName, regenInstructions);
   const resumeJudgeStale = isResumeJudgeStale(detail, draft);
   const resumeJudge = detail?.resume_judge_result ?? null;
+  const resumeJudgeRunLimitReached = Boolean(
+    draft &&
+      resumeJudge &&
+      !resumeJudgeStale &&
+      (resumeJudge.run_attempt_count ?? 0) >= 3 &&
+      resumeJudge.evaluated_draft_updated_at === draft.updated_at,
+  );
   const resumeJudgeDimensionEntries = useMemo(() => getResumeJudgeDimensionEntries(resumeJudge), [resumeJudge]);
   const defaultExpandedResumeJudgeDimension = useMemo(
     () => getDefaultExpandedResumeJudgeDimension(resumeJudge),
@@ -1263,7 +1270,12 @@ export function ApplicationDetailPage() {
         !resumeJudgeStale,
     ) && !generationActive;
   const resumeJudgeCanRun =
-    Boolean(draft) && !generationActive && !isRegenerating && !isTriggeringResumeJudge && !resumeJudgePending;
+    Boolean(draft) &&
+    !generationActive &&
+    !isRegenerating &&
+    !isTriggeringResumeJudge &&
+    !resumeJudgePending &&
+    !resumeJudgeRunLimitReached;
   const resumeJudgeSummary = resumeJudge?.score_summary?.trim() ?? "Review available";
 
   const clampedResumeJudgeSummaryStyle = {
@@ -1320,17 +1332,22 @@ export function ApplicationDetailPage() {
     if (!resumeJudge || !resumeJudgeHasCompletedScore) {
       const staleNonTerminalResult =
         Boolean(resumeJudgeStale && resumeJudge && ["queued", "running"].includes(resumeJudge.status));
+      const limitReachedResult = Boolean(resumeJudgeRunLimitReached && resumeJudge?.status === "failed");
       const unavailableTitle =
-        resumeJudgeStale || resumeJudge?.status === "failed" || staleNonTerminalResult
+        resumeJudgeStale || resumeJudge?.status === "failed" || staleNonTerminalResult || limitReachedResult
           ? "Scoring unavailable"
           : "Pending review";
       const unavailableBadge =
-        resumeJudgeStale || staleNonTerminalResult
+        limitReachedResult
+          ? "Maxed"
+          : resumeJudgeStale || staleNonTerminalResult
           ? "Stale"
           : resumeJudge?.status === "failed"
             ? "Retry"
             : "Pending";
-      const unavailableMessage = resumeJudgeStale
+      const unavailableMessage = limitReachedResult
+        ? resumeJudge.message ?? "Resume Judge reached the maximum of 3 attempts for this draft."
+        : resumeJudgeStale
         ? "The saved score no longer matches the current draft or job details. Run Resume Judge again to refresh it."
         : staleNonTerminalResult
           ? "The in-flight review no longer matches the current draft or job details. Run Resume Judge again for a fresh score."
@@ -1339,6 +1356,8 @@ export function ApplicationDetailPage() {
             : "This draft has not been reviewed yet. Run Resume Judge any time after generation.";
       const actionLabel = isTriggeringResumeJudge
         ? "Starting…"
+        : limitReachedResult
+          ? "Max Attempts Reached"
         : resumeJudgeStale || staleNonTerminalResult
           ? "Re-evaluate"
           : resumeJudge?.status === "failed"

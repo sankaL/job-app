@@ -85,6 +85,7 @@ class WorkerSettingsEnv(BaseSettings):
     app_dev_mode: bool = False
     redis_url: str = "redis://localhost:6379/0"
     backend_api_url: str = "http://backend:8000"
+    railway_service_backend_url: Optional[str] = None
     worker_callback_secret: Optional[str] = None
     shared_contract_path: str = "/workspace/shared/workflow-contract.json"
     openrouter_api_key: Optional[str] = None
@@ -607,26 +608,61 @@ class BackendCallbackClient:
     def __init__(self, settings: WorkerSettingsEnv) -> None:
         self._settings = settings
 
+    @staticmethod
+    def _normalize_base_url(value: Optional[str], *, default_scheme: str) -> Optional[str]:
+        stripped = str(value or "").strip()
+        if not stripped:
+            return None
+        parsed = urlparse(stripped if "://" in stripped else f"{default_scheme}://{stripped}")
+        if not parsed.netloc:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    def _candidate_base_urls(self) -> list[str]:
+        candidates: list[str] = []
+
+        def add_candidate(value: Optional[str], *, default_scheme: str) -> None:
+            normalized = self._normalize_base_url(value, default_scheme=default_scheme)
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+
+        add_candidate(self._settings.backend_api_url, default_scheme="http")
+
+        primary = candidates[0] if candidates else None
+        if primary is not None:
+            parsed = urlparse(primary)
+            hostname = parsed.hostname or ""
+            if hostname.endswith(".railway.internal") and parsed.port == 8000:
+                add_candidate(f"{parsed.scheme}://{hostname}:8080", default_scheme=parsed.scheme)
+                add_candidate(f"{parsed.scheme}://{hostname}", default_scheme=parsed.scheme)
+
+        add_candidate(self._settings.railway_service_backend_url, default_scheme="https")
+        return candidates
+
     async def post(self, payload: dict[str, Any], *, path: str = "/api/internal/worker/extraction-callback") -> None:
         if not self._settings.worker_callback_secret:
             raise RuntimeError("WORKER_CALLBACK_SECRET is not configured.")
+        base_urls = self._candidate_base_urls()
+        if not base_urls:
+            raise RuntimeError("BACKEND_API_URL is not configured.")
         last_error: Optional[Exception] = None
         for attempt in range(CALLBACK_RETRY_ATTEMPTS):
-            try:
-                async with httpx.AsyncClient(timeout=CALLBACK_REQUEST_TIMEOUT_SECONDS) as client:
-                    response = await client.post(
-                        f"{self._settings.backend_api_url.rstrip('/')}{path}",
-                        json=payload,
-                        headers={"X-Worker-Secret": self._settings.worker_callback_secret},
-                    )
-                    response.raise_for_status()
-                    return
-            except httpx.HTTPStatusError as exc:
-                last_error = exc
-                if 400 <= exc.response.status_code < 500:
-                    raise
-            except httpx.HTTPError as exc:
-                last_error = exc
+            for base_url in base_urls:
+                try:
+                    async with httpx.AsyncClient(timeout=CALLBACK_REQUEST_TIMEOUT_SECONDS) as client:
+                        response = await client.post(
+                            f"{base_url.rstrip('/')}{path}",
+                            json=payload,
+                            headers={"X-Worker-Secret": self._settings.worker_callback_secret},
+                        )
+                        response.raise_for_status()
+                        return
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    if 400 <= exc.response.status_code < 500:
+                        raise
+                except httpx.HTTPError as exc:
+                    last_error = exc
 
             if attempt < CALLBACK_RETRY_ATTEMPTS - 1:
                 await asyncio.sleep(

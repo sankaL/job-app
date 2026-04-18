@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-04-18 08:17:15 EDT — Cap Resume Judge reruns per draft and harden Railway callback delivery against stale backend ports
+
+- Status: Accepted
+- Context: Production Resume Judge jobs were completing in the `agents` worker, but callback delivery back into the backend was failing. Railway inspection showed the worker was still configured with `BACKEND_API_URL=http://backend.railway.internal:8000` while the backend was bound to Railway’s runtime port `8080`, so started and succeeded judge callbacks could miss persistence and leave the UI in a retryable failed or queued state.
+- Decision:
+  1. Cap manual Resume Judge reruns at three queued runs for the same draft and job context.
+  2. Persist a dedicated `resume_judge_result.run_attempt_count` so rerun caps survive callback misses and stale UI refreshes without overloading the existing provider-level `attempt_count`.
+  3. Disable the Resume Judge rerun CTA in the frontend once the current draft reaches the three-run cap.
+  4. Harden worker callback delivery by trying Railway-safe backend URL candidates when the configured callback URL still points at the stale internal `:8000` port.
+- Consequences: Resume Judge no longer spins indefinitely on the same draft, Railway callback delivery is resilient to the current backend URL misconfiguration after redeploy, and older stored judge payloads without `run_attempt_count` remain readable with a safe fallback.
+
 ## 2026-04-17 22:10:54 EDT — Use per-application SSE for detail-page workflow updates with polling retained as a watchdog
 
 - Status: Accepted

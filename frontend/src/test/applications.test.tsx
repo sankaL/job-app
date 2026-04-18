@@ -3566,4 +3566,48 @@ describe("phase 1 applications UI", () => {
 
     await waitFor(() => expect(api.triggerResumeJudge).toHaveBeenCalledWith("app-1"));
   });
+
+  it("disables re-evaluation after three failed judge runs for the current draft", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        resume_judge_result: {
+          status: "failed",
+          message: "Resume Judge has already reached the maximum of 3 attempts for this draft.",
+          evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+          run_attempt_count: 3,
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    expect(within(judgeCard).getByText(/maximum of 3 attempts/i)).toBeInTheDocument();
+    expect(within(judgeCard).getByRole("button", { name: /max attempts reached/i })).toBeDisabled();
+  });
 });

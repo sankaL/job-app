@@ -49,6 +49,7 @@ FULL_GENERATION_MAX_TIMEOUT_SECONDS = 240
 SECTION_REGENERATION_IDLE_TIMEOUT_SECONDS = 120
 SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 120
 FULL_REGENERATION_LIMIT_PER_APPLICATION = 3
+RESUME_JUDGE_RUN_LIMIT_PER_DRAFT = 3
 ACTIVE_GENERATION_STATES = {"generating", "regenerating_full", "regenerating_section"}
 ACTIVE_GENERATION_PROGRESS_STATES = {
     "generation_pending",
@@ -233,6 +234,7 @@ class ResumeJudgeResultPayload(BaseModel):
     scored_at: Optional[str] = None
     job_context_signature: Optional[str] = None
     failure_stage: Optional[str] = None
+    run_attempt_count: Optional[int] = None
     attempt_count: Optional[int] = None
     attempts: Optional[list[dict[str, Any]]] = None
     error: Optional[ResumeJudgeErrorPayload] = None
@@ -424,11 +426,17 @@ class ApplicationService:
         ):
             draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
             if draft is not None:
+                current_run_attempt_count = self._resume_judge_run_attempt_count(
+                    current.resume_judge_result,
+                    draft_updated_at=draft.updated_at,
+                    job_context_signature=self._resume_judge_signature_for_record(current),
+                )
                 merged_updates["resume_judge_result"] = self._resume_judge_status_payload(
                     status="failed",
                     message="Resume Judge needs another run because the job details changed.",
                     evaluated_draft_updated_at=draft.updated_at,
                     scored_at=datetime.now(timezone.utc).isoformat(),
+                    run_attempt_count=current_run_attempt_count or None,
                     job_context_signature=self._resume_judge_job_context_signature(
                         job_title=updates.get("job_title", current.job_title),
                         company_name=updates.get("company", current.company),
@@ -2045,6 +2053,12 @@ class ApplicationService:
         if draft.updated_at != payload.evaluated_draft_updated_at:
             return record
 
+        current_run_attempt_count = self._resume_judge_run_attempt_count(
+            record.resume_judge_result,
+            draft_updated_at=payload.evaluated_draft_updated_at,
+            job_context_signature=callback_job_context_signature or current_job_context_signature,
+        )
+
         if payload.event == "started":
             return await self._update_application_and_publish_detail(
                 application_id=record.id,
@@ -2054,6 +2068,7 @@ class ApplicationService:
                         status="running",
                         message="Resume Judge is running.",
                         evaluated_draft_updated_at=payload.evaluated_draft_updated_at,
+                        run_attempt_count=current_run_attempt_count or None,
                         job_context_signature=callback_job_context_signature or current_job_context_signature,
                     )
                 },
@@ -2062,22 +2077,28 @@ class ApplicationService:
         if payload.event == "failed":
             if payload.failure is None:
                 raise ValueError("Missing Resume Judge failure payload.")
+            failure_result = payload.failure.result.model_dump()
+            if current_run_attempt_count:
+                failure_result["run_attempt_count"] = current_run_attempt_count
             return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={
-                    "resume_judge_result": payload.failure.result.model_dump()
+                    "resume_judge_result": failure_result
                 },
             )
 
         if payload.event == "succeeded":
             if payload.result is None:
                 raise ValueError("Missing Resume Judge success payload.")
+            success_result = payload.result.model_dump()
+            if current_run_attempt_count:
+                success_result["run_attempt_count"] = current_run_attempt_count
             return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates={
-                    "resume_judge_result": payload.result.model_dump()
+                    "resume_judge_result": success_result
                 },
             )
 
@@ -2142,11 +2163,17 @@ class ApplicationService:
                 }
             )
         if record.resume_judge_result is not None:
+            current_run_attempt_count = self._resume_judge_run_attempt_count(
+                record.resume_judge_result,
+                draft_updated_at=str(record.resume_judge_result.get("evaluated_draft_updated_at") or ""),
+                job_context_signature=self._resume_judge_signature_for_record(record),
+            )
             application_updates["resume_judge_result"] = self._resume_judge_status_payload(
                 status="failed",
                 message="Resume Judge needs another run because the draft changed.",
                 evaluated_draft_updated_at=updated_draft.updated_at,
                 scored_at=datetime.now(timezone.utc).isoformat(),
+                run_attempt_count=current_run_attempt_count or None,
                 job_context_signature=self._resume_judge_signature_for_record(record),
                 failure_stage="stale_draft",
             )
@@ -2722,6 +2749,29 @@ class ApplicationService:
                 payload[key] = value
         return payload
 
+    @classmethod
+    def _resume_judge_run_attempt_count(
+        cls,
+        resume_judge_result: Optional[dict[str, Any]],
+        *,
+        draft_updated_at: str,
+        job_context_signature: str,
+    ) -> int:
+        if not isinstance(resume_judge_result, dict) or not resume_judge_result:
+            return 0
+        if str(resume_judge_result.get("evaluated_draft_updated_at") or "") != draft_updated_at:
+            return 0
+        stored_job_context_signature = str(resume_judge_result.get("job_context_signature") or "")
+        if stored_job_context_signature and stored_job_context_signature != job_context_signature:
+            return 0
+        stored_count = resume_judge_result.get("run_attempt_count")
+        if isinstance(stored_count, int):
+            return max(stored_count, 0)
+        status = str(resume_judge_result.get("status") or "").strip().lower()
+        if status in {"queued", "running", "succeeded", "failed"}:
+            return 1
+        return 0
+
     @staticmethod
     def _normalize_resume_judge_context_value(value: Optional[str]) -> str:
         collapsed = re.sub(r"\s+", " ", str(value or ""))
@@ -2805,6 +2855,16 @@ class ApplicationService:
             return record
 
         current_job_context_signature = self._resume_judge_signature_for_record(record)
+        current_run_attempt_count = self._resume_judge_run_attempt_count(
+            record.resume_judge_result,
+            draft_updated_at=draft.updated_at,
+            job_context_signature=current_job_context_signature,
+        )
+        if force and current_run_attempt_count >= RESUME_JUDGE_RUN_LIMIT_PER_DRAFT:
+            raise PermissionError(
+                "Resume Judge has already reached the maximum of 3 attempts for this draft. "
+                "Regenerate or edit the draft before trying again."
+            )
         base_resume_snapshot_content = draft.generation_params.get("_base_resume_snapshot_content")
         if (
             isinstance(base_resume_snapshot_content, str)
@@ -2875,6 +2935,7 @@ class ApplicationService:
                     status="queued",
                     message="Resume Judge is queued.",
                     evaluated_draft_updated_at=draft.updated_at,
+                    run_attempt_count=current_run_attempt_count + 1,
                     job_context_signature=current_job_context_signature,
                 )
             },
