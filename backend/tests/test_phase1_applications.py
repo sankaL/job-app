@@ -292,6 +292,9 @@ class FakeProgressStore:
     async def get_generation_result(self, application_id: str) -> Optional[dict[str, Any]]:
         return self.generation_results.get(application_id)
 
+    async def consume_generation_result(self, application_id: str) -> Optional[dict[str, Any]]:
+        return self.generation_results.pop(application_id, None)
+
     async def clear_generation_result(self, application_id: str) -> None:
         self.generation_results.pop(application_id, None)
 
@@ -3527,6 +3530,80 @@ async def test_get_progress_recovers_generation_success_from_cached_result_when_
     assert draft.content_md == "# Test Resume"
     assert created.id not in progress_store.generation_results
     assert notifications.notifications[-1]["notification_type"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_generation_success_cache_recovery_consumes_cached_payload_once_across_concurrent_reads():
+    service, repository, _, progress_store, _, _, draft_repository = build_service()
+    generation_queue = service.generation_job_queue
+    assert isinstance(generation_queue, FakeGenerationJobQueue)
+    now = datetime.now(timezone.utc)
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/11",
+        visible_status="draft",
+        internal_state="generating",
+    )
+    repository.records[created.id] = created.model_copy(
+        update={
+            "updated_at": (now - timedelta(seconds=30)).isoformat(),
+            "job_title": "Backend Engineer",
+            "company": "Acme",
+            "job_description": "Build APIs",
+            "base_resume_id": "base-1",
+        }
+    )
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="base-1",
+        content_md="# Base Resume",
+    )
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-13",
+            workflow_kind="generation",
+            state="resume_ready",
+            message="Resume generated.",
+            percent_complete=100,
+            created_at=(now - timedelta(seconds=90)).isoformat(),
+            updated_at=(now - timedelta(seconds=20)).isoformat(),
+            completed_at=(now - timedelta(seconds=20)).isoformat(),
+            terminal_error_code=None,
+        ),
+    )
+    progress_store.generation_results[created.id] = {
+        "job_id": "job-13",
+        "workflow_kind": "generation",
+        "captured_at": now.isoformat(),
+        "generated": {
+            "content_md": "# Test Resume",
+            "generation_params": {
+                "page_length": "1_page",
+                "aggressiveness": "medium",
+                "base_resume_id": "base-1",
+            },
+            "sections_snapshot": {
+                "enabled_sections": ["summary", "skills"],
+                "section_order": ["summary", "skills"],
+            },
+        },
+    }
+
+    await asyncio.gather(
+        service.get_progress(user_id="user-1", application_id=created.id),
+        service.get_application_detail(user_id="user-1", application_id=created.id),
+    )
+
+    updated = repository.fetch_application("user-1", created.id)
+    assert updated is not None
+    assert updated.resume_judge_result is not None
+    assert updated.resume_judge_result["status"] == "queued"
+    assert len(generation_queue.judge_jobs) == 1
+    assert created.id not in progress_store.generation_results
+    draft = draft_repository.fetch_draft("user-1", created.id)
+    assert draft is not None
+    assert draft.content_md == "# Test Resume"
 
 
 @pytest.mark.asyncio

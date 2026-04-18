@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-04-17
+**Last updated:** 2026-04-18
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -116,6 +116,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T34 | Collapse generation-success recovery into a single queued Resume Judge update and consume cached success payloads atomically | BE | DONE | 2026-04-18 09:22:05 EDT | Railway production was exposing a race where terminal generation progress became visible before the backend had persisted the queued Resume Judge state, while concurrent detail/progress reads could replay the same cached generation success and enqueue duplicate judge runs. The backend now publishes `resume_ready` together with the queued judge state in one update and uses atomic cache consumption during callback-miss recovery so only one request can reconcile a cached success payload. |
 | B5-T33 | Replace detail-page polling with per-application SSE plus a 5-second watchdog fallback | FE/BE/Docs | DONE | 2026-04-17 22:10:54 EDT | Added an authenticated per-application SSE stream for extraction/generation/regeneration/judge updates, Redis-backed progress/detail event publishing, a fetch-based frontend stream hook that updates the shared query cache, and kept 5-second detail/progress watchdog polling for recovery and reconnect fallback. |
 | B5-T32 | Keep the persisted generated draft visible across detail-page refreshes until regeneration completes | FE | DONE | 2026-04-17 22:15:00 EDT | The application detail page now always refetches any saved draft after the application shell loads, preserves the existing generated resume behind the in-flight generation or regeneration overlay instead of dropping to the empty state, and adds frontend regression coverage for refreshing into an active full-regeneration state. |
 | B5-T31 | Preserve build-time frontend env fallbacks and stop query-cache regressions from clobbering profile, notes, and admin state | FE | DONE | 2026-04-17 21:33:43 EDT | Frontend runtime config now ignores unset runtime env overrides so production builds keep baked values, notes autosave no longer rehydrates the whole application detail form, admin-user mutations invalidate every cached filter variant, and the profile page now surfaces bootstrap failures instead of hanging behind a perpetual skeleton. |

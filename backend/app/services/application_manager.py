@@ -1120,7 +1120,7 @@ class ApplicationService:
         record: ApplicationRecord,
         progress: ProgressRecord,
     ) -> Optional[ApplicationRecord]:
-        cached_result = await self.progress_store.get_generation_result(record.id)
+        cached_result = await self.progress_store.consume_generation_result(record.id)
         if not isinstance(cached_result, dict):
             return None
 
@@ -1150,17 +1150,15 @@ class ApplicationService:
             sections_snapshot=generated.sections_snapshot,
         )
 
-        updated = await self._update_application_and_publish_detail(
-            application_id=record.id,
-            user_id=record.user_id,
-            updates=self._workflow_updates(
+        updated = await self._enqueue_resume_judge_for_draft(
+            record=record,
+            draft=draft,
+            application_updates=self._workflow_updates(
                 internal_state="resume_ready",
                 failure_reason=None,
                 generation_failure_details=None,
             ),
         )
-        updated = await self._enqueue_resume_judge_for_draft(record=updated, draft=draft)
-        await self.progress_store.clear_generation_result(record.id)
         try:
             self.notification_repository.clear_action_required(
                 user_id=record.user_id,
@@ -1547,16 +1545,15 @@ class ApplicationService:
                 sections_snapshot=payload.generated.sections_snapshot,
             )
 
-            updated = await self._update_application_and_publish_detail(
-                application_id=record.id,
-                user_id=record.user_id,
-                updates=self._workflow_updates(
+            updated = await self._enqueue_resume_judge_for_draft(
+                record=record,
+                draft=draft,
+                application_updates=self._workflow_updates(
                     internal_state="resume_ready",
                     failure_reason=None,
                     generation_failure_details=None,
                 ),
             )
-            updated = await self._enqueue_resume_judge_for_draft(record=updated, draft=draft)
 
             completed_progress = build_progress(
                 job_id=payload.job_id,
@@ -1979,16 +1976,15 @@ class ApplicationService:
                 sections_snapshot=payload.generated.sections_snapshot,
             )
 
-            updated = await self._update_application_and_publish_detail(
-                application_id=record.id,
-                user_id=record.user_id,
-                updates=self._workflow_updates(
+            updated = await self._enqueue_resume_judge_for_draft(
+                record=record,
+                draft=draft,
+                application_updates=self._workflow_updates(
                     internal_state="resume_ready",
                     failure_reason=None,
                     generation_failure_details=None,
                 ),
             )
-            updated = await self._enqueue_resume_judge_for_draft(record=updated, draft=draft)
 
             completed_progress = build_progress(
                 job_id=payload.job_id,
@@ -2846,6 +2842,7 @@ class ApplicationService:
         record: ApplicationRecord,
         draft: ResumeDraftRecord,
         force: bool = False,
+        application_updates: Optional[dict[str, Any]] = None,
     ) -> ApplicationRecord:
         if not self._should_enqueue_resume_judge(
             record.resume_judge_result,
@@ -2878,67 +2875,67 @@ class ApplicationService:
                 draft.generation_params.get("base_resume_id") or record.base_resume_id or ""
             ).strip()
             if not base_resume_id:
+                queued_updates = dict(application_updates or {})
+                queued_updates["resume_judge_result"] = self._resume_judge_status_payload(
+                    status="failed",
+                    message="Resume Judge could not run because the source base resume is unavailable.",
+                    evaluated_draft_updated_at=draft.updated_at,
+                    scored_at=datetime.now(timezone.utc).isoformat(),
+                    job_context_signature=current_job_context_signature,
+                    failure_stage="precondition",
+                )
                 return await self._update_application_and_publish_detail(
                     application_id=record.id,
                     user_id=record.user_id,
-                    updates={
-                        "resume_judge_result": self._resume_judge_status_payload(
-                            status="failed",
-                            message="Resume Judge could not run because the source base resume is unavailable.",
-                            evaluated_draft_updated_at=draft.updated_at,
-                            scored_at=datetime.now(timezone.utc).isoformat(),
-                            job_context_signature=current_job_context_signature,
-                            failure_stage="precondition",
-                        )
-                    },
+                    updates=queued_updates,
                 )
 
             base_resume = self.base_resume_repository.fetch_resume(record.user_id, base_resume_id)
             if base_resume is None:
+                queued_updates = dict(application_updates or {})
+                queued_updates["resume_judge_result"] = self._resume_judge_status_payload(
+                    status="failed",
+                    message="Resume Judge could not run because the linked base resume was not found.",
+                    evaluated_draft_updated_at=draft.updated_at,
+                    scored_at=datetime.now(timezone.utc).isoformat(),
+                    job_context_signature=current_job_context_signature,
+                    failure_stage="precondition",
+                )
                 return await self._update_application_and_publish_detail(
                     application_id=record.id,
                     user_id=record.user_id,
-                    updates={
-                        "resume_judge_result": self._resume_judge_status_payload(
-                            status="failed",
-                            message="Resume Judge could not run because the linked base resume was not found.",
-                            evaluated_draft_updated_at=draft.updated_at,
-                            scored_at=datetime.now(timezone.utc).isoformat(),
-                            job_context_signature=current_job_context_signature,
-                            failure_stage="precondition",
-                        )
-                    },
+                    updates=queued_updates,
                 )
             base_resume_content = base_resume.content_md
 
         if not record.job_title or not record.job_description:
+            queued_updates = dict(application_updates or {})
+            queued_updates["resume_judge_result"] = self._resume_judge_status_payload(
+                status="failed",
+                message="Resume Judge could not run because the application is missing job details.",
+                evaluated_draft_updated_at=draft.updated_at,
+                scored_at=datetime.now(timezone.utc).isoformat(),
+                job_context_signature=current_job_context_signature,
+                failure_stage="precondition",
+            )
             return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
-                updates={
-                    "resume_judge_result": self._resume_judge_status_payload(
-                        status="failed",
-                        message="Resume Judge could not run because the application is missing job details.",
-                        evaluated_draft_updated_at=draft.updated_at,
-                        scored_at=datetime.now(timezone.utc).isoformat(),
-                        job_context_signature=current_job_context_signature,
-                        failure_stage="precondition",
-                    )
-                },
+                updates=queued_updates,
             )
 
+        queued_updates = dict(application_updates or {})
+        queued_updates["resume_judge_result"] = self._resume_judge_status_payload(
+            status="queued",
+            message="Resume Judge is queued.",
+            evaluated_draft_updated_at=draft.updated_at,
+            run_attempt_count=current_run_attempt_count + 1,
+            job_context_signature=current_job_context_signature,
+        )
         updated = await self._update_application_and_publish_detail(
             application_id=record.id,
             user_id=record.user_id,
-            updates={
-                "resume_judge_result": self._resume_judge_status_payload(
-                    status="queued",
-                    message="Resume Judge is queued.",
-                    evaluated_draft_updated_at=draft.updated_at,
-                    run_attempt_count=current_run_attempt_count + 1,
-                    job_context_signature=current_job_context_signature,
-                )
-            },
+            updates=queued_updates,
         )
 
         try:
@@ -2959,23 +2956,23 @@ class ApplicationService:
             )
             return updated
         except Exception as error:
+            failed_updates = dict(application_updates or {})
+            failed_updates["resume_judge_result"] = self._resume_judge_status_payload(
+                status="failed",
+                message="Resume Judge could not be started. Score unavailable.",
+                evaluated_draft_updated_at=draft.updated_at,
+                scored_at=datetime.now(timezone.utc).isoformat(),
+                job_context_signature=current_job_context_signature,
+                failure_stage="enqueue",
+                error={
+                    "error_type": type(error).__name__,
+                    "message": str(error),
+                },
+            )
             return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
-                updates={
-                    "resume_judge_result": self._resume_judge_status_payload(
-                        status="failed",
-                        message="Resume Judge could not be started. Score unavailable.",
-                        evaluated_draft_updated_at=draft.updated_at,
-                        scored_at=datetime.now(timezone.utc).isoformat(),
-                        job_context_signature=current_job_context_signature,
-                        failure_stage="enqueue",
-                        error={
-                            "error_type": type(error).__name__,
-                            "message": str(error),
-                        },
-                    )
-                },
+                updates=failed_updates,
             )
 
     @staticmethod

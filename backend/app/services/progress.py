@@ -121,6 +121,12 @@ class RedisProgressStore:
             return None
         return json.loads(payload)
 
+    async def consume_generation_result(self, application_id: str) -> Optional[dict[str, object]]:
+        payload = await self._redis.getdel(self._generation_result_key(application_id))
+        if payload is None:
+            return None
+        return json.loads(payload)
+
     async def clear_generation_result(self, application_id: str) -> None:
         await self._redis.delete(self._generation_result_key(application_id))
 
