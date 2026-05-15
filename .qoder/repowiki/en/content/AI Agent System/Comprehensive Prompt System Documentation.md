@@ -8,6 +8,7 @@
 - [validation.py](file://agents/validation.py)
 - [privacy.py](file://agents/privacy.py)
 - [worker.py](file://agents/worker.py)
+- [experience_contract.py](file://agents/experience_contract.py)
 - [resume_parser.py](file://backend/app/services/resume_parser.py)
 - [workflow.py](file://backend/app/services/workflow.py)
 - [workflow-contract.json](file://shared/workflow-contract.json)
@@ -16,17 +17,16 @@
 - [test_worker.py](file://agents/tests/test_worker.py)
 - [application_manager.py](file://backend/app/services/application_manager.py)
 - [progress.py](file://backend/app/services/progress.py)
+- [test_experience_contract.py](file://agents/tests/test_experience_contract.py)
 </cite>
 
 ## Update Summary
 **Changes Made**
+- Updated Professional Experience parsing requirements with strict two-row format validation
+- Enhanced deterministic processing capabilities when source anchors are unavailable
+- Improved validation error reporting and recovery mechanisms
+- Added comprehensive documentation for experience contract validation
 - Updated extraction callback resilience documentation to reflect best-effort callback behavior
-- Added documentation for comprehensive retry/backoff system with exponential backoff
-- Enhanced extraction reliability measures with automatic retry/backoff for backend callback delivery
-- Updated callback error handling and recovery mechanisms with terminal progress reconciliation
-- Enhanced extraction job continuation logic when callbacks fail
-- Documented Redis-based progress tracking improvements and terminal progress reconciliation mechanisms
-- Added detailed coverage of graceful degradation and eventual consistency
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -45,7 +45,7 @@ The AI Prompt System is a sophisticated, multi-agent architecture designed to ge
 
 The system maintains four distinct prompt families: Job Posting Extraction, Resume Generation (full and single-section), and Resume Upload Cleanup. Each prompt family is carefully crafted to ensure that sensitive personal information remains protected while producing high-quality, ATS-optimized content.
 
-**Updated** Enhanced extraction reliability with comprehensive callback error handling, best-effort callback delivery, and terminal progress reconciliation mechanisms. The system now implements robust callback delivery hardening with automatic retry/backoff and eventual consistency through Redis-based progress tracking. The extraction system provides graceful degradation when backend communication is temporarily unavailable, ensuring system reliability through comprehensive error handling and recovery strategies.
+**Updated** Enhanced Professional Experience parsing requirements with strict two-row format validation and deterministic processing even when source anchors are unavailable. The system now enforces rigorous format compliance for professional experience entries while maintaining graceful degradation when source anchors are missing. This ensures reliable resume generation even in challenging extraction scenarios.
 
 ## Project Structure
 
@@ -67,6 +67,7 @@ Generation[Generation Agent]
 Validation[Validation Agent]
 Assembly[Assembly Agent]
 Privacy[Privacy Protection]
+ExperienceContract[Experience Contract Validation]
 end
 subgraph "External Services"
 LLM[OpenRouter LLM]
@@ -78,7 +79,8 @@ ChromeExtension --> API
 API --> Workers
 Workers --> Generation
 Generation --> Validation
-Validation --> Assembly
+Validation --> ExperienceContract
+ExperienceContract --> Assembly
 Assembly --> Privacy
 Generation --> LLM
 Assembly --> PDF
@@ -90,6 +92,7 @@ Workers --> Redis
 - [worker.py:1-800](file://agents/worker.py#L1-L800)
 - [generation.py:1-596](file://agents/generation.py#L1-L596)
 - [progress.py:53-95](file://backend/app/services/progress.py#L53-L95)
+- [experience_contract.py:1-536](file://agents/experience_contract.py#L1-L536)
 
 **Section sources**
 - [prompts.md:1-199](file://docs/prompts.md#L1-L199)
@@ -125,9 +128,48 @@ The system defines four primary prompt families, each serving specific use cases
 - **Purpose**: Improve Markdown structure of parsed resume content
 - **Constraint**: Preserves substance, removes contact data, maintains formatting
 
+### Professional Experience Parsing Requirements
+
+**Updated** The Professional Experience section now enforces strict parsing requirements:
+
+#### Two-Row Format Validation
+Professional Experience entries must follow one of two strict formats:
+
+**Format 1: Two-Row Structure**
+```
+Company Name | Location
+Job Title | Date Range
+- Bullet point 1
+- Bullet point 2
+```
+
+**Format 2: Three-Part Row Structure**
+```
+Company | Job Title | Date Range
+- Bullet point 1
+- Bullet point 2
+```
+
+#### Deterministic Processing Without Anchors
+When source anchors are unavailable, the system provides graceful degradation:
+
+- **Error Collection**: Validation errors are collected but don't block processing
+- **Continued Execution**: Extraction and generation continue with available data
+- **Terminal Recovery**: Backend reconciliation handles eventual state recovery
+- **Progress Tracking**: Redis-based progress ensures state consistency
+
+#### Enhanced Error Reporting
+The system provides detailed error messages for format violations:
+
+- **Format Violations**: "Role X entry must use the two-row experience format: [specific error]"
+- **Structure Mismatches**: "Professional Experience must preserve the same number of role blocks as the source"
+- **Anchor Mismatch**: "Role X company/title/location/date range must match source values"
+
 **Section sources**
 - [prompts.md:13-199](file://docs/prompts.md#L13-L199)
 - [generation.py:19-44](file://agents/generation.py#L19-L44)
+- [experience_contract.py:205-287](file://agents/experience_contract.py#L205-L287)
+- [experience_contract.py:395-488](file://agents/experience_contract.py#L395-L488)
 
 ### Prompt Construction Architecture
 
@@ -169,6 +211,7 @@ participant Worker as "Worker Agent"
 participant Gen as "Generation Agent"
 participant LLM as "OpenRouter LLM"
 participant Val as "Validation Agent"
+participant Exp as "Experience Contract Validator"
 participant Asm as "Assembly Agent"
 participant Privacy as "Privacy Module"
 Client->>Worker : Start Generation Job
@@ -178,6 +221,10 @@ Privacy-->>Gen : Sanitized Content
 Gen->>LLM : Single Call Generation
 LLM-->>Gen : Structured JSON Response
 Gen->>Val : Validate Generated Content
+Val->>Exp : Validate Professional Experience
+Exp->>Exp : Check Two-Row Format
+Exp->>Exp : Validate Anchor Compliance
+Exp-->>Val : Experience Validation Results
 Val->>Val : Check ATS Safety
 Val->>Val : Verify Grounding
 Val->>Val : Validate Structure
@@ -193,6 +240,7 @@ Worker-->>Client : Generated Resume
 - [worker.py:780-800](file://agents/worker.py#L780-L800)
 - [generation.py:454-596](file://agents/generation.py#L454-L596)
 - [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [experience_contract.py:395-488](file://agents/experience_contract.py#L395-L488)
 - [assembly.py:20-71](file://agents/assembly.py#L20-L71)
 
 The architecture ensures that:
@@ -200,6 +248,7 @@ The architecture ensures that:
 - Generation occurs in a single model call to reduce latency and costs
 - Validation happens locally with deterministic rules
 - Assembly maintains proper header separation and formatting
+- Professional Experience parsing enforces strict format compliance
 
 **Section sources**
 - [prompts.md:3-7](file://docs/prompts.md#L3-L7)
@@ -304,6 +353,10 @@ SectionValidation --> ContactLeakage[Contact Information Leakage]
 SectionValidation --> DateGrounding[Date Grounding Check]
 SectionValidation --> ATSSafety[ATS Safety Compliance]
 SectionValidation --> LengthGuidance[Length Guidance Check]
+SectionValidation --> ExperienceContract[Professional Experience Validation]
+ExperienceContract --> FormatValidation[Two-Row Format Check]
+ExperienceContract --> AnchorValidation[Anchor Compliance Check]
+ExperienceContract --> ErrorCollection[Error Collection]
 UnknownSections --> Errors[Collect Errors]
 MissingSections --> Errors
 WrongOrder --> Errors
@@ -314,11 +367,14 @@ ContactLeakage --> Errors
 DateGrounding --> Errors
 ATSSafety --> Errors
 LengthGuidance --> Errors
-Errors --> FinalValidation[Final Validation Result]
+FormatValidation --> ErrorCollection
+AnchorValidation --> ErrorCollection
+ErrorCollection --> FinalValidation[Final Validation Result]
 ```
 
 **Diagram sources**
 - [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [experience_contract.py:395-488](file://agents/experience_contract.py#L395-L488)
 
 #### Validation Categories
 
@@ -328,11 +384,14 @@ Errors --> FinalValidation[Final Validation Result]
 | ATS Safety | Prevents HTML, tables, images, code fences | Regex pattern matching |
 | Grounding Validation | Verifies claims exist in base resume | Text search and normalization |
 | Contact Leakage | Prevents personal information exposure | Email, phone, URL pattern detection |
-| Length Compliance | Enforces target length limits | Word count calculation
+| Length Compliance | Enforces target length limits | Word count calculation |
+| **Experience Format Validation** | **Enforces two-row format compliance** | **Parse entry blocks and validate structure** |
+| **Experience Anchor Validation** | **Ensures source anchor compliance** | **Compare generated vs source values** |
 
 **Section sources**
 - [validation.py:148-222](file://agents/validation.py#L148-L222)
 - [validation.py:295-350](file://agents/validation.py#L295-L350)
+- [experience_contract.py:205-287](file://agents/experience_contract.py#L205-L287)
 
 ### Privacy Protection System
 
@@ -519,6 +578,54 @@ The backend reconciliation system handles various scenarios:
 **Section sources**
 - [application_manager.py:724-856](file://backend/app/services/application_manager.py#L724-L856)
 
+### Professional Experience Contract Validation
+
+**New** The Professional Experience Contract module provides comprehensive validation for experience entries:
+
+```mermaid
+flowchart TD
+Input[Professional Experience Content] --> ExtractSection[Extract Experience Section]
+ExtractSection --> ParseBlocks[Parse Entry Blocks]
+ParseBlocks --> ValidateFormat[Validate Two-Row Format]
+ValidateFormat --> CheckAnchors{Anchors Available?}
+CheckAnchors --> |Yes| ValidateAnchors[Validate Anchor Compliance]
+CheckAnchors --> |No| CollectErrors[Collect Format Errors Only]
+ValidateAnchors --> GenerateErrors[Generate Validation Errors]
+CollectErrors --> GenerateErrors
+GenerateErrors --> ReturnResults[Return Validation Results]
+```
+
+**Diagram sources**
+- [experience_contract.py:395-488](file://agents/experience_contract.py#L395-L488)
+
+#### Format Validation Rules
+
+The system enforces strict format compliance:
+
+| Format Type | Validation Rule | Example |
+|-------------|----------------|---------|
+| Two-Row Structure | Exactly 2 header rows with pipe separators | "Company \| Location<br/>Title \| Date Range" |
+| Three-Part Row | Exactly 1 row with 3 pipe-separated parts | "Company \| Title \| Date Range" |
+| Location Detection | Recognizes remote/hybrid/on-site locations | "Remote", "Hybrid", "USA", "NYC" |
+| Date Range Validation | Supports various date formats | "2021 - Present", "Jan 2021 - Dec 2023", "2021/2023" |
+| Bullet Point Validation | Standard Markdown bullet points | "- Built backend APIs" |
+
+#### Anchor Compliance Validation
+
+When source anchors are available, the system validates:
+
+| Field | Validation Rule | Error Message |
+|-------|----------------|---------------|
+| Company | Exact text match (case-insensitive) | "Role X company must match source value..." |
+| Title | Depends on aggressiveness level | "Role X title must remain unchanged in low..." |
+| Location | Exact text match (case-insensitive) | "Role X location must match source value..." |
+| Date Range | Exact text match (case-insensitive) | "Role X date range must match source value..." |
+
+**Section sources**
+- [experience_contract.py:205-287](file://agents/experience_contract.py#L205-L287)
+- [experience_contract.py:395-488](file://agents/experience_contract.py#L395-L488)
+- [test_experience_contract.py:218-233](file://agents/tests/test_experience_contract.py#L218-L233)
+
 ## Dependency Analysis
 
 The prompt system exhibits well-managed dependencies with clear separation of concerns:
@@ -529,6 +636,7 @@ subgraph "Core Dependencies"
 Generation[generation.py] --> LangChain[langchain_openai]
 Generation --> Pydantic[pydantic]
 Validation[validation.py] --> Privacy[privacy.py]
+Validation --> ExperienceContract[experience_contract.py]
 Assembly[assembly.py] --> Privacy
 Worker[worker.py] --> Generation
 Worker --> Validation
@@ -568,6 +676,7 @@ end
 | Privacy Module | High (9/10) | Very Low (2/10) | 0 external dependencies |
 | Assembly Agent | High (8/10) | Low (3/10) | 1 internal dependency |
 | Worker Orchestrator | Medium (6/10) | High (7/10) | 4 external integrations |
+| **Experience Contract Module** | **High (9/10)** | **Medium (6/10)** | **1 internal dependency** |
 | **Extraction Callback System** | **High (9/10)** | **Medium (6/10)** | **1 external integration** |
 | **Backend Reconciliation** | **High (8/10)** | **Low (4/10)** | **0 external dependencies** |
 | **Redis Progress Store** | **High (9/10)** | **Medium (5/10)** | **1 external dependency** |
@@ -577,6 +686,7 @@ end
 - [validation.py:1-511](file://agents/validation.py#L1-L511)
 - [privacy.py:1-173](file://agents/privacy.py#L1-L173)
 - [assembly.py:1-71](file://agents/assembly.py#L1-L71)
+- [experience_contract.py:1-536](file://agents/experience_contract.py#L1-L536)
 
 ## Performance Considerations
 
@@ -618,10 +728,21 @@ The system employs efficient memory handling:
 - **Graceful Degradation**: System continues operating normally when backend communication fails
 - **Retry Limits**: Configurable retry attempts (default: 6) with exponential backoff progression
 
+### Professional Experience Parsing Performance
+
+**New** The Professional Experience parsing system is optimized for performance:
+
+- **Format Validation**: Efficient parsing with minimal backtracking
+- **Error Collection**: Non-blocking error collection allows continued processing
+- **Anchor Matching**: Optimized string comparison with case-insensitive normalization
+- **Memory Efficiency**: Stream processing for large experience sections
+- **Deterministic Processing**: Consistent behavior regardless of anchor availability
+
 **Section sources**
 - [prompts.md:336-345](file://docs/prompts.md#L336-L345)
 - [worker.py:696-711](file://agents/worker.py#L696-L711)
 - [worker.py:403-434](file://agents/worker.py#L403-L434)
+- [experience_contract.py:205-287](file://agents/experience_contract.py#L205-L287)
 
 ## Troubleshooting Guide
 
@@ -634,6 +755,8 @@ The system employs efficient memory handling:
 | ATS Violation | HTML, tables, or images in output | Apply ATS safety validation |
 | Grounding Failure | Unsupported claims or dates | Verify base resume content |
 | Timeout Error | Generation exceeds timeout limits | Reduce content size or adjust settings |
+| **Professional Experience Format Error** | **"Role X entry must use the two-row experience format"** | **Ensure proper two-row or three-part format** |
+| **Experience Anchor Mismatch** | **"Role X company/title/location/date range must match source"** | **Verify source anchor compliance** |
 | **Extraction Callback Failure** | **Started callback exception logged** | **Best-effort continuation with progress tracking** |
 | **Terminal Progress Reconciliation** | **Backend recovery after callback failure** | **Redis cache-based state recovery** |
 | **Redis Cache Miss** | **Extraction success not reflected in UI** | **Wait for reconciliation or manual recovery** |
@@ -649,6 +772,8 @@ The system employs efficient memory handling:
 6. **Redis Cache Inspection**: Verify cached extraction payloads for recovery
 7. **Backend Reconciliation**: Monitor terminal progress reconciliation process
 8. **Retry Analysis**: Check exponential backoff progression in callback client
+9. **Experience Format Debugging**: Test parsing logic with sample experience entries
+10. **Anchor Validation**: Verify source anchor extraction and matching logic
 
 ### Error Recovery Patterns
 
@@ -657,12 +782,14 @@ flowchart TD
 Error[Error Occurred] --> Classify[Classify Error Type]
 Classify --> PrivacyError[Privacy Error]
 Classify --> ValidationError[Validation Error]
+Classify --> ExperienceError[Experience Format Error]
 Classify --> TimeoutError[Timeout Error]
 Classify --> CallbackError[Callback Error]
 Classify --> RedisError[Redis Error]
 Classify --> OtherError[Other Error]
 PrivacyError --> Sanitize[Re-sanitize Content]
 ValidationError --> Fix[Fix Validation Issues]
+ExperienceError --> Format[Fix Format Issues]
 TimeoutError --> Retry[Retry with Reduced Content]
 CallbackError --> BestEffort[Best-Effort Continuation]
 RedisError --> Reconcile[Reconcile with Redis Cache]
@@ -671,7 +798,8 @@ BestEffort --> ProgressOnly[Progress-Only Tracking]
 ProgressOnly --> Continue[Continue Extraction]
 Reconcile --> RecoverState[Recover Application State]
 RecoverState --> Continue
-Sanitize --> RetryCall[Retry Generation Call]
+Format --> RetryCall[Retry Generation Call]
+Sanitize --> RetryCall
 Fix --> RetryCall
 Retry --> RetryCall
 RetryCall --> Success[Success]
@@ -688,10 +816,12 @@ Report --> Manual[Manual Intervention Required]
 - **Redis-Based Recovery**: Cached payloads enable state restoration
 - **Graceful Degradation**: System continues operating normally when backend communication fails
 - **Retry Limits**: Configurable retry attempts with exponential backoff progression
+- **Experience Format Recovery**: Non-blocking error collection allows continued processing
 
 **Section sources**
 - [generation.py:388-441](file://agents/generation.py#L388-L441)
 - [validation.py:445-511](file://agents/validation.py#L445-L511)
+- [experience_contract.py:395-488](file://agents/experience_contract.py#L395-L488)
 - [worker.py:696-711](file://agents/worker.py#L696-L711)
 - [worker.py:403-434](file://agents/worker.py#L403-L434)
 - [test_worker.py:273-337](file://agents/tests/test_worker.py#L273-L337)
@@ -712,9 +842,14 @@ Key architectural achievements include:
 - **Redis-Based State Management**: Persistent state tracking across system restarts
 - **Graceful Degradation**: System continues operating normally when backend communication fails
 - **Exponential Backoff**: Automatic retry with progressive delay for transient failures
+- **Professional Experience Format Enforcement**: Strict two-row format validation with deterministic processing
 
 **Updated** Recent improvements focus on extraction callback resilience, ensuring system reliability even when backend communication is temporarily unavailable. The addition of best-effort callback behavior provides graceful degradation while maintaining eventual consistency through Redis-based progress tracking. The comprehensive retry/backoff system with exponential backoff ensures reliable callback delivery, while the terminal progress reconciliation mechanism enables automatic recovery from callback failures.
+
+The Professional Experience parsing system introduces strict format validation while maintaining graceful degradation when source anchors are unavailable. This ensures reliable resume generation even in challenging extraction scenarios, with comprehensive error reporting and recovery mechanisms.
 
 The system's modular design facilitates future enhancements while maintaining backward compatibility. The extensive documentation and testing infrastructure support ongoing development and maintenance efforts. The integration of Redis caching and backend reconciliation provides robust fault tolerance and state consistency across the entire extraction workflow.
 
 The extraction system now provides comprehensive error handling with automatic retry/backoff, ensuring that transient network failures don't compromise the overall system reliability. The Redis-based progress tracking system maintains state consistency even when callback delivery fails, enabling eventual consistency through backend reconciliation. This combination of features creates a resilient system that can handle real-world network conditions while maintaining data integrity and user experience.
+
+The addition of Professional Experience format enforcement enhances the system's ability to produce high-quality, ATS-compliant resumes while maintaining flexibility for different content sources and extraction scenarios.
