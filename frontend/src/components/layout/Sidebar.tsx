@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAppContext } from "@/components/layout/AppContext";
 import { Badge } from "@/components/ui/badge";
-import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 type NavItem = {
   to: string;
@@ -94,6 +94,7 @@ type SidebarProps = {
 export function Sidebar({ onNavigate }: SidebarProps) {
   const { pathname } = useLocation();
   const { needsActionCount, bootstrap } = useAppContext();
+  const { logout } = useAuth();
   const isAdmin = Boolean(bootstrap?.profile?.is_admin);
   const isOnAdminRoute = pathname === "/app/admin" || pathname.startsWith("/app/admin/");
   const [adminExpanded, setAdminExpanded] = useState<boolean>(isOnAdminRoute);
@@ -122,9 +123,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   ];
 
   async function handleSignOut() {
-    const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    window.location.assign("/login");
+    await logout();
   }
 
   return (

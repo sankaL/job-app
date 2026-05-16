@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-04-19
+**Last updated:** 2026-05-16
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -11,12 +11,12 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.
-- Keep all user data explicitly scoped by `user_id` and protected by Supabase RLS.
+- Keep all user data explicitly scoped by `user_id` and protected by backend ownership checks.
 - Store all base resumes and generated drafts as Markdown.
 - Keep `applied` separate from the primary application status.
 - Treat `docs/database_schema.md` as the schema source of truth.
 - Local development and testing must run through a Dockerized, Makefile-managed stack.
-- Dev mode must use local Supabase services; production must connect to the hosted Supabase instance directly.
+- Dev mode must use the Makefile-managed local stack with repo-owned auth and local Postgres services.
 - Defer dedicated async job/progress tables until the background worker strategy is chosen during implementation.
 - Keep a single current draft per application for MVP. No resume version-history UI or schema is planned.
 
@@ -191,6 +191,9 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| A0-T34 | Reinstate dedicated local auth dev-mode flags, refresh-aware frontend tokens, and an upgrade-safe custom-auth migration | FE/BE/Infra/Docs | DONE | 2026-05-16 11:56:05 EDT | Restored `APP_DEV_MODE` and `VITE_APP_DEV_MODE` as the local-only gate for email-only login and insecure local cookies, made frontend access-token caching expiry-aware with a one-shot refresh-on-401 retry path, and replaced the cleanup-only auth migration with an idempotent forward migration that backfills `public.users`, rewires FKs, and removes legacy auth/RLS artifacts for already-migrated databases. |
+| A0-T33 | Consolidate local dev behavior under `APP_ENV` and remove redundant auth or UI mode flags | FE/BE/Infra/Docs | DONE | 2026-05-16 11:56:05 EDT | Superseded by A0-T34 after review: using `APP_ENV=development` as the sole auth-bypass switch was too broad for shared environments, so the repo now uses dedicated `APP_DEV_MODE` and `VITE_APP_DEV_MODE` flags for local-only email sign-in. |
+| A0-T32 | Stop local auth from booting into a protected-route refresh failure before email-only sign-in | FE/Docs | DONE | 2026-05-16 09:10:25 EDT | Moved session restoration out of global frontend startup and into protected-route access only, changed the default unauthenticated entry route to `/login`, and documented that local auth dev mode accepts email-only sign-in without the old pre-login `401` refresh path. |
 | A0-T31 | Fix Resume Judge rerun card nullability so Railway frontend builds pass | FE | DONE | 2026-04-18 08:50:37 EDT | Replaced the non-narrowed `resumeJudge.message` access in the max-attempts branch with an explicit nullable-safe read so `tsc --noEmit -p tsconfig.app.json` no longer fails during the Railway frontend build. |
 | A0-T30 | Cap Resume Judge reruns and harden Railway callback delivery | AI/BE/FE/Infra | DONE | 2026-04-18 08:17:15 EDT | Added a three-run per-draft Resume Judge cap with persisted `run_attempt_count`, disabled stale retry loops in the detail UI after the third failed run, and hardened worker callback delivery to fall back from the stale Railway internal `:8000` backend URL to Railway-safe backend candidates after confirming production `agents` was misconfigured. |
 | A0-T29 | Fix Railway frontend builds by bundling the workflow contract inside the frontend service | FE/Infra | DONE | 2026-04-17 22:33:08 EDT | Replaced the frontend's `@shared/workflow-contract.json` dependency with a frontend-bundled contract file and removed the stale shared-path aliases, so isolated Docker and Railway frontend builds no longer depend on repo-root files outside the frontend service context. |

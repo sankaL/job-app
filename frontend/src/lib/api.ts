@@ -1,5 +1,5 @@
+import { getAccessToken } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { getSupabaseBrowserClient } from "@/lib/supabase";
 
 export type SessionBootstrapResponse = {
   user: {
@@ -401,17 +401,34 @@ type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
 };
 
-async function getAccessToken() {
-  const supabase = getSupabaseBrowserClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+async function fetchWithAuthentication(
+  path: string,
+  options: RequestInit = {},
+  retryOnUnauthorized = true,
+): Promise<Response> {
+  const headers = new Headers(options.headers);
+  headers.set("Authorization", `Bearer ${await getAccessToken()}`);
 
-  if (!session?.access_token) {
-    throw new Error("Missing authenticated session.");
+  let response = await fetch(`${env.VITE_API_URL}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status !== 401 || !retryOnUnauthorized) {
+    return response;
   }
 
-  return session.access_token;
+  try {
+    headers.set("Authorization", `Bearer ${await getAccessToken({ forceRefresh: true })}`);
+  } catch {
+    return response;
+  }
+
+  response = await fetch(`${env.VITE_API_URL}${path}`, {
+    ...options,
+    headers,
+  });
+  return response;
 }
 
 function parseSseChunk(
@@ -448,12 +465,10 @@ function parseSseChunk(
 }
 
 async function authenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}${path}`, {
+  const response = await fetchWithAuthentication(path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
       ...(options.headers ?? {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -483,12 +498,10 @@ export async function openApplicationEventStream(
     onHeartbeat?: (heartbeat: ApplicationHeartbeat) => void;
   },
 ): Promise<void> {
-  const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}/events`, {
+  const response = await fetchWithAuthentication(`/api/applications/${applicationId}/events`, {
     method: "GET",
     headers: {
       Accept: "text/event-stream",
-      Authorization: `Bearer ${token}`,
     },
     signal: options.signal,
   });
@@ -552,12 +565,8 @@ function logGenerationRequest(event: string, payload: Record<string, unknown>) {
 }
 
 async function authenticatedUpload<T>(path: string, formData: FormData): Promise<T> {
-  const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}${path}`, {
+  const response = await fetchWithAuthentication(path, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
     body: formData,
   });
 
@@ -608,12 +617,8 @@ export async function listNotifications(): Promise<NotificationSummary[]> {
 }
 
 export async function clearNotifications(): Promise<void> {
-  const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}/api/notifications`, {
+  const response = await fetchWithAuthentication("/api/notifications", {
     method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
   });
 
   if (!response.ok) {
@@ -659,12 +664,8 @@ export async function patchApplication(
 }
 
 export async function deleteApplication(applicationId: string): Promise<void> {
-  const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}`, {
+  const response = await fetchWithAuthentication(`/api/applications/${applicationId}`, {
     method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
   });
 
   if (!response.ok) {

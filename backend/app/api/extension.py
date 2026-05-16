@@ -11,7 +11,7 @@ from app.core.access import get_current_active_user
 from app.core.auth import AuthenticatedUser
 from app.core.security import (
     ExtensionAuthenticatedUser,
-    hash_extension_token,
+    hash_token,
     verify_extension_token,
 )
 from app.db.profiles import (
@@ -99,7 +99,7 @@ def issue_extension_token(
     token = f"jabr_ext_{secrets.token_urlsafe(32)}"
     record = repository.upsert_extension_token(
         user_id=current_user.id,
-        token_hash=hash_extension_token(token),
+        token_hash=hash_token(token),
     )
     return ExtensionTokenResponse(token=token, status=_to_status(record))
 

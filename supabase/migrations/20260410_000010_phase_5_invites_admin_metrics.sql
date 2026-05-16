@@ -21,8 +21,8 @@ alter table public.profiles
 
 create table if not exists public.user_invites (
   id uuid primary key default gen_random_uuid(),
-  invitee_user_id uuid not null references auth.users (id) on delete cascade,
-  invited_by_user_id uuid not null references auth.users (id) on delete cascade,
+  invitee_user_id uuid not null references public.users (id) on delete cascade,
+  invited_by_user_id uuid not null references public.users (id) on delete cascade,
   invited_email text not null,
   token_hash text not null unique,
   status public.invite_status_enum not null default 'pending',
@@ -50,7 +50,7 @@ for each row execute function public.set_updated_at();
 
 create table if not exists public.usage_events (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid not null references public.users (id) on delete cascade,
   application_id uuid references public.applications (id) on delete set null,
   event_type text not null,
   event_status public.usage_event_status_enum not null,
@@ -66,36 +66,6 @@ create index if not exists idx_usage_events_user_created_at
 create index if not exists idx_usage_events_application_created_at
   on public.usage_events (application_id, created_at desc);
 
-grant select, insert, update, delete on public.user_invites to authenticated, service_role;
-grant select, insert on public.usage_events to authenticated, service_role;
-
-alter table public.user_invites enable row level security;
-alter table public.usage_events enable row level security;
-
-drop policy if exists user_invites_owner_select on public.user_invites;
-create policy user_invites_owner_select on public.user_invites
-for select
-using (auth.uid() = invited_by_user_id or auth.uid() = invitee_user_id);
-
-drop policy if exists user_invites_owner_insert on public.user_invites;
-create policy user_invites_owner_insert on public.user_invites
-for insert
-with check (auth.uid() = invited_by_user_id);
-
-drop policy if exists user_invites_owner_update on public.user_invites;
-create policy user_invites_owner_update on public.user_invites
-for update
-using (auth.uid() = invited_by_user_id or auth.uid() = invitee_user_id)
-with check (auth.uid() = invited_by_user_id or auth.uid() = invitee_user_id);
-
-drop policy if exists usage_events_owner_select on public.usage_events;
-create policy usage_events_owner_select on public.usage_events
-for select
-using (auth.uid() = user_id);
-
-drop policy if exists usage_events_owner_insert on public.usage_events;
-create policy usage_events_owner_insert on public.usage_events
-for insert
-with check (auth.uid() = user_id);
+-- RLS removed — backend enforces user isolation at the application layer.
 
 commit;

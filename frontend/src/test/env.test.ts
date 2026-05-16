@@ -7,14 +7,11 @@ describe("frontend runtime env config", () => {
       normalizeRuntimeConfig({
         VITE_APP_ENV: "production",
         VITE_APP_DEV_MODE: "false",
-        VITE_SUPABASE_URL: "",
-        VITE_SUPABASE_ANON_KEY: "anon-key",
         VITE_API_URL: "   ",
       }),
     ).toEqual({
       VITE_APP_ENV: "production",
       VITE_APP_DEV_MODE: "false",
-      VITE_SUPABASE_ANON_KEY: "anon-key",
     });
   });
 });

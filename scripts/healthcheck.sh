@@ -13,7 +13,6 @@ load_env_value() {
 }
 
 if [ -f "$ENV_FILE" ]; then
-  SUPABASE_URL="$(load_env_value SUPABASE_URL "$ENV_FILE")"
   API_URL="$(load_env_value API_URL "$ENV_FILE")"
   APP_URL="$(load_env_value APP_URL "$ENV_FILE")"
 fi
@@ -29,6 +28,5 @@ check() {
   fi
 }
 
-check "${SUPABASE_URL:-http://localhost:54421}/auth/v1/health" "supabase-auth"
 check "${API_URL:-http://localhost:54800}/healthz" "backend"
 check "${APP_URL:-http://localhost:5173}" "frontend"

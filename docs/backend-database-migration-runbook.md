@@ -20,7 +20,7 @@ This runbook applies whenever backend or database work changes schema, compatibi
 1. Define the contract change in `docs/database_schema.md`.
 2. Identify whether the change is additive, backfill-dependent, or destructive.
 3. Choose a rollout order that keeps deployed code compatible with the live schema at each step.
-4. Add or update RLS policies, indexes, and constraints as part of the same migration set.
+4. Add or update application-enforced ownership safeguards, indexes, and constraints as part of the same migration set.
 5. Add a backfill step when existing rows need new defaults or derived values.
 6. Update backend code to honor the new schema and guardrails.
 7. Verify post-deploy behavior with focused checks on auth, ownership, status mapping, and failure recovery.
@@ -48,7 +48,7 @@ This runbook applies whenever backend or database work changes schema, compatibi
 ## Verification Checklist
 
 - Authenticated users can read and write only their own rows after the migration.
-- RLS policies still block cross-user access on every user-scoped table.
+- Backend reads and writes still scope every user-owned table by authenticated `user_id`.
 - Application visible statuses, internal states, and failure reasons remain aligned with the PRD.
 - Existing base resumes, applications, drafts, and notifications still load correctly after any schema change.
 - Applications with blank and populated `job_posting_origin` values both behave correctly, including `other` handling and duplicate-review fallback.
@@ -84,12 +84,13 @@ This runbook applies whenever backend or database work changes schema, compatibi
 
 - The initial Phase 0 migration is implemented as repo-owned SQL under `supabase/migrations/`.
 - Local development applies migrations through the Compose-managed `migration-runner` service instead of ad-hoc manual SQL execution.
-- Local dev mode does not provide Supabase Auth invite or recovery emails; GoTrue email delivery is intentionally disabled and app-level email tests should use the backend Resend gate instead.
-- Auth provisioning depends on the Phase 0 profile-sync trigger: inserts and email updates on `auth.users` must continue to create or align the matching `public.profiles` row.
+- Local dev mode does not send invite or recovery emails; app-level email tests should use the backend Resend gate instead.
+- When `APP_DEV_MODE=true`, the login surface accepts an email-only local sign-in and protected routes restore an existing session only after a refresh-cookie-backed auth check succeeds.
+- Auth provisioning is repo-owned: `public.users` stores credentials, `public.refresh_tokens` stores refresh-token hashes, and profile rows are created or aligned by backend code instead of `auth.users` triggers.
 - Post-deploy or post-reset verification for Phase 0 should confirm:
-  - the schema migration applies before backend and PostgREST reads begin
-  - profile sync runs for newly provisioned users
-  - every documented user-scoped table has RLS enabled and owner-only policies present
+  - the schema migration applies before backend reads begin
+  - migrated or newly provisioned users exist in `public.users` before authenticated bootstrap runs
+  - every documented user-scoped table is read and written through explicit backend `user_id` scoping
   - the protected backend bootstrap endpoint can resolve a profile for an invited user without cross-user access
 
 ## Current Implementation Note: Phase 1 Intake and Duplicate Review
@@ -133,14 +134,14 @@ This runbook applies whenever backend or database work changes schema, compatibi
 ## Current Implementation Note: Phase 2 Base Resumes and Profile Preferences
 
 - Phase 2 adds the migration `supabase/migrations/20260407_000004_phase_2_base_resumes.sql`.
-- This migration adds granular RLS policies for `base_resumes` and `resume_drafts` tables, replaces catch-all owner policies with per-operation policies, and adds a `user_id` index on `base_resumes`.
+- This migration is now a no-op because per-user ownership is enforced in backend code rather than database RLS policies.
 - No schema changes to table definitions were required; Phase 0 migration already created all Phase 2 tables (`base_resumes`, `resume_drafts`, `profiles` section-preference columns).
 - No backfill is required. Existing rows use default section preferences until users modify them.
 - Post-deploy verification for Phase 2 should confirm:
   - authenticated users can list, create, read, update, and delete only their own base resumes
   - setting a default base resume clears the previous default for that user
   - profile PATCH updates persist personal info and section preferences correctly
-  - RLS policies enforce per-operation ownership on `base_resumes` and `resume_drafts`
+  - backend ownership checks continue to enforce per-user access on `base_resumes` and `resume_drafts`
 
 ## Current Implementation Note: Phase 3 Generation Pipeline
 
@@ -222,12 +223,12 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - `usage_events` table plus `usage_event_status_enum`
 - Rollout order for this change:
   1. Apply the additive migration.
-  2. Deploy backend invite/admin APIs, Supabase admin provisioning integration, and usage-event writes.
+  2. Deploy backend invite/admin APIs, repo-owned user provisioning/password management, and usage-event writes.
   3. Deploy frontend invite signup page and admin dashboard/user-management screens.
 - No backfill is required. Existing users remain active and non-admin by default unless promoted through config or admin actions.
 - Read paths and admin metrics must stay compatible while `usage_events` is still sparse immediately after rollout.
 - Post-deploy verification should confirm:
-  - admin invite creation pre-provisions Supabase Auth users, creates pending invite rows, and sends Resend emails
+  - admin invite creation pre-provisions app-owned users, creates pending invite rows, and sends Resend emails
   - invite preview and accept flows enforce token validity, expiry, email match, and password policy
   - invite acceptance marks `user_invites.status = accepted` and sets `profiles.onboarding_completed_at`
   - deactivated users are blocked from authenticated bootstrap and extension-token issuance

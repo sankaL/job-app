@@ -10,6 +10,45 @@ from app.db.profiles import ProfileRecord
 from app.services.admin import AdminService
 from app.services.email import EmailMessage
 
+TEST_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDazrjUk1XC+RxO
+RKxIQyE8v8xz1MrwNqDmXfau6mlP5HNxG6kbyDwyk3wlvNsWcxn+drHogSVAq+ZY
+aMRdvKvs0kpNvgExeEQNEdIBljjggqMiEadfptcCeNADku2yUd4QwRcLsAqucCF5
+QShBpQWbvPF4J9TE5WVyAaJ4ltU2MdOE6oZhUCI/hKJ01Bv7W/utsIZ+jyj5Rnz0
+5CcAdCcAgkCtdV7+EAWAISsvnrXhwVseIie67069hw+9zQvy20Use+jWjKKU3BxA
+jgNmbs3tyefeiX/c/26EbTWugked+P8MtGiKKLmdYnCIS743mfPRDuGbPSFvHVmo
+KErOejTHAgMBAAECggEASn4mnviqMf7tjBgFL3TrU+tYh/biQHXYwZUr7tEPmYuF
+YfSw1iyNkgp0McTiMfpt1xxB5Y5SSHo9qcvBTsh1H+NYOK9/aIAxauGuRawHIShY
+sbig6we6G7VV3GGhWxxUJhAW8Hu2pzy1qLpuIis0hZkF/IpS/dW7e9zim3t+izw6
+J4VTMXVt//gkiwGumMdQ0yJ7o4RjVriAat5j0IAkuep7NI+lR+rPAfmDiG+vPtyy
+pKSEtGpFz5/yceZh33Qd2OXEXNHZF2rd7NQVU5Z8AOxnY6eTml4l3jjVT5gAL4n6
+OcN6ZVr/11p6/VhlX3m8MlWVk4iB9NEARIXcN+onwQKBgQD2NZ0R4FwkjttKuHk8
+JghnadniG6BtCbewDxGkKTuObd2C6f2izfvntZ1M0X9uymNh7WbjDyH5zNv6LYTi
+kEUKygOgo9+Z2aBFH7ceqPXkN/7GUzanKgJB7xkMC4cKoE+2wKolXza/HdTydXI4
+DqEiyP83S3eUhoEtUEF1js+1IwKBgQDjgijkUR+wV3a3EY5CBP0v6Uve+Ixw6Imr
+iiN7+CDDOy1yyGRBMgFP2mN+4nH7v8FFoqbIpzlvFAho+pByv94hRMfNibZrqmQT
+EfJQUiCGTysjkBvIECKHlolznSNCx2OYHFYIUkLI/zRuGrRo+Pn3uEal5JV7UNk/
+GMWwSH8WDQKBgCrwstI5VRizKZ/giJRq9bBDj9KViuc5eKXmGueMoWx30NhSQwAv
++K0yyZpqN1V1Stv7caRMMVrF1d/OLIzvKHt3PCa6LfdBM2ia3W8lfK0u7upb/P4u
+n3IsZyvonsbFquFuvL4D2yJ963PV8/O+6W+NqqVULijjRIhIpQIBxEwNAoGBAINI
+hsRJs9mUfyLg9JBQRLIzE98U2iYFafwc+KD+7Bj8uxszW/brHiqwQR3lGhVF8Ad4
+9nlvVgstKjU58cTlxw63m/yVbTjv2FPQ1V1YJwCaCrC45e8qsGJBkguvL7vHR0dt
+go/GuFc4PU8UBetVURmLsujj4QaJ/vMUHm+9Rei5AoGAQ3wSyYTPf8IG/oFBihNk
+cOHYtbjNU1Vdf8ba4XUPswo/nHKV0kyQDkppb+22qyzi7F+85jTH44uSxwj6c5lb
+iCPhk+xR4LYoNxYpCicW8DDsrHZjkmDv04mrTOQp/PdjtU6qZPNkYNQNM8JbP/j7
+PhyreqLGV8+glSysPzaL6Nk=
+-----END PRIVATE KEY-----"""
+
+TEST_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2s641JNVwvkcTkSsSEMh
+PL/Mc9TK8Dag5l32ruppT+RzcRupG8g8MpN8JbzbFnMZ/nax6IElQKvmWGjEXbyr
+7NJKTb4BMXhEDRHSAZY44IKjIhGnX6bXAnjQA5LtslHeEMEXC7AKrnAheUEoQaUF
+m7zxeCfUxOVlcgGieJbVNjHThOqGYVAiP4SidNQb+1v7rbCGfo8o+UZ89OQnAHQn
+AIJArXVe/hAFgCErL5614cFbHiInuu9OvYcPvc0L8ttFLHvo1oyilNwcQI4DZm7N
+7cnn3ol/3P9uhG01roJHnfj/DLRoiii5nWJwiEu+N5nz0Q7hmz0hbx1ZqChKzno0
+xwIDAQAB
+-----END PUBLIC KEY-----"""
+
 
 class StubAdminRepository:
     def __init__(self) -> None:
@@ -60,14 +99,29 @@ class StubProfileRepository:
         return None
 
 
-class StubSupabaseAdminClient:
+class StubUserManager:
     def __init__(self, *, user_id: str = "user-123") -> None:
         self.user_id = user_id
         self.create_user_calls = 0
 
-    async def create_user(self, *, email: str, password: str, email_confirm: bool = True) -> str:
+    def create_user(self, *, email: str, password: str) -> str:
         self.create_user_calls += 1
         return self.user_id
+
+    def set_user_password(self, *, user_id: str, password: str) -> None:
+        pass
+
+    def update_user_email(self, *, user_id: str, email: str) -> None:
+        pass
+
+    def deactivate_user(self, *, user_id: str) -> None:
+        pass
+
+    def reactivate_user(self, *, user_id: str) -> None:
+        pass
+
+    def delete_user(self, *, user_id: str) -> None:
+        pass
 
 
 class FailingEmailSender:
@@ -80,6 +134,13 @@ class SuccessfulEmailSender:
         return "email_1"
 
 
+def _make_settings():
+    return Settings(
+        JWT_PRIVATE_KEY=TEST_PRIVATE_KEY,
+        JWT_PUBLIC_KEY=TEST_PUBLIC_KEY,
+    )
+
+
 @pytest.mark.asyncio
 async def test_invite_user_fails_closed_when_email_notifications_disabled(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EMAIL_NOTIFICATIONS_ENABLED", "false")
@@ -88,13 +149,13 @@ async def test_invite_user_fails_closed_when_email_notifications_disabled(monkey
 
     repository = StubAdminRepository()
     profiles = StubProfileRepository()
-    supabase_admin = StubSupabaseAdminClient()
+    user_manager = StubUserManager()
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
         profile_repository=profiles,  # type: ignore[arg-type]
-        supabase_admin=supabase_admin,  # type: ignore[arg-type]
+        user_manager=user_manager,  # type: ignore[arg-type]
         email_sender=SuccessfulEmailSender(),  # type: ignore[arg-type]
-        settings=Settings(),
+        settings=_make_settings(),
     )
 
     with pytest.raises(ValueError, match="Invite delivery is disabled"):
@@ -107,7 +168,7 @@ async def test_invite_user_fails_closed_when_email_notifications_disabled(monkey
 
     assert repository.created_invite is None
     assert repository.usage_events == []
-    assert supabase_admin.create_user_calls == 0
+    assert user_manager.create_user_calls == 0
     assert profiles.update_calls == 0
 
 
@@ -119,13 +180,13 @@ async def test_invite_user_records_failure_when_email_delivery_fails(monkeypatch
 
     repository = StubAdminRepository()
     profiles = StubProfileRepository()
-    supabase_admin = StubSupabaseAdminClient(user_id="invitee-1")
+    user_manager = StubUserManager(user_id="invitee-1")
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
         profile_repository=profiles,  # type: ignore[arg-type]
-        supabase_admin=supabase_admin,  # type: ignore[arg-type]
+        user_manager=user_manager,  # type: ignore[arg-type]
         email_sender=FailingEmailSender(),  # type: ignore[arg-type]
-        settings=Settings(),
+        settings=_make_settings(),
     )
 
     with pytest.raises(ValueError, match="Invite email delivery failed"):
@@ -138,4 +199,3 @@ async def test_invite_user_records_failure_when_email_delivery_fails(monkeypatch
 
     assert repository.created_invite is not None
     assert repository.usage_events == [("invitee-1", "invite_sent", "failure")]
-

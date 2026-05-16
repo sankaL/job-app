@@ -1,13 +1,9 @@
-from __future__ import annotations
+import os
 
-import jwt
-import pytest
-from fastapi import HTTPException
-
-from app.core.auth import AuthVerifier
-from app.core.security import create_access_token
-
-TEST_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
+# Set JWT keys before any test module imports (needed by app.main module-level settings)
+os.environ.setdefault(
+    "JWT_PRIVATE_KEY",
+    """-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDazrjUk1XC+RxO
 RKxIQyE8v8xz1MrwNqDmXfau6mlP5HNxG6kbyDwyk3wlvNsWcxn+drHogSVAq+ZY
 aMRdvKvs0kpNvgExeEQNEdIBljjggqMiEadfptcCeNADku2yUd4QwRcLsAqucCF5
@@ -34,9 +30,12 @@ go/GuFc4PU8UBetVURmLsujj4QaJ/vMUHm+9Rei5AoGAQ3wSyYTPf8IG/oFBihNk
 cOHYtbjNU1Vdf8ba4XUPswo/nHKV0kyQDkppb+22qyzi7F+85jTH44uSxwj6c5lb
 iCPhk+xR4LYoNxYpCicW8DDsrHZjkmDv04mrTOQp/PdjtU6qZPNkYNQNM8JbP/j7
 PhyreqLGV8+glSysPzaL6Nk=
------END PRIVATE KEY-----"""
+-----END PRIVATE KEY-----""",
+)
 
-TEST_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+os.environ.setdefault(
+    "JWT_PUBLIC_KEY",
+    """-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2s641JNVwvkcTkSsSEMh
 PL/Mc9TK8Dag5l32ruppT+RzcRupG8g8MpN8JbzbFnMZ/nax6IElQKvmWGjEXbyr
 7NJKTb4BMXhEDRHSAZY44IKjIhGnX6bXAnjQA5LtslHeEMEXC7AKrnAheUEoQaUF
@@ -44,59 +43,5 @@ m7zxeCfUxOVlcgGieJbVNjHThOqGYVAiP4SidNQb+1v7rbCGfo8o+UZ89OQnAHQn
 AIJArXVe/hAFgCErL5614cFbHiInuu9OvYcPvc0L8ttFLHvo1oyilNwcQI4DZm7N
 7cnn3ol/3P9uhG01roJHnfj/DLRoiii5nWJwiEu+N5nz0Q7hmz0hbx1ZqChKzno0
 xwIDAQAB
------END PUBLIC KEY-----"""
-
-
-def build_settings():
-    return type(
-        "Settings",
-        (),
-        {
-            "jwt_public_key": TEST_PUBLIC_KEY,
-        },
-    )()
-
-
-def test_auth_verifier_accepts_valid_rs256_token():
-    verifier = AuthVerifier(build_settings())
-    token = create_access_token(
-        user_id="user-123",
-        email="invite-only@example.com",
-        private_key=TEST_PRIVATE_KEY,
-        expire_minutes=15,
-    )
-
-    user = verifier.verify_token(token)
-
-    assert user.id == "user-123"
-    assert user.email == "invite-only@example.com"
-
-
-def test_auth_verifier_rejects_expired_token():
-    verifier = AuthVerifier(build_settings())
-    token = create_access_token(
-        user_id="user-123",
-        email="invite-only@example.com",
-        private_key=TEST_PRIVATE_KEY,
-        expire_minutes=-1,
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        verifier.verify_token(token)
-
-    assert exc_info.value.status_code == 401
-    assert exc_info.value.detail == "Invalid or expired access token."
-
-
-def test_auth_verifier_rejects_token_with_wrong_key():
-    verifier = AuthVerifier(build_settings())
-    token = jwt.encode(
-        {"sub": "user-123", "email": "test@example.com"},
-        "some-other-key",
-        algorithm="HS256",
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        verifier.verify_token(token)
-
-    assert exc_info.value.status_code == 401
+-----END PUBLIC KEY-----""",
+)

@@ -40,23 +40,15 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, alias="API_PORT")
     app_url: str = Field(default="http://localhost:5173", alias="APP_URL")
     database_url: str = Field(
-        default="postgresql://postgres:postgres@localhost:54322/postgres",
+        default="postgresql://postgres:postgres@localhost:5432/postgres",
         alias="DATABASE_URL",
     )
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
     cors_origins: str = Field(default="http://localhost:5173", alias="CORS_ORIGINS")
-    supabase_url: str = Field(default="http://localhost:54321", alias="SUPABASE_URL")
-    supabase_external_url: str = Field(
-        default="http://localhost:54321", alias="SUPABASE_EXTERNAL_URL"
-    )
-    supabase_service_role_key: Optional[str] = Field(default=None, alias="SERVICE_ROLE_KEY")
-    supabase_auth_jwks_url: str = Field(
-        default="http://localhost:54321/auth/v1/.well-known/jwks.json",
-        alias="SUPABASE_AUTH_JWKS_URL",
-    )
-    supabase_jwt_secret: Optional[str] = Field(default=None, alias="SUPABASE_JWT_SECRET")
-    supabase_jwt_audience: str = Field(default="authenticated", alias="SUPABASE_JWT_AUDIENCE")
-    supabase_jwt_issuer: Optional[str] = Field(default=None, alias="SUPABASE_JWT_ISSUER")
+    jwt_private_key: str = Field(..., alias="JWT_PRIVATE_KEY")
+    jwt_public_key: str = Field(..., alias="JWT_PUBLIC_KEY")
+    access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
+    refresh_token_expire_days: int = Field(default=7, alias="REFRESH_TOKEN_EXPIRE_DAYS")
     worker_callback_secret: Optional[str] = Field(default=None, alias="WORKER_CALLBACK_SECRET")
     duplicate_similarity_threshold: float = Field(
         default=85.0, alias="DUPLICATE_SIMILARITY_THRESHOLD"
@@ -92,6 +84,14 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def is_development(self) -> bool:
+        return self.app_env == "development"
+
+    @property
+    def is_local_dev_mode(self) -> bool:
+        return self.app_dev_mode
 
     @property
     def admin_email_list(self) -> list[str]:

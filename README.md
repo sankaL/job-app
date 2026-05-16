@@ -108,7 +108,7 @@ Built with modern, reliable technologies:
 |-------|-----------|
 | **Frontend** | React 19 + Vite + Tailwind CSS + shadcn/ui |
 | **Backend** | FastAPI (Python) |
-| **Database & Auth** | Supabase (PostgreSQL + Row Level Security) |
+| **Database & Auth** | PostgreSQL + backend-issued JWT auth |
 | **AI Orchestration** | LangChain + OpenRouter (model-agnostic) |
 | **Web Scraping** | Playwright (headless browser) |
 | **Email** | Resend |
@@ -144,10 +144,9 @@ Built with modern, reliable technologies:
    make up
    ```
 
-4. **Create your first user** (dev mode only)
-   ```bash
-   make seed-local-user
-   ```
+4. **Sign in locally** (`APP_DEV_MODE=true`)
+   - Open the frontend and enter the email for the local account you want to use.
+   - In local dev mode, login accepts the email without a password and resolves that account directly.
 
 5. **Access the application**
    - Frontend: http://localhost:5173
@@ -165,7 +164,7 @@ cd backend && pytest
 
 ### Production Deployment
 
-Applix is designed for deployment on [Railway](https://railway.app) with Supabase for database and authentication.
+Applix is designed for deployment on [Railway](https://railway.app) with PostgreSQL and backend-issued JWT authentication.
 
 ---
 
@@ -186,7 +185,7 @@ Applix is designed for deployment on [Railway](https://railway.app) with Supabas
 ## 🔒 Security & Privacy
 
 - **Invite-Only Access:** No public signup — controlled user provisioning
-- **Per-User Isolation:** Supabase Row Level Security ensures your data stays private
+- **Per-User Isolation:** Backend-enforced `user_id` scoping keeps every user's data private
 - **No Token Storage:** Authentication tokens never stored in localStorage
 - **Grounded AI:** Your personal information is never sent to external AI providers
 - **No Persistent PDFs:** PDFs generated on-demand, never stored on servers
@@ -214,7 +213,7 @@ job-app/
 │   ├── generation.py      # Resume generation pipeline
 │   ├── validation.py      # Output validation
 │   └── assembly.py        # Resume assembly
-├── supabase/              # Database migrations and config
+├── supabase/              # Database migrations
 │   └── migrations/        # Versioned schema changes
 ├── docs/                  # Product requirements and documentation
 │   ├── resume_builder_PRD_v3.md

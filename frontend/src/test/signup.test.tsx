@@ -9,17 +9,15 @@ const api = vi.hoisted(() => ({
   acceptInvite: vi.fn(),
 }));
 
-const signInWithPassword = vi.fn();
+const loginMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   ...api,
 }));
 
-vi.mock("@/lib/supabase", () => ({
-  getSupabaseBrowserClient: () => ({
-    auth: {
-      signInWithPassword,
-    },
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => ({
+    login: loginMock,
   }),
 }));
 
@@ -55,7 +53,7 @@ describe("invite signup flow", () => {
 
     await screen.findByText(/at least 12 characters/i);
     expect(api.acceptInvite).not.toHaveBeenCalled();
-    expect(signInWithPassword).not.toHaveBeenCalled();
+    expect(loginMock).not.toHaveBeenCalled();
   });
 
   it("loads invite preview and pre-fills read-only email", async () => {
@@ -79,7 +77,7 @@ describe("invite signup flow", () => {
       user_id: "user-1",
       email: "invitee@example.com",
     });
-    signInWithPassword.mockResolvedValue({ error: null });
+    loginMock.mockResolvedValue(undefined);
 
     renderSignup("/signup?token=valid-token");
 
@@ -95,10 +93,7 @@ describe("invite signup flow", () => {
 
     await waitFor(() => {
       expect(api.acceptInvite).toHaveBeenCalled();
-      expect(signInWithPassword).toHaveBeenCalledWith({
-        email: "invitee@example.com",
-        password: "StrongPass!123",
-      });
+      expect(loginMock).toHaveBeenCalledWith("invitee@example.com", "StrongPass!123");
     });
   });
 });

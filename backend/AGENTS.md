@@ -6,7 +6,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Product behavior and data contract: `docs/resume_builder_PRD_v3.md`
 
 ## Backend Commitments
-- Follow the committed backend stack only: FastAPI, Supabase Auth, Postgres, LangChain, OpenRouter, Playwright, Resend, and Railway.
+- Follow the committed backend stack only: FastAPI, Custom JWT Auth, Postgres, LangChain, OpenRouter, Playwright, Resend, and Railway.
 - Keep backend responsibilities aligned with these product domains:
   - auth and session validation
   - applications
@@ -20,9 +20,9 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Keep route handlers narrow and move orchestration into dedicated services or jobs as implementation grows.
 
 ## Security and Data Isolation
-- All application API routes require a valid Supabase JWT. Do not add unauthenticated application endpoints beyond the login surface.
+- All application API routes require a valid backend-issued JWT (RS256). Do not add unauthenticated application endpoints beyond the login surface.
 - Enforce per-user isolation on every read, write, background job, and notification path.
-- Treat Supabase RLS as required defense in depth, not as a reason to skip explicit user scoping in backend logic.
+- Backend code must enforce explicit user scoping on every read, write, background job, and notification path. No Row-Level Security is used.
 - Fail closed on missing or invalid auth, permissions, config, job inputs, and validation outputs.
 - Keep secrets, raw provider payloads, full resume drafts, and full job descriptions out of logs unless sanitized and strictly necessary.
 

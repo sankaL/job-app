@@ -5,10 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { env } from "@/lib/env";
-import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const { login } = useAuth();
+  const isLocalDevMode = env.VITE_APP_DEV_MODE;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -19,20 +21,14 @@ export function LoginPage() {
     setError(null);
     setIsSubmitting(true);
 
-    const supabase = getSupabaseBrowserClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    setIsSubmitting(false);
-
-    if (signInError) {
-      setError(signInError.message);
-      return;
+    try {
+      await login(email, isLocalDevMode ? "" : password);
+      navigate("/app", { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    navigate("/app", { replace: true });
   }
 
   return (
@@ -95,7 +91,7 @@ export function LoginPage() {
               <p className="mt-5 max-w-lg text-base leading-7 sm:text-lg" style={{ color: "var(--color-ink-65)" }}>
                 Sign in to manage your job applications, generate tailored resumes, and track your progress.
               </p>
-              {env.VITE_APP_DEV_MODE && (
+              {isLocalDevMode && (
                 <span
                   className="mt-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
                   style={{
@@ -137,9 +133,15 @@ export function LoginPage() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Your assigned password"
-                    required
+                    placeholder={isLocalDevMode ? "Not required in dev mode" : "Your assigned password"}
+                    required={!isLocalDevMode}
+                    disabled={isLocalDevMode}
                   />
+                  {isLocalDevMode && (
+                    <p className="mt-1.5 text-xs" style={{ color: "var(--color-spruce)" }}>
+                      Auth disabled — enter any email to sign in.
+                    </p>
+                  )}
                 </div>
                 {error ? (
                   <div className="rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-sm text-ember">
