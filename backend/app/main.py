@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.applications import router as applications_router
+from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
 from app.api.base_resumes import router as base_resumes_router
 from app.api.extension import router as extension_router
@@ -30,6 +31,7 @@ def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(auth_router)
 app.include_router(session_router)
 app.include_router(profiles_router)
 app.include_router(applications_router)

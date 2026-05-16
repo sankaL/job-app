@@ -13,84 +13,69 @@ load_env_value() {
 }
 
 if [ -f "$ENV_FILE" ]; then
-  SUPABASE_URL="$(load_env_value SUPABASE_URL "$ENV_FILE")"
-  SERVICE_ROLE_KEY="$(load_env_value SERVICE_ROLE_KEY "$ENV_FILE")"
+  POSTGRES_PASSWORD="$(load_env_value POSTGRES_PASSWORD "$ENV_FILE")"
   LOCAL_DEV_USER_EMAIL="$(load_env_value LOCAL_DEV_USER_EMAIL "$ENV_FILE")"
   LOCAL_DEV_USER_PASSWORD="$(load_env_value LOCAL_DEV_USER_PASSWORD "$ENV_FILE")"
   LOCAL_DEV_USER_IS_ADMIN="$(load_env_value LOCAL_DEV_USER_IS_ADMIN "$ENV_FILE")"
 fi
 
-SUPABASE_URL="${SUPABASE_URL:-http://localhost:54421}"
-SERVICE_ROLE_KEY="${SERVICE_ROLE_KEY:?SERVICE_ROLE_KEY is required}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
 EMAIL="${LOCAL_DEV_USER_EMAIL:?LOCAL_DEV_USER_EMAIL is required}"
 PASSWORD="${LOCAL_DEV_USER_PASSWORD:?LOCAL_DEV_USER_PASSWORD is required}"
 LOCAL_DEV_USER_IS_ADMIN="${LOCAL_DEV_USER_IS_ADMIN:-true}"
 
-payload=$(printf '{"email":"%s","password":"%s","email_confirm":true}' "$EMAIL" "$PASSWORD")
+CONTAINER="${POSTGRES_CONTAINER:-resume-builder-postgres-1}"
+export PGPASSWORD="$POSTGRES_PASSWORD"
 
+# Wait for postgres to be ready
 attempts=0
-until curl -fsS "${SUPABASE_URL}/auth/v1/health" >/dev/null 2>&1; do
+until docker exec "$CONTAINER" pg_isready -U postgres >/dev/null 2>&1; do
   attempts=$((attempts + 1))
   if [ "$attempts" -ge 30 ]; then
-    echo "Supabase auth gateway did not become ready in time."
+    echo "Postgres did not become ready in time."
     exit 1
   fi
   sleep 2
 done
 
-status_code="$(
-  curl -sS -o /tmp/seed-local-user-response.json -w '%{http_code}' \
-    -X POST "${SUPABASE_URL}/auth/v1/admin/users" \
-    -H "apikey: ${SERVICE_ROLE_KEY}" \
-    -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
-    -H "Content-Type: application/json" \
-    -d "$payload"
-)"
+run_sql() {
+  docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$CONTAINER" psql -U postgres -d postgres -q "$@"
+}
 
-case "$status_code" in
-  200|201)
-    echo "Created local invited user ${EMAIL}"
-    ;;
-  422)
-    echo "Local invited user ${EMAIL} already exists"
-    ;;
-  *)
-    echo "Failed to create local invited user ${EMAIL} (status ${status_code})"
-    cat /tmp/seed-local-user-response.json
-    exit 1
-    ;;
-esac
+# Generate bcrypt hash using Python
+HASH=$(python3 -c "
+from passlib.hash import bcrypt
+print(bcrypt.hash('${PASSWORD}'))
+" 2>/dev/null) || {
+  echo "Unable to generate password hash. Ensure passlib[bcrypt] is installed."
+  exit 1
+}
 
+# Check if user exists
+USER_ID=$(echo "select id::text from public.users where email = '${EMAIL}';" | run_sql -tA 2>/dev/null || true)
+
+if [ -z "$USER_ID" ]; then
+  # Create user with password hash directly
+  USER_ID=$(echo "
+    insert into public.users (email, password_hash)
+    values ('${EMAIL}', '${HASH}')
+    returning id::text;
+  " | run_sql -tA)
+
+  echo "Created local invited user ${EMAIL} (id: ${USER_ID})"
+else
+  echo "Local user ${EMAIL} already exists (id: ${USER_ID})"
+fi
+
+# Ensure profile exists
+echo "
+  insert into public.profiles (id, email)
+  values ('${USER_ID}', '${EMAIL}')
+  on conflict (id) do update set email = excluded.email;
+" | run_sql >/dev/null 2>&1 || true
+
+# Mark as admin if needed
 if [ "$LOCAL_DEV_USER_IS_ADMIN" = "true" ]; then
-  escaped_email="$(printf '%s' "$EMAIL" | sed 's/@/%40/g')"
-  admin_payload='{"is_admin":true}'
-  admin_attempts=0
-
-  while :; do
-    admin_status_code="$(
-      curl -sS -o /tmp/seed-local-admin-response.json -w '%{http_code}' \
-        -X PATCH "${SUPABASE_URL}/rest/v1/profiles?email=eq.${escaped_email}" \
-        -H "apikey: ${SERVICE_ROLE_KEY}" \
-        -H "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
-        -H "Content-Type: application/json" \
-        -H "Prefer: return=minimal" \
-        -d "$admin_payload"
-    )"
-
-    case "$admin_status_code" in
-      200|204)
-        echo "Ensured local user ${EMAIL} is admin"
-        break
-        ;;
-      *)
-        admin_attempts=$((admin_attempts + 1))
-        if [ "$admin_attempts" -ge 20 ]; then
-          echo "Failed to promote local user ${EMAIL} to admin (status ${admin_status_code})"
-          cat /tmp/seed-local-admin-response.json
-          exit 1
-        fi
-        sleep 1
-        ;;
-    esac
-  done
+  echo "update public.profiles set is_admin = true where id = '${USER_ID}';" | run_sql
+  echo "Ensured local user ${EMAIL} is admin"
 fi

@@ -67,12 +67,16 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api", () => api);
-vi.mock("@/lib/supabase", () => ({
-  getSupabaseBrowserClient: () => ({
-    auth: {
-      signOut: vi.fn(),
-    },
+vi.mock("@/lib/auth", () => ({
+  useAuth: () => ({
+    user: { id: "u1", email: "test@test.com" },
+    isLoading: false,
+    login: vi.fn(),
+    logout: vi.fn(),
   }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  getAccessToken: () => Promise.resolve("mock-token"),
+  getAccessTokenSync: () => "mock-token",
 }));
 
 const defaultBootstrap = {

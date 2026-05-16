@@ -15,6 +15,7 @@
 - [application_manager.py](file://backend/app/services/application_manager.py)
 - [test_worker.py](file://agents/tests/test_worker.py)
 - [test_resume_judge.py](file://agents/tests/test_resume_judge.py)
+- [test_experience_contract.py](file://agents/tests/test_experience_contract.py)
 - [backend/AGENTS.md](file://backend/AGENTS.md)
 - [2026-04-10-deterministic-regeneration-timeouts-and-cap.md](file://docs/task-output/2026-04-10-deterministic-regeneration-timeouts-and-cap.md)
 - [2026-04-09-high-aggressiveness-role-title-rewrites.md](file://docs/task-output/2026-04-09-high-aggressiveness-role-title-rewrites.md)
@@ -26,12 +27,12 @@
 
 ## Update Summary
 **Changes Made**
-- Enhanced Redis caching documentation with comprehensive cache reconciliation mechanisms
-- Expanded Resume Judge Agent documentation with detailed scoring workflow and callback delivery
-- Improved error handling documentation with comprehensive timeout management and retry strategies
-- Updated callback delivery mechanisms with best-effort delivery and exponential backoff
-- Enhanced deterministic Professional Experience validation with strict role title constraints
-- Added comprehensive generation workflow system documentation with operation-specific timeouts
+- Enhanced Professional Experience Contract Service with comprehensive deterministic parsing capabilities
+- Strengthened validation logic for professional experience sections with strict structural invariants
+- Added comprehensive test coverage improvements for experience contract functionality
+- Updated deterministic Professional Experience validation with strict role title constraints
+- Enhanced validation agent with comprehensive experience contract enforcement
+- Improved error handling and validation diagnostics for experience sections
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -103,7 +104,7 @@ DB --> APP
 - [worker.py:1-2445](file://agents/worker.py#L1-L2445)
 - [generation.py:1-1539](file://agents/generation.py#L1-L1539)
 - [validation.py:1-602](file://agents/validation.py#L1-L602)
-- [experience_contract.py:1-511](file://agents/experience_contract.py#L1-L511)
+- [experience_contract.py:1-536](file://agents/experience_contract.py#L1-L536)
 - [assembly.py:1-86](file://agents/assembly.py#L1-L86)
 - [resume_judge.py:1-598](file://agents/resume_judge.py#L1-L598)
 - [workflow-contract.json:1-122](file://shared/workflow-contract.json#L1-L122)
@@ -139,7 +140,7 @@ DB --> APP
 - [generation.py:56-57](file://agents/generation.py#L56-L57)
 - [generation.py:58-59](file://agents/generation.py#L58-L59)
 - [validation.py:1-16](file://agents/validation.py#L1-L16)
-- [experience_contract.py:1-511](file://agents/experience_contract.py#L1-L511)
+- [experience_contract.py:1-536](file://agents/experience_contract.py#L1-L536)
 - [assembly.py:12-86](file://agents/assembly.py#L12-L86)
 - [resume_judge.py:1-598](file://agents/resume_judge.py#L1-L598)
 - [workflow-contract.json:1-122](file://shared/workflow-contract.json#L1-L122)
@@ -365,7 +366,7 @@ Merge --> End(["Return {valid, errors, auto_corrections}"])
 
 **Diagram sources**
 - [validation.py:527-602](file://agents/validation.py#L527-L602)
-- [experience_contract.py:400-511](file://agents/experience_contract.py#L400-L511)
+- [experience_contract.py:400-536](file://agents/experience_contract.py#L400-L536)
 
 **Section sources**
 - [validation.py:140-174](file://agents/validation.py#L140-L174)
@@ -409,14 +410,14 @@ P --> Q["Verify seniority constraints"]
 - [experience_contract.py:290-324](file://agents/experience_contract.py#L290-L324)
 - [experience_contract.py:352-393](file://agents/experience_contract.py#L352-L393)
 - [experience_contract.py:395-463](file://agents/experience_contract.py#L395-L463)
-- [experience_contract.py:466-511](file://agents/experience_contract.py#L466-L511)
+- [experience_contract.py:466-536](file://agents/experience_contract.py#L466-L536)
 - [experience_contract.py:156-169](file://agents/experience_contract.py#L156-L169)
 
 **Section sources**
 - [experience_contract.py:290-324](file://agents/experience_contract.py#L290-L324)
 - [experience_contract.py:352-393](file://agents/experience_contract.py#L352-L393)
 - [experience_contract.py:395-463](file://agents/experience_contract.py#L395-L463)
-- [experience_contract.py:466-511](file://agents/experience_contract.py#L466-L511)
+- [experience_contract.py:466-536](file://agents/experience_contract.py#L466-L536)
 - [experience_contract.py:156-169](file://agents/experience_contract.py#L156-L169)
 
 ### Assembly Service
@@ -665,7 +666,7 @@ The validation system implements comprehensive hallucination detection and ATS s
 **Section sources**
 - [validation.py:140-174](file://agents/validation.py#L140-L174)
 - [validation.py:527-602](file://agents/validation.py#L527-L602)
-- [experience_contract.py:400-511](file://agents/experience_contract.py#L400-L511)
+- [experience_contract.py:400-536](file://agents/experience_contract.py#L400-L536)
 
 ### Error Handling and Timeout Management
 The system implements comprehensive error handling and timeout management:
@@ -897,7 +898,7 @@ The validation system implements comprehensive hallucination detection:
 **Section sources**
 - [validation.py:140-174](file://agents/validation.py#L140-L174)
 - [validation.py:527-602](file://agents/validation.py#L527-L602)
-- [experience_contract.py:400-511](file://agents/experience_contract.py#L400-L511)
+- [experience_contract.py:400-536](file://agents/experience_contract.py#L400-L536)
 
 ### Generation Settings Configuration
 Advanced generation settings for resume customization:
@@ -1007,3 +1008,27 @@ Notify --> Continue
 - [worker.py:2246-2399](file://agents/worker.py#L2246-L2399)
 - [internal_worker.py:74-90](file://backend/app/api/internal_worker.py#L74-L90)
 - [application_manager.py:2030-2107](file://backend/app/services/application_manager.py#L2030-L2107)
+
+### Enhanced Professional Experience Contract Testing
+The experience contract service includes comprehensive test coverage demonstrating:
+
+#### Test Coverage Areas
+- **Anchor Extraction**: Validates role order preservation and source field extraction
+- **Normalization**: Tests low/medium/high aggressiveness title preservation
+- **Validation**: Ensures structural invariants and strict title constraints
+- **Error Handling**: Covers malformed headers and missing role blocks
+- **Integration**: Validates end-to-end experience contract validation
+
+#### Key Test Scenarios
+- **Low Aggressiveness**: Preserves source titles exactly as written
+- **Medium Aggressiveness**: Allows grounded title rewrites with seniority preservation
+- **High Aggressiveness**: Permits truth-based role title rewrites only
+- **Structural Validation**: Enforces company, date, and location preservation
+- **Error Detection**: Identifies malformed experience entries and missing blocks
+
+**New** Comprehensive documentation of enhanced experience contract testing framework
+
+**Section sources**
+- [test_experience_contract.py:1-254](file://agents/tests/test_experience_contract.py#L1-L254)
+- [experience_contract.py:290-536](file://agents/experience_contract.py#L290-L536)
+- [validation.py:498-533](file://agents/validation.py#L498-L533)

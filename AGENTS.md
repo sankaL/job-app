@@ -16,7 +16,7 @@ Directory-specific guidance lives in:
 - `backend/` — FastAPI API and background workflows for extraction, generation, validation, notifications, and export
 - `agents/` — AI orchestration assets and prompt-layer guidance for generation and validation workflows
 - `docs/` — product requirements and other source-of-truth documentation
-- `supabase/` — Supabase-related project assets
+- `supabase/` — Database migrations (kept for historical path compatibility)
 
 When behavior conflicts with assumptions or older guidance, follow the PRD and update any stale agent instructions in the same task.
 

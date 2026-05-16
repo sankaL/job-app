@@ -14,6 +14,8 @@ def test_workflow_contract_has_complete_status_mapping():
     assert set(contract.failure_reasons) == {
         "extraction_failed",
         "generation_failed",
+        "generation_timeout",
+        "generation_cancelled",
         "regeneration_failed",
         "export_failed",
     }

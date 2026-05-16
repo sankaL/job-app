@@ -70,7 +70,7 @@ class StubVerifier(AuthVerifier):
 
     def verify_token(self, token: str) -> AuthenticatedUser:
         if token != "valid-token":
-            raise HTTPException(status_code=401, detail="Invalid Supabase access token.")
+            raise HTTPException(status_code=401, detail="Invalid or expired access token.")
 
         return AuthenticatedUser(
             id="user-123",
@@ -105,7 +105,7 @@ def test_invalid_token_returns_401():
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid Supabase access token."
+    assert response.json()["detail"] == "Invalid or expired access token."
 
 
 def test_valid_token_bootstraps_authenticated_user_only():

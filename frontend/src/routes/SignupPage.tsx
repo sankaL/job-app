@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { acceptInvite, fetchInvitePreview, type InvitePreview } from "@/lib/api";
-import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 const PASSWORD_MIN_LENGTH = 12;
 
@@ -44,6 +44,7 @@ function validatePassword(password: string): string | null {
 
 export function SignupPage() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [searchParams] = useSearchParams();
   const token = (searchParams.get("token") || "").trim();
 
@@ -132,14 +133,7 @@ export function SignupPage() {
         linkedin_url: linkedinUrl || null,
       });
 
-      const supabase = getSupabaseBrowserClient();
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) {
-        throw new Error(error.message);
-      }
+      await login(email, password);
       navigate("/app", { replace: true });
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Signup failed.");

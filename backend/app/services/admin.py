@@ -15,7 +15,7 @@ from app.core.config import Settings, get_settings
 from app.db.admin import AdminRepository, AdminUserRecord, get_admin_repository
 from app.db.profiles import ProfileRepository, get_profile_repository
 from app.services.email import EmailMessage, EmailSender, build_email_sender
-from app.services.supabase_admin import SupabaseAdminClient, SupabaseAdminError, build_supabase_admin_client
+from app.services.user_manager import UserManager, build_user_manager
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ PASSWORD_SYMBOL_PATTERN = re.compile(r"[^A-Za-z0-9]")
 class AdminService:
     repository: AdminRepository
     profile_repository: ProfileRepository
-    supabase_admin: SupabaseAdminClient
+    user_manager: UserManager
     email_sender: EmailSender
     settings: Settings
 
@@ -139,12 +139,11 @@ class AdminService:
         if invitee_user_id is None:
             temporary_password = secrets.token_urlsafe(24)
             try:
-                invitee_user_id = await self.supabase_admin.create_user(
+                invitee_user_id = self.user_manager.create_user(
                     email=normalized_email,
                     password=temporary_password,
-                    email_confirm=True,
                 )
-            except SupabaseAdminError as error:
+            except Exception as error:
                 raise ValueError(str(error)) from error
 
         if invitee_user_id is None:
@@ -234,12 +233,12 @@ class AdminService:
         self._validate_password_strength(password)
 
         try:
-            await self.supabase_admin.set_user_password(
+            self.user_manager.set_user_password(
                 user_id=invite.invitee_user_id,
                 password=password,
             )
-            await self.supabase_admin.unban_user(user_id=invite.invitee_user_id)
-        except SupabaseAdminError as error:
+            self.user_manager.reactivate_user(user_id=invite.invitee_user_id)
+        except Exception as error:
             raise ValueError(str(error)) from error
 
         clean_first_name = self._require_non_blank(first_name, "First name")
@@ -285,10 +284,7 @@ class AdminService:
 
         if "email" in updates and updates["email"] is not None:
             email = self._normalize_email(str(updates["email"]))
-            try:
-                await self.supabase_admin.update_user_email(user_id=target_user_id, email=email)
-            except SupabaseAdminError as error:
-                raise ValueError(str(error)) from error
+            self.user_manager.update_user_email(user_id=target_user_id, email=email)
             normalized_updates["email"] = email
 
         for key in ("first_name", "last_name", "phone", "address", "linkedin_url"):
@@ -312,20 +308,14 @@ class AdminService:
     async def deactivate_user(self, *, actor_user_id: str, target_user_id: str) -> AdminUserRecord:
         if actor_user_id == target_user_id:
             raise PermissionError("You cannot deactivate your own account.")
-        try:
-            await self.supabase_admin.ban_user(user_id=target_user_id)
-        except SupabaseAdminError as error:
-            raise ValueError(str(error)) from error
+        self.user_manager.deactivate_user(user_id=target_user_id)
         return self.repository.update_user(
             user_id=target_user_id,
             updates={"is_active": False},
         )
 
     async def reactivate_user(self, *, target_user_id: str) -> AdminUserRecord:
-        try:
-            await self.supabase_admin.unban_user(user_id=target_user_id)
-        except SupabaseAdminError as error:
-            raise ValueError(str(error)) from error
+        self.user_manager.reactivate_user(user_id=target_user_id)
         return self.repository.update_user(
             user_id=target_user_id,
             updates={"is_active": True},
@@ -334,10 +324,7 @@ class AdminService:
     async def delete_user(self, *, actor_user_id: str, target_user_id: str) -> None:
         if actor_user_id == target_user_id:
             raise PermissionError("You cannot delete your own account.")
-        try:
-            await self.supabase_admin.delete_user(user_id=target_user_id)
-        except SupabaseAdminError as error:
-            raise ValueError(str(error)) from error
+        self.user_manager.delete_user(user_id=target_user_id)
 
     def _require_pending_invite(self, *, token: str):
         clean_token = token.strip()
@@ -464,7 +451,7 @@ def get_admin_service(
     return AdminService(
         repository=repository,
         profile_repository=profile_repository,
-        supabase_admin=build_supabase_admin_client(settings),
+        user_manager=build_user_manager(settings),
         email_sender=build_email_sender(settings),
         settings=settings,
     )

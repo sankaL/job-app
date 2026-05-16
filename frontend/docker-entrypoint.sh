@@ -35,8 +35,6 @@ EOF
 
 append_runtime_config "VITE_APP_ENV" "${VITE_APP_ENV:-}"
 append_runtime_config "VITE_APP_DEV_MODE" "${VITE_APP_DEV_MODE:-}"
-append_runtime_config "VITE_SUPABASE_URL" "${VITE_SUPABASE_URL:-}"
-append_runtime_config "VITE_SUPABASE_ANON_KEY" "${VITE_SUPABASE_ANON_KEY:-}"
 append_runtime_config "VITE_API_URL" "${VITE_API_URL:-}"
 
 printf '\n});\n' >> "$ENV_CONFIG"

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-DB_HOST="${POSTGRES_HOST:-supabase-db}"
+DB_HOST="${POSTGRES_HOST:-postgres}"
 DB_PORT="${POSTGRES_PORT:-5432}"
 DB_NAME="${POSTGRES_DB:-postgres}"
 DB_USER="${POSTGRES_USER:-postgres}"

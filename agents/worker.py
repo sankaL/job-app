@@ -82,7 +82,6 @@ class WorkerSettingsEnv(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: str = "development"
-    app_dev_mode: bool = False
     redis_url: str = "redis://localhost:6379/0"
     backend_api_url: str = "http://backend:8000"
     railway_service_backend_url: Optional[str] = None

@@ -5,22 +5,6 @@ create extension if not exists pg_trgm;
 
 do $$
 begin
-  if not exists (select 1 from pg_roles where rolname = 'anon') then
-    create role anon nologin noinherit;
-  end if;
-
-  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
-    create role authenticated nologin noinherit;
-  end if;
-
-  if not exists (select 1 from pg_roles where rolname = 'service_role') then
-    create role service_role nologin noinherit bypassrls;
-  end if;
-end
-$$;
-
-do $$
-begin
   if not exists (select 1 from pg_type where typname = 'visible_status_enum') then
     create type public.visible_status_enum as enum ('draft', 'needs_action', 'in_progress', 'complete');
   end if;
@@ -83,8 +67,26 @@ begin
 end;
 $$;
 
+create table if not exists public.users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text not null,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.refresh_tokens (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  token_hash text not null unique,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  revoked_at timestamptz
+);
+
 create table if not exists public.profiles (
-  id uuid primary key references auth.users (id) on delete cascade,
+  id uuid primary key references public.users (id) on delete cascade,
   email text not null unique,
   name text,
   phone text,
@@ -98,7 +100,7 @@ create table if not exists public.profiles (
 
 create table if not exists public.base_resumes (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid not null references public.users (id) on delete cascade,
   name text not null,
   content_md text not null,
   created_at timestamptz not null default now(),
@@ -119,7 +121,7 @@ alter table public.profiles
 
 create table if not exists public.applications (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid not null references public.users (id) on delete cascade,
   job_url text not null,
   job_title text,
   company text,
@@ -176,7 +178,7 @@ alter table public.applications
 create table if not exists public.resume_drafts (
   id uuid primary key default gen_random_uuid(),
   application_id uuid not null,
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid not null references public.users (id) on delete cascade,
   content_md text not null,
   generation_params jsonb not null,
   sections_snapshot jsonb not null,
@@ -198,7 +200,7 @@ alter table public.resume_drafts
 
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
+  user_id uuid not null references public.users (id) on delete cascade,
   application_id uuid,
   type public.notification_type_enum not null,
   message text not null,
@@ -217,6 +219,9 @@ alter table public.notifications
   references public.applications (id, user_id)
   on delete set null;
 
+create index if not exists idx_users_email on public.users(email);
+create index if not exists idx_refresh_tokens_user_id on public.refresh_tokens(user_id);
+create index if not exists idx_refresh_tokens_token_hash on public.refresh_tokens(token_hash);
 create index if not exists idx_base_resumes_user_updated_at on public.base_resumes (user_id, updated_at desc);
 create index if not exists idx_base_resumes_user_name on public.base_resumes (user_id, name);
 create index if not exists idx_applications_user_updated_at on public.applications (user_id, updated_at desc);
@@ -230,6 +235,11 @@ create unique index if not exists idx_resume_drafts_application on public.resume
 create index if not exists idx_notifications_user_read_created on public.notifications (user_id, read, created_at desc);
 create index if not exists idx_notifications_unread_action_required on public.notifications (user_id, action_required, read, created_at desc)
   where action_required = true and read = false;
+
+drop trigger if exists set_users_updated_at on public.users;
+create trigger set_users_updated_at
+before update on public.users
+for each row execute function public.set_updated_at();
 
 drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
@@ -250,93 +260,5 @@ drop trigger if exists set_resume_drafts_updated_at on public.resume_drafts;
 create trigger set_resume_drafts_updated_at
 before update on public.resume_drafts
 for each row execute function public.set_updated_at();
-
-grant usage on schema public to anon, authenticated, service_role;
-grant select, insert, update, delete on all tables in schema public to authenticated, service_role;
-grant usage, select on all sequences in schema public to authenticated, service_role;
-
-create or replace function public.handle_auth_user_change()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if tg_op = 'INSERT' then
-    insert into public.profiles (id, email)
-    values (new.id, new.email)
-    on conflict (id) do update
-      set email = excluded.email,
-          updated_at = now();
-    return new;
-  end if;
-
-  if tg_op = 'UPDATE' then
-    update public.profiles
-    set email = new.email,
-        updated_at = now()
-    where id = new.id;
-    return new;
-  end if;
-
-  return new;
-end;
-$$;
-
-drop trigger if exists on_auth_user_inserted on auth.users;
-create trigger on_auth_user_inserted
-after insert on auth.users
-for each row execute function public.handle_auth_user_change();
-
-drop trigger if exists on_auth_user_updated on auth.users;
-create trigger on_auth_user_updated
-after update of email on auth.users
-for each row execute function public.handle_auth_user_change();
-
-alter table public.profiles enable row level security;
-alter table public.base_resumes enable row level security;
-alter table public.applications enable row level security;
-alter table public.resume_drafts enable row level security;
-alter table public.notifications enable row level security;
-
-drop policy if exists profiles_self_select on public.profiles;
-create policy profiles_self_select on public.profiles
-for select
-using (auth.uid() = id);
-
-drop policy if exists profiles_self_insert on public.profiles;
-create policy profiles_self_insert on public.profiles
-for insert
-with check (auth.uid() = id);
-
-drop policy if exists profiles_self_update on public.profiles;
-create policy profiles_self_update on public.profiles
-for update
-using (auth.uid() = id)
-with check (auth.uid() = id);
-
-drop policy if exists base_resumes_owner_all on public.base_resumes;
-create policy base_resumes_owner_all on public.base_resumes
-for all
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
-
-drop policy if exists applications_owner_all on public.applications;
-create policy applications_owner_all on public.applications
-for all
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
-
-drop policy if exists resume_drafts_owner_all on public.resume_drafts;
-create policy resume_drafts_owner_all on public.resume_drafts
-for all
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
-
-drop policy if exists notifications_owner_all on public.notifications;
-create policy notifications_owner_all on public.notifications
-for all
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
 
 commit;

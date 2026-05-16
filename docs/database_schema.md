@@ -1,14 +1,15 @@
 # AI Resume Builder Database Schema
 
 **Document status:** Source of truth for the MVP database contract  
-**Last updated:** 2026-04-17
+**Last updated:** 2026-05-15
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Related rollout guide:** `docs/backend-database-migration-runbook.md`
 
 ## Scope and Principles
 
-- Supabase Auth owns `auth.users`; application tables reference that identity and remain private to the authenticated user.
-- Every user-scoped table must carry explicit ownership and be protected by Supabase RLS.
+- The app owns `public.users` and manages auth independently via FastAPI (custom JWT + bcrypt).
+- Application tables reference `public.users.id` and remain private to the authenticated user.
+- Backend code enforces per-user isolation on every query via explicit `user_id` scoping.
 - All base resume content and generated draft content are stored as Markdown.
 - `applied` remains a separate boolean and must never replace the primary visible status.
 - MVP stores the current draft only. No resume version-history table is defined.
@@ -48,14 +49,57 @@ Backend write paths must validate these shapes before persisting them.
 
 ## Table Definitions
 
-### `profiles`
+### `users`
 
-Application-owned extension of `auth.users`.
+Application-managed user accounts (replaces Supabase GoTrue `users`).
 
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
-| `id` | `uuid` | No | — | Primary key. Foreign key to `auth.users.id` with `ON DELETE CASCADE`. One profile per auth user. |
-| `email` | `text` | No | — | Read-only mirror of auth email for application queries. User-editing is not allowed. |
+| `id` | `uuid` | No | `gen_random_uuid()` | Primary key. |
+| `email` | `text` | No | — | Unique. Normalized to lowercase on write. |
+| `password_hash` | `text` | No | — | bcrypt hash of the user's password. |
+| `is_active` | `boolean` | No | `true` | Deactivated users are blocked from application access. |
+| `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
+| `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
+
+**Constraints**
+
+- `UNIQUE (email)`
+
+**Delete behavior**
+
+- Cascading deletes propagate to `profiles`, `base_resumes`, `applications`, `resume_drafts`, `notifications`, `user_invites`, and `usage_events`.
+
+### `refresh_tokens`
+
+Rotating refresh tokens for the JWT access/refresh token pattern.
+
+| Column | Type | Null | Default | Constraints and notes |
+|---|---|---|---|---|
+| `id` | `uuid` | No | `gen_random_uuid()` | Primary key. |
+| `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
+| `token_hash` | `text` | No | — | SHA-256 hash of the opaque refresh token. Unique. |
+| `expires_at` | `timestamptz` | No | — | Token expiry timestamp. |
+| `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
+| `revoked_at` | `timestamptz` | Yes | `null` | Set when the token is revoked during rotation or logout. |
+
+**Constraints**
+
+- `UNIQUE (token_hash)`
+
+**Behavior notes**
+
+- Refresh tokens follow a rotation pattern: each refresh request revokes the old token and issues a new one.
+- If a revoked token is reused, all tokens for that user are revoked (token reuse detection).
+
+### `profiles`
+
+Application-owned extension of `users`.
+
+| Column | Type | Null | Default | Constraints and notes |
+|---|---|---|---|---|
+ | `id` | `uuid` | No | — | Primary key. Foreign key to `users.id` with `ON DELETE CASCADE`. One profile per user. |
+| `email` | `text` | No | — | Read-only mirror of user email for application queries. User-editing is not allowed. |
 | `first_name` | `text` | Yes | `null` | Nullable until invite onboarding is completed. |
 | `last_name` | `text` | Yes | `null` | Nullable until invite onboarding is completed. |
 | `name` | `text` | Yes | `null` | Required by the product before final assembly/export, but nullable at rest until the user completes the profile. |
@@ -84,11 +128,10 @@ Application-owned extension of `auth.users`.
 - `UNIQUE (email)`
 - Unique partial index on `extension_token_hash` when present
 
-**RLS requirements**
+**Isolation requirements**
 
-- `SELECT`, `INSERT`, and `UPDATE` allowed only when `auth.uid() = id`.
-- No anonymous access.
-- Service-role access is reserved for trusted provisioning and backend jobs.
+- Queries must scope by `id` matching the authenticated user's ID.
+- Backend enforces isolation at the application layer; no table-level RLS is used.
 
 ### `base_resumes`
 
@@ -97,7 +140,7 @@ Stored Markdown source resumes owned by a single user.
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
 | `id` | `uuid` | No | — | Primary key. |
-| `user_id` | `uuid` | No | — | Foreign key to `auth.users.id` with `ON DELETE CASCADE`. |
+| `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
 | `name` | `text` | No | — | User-defined label. Must be non-blank. |
 | `content_md` | `text` | No | — | Full resume stored as Markdown. Must be non-blank. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
@@ -109,10 +152,10 @@ Stored Markdown source resumes owned by a single user.
 - `CHECK (btrim(name) <> '')`
 - `CHECK (btrim(content_md) <> '')`
 
-**RLS requirements**
+**Isolation requirements**
 
-- `SELECT`, `INSERT`, `UPDATE`, and `DELETE` allowed only when `auth.uid() = user_id`.
-- Service-role access is reserved for trusted backend work that still scopes writes by `user_id`.
+- Queries must scope by `user_id` matching the authenticated user's ID.
+- Backend enforces isolation at the application layer.
 
 **Delete behavior**
 
@@ -127,7 +170,7 @@ User-owned job application records and workflow state.
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
 | `id` | `uuid` | No | — | Primary key. |
-| `user_id` | `uuid` | No | — | Foreign key to `auth.users.id` with `ON DELETE CASCADE`. |
+| `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
 | `job_url` | `text` | No | — | Source URL used for extraction. Must be non-blank. |
 | `job_title` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
 | `company` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
@@ -182,10 +225,10 @@ User-owned job application records and workflow state.
 - `resume_judge_result.run_attempt_count` counts queued Resume Judge runs for the current draft and job context only. It resets when the draft changes or the stored job-context signature becomes stale, and it must stop manual reruns after the third queued attempt.
 - The backend must clear stale `failure_reason` values when a recoverable workflow succeeds.
 
-**RLS requirements**
+**Isolation requirements**
 
-- `SELECT`, `INSERT`, `UPDATE`, and `DELETE` allowed only when `auth.uid() = user_id`.
-- Service-role access is reserved for trusted backend jobs that still scope every query by `user_id`.
+- Queries must scope by `user_id` matching the authenticated user's ID.
+- Backend enforces isolation at the application layer.
 
 ### `resume_drafts`
 
@@ -195,7 +238,7 @@ Single current Markdown draft for one application.
 |---|---|---|---|---|
 | `id` | `uuid` | No | — | Primary key. |
 | `application_id` | `uuid` | No | — | Foreign key to the owning application. Composite foreign key with `user_id` to `applications (id, user_id)` and `ON DELETE CASCADE`. |
-| `user_id` | `uuid` | No | — | Foreign key to `auth.users.id` with `ON DELETE CASCADE`. |
+| `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
 | `content_md` | `text` | No | — | Latest assembled resume content in Markdown. Must be non-blank. |
 | `generation_params` | `jsonb` | No | — | See JSON contract above. |
 | `sections_snapshot` | `jsonb` | No | — | See JSON contract above. |
@@ -214,10 +257,10 @@ Single current Markdown draft for one application.
 - Editing or regeneration after export returns the application to `needs_action` (resume ready but export stale), but historical export timestamps may remain populated.
 - `applications.exported_at` and `resume_drafts.last_exported_at` must be updated together on successful export while MVP keeps a single current draft.
 
-**RLS requirements**
+**Isolation requirements**
 
-- `SELECT`, `INSERT`, `UPDATE`, and `DELETE` allowed only when `auth.uid() = user_id`.
-- Service-role access is reserved for trusted backend jobs that still scope every query by `user_id`.
+- Queries must scope by `user_id` matching the authenticated user's ID.
+- Backend enforces isolation at the application layer.
 
 ### `notifications`
 
@@ -226,7 +269,7 @@ In-app workflow notifications for a single user.
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
 | `id` | `uuid` | No | — | Primary key. |
-| `user_id` | `uuid` | No | — | Foreign key to `auth.users.id` with `ON DELETE CASCADE`. |
+| `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
 | `application_id` | `uuid` | Yes | `null` | Composite foreign key with `user_id` to `applications (id, user_id)` and `ON DELETE SET NULL`. |
 | `type` | `notification_type_enum` | No | — | `info`, `success`, `warning`, or `error`. |
 | `message` | `text` | No | — | User-visible notification copy. Must be non-blank. |
@@ -244,10 +287,10 @@ In-app workflow notifications for a single user.
 - `action_required` is an active-attention flag, not permanent history. Recovery flows should clear it when the underlying issue is resolved.
 - Notifications may outlive deleted application references by keeping the row and nulling `application_id`.
 
-**RLS requirements**
+**Isolation requirements**
 
-- `SELECT`, `INSERT`, `UPDATE`, and `DELETE` allowed only when `auth.uid() = user_id`.
-- Service-role access is reserved for trusted backend jobs that still scope every query by `user_id`.
+- Queries must scope by `user_id` matching the authenticated user's ID.
+- Backend enforces isolation at the application layer.
 
 ### `user_invites`
 
@@ -256,8 +299,8 @@ Invite lifecycle records for invite-only onboarding.
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
 | `id` | `uuid` | No | `gen_random_uuid()` | Primary key. |
-| `invitee_user_id` | `uuid` | No | — | Foreign key to `auth.users.id` with `ON DELETE CASCADE`. |
-| `invited_by_user_id` | `uuid` | No | — | Foreign key to `auth.users.id` with `ON DELETE CASCADE`. |
+| `invitee_user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
+| `invited_by_user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
 | `invited_email` | `text` | No | — | Normalized invited address. |
 | `token_hash` | `text` | No | — | Secure hash of invite token; plaintext token must never be stored. |
 | `status` | `invite_status_enum` | No | `pending` | Invite lifecycle status. |
@@ -274,11 +317,10 @@ Invite lifecycle records for invite-only onboarding.
 - `CHECK (btrim(invited_email) <> '')`
 - `CHECK (btrim(token_hash) <> '')`
 
-**RLS requirements**
+**Isolation requirements**
 
-- Owner visibility for both inviter and invitee (`auth.uid() = invited_by_user_id OR auth.uid() = invitee_user_id`).
-- Inserts allowed only for inviter ownership.
-- Updates allowed only for inviter/invitee ownership.
+- Queries must scope by `invitee_user_id` or `invited_by_user_id` matching the authenticated user's ID.
+- Backend enforces isolation at the application layer.
 
 ### `usage_events`
 
@@ -287,7 +329,7 @@ Sanitized user-scoped event stream for admin metrics and workflow telemetry.
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
 | `id` | `uuid` | No | `gen_random_uuid()` | Primary key. |
-| `user_id` | `uuid` | No | — | Foreign key to `auth.users.id` with `ON DELETE CASCADE`. |
+| `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
 | `application_id` | `uuid` | Yes | `null` | Foreign key to `applications.id` with `ON DELETE SET NULL`. |
 | `event_type` | `text` | No | — | Operation/event key (for example extraction, generation, regeneration, export). |
 | `event_status` | `usage_event_status_enum` | No | — | `success`, `failure`, or `info`. |
@@ -298,23 +340,23 @@ Sanitized user-scoped event stream for admin metrics and workflow telemetry.
 
 - `CHECK (btrim(event_type) <> '')`
 
-**RLS requirements**
+**Isolation requirements**
 
-- `SELECT` and `INSERT` allowed only when `auth.uid() = user_id`.
-- No cross-user reads or writes.
+- Queries must scope by `user_id` matching the authenticated user's ID.
+- Backend enforces isolation at the application layer.
 
 ## Relationship and Delete Semantics
 
 | Relationship | Rule |
 |---|---|
-| `profiles.id -> auth.users.id` | `ON DELETE CASCADE` |
-| `base_resumes.user_id -> auth.users.id` | `ON DELETE CASCADE` |
-| `applications.user_id -> auth.users.id` | `ON DELETE CASCADE` |
-| `resume_drafts.user_id -> auth.users.id` | `ON DELETE CASCADE` |
-| `notifications.user_id -> auth.users.id` | `ON DELETE CASCADE` |
-| `user_invites.invitee_user_id -> auth.users.id` | `ON DELETE CASCADE` |
-| `user_invites.invited_by_user_id -> auth.users.id` | `ON DELETE CASCADE` |
-| `usage_events.user_id -> auth.users.id` | `ON DELETE CASCADE` |
+| `profiles.id -> users.id` | `ON DELETE CASCADE` |
+| `base_resumes.user_id -> users.id` | `ON DELETE CASCADE` |
+| `applications.user_id -> users.id` | `ON DELETE CASCADE` |
+| `resume_drafts.user_id -> users.id` | `ON DELETE CASCADE` |
+| `notifications.user_id -> users.id` | `ON DELETE CASCADE` |
+| `user_invites.invitee_user_id -> users.id` | `ON DELETE CASCADE` |
+| `user_invites.invited_by_user_id -> users.id` | `ON DELETE CASCADE` |
+| `usage_events.user_id -> users.id` | `ON DELETE CASCADE` |
 | `profiles (default_base_resume_id, id) -> base_resumes (id, user_id)` | `ON DELETE SET NULL` |
 | `applications (base_resume_id, user_id) -> base_resumes (id, user_id)` | `ON DELETE SET NULL` |
 | `applications (duplicate_matched_application_id, user_id) -> applications (id, user_id)` | `ON DELETE SET NULL` |
@@ -348,23 +390,15 @@ If implementation constraints require equivalent ownership validation outside a 
 
 The exact Postgres index type may vary by implementation. For dashboard search, use an index strategy compatible with the final search behavior, such as trigram or full-text search.
 
-## RLS Policy Requirements
+## User Isolation Strategy
 
-| Table | Minimum policy requirement |
-|---|---|
-| `profiles` | User can read and update only the row where `id = auth.uid()` |
-| `base_resumes` | User can operate only on rows where `user_id = auth.uid()` |
-| `applications` | User can operate only on rows where `user_id = auth.uid()` |
-| `resume_drafts` | User can operate only on rows where `user_id = auth.uid()` |
-| `notifications` | User can operate only on rows where `user_id = auth.uid()` |
-| `user_invites` | Inviter and invitee can read invite rows; inserts limited to inviter ownership; updates limited to inviter/invitee ownership |
-| `usage_events` | User can read and insert only rows where `user_id = auth.uid()` |
+Row-Level Security (RLS) has been removed. The backend enforces per-user isolation at the application layer by scoping every query with an explicit `user_id` parameter. This applies to all reads, writes, background jobs, notifications, and exports.
 
-Additional rules:
+Key rules:
 
-- No table in this document may expose anonymous read or write access.
-- Backend code must keep explicit `user_id` scoping even when service-role credentials bypass RLS.
-- Background jobs, notifications, and exports must resolve and persist data within the authenticated user's ownership boundary only.
+- Every repository query includes `WHERE user_id = %s` (or equivalent) derived from the authenticated JWT.
+- No endpoint, background worker, or notification path may access data outside the authenticated user's boundary.
+- The database connection pool uses a single application-level role; there is no per-user database role.
 
 ## Implementation Notes
 

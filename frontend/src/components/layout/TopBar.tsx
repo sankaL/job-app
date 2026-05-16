@@ -7,7 +7,7 @@ import { useToast } from "@/components/ui/toast";
 import { useAppContext } from "@/components/layout/AppContext";
 import { clearNotifications, type NotificationSummary } from "@/lib/api";
 import { invalidateNotificationQueries, queryKeys, useNotificationsQuery } from "@/lib/queries";
-import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 
 function formatNotificationTimestamp(createdAt: string) {
   const createdDate = new Date(createdAt);
@@ -69,6 +69,7 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { bootstrap, needsActionCount } = useAppContext();
+  const { logout } = useAuth();
   const { toast } = useToast();
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -109,9 +110,7 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   }, []);
 
   async function handleSignOut() {
-    const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    window.location.assign("/login");
+    await logout();
   }
 
   function toggleNotifications() {
