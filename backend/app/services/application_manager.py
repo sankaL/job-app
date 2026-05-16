@@ -2075,7 +2075,6 @@ class ApplicationService:
             input_signature=callback_input_signature or current_input_signature,
             draft_updated_at=payload.evaluated_draft_updated_at,
             job_context_signature=callback_job_context_signature or current_job_context_signature,
-            draft_last_exported_at=draft.last_exported_at,
         )
 
         if payload.event == "started":
@@ -2805,7 +2804,6 @@ class ApplicationService:
         input_signature: Optional[str] = None,
         draft_updated_at: str,
         job_context_signature: str,
-        draft_last_exported_at: Optional[str] = None,
     ) -> int:
         if not isinstance(resume_judge_result, dict) or not resume_judge_result:
             return 0
@@ -2817,7 +2815,6 @@ class ApplicationService:
             elif not cls._legacy_resume_judge_result_matches_current(
                 resume_judge_result,
                 draft_updated_at=draft_updated_at,
-                draft_last_exported_at=draft_last_exported_at,
             ):
                 return 0
         elif str(resume_judge_result.get("evaluated_draft_updated_at") or "") != draft_updated_at:
@@ -2963,14 +2960,11 @@ class ApplicationService:
         resume_judge_result: Optional[dict[str, Any]],
         *,
         draft_updated_at: str,
-        draft_last_exported_at: Optional[str],
     ) -> bool:
         if not isinstance(resume_judge_result, dict) or not resume_judge_result:
             return False
         evaluated_draft_updated_at = str(resume_judge_result.get("evaluated_draft_updated_at") or "")
         if evaluated_draft_updated_at == draft_updated_at:
-            return True
-        if draft_last_exported_at and draft_last_exported_at == draft_updated_at:
             return True
         return False
 
@@ -2995,7 +2989,6 @@ class ApplicationService:
         return not self._legacy_resume_judge_result_matches_current(
             resume_judge_result,
             draft_updated_at=draft.updated_at,
-            draft_last_exported_at=draft.last_exported_at,
         )
 
     def _resume_judge_response_payload(
@@ -3056,7 +3049,6 @@ class ApplicationService:
             input_signature=input_signature,
             draft_updated_at=draft.updated_at,
             job_context_signature=current_job_context_signature,
-            draft_last_exported_at=draft.last_exported_at,
         )
         if force and current_run_attempt_count >= RESUME_JUDGE_RUN_LIMIT_PER_DRAFT:
             raise PermissionError(
@@ -3274,14 +3266,11 @@ class ApplicationService:
         target_length = str(draft.generation_params.get("page_length") or "1_page")
         if target_length not in {"2_page", "3_page"}:
             return []
-        base_resume_id = str(draft.generation_params.get("base_resume_id") or record.base_resume_id or "").strip()
-        if not base_resume_id:
-            return []
-        base_resume = self.base_resume_repository.fetch_resume(record.user_id, base_resume_id)
-        if base_resume is None:
+        base_resume_content = self._resolve_resume_judge_base_resume_content(record=record, draft=draft)
+        if not base_resume_content:
             return []
 
-        sanitized_base = sanitize_resume_markdown(base_resume.content_md).sanitized_markdown
+        sanitized_base = sanitize_resume_markdown(base_resume_content).sanitized_markdown
         sanitized_draft = sanitize_resume_markdown(draft.content_md).sanitized_markdown
         assessment = assess_resume_length(
             generated_text=sanitized_draft,
