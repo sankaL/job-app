@@ -1,7 +1,7 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-04-19
+**Last updated:** 2026-05-16
 **Sources:** `agents/generation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
@@ -37,6 +37,7 @@ Resume Judge is a dedicated post-generation evaluator. It runs after initial gen
 - The judge allows one primary-model attempt and one fallback-model attempt. If the provider rejects the configured reasoning field, the same model is retried once without reasoning before moving on.
 - Judge failure is fail-open for the application workflow: score state is stored, but resume export, editing, and visible status remain usable.
 - Manual Resume Judge re-runs are capped at three queued runs for the same draft and job context. The persisted `resume_judge_result.run_attempt_count` tracks job-level runs for the current draft only; it remains separate from provider/model `attempt_count`, which still records per-run LLM attempt diagnostics.
+- Backend and worker orchestration now compute a semantic `input_signature` from normalized draft markdown, normalized job context, target generation settings, and the effective base-resume fingerprint. Callback acceptance and stale-state decisions use that signature so PDF/DOCX export and other non-semantic draft-row writes do not prematurely stale a valid score.
 - Worker callback delivery now tries the configured `BACKEND_API_URL` first, then Railway-safe backend URL candidates when production callback config still points at the stale internal `:8000` port.
 
 ### Privacy and input rules
@@ -127,6 +128,7 @@ The application computes the final persisted result locally after parsing the mo
   - `pass >= 80`
   - `warn = 60-79.9`
   - `fail < 60`
+- If deterministic observations show the draft is outside the selected target range, `length_and_density` is capped locally (`4` when under-target without source-limited allowance, `7` when source-limited). Under-target non-source-limited drafts are forced to at least `warn` and include `length_and_density` in regeneration priorities.
 - For `pass`, regeneration fields are cleared locally even if the model returned text.
 - Priority dimensions are re-sorted locally so the weakest highest-impact dimensions appear first.
 
@@ -278,7 +280,7 @@ Deterministic validation note:
 Validator carve-out:
 
 - medium and high aggressiveness allow Professional Experience role-title rewrites only in that section; the general unsupported-claim check skips role-title grounding there and nowhere else
-- When deterministic validation fails after a successful model response, the worker may run one repair-only prompt that preserves the original response contract, feeds the prior response back in, and provides a sanitized summary of validation failures. If the repaired output still fails deterministic validation, the workflow fails closed.
+- When deterministic validation fails after a successful model response, the worker may run one repair-only prompt that preserves the original response contract, feeds the prior response back in, and provides a sanitized summary of validation failures. Length-underfilled repairs must expand only by restoring grounded source-resume material. If the repaired output still fails deterministic validation, the workflow fails closed.
 - Medium and high add one extra heuristic validation check: when Professional Experience is enabled, the first up to 2 source-ordered roles with bullets must show visible tailoring. Medium needs at least 1 rewritten bullet or 1 grounded title rewrite across those checked roles; high needs at least 2 rewritten bullets, or 1 rewritten bullet plus 1 grounded title rewrite, except that sparse source experience with only 1 checked bullet can satisfy the rule with that 1 rewritten bullet.
 
 #### Shared target-length rules
@@ -288,6 +290,8 @@ Validator carve-out:
 | `1_page` | `450-700 words` | `850` | `40-70 words` | `4` | `2` |
 | `2_page` | `900-1400 words` | `1600` | `50-90 words` | `5` | `3` |
 | `3_page` | `1500-2100 words` | `2400` | `60-110 words` | `6` | `4` |
+
+Deterministic validation treats the selected length as a content target. Over-hard-cap drafts fail. Under-target drafts fail only when they are also below the source-aware minimum: `min(target_min, floor(sanitized_base_resume_word_count * 0.80))`. Drafts below the target range but at or above that source-aware minimum are valid with a `source_limited_length` warning instead of being padded.
 
 #### Shared full-draft human payload
 
@@ -519,6 +523,9 @@ Length contract ({{target_length_label}}):
 - Summary target when light cleanup makes it possible without substantive pruning: {{summary_range}}.
 - Preserve existing Professional Experience bullet counts unless the source already fits the target without removing grounded content.
 - Preserve existing Skills content and grouping. Do not prune or regroup skills to satisfy length guidance in low-aggressiveness mode.
+- For 2-page and 3-page targets, treat this as a content target. Before returning a shorter draft, restore relevant grounded source material first.
+- For 2-page and 3-page targets, expand by preserving omitted source bullets, quantified outcomes, leadership/process details, older-role accomplishments, and richer skills grouping when they support the target role.
+- Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.
 - Education should remain concise.
 - If the source resume is already longer than the target, prefer minimal truthful cleanup over aggressive shortening.
 ```
@@ -614,6 +621,9 @@ Length contract ({{target_length_label}}):
 - Summary target: {{summary_range}}.
 - Professional Experience: cap bullets at {{max_experience_bullets_per_role}} per role. Reduce older or less relevant content first.
 - Skills: cap category groups at {{max_skills_categories}} and prioritize relevance over completeness.
+- For 2-page and 3-page targets, treat this as a content target. Before returning a shorter draft, restore relevant grounded source material first.
+- For 2-page and 3-page targets, expand by preserving omitted source bullets, quantified outcomes, leadership/process details, older-role accomplishments, and richer skills grouping when they support the target role.
+- Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.
 - Education should remain concise.
 - If the source resume does not contain enough grounded material to fill the target range, produce a shorter truthful output instead of padding or repeating content.
 ```
@@ -714,6 +724,9 @@ Length contract ({{target_length_label}}):
 - Summary target: {{summary_range}}.
 - Professional Experience: cap bullets at {{max_experience_bullets_per_role}} per role. Reduce older or less relevant content first.
 - Skills: cap category groups at {{max_skills_categories}} and prioritize relevance over completeness.
+- For 2-page and 3-page targets, treat this as a content target. Before returning a shorter draft, restore relevant grounded source material first.
+- For 2-page and 3-page targets, expand by preserving omitted source bullets, quantified outcomes, leadership/process details, older-role accomplishments, and richer skills grouping when they support the target role.
+- Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.
 - Education should remain concise.
 - If the source resume does not contain enough grounded material to fill the target range, produce a shorter truthful output instead of padding or repeating content.
 ```

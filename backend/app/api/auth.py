@@ -49,6 +49,10 @@ REFRESH_COOKIE_NAME = "refresh_token"
 REFRESH_COOKIE_PATH = "/api/auth"
 
 
+def _refresh_cookie_samesite(settings: Settings) -> str:
+    return "lax" if settings.is_local_dev_mode else "none"
+
+
 def _set_refresh_cookie(*, response: Response, token: str, max_age: int, settings: Settings) -> None:
     secure = not settings.is_local_dev_mode
     response.set_cookie(
@@ -58,7 +62,7 @@ def _set_refresh_cookie(*, response: Response, token: str, max_age: int, setting
         path=REFRESH_COOKIE_PATH,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite=_refresh_cookie_samesite(settings),
     )
 
 

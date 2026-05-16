@@ -188,6 +188,7 @@ def test_login_success():
     # Refresh cookie should be set
     assert "refresh_token" in response.cookies
     assert "Secure" in response.headers["set-cookie"]
+    assert "SameSite=none" in response.headers["set-cookie"]
 
     app.dependency_overrides.clear()
 
@@ -207,6 +208,7 @@ def test_login_uses_email_only_auth_in_local_dev_mode():
     assert response.status_code == 200
     assert "refresh_token" in response.cookies
     assert "Secure" not in response.headers["set-cookie"]
+    assert "SameSite=lax" in response.headers["set-cookie"]
 
     app.dependency_overrides.clear()
 

@@ -22,6 +22,7 @@ from experience_contract import (
     normalize_education_section,
     normalize_professional_experience_section,
 )
+from length_policy import TARGET_LENGTH_CONFIGS, prompt_config
 from privacy import sanitize_resume_markdown
 
 logger = logging.getLogger(__name__)
@@ -69,30 +70,8 @@ SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
 DEFAULT_GENERATION_REASONING_EFFORT = "none"
 
 TARGET_LENGTH_GUIDANCE: dict[str, dict[str, Any]] = {
-    "1_page": {
-        "label": "1 page",
-        "target_range": "450-700 words",
-        "hard_cap": 850,
-        "summary_range": "40-70 words",
-        "experience_bullets": 4,
-        "skills_categories": 2,
-    },
-    "2_page": {
-        "label": "2 pages",
-        "target_range": "900-1400 words",
-        "hard_cap": 1600,
-        "summary_range": "50-90 words",
-        "experience_bullets": 5,
-        "skills_categories": 3,
-    },
-    "3_page": {
-        "label": "3 pages",
-        "target_range": "1500-2100 words",
-        "hard_cap": 2400,
-        "summary_range": "60-110 words",
-        "experience_bullets": 6,
-        "skills_categories": 4,
-    },
+    target_length: prompt_config(target_length)
+    for target_length in TARGET_LENGTH_CONFIGS
 }
 
 AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
@@ -534,6 +513,13 @@ def _build_aggressiveness_block(*, aggressiveness: str) -> str:
 
 def _build_length_block(*, target_length: str, aggressiveness: str) -> str:
     config = TARGET_LENGTH_GUIDANCE.get(target_length, TARGET_LENGTH_GUIDANCE["1_page"])
+    source_expansion_rules = ""
+    if target_length in {"2_page", "3_page"}:
+        source_expansion_rules = (
+            "- Treat this as a content target. Before returning a shorter draft, restore relevant grounded source material first.\n"
+            "- Expand by preserving omitted source bullets, quantified outcomes, leadership/process details, older-role accomplishments, and richer skills grouping when they support the target role.\n"
+            "- Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.\n"
+        )
     if aggressiveness == "low":
         return (
             f"Length contract ({config['label']}):\n"
@@ -542,6 +528,7 @@ def _build_length_block(*, target_length: str, aggressiveness: str) -> str:
             f"- Summary target when light cleanup makes it possible without substantive pruning: {config['summary_range']}.\n"
             "- Preserve existing Professional Experience bullet counts unless the source already fits the target without removing grounded content.\n"
             "- Preserve existing Skills content and grouping. Do not prune or regroup skills to satisfy length guidance in low-aggressiveness mode.\n"
+            f"{source_expansion_rules}"
             "- Education should remain concise.\n"
             "- If the source resume is already longer than the target, prefer minimal truthful cleanup over aggressive shortening.\n"
         )
@@ -552,6 +539,7 @@ def _build_length_block(*, target_length: str, aggressiveness: str) -> str:
         f"- Summary target: {config['summary_range']}.\n"
         f"- Professional Experience: cap bullets at {config['experience_bullets']} per role. Reduce older or less relevant content first.\n"
         f"- Skills: cap category groups at {config['skills_categories']} and prioritize relevance over completeness.\n"
+        f"{source_expansion_rules}"
         "- Education should remain concise.\n"
         "- If the source resume does not contain enough grounded material to fill the target range, produce a shorter truthful output instead of padding or repeating content.\n"
     )
@@ -1148,6 +1136,15 @@ def _build_validation_repair_prompt(
         or "insufficient professional experience tailoring" in str(error).lower()
         for error in validation_errors
     )
+    requires_length_repair = any(
+        (
+            isinstance(error, dict)
+            and str(error.get("type") or "").strip() == "length_underfilled"
+        )
+        or "below the source-aware minimum" in str(error).lower()
+        or "underfilled" in str(error).lower()
+        for error in validation_errors
+    )
     repair_task = (
         "Repair the previous response so it satisfies the deterministic validation rules. "
         "Keep all content grounded in the sanitized base resume and preserve the original response contract."
@@ -1156,6 +1153,12 @@ def _build_validation_repair_prompt(
         repair_task += (
             " The repair must materially rewrite Professional Experience in the first up to 2 source-ordered roles with bullets. "
             "Do not satisfy this repair by changing only Summary or Skills."
+        )
+    if requires_length_repair:
+        repair_task += (
+            " The repair must expand the draft only by restoring grounded source-resume material: omitted relevant bullets, "
+            "quantified outcomes, leadership or process details, older-role accomplishments, and skills already supported by the source. "
+            "Do not add padding, repeated claims, generic filler, or unsupported job-description-only facts."
         )
     repair_payload = {
         "repair_task": repair_task,

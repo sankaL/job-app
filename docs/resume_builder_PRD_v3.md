@@ -363,7 +363,7 @@ Before initial generation, the user configures:
 **Settings UI note:** The Generation Settings card may stay compact as long as the full low, medium, and high behavior breakdown remains available inline through a tooltip or popover. When High is selected, the UI must also show an inline warning that this mode can make substantial changes and should be used only when the user wants a more aggressive rewrite and will review the result carefully.
 For medium and high runs, the application detail workspace must preserve an explicit review path for job-description-driven additions that are not explicit in the source resume. In MVP, that review path is the compare workflow, which lets the user inspect the tailored draft beside the generation-time base resume before applying or exporting.
 
-**Length note:** Page count is a target, not a guarantee. The system optimizes toward the selected length; final pagination may vary slightly based on content and formatting.
+**Length note:** Page count is a content target, not a visual page-fill guarantee. The system optimizes toward the selected word range, retries underfilled drafts when the source resume can support more grounded detail, and may approve a shorter draft with a clear source-limited warning when filling the selected length would require padding or invented facts. Final pagination may vary based on content and formatting.
 
 ---
 

@@ -1152,11 +1152,14 @@ async def test_run_resume_judge_job_posts_started_and_succeeded_callbacks(monkey
         generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
         evaluated_draft_updated_at="2026-04-07T12:10:00+00:00",
         job_context_signature="backend engineer\x1facme\x1fbuild apis",
+        input_signature="sig-judge-1",
     )
 
     assert [payload["event"] for payload in callback_payloads] == ["started", "succeeded"]
     assert callback_payloads[0]["job_context_signature"] == "backend engineer\x1facme\x1fbuild apis"
+    assert callback_payloads[0]["input_signature"] == "sig-judge-1"
     assert callback_payloads[-1]["result"]["job_context_signature"] == "backend engineer\x1facme\x1fbuild apis"
+    assert callback_payloads[-1]["result"]["input_signature"] == "sig-judge-1"
     assert callback_payloads[-1]["result"]["display_score"] == 84
 
 
@@ -1197,14 +1200,16 @@ async def test_run_resume_judge_job_posts_failure_payload_on_error(monkeypatch):
         base_resume_content="## Summary\nBuilt APIs.\n",
         generated_resume_content="# Resume",
         generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
-        evaluated_draft_updated_at="2026-04-07T12:10:00+00:00",
-        job_context_signature="backend engineer\x1facme\x1fbuild apis",
-    )
+            evaluated_draft_updated_at="2026-04-07T12:10:00+00:00",
+            job_context_signature="backend engineer\x1facme\x1fbuild apis",
+            input_signature="sig-judge-2",
+        )
 
     assert [payload["event"] for payload in callback_payloads] == ["started", "failed"]
     failure_result = callback_payloads[-1]["failure"]["result"]
     assert failure_result["status"] == "failed"
     assert failure_result["job_context_signature"] == "backend engineer\x1facme\x1fbuild apis"
+    assert failure_result["input_signature"] == "sig-judge-2"
     assert failure_result["error"]["error_type"] == "RuntimeError"
 
 

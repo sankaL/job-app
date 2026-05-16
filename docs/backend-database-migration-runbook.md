@@ -257,17 +257,21 @@ This runbook applies whenever backend or database work changes schema, compatibi
 - This migration adds `applications.resume_judge_result jsonb` to store the latest Resume Judge lifecycle state and score for the current draft.
 - Rollout order for this change:
   1. Apply the additive migration.
-  2. Deploy backend and worker code that queues Resume Judge jobs, persists queued/running/succeeded/failed states, and ignores stale callbacks using `evaluated_draft_updated_at`.
-  3. Deploy frontend score-tile and breakdown-dialog UI that reads `resume_judge_result` directly from the application payload.
+  2. Deploy backend and worker code that queues Resume Judge jobs, persists queued/running/succeeded/failed states, and ignores stale callbacks using semantic `input_signature` matching rather than draft-row `updated_at` alone.
+  3. Deploy frontend score-tile and breakdown-dialog UI that reads `resume_judge_result` directly from the application payload, including the backend-computed `is_stale` flag.
 - No backfill is required. Existing applications may keep `NULL` `resume_judge_result` until a new generation, regeneration, or manual judge run occurs.
+- No new SQL migration is required for the semantic-freshness follow-up. The backend may add `input_signature` to newly written `resume_judge_result` payloads and opportunistically backfill current legacy results during export or later judge runs.
 - Read paths must stay compatible with mixed rows where:
   - no judge result exists yet
   - a judge result exists for an older draft and must be treated as stale
   - a judge result predates the `run_attempt_count` JSON contract and must default safely without breaking rerun caps for newer writes
+  - a judge result predates the `input_signature` JSON contract and must still remain current across export-only timestamp writes when the semantic inputs have not changed
   - the last judge attempt failed but the application remains exportable and editable
 - Post-deploy verification should confirm:
   - initial generation, full regeneration, and section regeneration queue Resume Judge only after the new draft persists successfully
-  - stale judge callbacks do not overwrite scores for newer edited drafts
+  - stale judge callbacks do not overwrite scores for newer edited drafts or job-detail changes
+  - judge callbacks that return after PDF or DOCX export still persist when the semantic input signature matches
+  - PDF and DOCX export do not stale a current judge score solely because `resume_drafts.updated_at` changed during export bookkeeping
   - `resume_judge_result` never changes `visible_status`, `failure_reason`, or export availability
   - manual `POST /api/applications/{id}/judge` enqueues a fresh run for an existing ready draft
-  - manual `POST /api/applications/{id}/judge` stops accepting reruns after three queued attempts for the same draft
+  - manual `POST /api/applications/{id}/judge` stops accepting reruns after three queued attempts for the same semantic input signature

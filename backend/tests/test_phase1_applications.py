@@ -415,7 +415,12 @@ class FakeDraftRepository:
         draft = self.fetch_draft(user_id, application_id)
         if draft is None:
             raise LookupError("Resume draft not found.")
-        self.drafts[application_id] = draft.model_copy(update={"last_exported_at": "2026-04-07T12:12:00+00:00"})
+        self.drafts[application_id] = draft.model_copy(
+            update={
+                "last_exported_at": "2026-04-07T12:12:00+00:00",
+                "updated_at": "2026-04-07T12:12:00+00:00",
+            }
+        )
 
 
 class FakeBaseResumeRepository:
@@ -549,6 +554,38 @@ def test_application_repository_prepare_value_wraps_resume_judge_result_as_jsonb
     prepared = repository._prepare_value("resume_judge_result", {"status": "queued"})
 
     assert isinstance(prepared, Jsonb)
+
+
+def test_application_repository_prepare_value_strips_nul_bytes_from_text_fields():
+    repository = ApplicationRepository("postgresql://unused")
+
+    prepared = repository._prepare_value("job_description", "Build APIs\x00 and queues.")
+
+    assert prepared == "Build APIs and queues."
+
+
+def test_application_repository_prepare_value_strips_nul_bytes_from_jsonb_payloads():
+    repository = ApplicationRepository("postgresql://unused")
+
+    prepared = repository._prepare_value(
+        "generation_failure_details",
+        {
+            "message": "Provider returned bad text\x00.",
+            "attempts": [
+                {"model": "primary\x00", "error": "timed out\x00"},
+            ],
+            "meta\x00": "value\x00",
+        },
+    )
+
+    assert isinstance(prepared, Jsonb)
+    assert prepared.obj == {
+        "message": "Provider returned bad text.",
+        "attempts": [
+            {"model": "primary", "error": "timed out"},
+        ],
+        "meta": "value",
+    }
 
 
 @pytest.mark.asyncio
@@ -804,6 +841,55 @@ async def test_get_draft_with_review_flags_uses_generation_base_resume_id_when_s
     )
 
     assert review_flags == []
+
+
+@pytest.mark.asyncio
+async def test_get_draft_with_review_flags_marks_source_limited_length():
+    service, repository, _, _, _, _, drafts = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "base_resume_id": "resume-1",
+            "job_title": "Platform Engineer",
+            "company": "Acme",
+            "job_description": "Build reliable APIs.",
+        },
+    )
+    source_sentence = "Built reliable APIs for regulated financial platforms. "
+    service.base_resume_repository.add_resume(  # type: ignore[attr-defined]
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\n" + source_sentence * 105,
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\n" + source_sentence * 88,
+        generation_params={
+            "page_length": "2_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={
+            "enabled_sections": ["summary"],
+            "section_order": ["summary"],
+        },
+    )
+
+    _draft, review_flags = await service.get_draft_with_review_flags(
+        user_id="user-1",
+        application_id=created.id,
+    )
+
+    assert any(flag.reason == "source_limited_length" for flag in review_flags)
+    assert any("shorter than the selected 2-page target" in flag.text for flag in review_flags)
 
 
 @pytest.mark.asyncio
@@ -1903,6 +1989,44 @@ def test_cancel_extraction_endpoint_returns_200_for_owned_active_record():
     assert response.json()["extraction_failure_details"]["kind"] == "user_cancelled"
 
 
+def test_get_application_detail_endpoint_accepts_legacy_partial_extraction_failure_details():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/legacy-failure",
+        visible_status="needs_action",
+        internal_state="manual_entry_required",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "failure_reason": "extraction_failed",
+            "extraction_failure_details": {
+                "kind": "blocked_source",
+                "provider": "indeed",
+            },
+        },
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/applications/{created.id}",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["extraction_failure_details"] == {
+        "kind": "blocked_source",
+        "provider": "indeed",
+        "reference_id": None,
+        "blocked_url": None,
+        "detected_at": None,
+    }
+
+
 def test_cancel_extraction_endpoint_returns_404_for_missing_record():
     service, _, _, _, _, _, _ = build_service()
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
@@ -2398,6 +2522,140 @@ async def test_trigger_resume_judge_uses_generation_time_base_resume_snapshot():
         service.generation_job_queue.judge_jobs[0]["base_resume_content"]
         == "## Summary\nGeneration-time base resume.\n"
     )
+
+
+@pytest.mark.asyncio
+async def test_trigger_resume_judge_preserves_run_attempt_count_after_unchanged_save():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nBuilt reliable APIs.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-noop-save",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+        },
+    )
+    draft = drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    input_signature = service._resume_judge_input_signature(record=repository.fetch_application("user-1", created.id), draft=draft)
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "resume_judge_result": {
+                "status": "succeeded",
+                "display_score": 82,
+                "evaluated_draft_updated_at": draft.updated_at,
+                "job_context_signature": service._resume_judge_signature_for_record(
+                    repository.fetch_application("user-1", created.id)
+                ),
+                "input_signature": input_signature,
+                "run_attempt_count": 2,
+            },
+        },
+    )
+
+    await service.save_draft_edit(
+        user_id="user-1",
+        application_id=created.id,
+        content="# Resume",
+    )
+    detail = await service.trigger_resume_judge(user_id="user-1", application_id=created.id)
+
+    assert detail.application.resume_judge_result is not None
+    assert detail.application.resume_judge_result["status"] == "queued"
+    assert detail.application.resume_judge_result["run_attempt_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_save_draft_edit_marks_resume_judge_stale_when_signature_changes():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nBuilt reliable APIs.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-edit",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+        },
+    )
+    draft = drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "resume_judge_result": {
+                "status": "succeeded",
+                "display_score": 82,
+                "evaluated_draft_updated_at": draft.updated_at,
+                "job_context_signature": service._resume_judge_signature_for_record(
+                    repository.fetch_application("user-1", created.id)
+                ),
+                "input_signature": service._resume_judge_input_signature(
+                    record=repository.fetch_application("user-1", created.id),
+                    draft=draft,
+                ),
+                "run_attempt_count": 2,
+            },
+        },
+    )
+
+    await service.save_draft_edit(
+        user_id="user-1",
+        application_id=created.id,
+        content="# Resume\n\n## Summary\nUpdated summary",
+    )
+
+    updated = repository.fetch_application("user-1", created.id)
+    assert updated is not None
+    assert updated.resume_judge_result is not None
+    assert updated.resume_judge_result["status"] == "failed"
+    assert updated.resume_judge_result["failure_stage"] == "stale_draft"
+    assert "run_attempt_count" not in updated.resume_judge_result
 
 
 @pytest.mark.asyncio
@@ -3143,6 +3401,244 @@ async def test_export_docx_updates_status_notifications_and_timestamps(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_export_pdf_keeps_current_resume_judge_result_fresh(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, notifications, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/pdf-judge",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Own release quality.",
+            "base_resume_id": "resume-1",
+        },
+    )
+    draft = drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\nQuality engineer.\n",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "resume_judge_result": {
+                "status": "succeeded",
+                "display_score": 88,
+                "evaluated_draft_updated_at": draft.updated_at,
+                "job_context_signature": service._resume_judge_signature_for_record(
+                    repository.fetch_application("user-1", created.id)
+                ),
+            },
+        },
+    )
+
+    async def fake_generate_pdf(*args, **kwargs):
+        return b"pdf-bytes"
+
+    monkeypatch.setattr(application_manager_service, "generate_pdf", fake_generate_pdf)
+
+    export_bytes, filename = await service.export_pdf(
+        user_id="user-1",
+        application_id=created.id,
+    )
+
+    updated_record = repository.fetch_application("user-1", created.id)
+    updated_draft = drafts.fetch_draft("user-1", created.id)
+    detail = await service.get_application_detail(user_id="user-1", application_id=created.id)
+
+    assert export_bytes == b"pdf-bytes"
+    assert filename.endswith(".pdf")
+    assert updated_record is not None
+    assert updated_record.resume_judge_result is not None
+    assert updated_record.resume_judge_result["input_signature"]
+    assert updated_draft is not None
+    assert updated_draft.updated_at == updated_draft.last_exported_at
+    assert detail.resume_judge_result is not None
+    assert detail.resume_judge_result["is_stale"] is False
+    assert notifications.notifications[-1]["message"] == "PDF export completed successfully."
+
+
+@pytest.mark.asyncio
+async def test_export_docx_keeps_current_resume_judge_result_fresh(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/docx-judge",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Own release quality.",
+            "base_resume_id": "resume-1",
+        },
+    )
+    draft = drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\nQuality engineer.\n",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "resume_judge_result": {
+                "status": "succeeded",
+                "display_score": 88,
+                "evaluated_draft_updated_at": draft.updated_at,
+                "job_context_signature": service._resume_judge_signature_for_record(
+                    repository.fetch_application("user-1", created.id)
+                ),
+            },
+        },
+    )
+
+    async def fake_generate_docx(*args, **kwargs):
+        return b"docx-bytes"
+
+    monkeypatch.setattr(application_manager_service, "generate_docx", fake_generate_docx)
+
+    await service.export_docx(user_id="user-1", application_id=created.id)
+
+    detail = await service.get_application_detail(user_id="user-1", application_id=created.id)
+
+    assert detail.resume_judge_result is not None
+    assert detail.resume_judge_result["is_stale"] is False
+
+
+@pytest.mark.asyncio
+async def test_handle_resume_judge_callback_accepts_matching_signature_after_export(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nBuilt reliable APIs.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/judge-export-callback",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "job_description": "Build APIs",
+            "base_resume_id": "resume-1",
+        },
+    )
+    draft = drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Resume",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "base_resume_id": "resume-1",
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    current_record = repository.fetch_application("user-1", created.id)
+    assert current_record is not None
+    input_signature = service._resume_judge_input_signature(record=current_record, draft=draft)
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "resume_judge_result": {
+                "status": "queued",
+                "message": "Resume Judge is queued.",
+                "evaluated_draft_updated_at": draft.updated_at,
+                "job_context_signature": service._resume_judge_signature_for_record(current_record),
+                "input_signature": input_signature,
+                "run_attempt_count": 1,
+            },
+        },
+    )
+
+    async def fake_generate_pdf(*args, **kwargs):
+        return b"pdf-bytes"
+
+    monkeypatch.setattr(application_manager_service, "generate_pdf", fake_generate_pdf)
+    await service.export_pdf(user_id="user-1", application_id=created.id)
+
+    updated = await service.handle_resume_judge_callback(
+        ResumeJudgeCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "judge-job-after-export",
+                "event": "succeeded",
+                "evaluated_draft_updated_at": draft.updated_at,
+                "input_signature": input_signature,
+                "result": {
+                    "status": "succeeded",
+                    "final_score": 81.2,
+                    "display_score": 81,
+                    "verdict": "pass",
+                    "pass_threshold": 80,
+                    "score_summary": "Strong fit.",
+                    "dimension_scores": {
+                        "role_alignment": {"score": 8, "weight": 0.25, "weighted_contribution": 20.0, "notes": "Aligned."},
+                        "specificity_and_concreteness": {"score": 8, "weight": 0.2, "weighted_contribution": 16.0, "notes": "Specific."},
+                        "voice_and_human_quality": {"score": 8, "weight": 0.2, "weighted_contribution": 16.0, "notes": "Natural."},
+                        "grounding_integrity": {"score": 8, "weight": 0.2, "weighted_contribution": 16.0, "notes": "Grounded."},
+                        "ats_safety_and_formatting": {"score": 8, "weight": 0.1, "weighted_contribution": 8.0, "notes": "Clean."},
+                        "length_and_density": {"score": 5, "weight": 0.05, "weighted_contribution": 2.5, "notes": "Dense enough."},
+                    },
+                    "regeneration_instructions": None,
+                    "regeneration_priority_dimensions": [],
+                    "evaluator_notes": "Solid draft.",
+                    "evaluated_draft_updated_at": draft.updated_at,
+                    "input_signature": input_signature,
+                    "scored_at": "2026-04-07T12:12:00+00:00",
+                },
+            }
+        )
+    )
+
+    assert updated.resume_judge_result is not None
+    assert updated.resume_judge_result["status"] == "succeeded"
+    assert updated.resume_judge_result["input_signature"] == input_signature
+
+
+@pytest.mark.asyncio
 async def test_export_docx_failure_sets_export_failed_and_uses_docx_copy(monkeypatch):
     drafts = FakeDraftRepository()
     service, repository, notifications, _, _, email_sender, drafts = build_service(draft_repository=drafts)
@@ -3744,7 +4240,7 @@ async def test_get_progress_recovers_generation_success_from_cached_result_when_
     assert updated.failure_reason is None
     draft = draft_repository.fetch_draft("user-1", created.id)
     assert draft is not None
-    assert draft.content_md == "# Test Resume"
+    assert draft.content_md == "# Test Resume\n"
     assert created.id not in progress_store.generation_results
     assert notifications.notifications[-1]["notification_type"] == "success"
 
@@ -3820,7 +4316,7 @@ async def test_generation_success_cache_recovery_consumes_cached_payload_once_ac
     assert created.id not in progress_store.generation_results
     draft = draft_repository.fetch_draft("user-1", created.id)
     assert draft is not None
-    assert draft.content_md == "# Test Resume"
+    assert draft.content_md == "# Test Resume\n"
 
 
 @pytest.mark.asyncio

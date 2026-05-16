@@ -18,9 +18,9 @@ export const visibleStatusLabels = {
 } as const;
 
 export const PAGE_LENGTH_OPTIONS = [
-  { value: "1_page", label: "1 Page", description: "Target 450-700 words with an 850-word hard cap." },
-  { value: "2_page", label: "2 Pages", description: "Target 900-1400 words with a 1600-word hard cap." },
-  { value: "3_page", label: "3 Pages", description: "Target 1500-2100 words with a 2400-word hard cap." },
+  { value: "1_page", label: "1 Page", description: "Target 450-700 words; may be shorter when source material is limited." },
+  { value: "2_page", label: "2 Pages", description: "Target 900-1400 words; may be shorter when source material is limited." },
+  { value: "3_page", label: "3 Pages", description: "Target 1500-2100 words; may be shorter when source material is limited." },
 ] as const;
 
 export const AGGRESSIVENESS_OPTIONS = [

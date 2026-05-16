@@ -169,10 +169,10 @@ class DuplicateWarning(BaseModel):
 
 class ExtractionFailureDetails(BaseModel):
     kind: str
-    provider: Optional[str]
-    reference_id: Optional[str]
-    blocked_url: Optional[str]
-    detected_at: str
+    provider: Optional[str] = None
+    reference_id: Optional[str] = None
+    blocked_url: Optional[str] = None
+    detected_at: Optional[str] = None
 
 
 class ApplicationSummary(BaseModel):
@@ -433,8 +433,8 @@ def to_application_detail(payload: ApplicationDetailPayload) -> ApplicationDetai
         ),
         generation_failure_details=record.generation_failure_details,
         resume_judge_result=(
-            ResumeJudgeResultPayload.model_validate(record.resume_judge_result)
-            if record.resume_judge_result
+            ResumeJudgeResultPayload.model_validate(payload.resume_judge_result)
+            if payload.resume_judge_result
             else None
         ),
         duplicate_warning=to_duplicate_warning(payload.duplicate_warning),
