@@ -1,5 +1,5 @@
-import type React from "react";
-import { render, screen } from "@testing-library/react";
+import { StrictMode, type ReactElement } from "react";
+import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,7 +22,7 @@ async function loadAuthFixtures(appEnv = "development", appDevMode = false) {
       import("@/lib/workflow-contract"),
     ]);
 
-  function renderWithAuth(element: React.ReactElement) {
+  function renderWithAuth(element: ReactElement) {
     return render(<AuthProvider><MemoryRouter>{element}</MemoryRouter></AuthProvider>);
   }
 
@@ -130,8 +130,8 @@ describe("frontend phase 0 auth shell", () => {
       "http://localhost:8000/api/auth/refresh",
       expect.objectContaining({
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
         method: "POST",
+        signal: expect.any(AbortSignal),
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -139,6 +139,78 @@ describe("frontend phase 0 auth shell", () => {
       "http://localhost:8000/api/auth/me",
       expect.objectContaining({
         headers: { Authorization: "Bearer token-123" },
+      }),
+    );
+  });
+
+  it("restores an existing session after a protected-route refresh in React StrictMode", async () => {
+    const { AuthProvider, ProtectedRoute } = await loadAuthFixtures("development", true);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input) => {
+      const url = input.toString();
+      if (url.endsWith("/api/auth/refresh")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              access_token: "token-123",
+              token_type: "bearer",
+              expires_in: 900,
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      if (url.endsWith("/api/auth/me")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              id: "user-1",
+              email: "invite-only@example.com",
+            }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      }
+
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(
+      <StrictMode>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/app"]}>
+            <Routes>
+              <Route path="/login" element={<div>Login screen</div>} />
+              <Route
+                path="/app"
+                element={
+                  <ProtectedRoute>
+                    <div>Protected workspace</div>
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>
+      </StrictMode>,
+    );
+
+    expect(screen.getByText(/checking your invite-only session/i)).toBeInTheDocument();
+    expect(await screen.findByText("Protected workspace")).toBeInTheDocument();
+    expect(screen.queryByText("Login screen")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/auth/refresh",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+        signal: expect.any(AbortSignal),
       }),
     );
   });
@@ -179,10 +251,50 @@ describe("frontend phase 0 auth shell", () => {
       "http://localhost:8000/api/auth/refresh",
       expect.objectContaining({
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
         method: "POST",
+        signal: expect.any(AbortSignal),
       }),
     );
+  });
+
+  it("returns to login when the protected-route refresh request hangs", async () => {
+    const { AuthProvider, ProtectedRoute } = await loadAuthFixtures("development", true);
+    vi.useFakeTimers();
+    vi.mocked(fetch).mockImplementation((_, init) => {
+      const signal = init?.signal;
+      return new Promise<Response>((_, reject) => {
+        signal?.addEventListener("abort", () => {
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        });
+      });
+    });
+
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/app"]}>
+          <Routes>
+            <Route path="/login" element={<div>Login screen</div>} />
+            <Route
+              path="/app"
+              element={
+                <ProtectedRoute>
+                  <div>Protected workspace</div>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+
+    expect(screen.getByText(/checking your invite-only session/i)).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_100);
+    });
+
+    expect(screen.getByText("Login screen")).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it("loads the shared workflow contract from the repo-level artifact", async () => {

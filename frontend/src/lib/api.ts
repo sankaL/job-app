@@ -63,7 +63,7 @@ export type ExtractionFailureDetails = {
   provider: string | null;
   reference_id: string | null;
   blocked_url: string | null;
-  detected_at: string;
+  detected_at: string | null;
 };
 
 export type ApplicationSummary = {
@@ -134,6 +134,8 @@ export type ResumeJudgeResult = {
   evaluated_draft_updated_at?: string | null;
   scored_at?: string | null;
   job_context_signature?: string | null;
+  input_signature?: string | null;
+  is_stale?: boolean | null;
   failure_stage?: string | null;
   run_attempt_count?: number | null;
   attempt_count?: number | null;
@@ -191,7 +193,7 @@ export type ResumeDraft = {
   review_flags?: Array<{
     section_name: string;
     text: string;
-    reason: "job_description_only_addition";
+    reason: "job_description_only_addition" | "source_limited_length";
   }>;
   last_generated_at: string;
   last_exported_at: string | null;

@@ -13,6 +13,7 @@ from typing import Any, Optional
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from length_policy import TARGET_LENGTH_CONFIGS, assess_resume_length
 from privacy import CONTACT_URL_RE, EMAIL_RE, PHONE_RE, sanitize_resume_markdown
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,8 @@ PROMPT_LIMITS = {
 }
 
 TARGET_LENGTH_RANGES: dict[str, tuple[int, int]] = {
-    "1_page": (450, 700),
-    "2_page": (900, 1400),
-    "3_page": (1500, 2100),
+    target_length: (int(config["target_min"]), int(config["target_max"]))
+    for target_length, config in TARGET_LENGTH_CONFIGS.items()
 }
 
 DIMENSION_SPECS: list[tuple[str, Decimal]] = [
@@ -247,11 +247,16 @@ def _target_range(target_length: str) -> tuple[int, int]:
 
 def _deterministic_observations(
     *,
+    sanitized_base_resume_markdown: str,
     sanitized_generated_resume_markdown: str,
     target_length: str,
 ) -> dict[str, Any]:
-    target_min, target_max = _target_range(target_length)
-    word_count = _word_count(sanitized_generated_resume_markdown)
+    assessment = assess_resume_length(
+        generated_text=sanitized_generated_resume_markdown,
+        source_text=sanitized_base_resume_markdown,
+        target_length=target_length,
+    )
+    word_count = int(assessment["generated_word_count"])
     contact_leaks: list[str] = []
     if EMAIL_RE.search(sanitized_generated_resume_markdown):
         contact_leaks.append("email")
@@ -263,8 +268,11 @@ def _deterministic_observations(
     return {
         "word_count": word_count,
         "target_length": target_length,
-        "target_range_words": {"min": target_min, "max": target_max},
-        "outside_target_range": word_count < target_min or word_count > target_max,
+        "target_range_words": {"min": assessment["target_min"], "max": assessment["target_max"]},
+        "source_word_count": assessment["source_word_count"],
+        "source_aware_minimum": assessment["source_aware_minimum"],
+        "source_limited_length": assessment["source_limited_length"],
+        "outside_target_range": assessment["outside_target_range"],
         "em_dash_found": bool(EM_DASH_RE.search(sanitized_generated_resume_markdown)),
         "html_found": bool(HTML_RE.search(sanitized_generated_resume_markdown)),
         "table_found": bool(TABLE_RE.search(sanitized_generated_resume_markdown)),
@@ -491,24 +499,56 @@ def _finalize_response(
     response: JudgeModelResponse,
     evaluated_draft_updated_at: str,
     scored_at: str,
+    deterministic_observations: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     dimension_scores: dict[str, Any] = {}
     final_score = Decimal("0")
+    observations = deterministic_observations or {}
+    outside_target_range = bool(observations.get("outside_target_range"))
+    source_limited_length = bool(observations.get("source_limited_length"))
+    target_range_words = observations.get("target_range_words") or {}
+    word_count = observations.get("word_count")
+    force_length_priority = bool(
+        outside_target_range
+        and word_count is not None
+        and target_range_words.get("min") is not None
+        and int(word_count) < int(target_range_words["min"])
+        and not source_limited_length
+    )
     for name, weight in DIMENSION_SPECS:
         dimension = response.dimension_scores[name]
-        weighted = _round_decimal(Decimal(dimension.score) * weight * Decimal("10"), "0.1")
+        score = dimension.score
+        notes = dimension.notes
+        if name == "length_and_density" and outside_target_range:
+            score_cap = 7 if source_limited_length else 4
+            if score > score_cap:
+                score = score_cap
+                notes = (
+                    f"{notes} Deterministic length check capped this score because the draft is outside "
+                    "the selected target range."
+                )
+        weighted = _round_decimal(Decimal(score) * weight * Decimal("10"), "0.1")
         final_score += weighted
         dimension_scores[name] = {
-            "score": dimension.score,
+            "score": score,
             "weight": float(weight),
             "weighted_contribution": float(weighted),
-            "notes": dimension.notes,
+            "notes": notes,
         }
 
     final_score = _round_decimal(final_score, "0.1")
     verdict = "pass" if final_score >= DEFAULT_PASS_THRESHOLD else "warn" if final_score >= Decimal("60.0") else "fail"
+    if force_length_priority and verdict == "pass":
+        verdict = "warn"
     priority_dimensions = [] if verdict == "pass" else _sorted_priority_dimensions(response)
+    if force_length_priority and "length_and_density" not in priority_dimensions:
+        priority_dimensions = ["length_and_density", *priority_dimensions][:2]
     regeneration_instructions = None if verdict == "pass" else response.regeneration_instructions
+    if force_length_priority and not regeneration_instructions:
+        regeneration_instructions = (
+            "Expand the resume toward the selected target length using only grounded source-resume details. "
+            "Do not add filler, repeat claims, or invent unsupported facts."
+        )
 
     return {
         "status": "succeeded",
@@ -547,6 +587,7 @@ async def judge_resume(
     sanitized_base = sanitize_resume_markdown(base_resume_content).sanitized_markdown
     sanitized_generated = sanitize_resume_markdown(generated_resume_content).sanitized_markdown
     deterministic_observations = _deterministic_observations(
+        sanitized_base_resume_markdown=sanitized_base,
         sanitized_generated_resume_markdown=sanitized_generated,
         target_length=target_length,
     )
@@ -583,6 +624,7 @@ async def judge_resume(
                     response=payload,
                     evaluated_draft_updated_at=evaluated_draft_updated_at,
                     scored_at=scored_at,
+                    deterministic_observations=deterministic_observations,
                 ),
                 "model_used": model_name,
                 "attempt_diagnostics": attempts,

@@ -321,6 +321,7 @@ def build_resume_judge_success_payload(
     user_id: str,
     job_id: str,
     evaluated_draft_updated_at: str,
+    input_signature: str,
     resume_judge_result: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -329,6 +330,7 @@ def build_resume_judge_success_payload(
         "job_id": job_id,
         "event": "succeeded",
         "evaluated_draft_updated_at": evaluated_draft_updated_at,
+        "input_signature": input_signature,
         "result": resume_judge_result,
     }
 
@@ -339,6 +341,7 @@ def build_resume_judge_failure_payload(
     user_id: str,
     job_id: str,
     evaluated_draft_updated_at: str,
+    input_signature: str,
     resume_judge_result: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -347,6 +350,7 @@ def build_resume_judge_failure_payload(
         "job_id": job_id,
         "event": "failed",
         "evaluated_draft_updated_at": evaluated_draft_updated_at,
+        "input_signature": input_signature,
         "failure": {
             "message": resume_judge_result.get("message"),
             "result": resume_judge_result,
@@ -2256,6 +2260,7 @@ async def run_resume_judge_job(
     generation_settings: dict[str, Any],
     evaluated_draft_updated_at: str,
     job_context_signature: str,
+    input_signature: str,
 ) -> None:
     settings = WorkerSettingsEnv()
     callback = BackendCallbackClient(settings)
@@ -2277,6 +2282,7 @@ async def run_resume_judge_job(
             "event": "started",
             "evaluated_draft_updated_at": evaluated_draft_updated_at,
             "job_context_signature": job_context_signature,
+            "input_signature": input_signature,
         },
         path=RESUME_JUDGE_CALLBACK_PATH,
         app_id=application_id,
@@ -2319,6 +2325,7 @@ async def run_resume_judge_job(
         attempt_diagnostics = _sanitize_attempts(judge_result.get("attempt_diagnostics"))
         resume_judge_result = dict(judge_result["resume_judge_result"])
         resume_judge_result["job_context_signature"] = job_context_signature
+        resume_judge_result["input_signature"] = input_signature
         _log_generation_event(
             "llm_attempts_completed",
             workflow_kind="resume_judge",
@@ -2335,6 +2342,7 @@ async def run_resume_judge_job(
                 user_id=user_id,
                 job_id=job_id,
                 evaluated_draft_updated_at=evaluated_draft_updated_at,
+                input_signature=input_signature,
                 resume_judge_result=resume_judge_result,
             ),
             path=RESUME_JUDGE_CALLBACK_PATH,
@@ -2357,6 +2365,7 @@ async def run_resume_judge_job(
             "evaluated_draft_updated_at": evaluated_draft_updated_at,
             "scored_at": now_iso(),
             "job_context_signature": job_context_signature,
+            "input_signature": input_signature,
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
                 primary_model=settings.resume_judge_agent_model,
@@ -2381,6 +2390,7 @@ async def run_resume_judge_job(
                 user_id=user_id,
                 job_id=job_id,
                 evaluated_draft_updated_at=evaluated_draft_updated_at,
+                input_signature=input_signature,
                 resume_judge_result=failure_result,
             ),
             path=RESUME_JUDGE_CALLBACK_PATH,
@@ -2396,6 +2406,7 @@ async def run_resume_judge_job(
             "evaluated_draft_updated_at": evaluated_draft_updated_at,
             "scored_at": now_iso(),
             "job_context_signature": job_context_signature,
+            "input_signature": input_signature,
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
                 primary_model=settings.resume_judge_agent_model,
@@ -2421,6 +2432,7 @@ async def run_resume_judge_job(
                 user_id=user_id,
                 job_id=job_id,
                 evaluated_draft_updated_at=evaluated_draft_updated_at,
+                input_signature=input_signature,
                 resume_judge_result=failure_result,
             ),
             path=RESUME_JUDGE_CALLBACK_PATH,

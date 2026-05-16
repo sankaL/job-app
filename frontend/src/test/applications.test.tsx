@@ -1919,6 +1919,61 @@ describe("phase 1 applications UI", () => {
     expect(within(regenerateMenu).getByRole("menuitem", { name: /^full regen$/i })).toBeInTheDocument();
   });
 
+  it("shows a source-limited length warning on the generated draft", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nBuilt reliable APIs.",
+      generation_params: {
+        base_resume_id: "resume-1",
+        page_length: "2_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary"],
+        section_order: ["summary"],
+      },
+      review_flags: [
+        {
+          section_name: "length",
+          text: "This resume is shorter than the selected 2-page target because the base resume does not contain enough grounded material to fill it without padding.",
+          reason: "source_limited_length",
+        },
+      ],
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.fetchBaseResume.mockResolvedValue({
+      id: "resume-1",
+      name: "Default Resume",
+      content_md: "# Resume\n\n## Summary\nBuilt reliable APIs.",
+      is_default: true,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:00:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(await screen.findByText(/shorter than target/i)).toBeInTheDocument();
+    expect(screen.getByText(/shorter than the selected 2-page target/i)).toBeInTheDocument();
+  });
+
   it("opens compare mode, keeps generated edit mode available, and closes back to the default layout", async () => {
     api.fetchApplicationDetail.mockResolvedValue(
       buildApplicationDetail({
@@ -3311,6 +3366,129 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText(/a targeted rewrite should push this above the pass threshold/i)).toBeInTheDocument();
   });
 
+  it("keeps a completed resume judge score visible after export refresh when the backend marks it current", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail
+      .mockResolvedValueOnce(
+        buildApplicationDetail({
+          id: "app-1",
+          visible_status: "in_progress",
+          internal_state: "resume_ready",
+          resume_judge_result: {
+            status: "succeeded",
+            final_score: 77.6,
+            display_score: 78,
+            verdict: "warn",
+            pass_threshold: 80,
+            score_summary: "Strong alignment with a few voice issues.",
+            dimension_scores: {
+              role_alignment: { score: 8, weight: 0.25, weighted_contribution: 20, notes: "Aligned to the JD." },
+              specificity_and_concreteness: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Mostly specific." },
+              voice_and_human_quality: { score: 5, weight: 0.2, weighted_contribution: 10, notes: "Voice still feels templated." },
+              grounding_integrity: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Grounded." },
+              ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
+              length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable length." },
+            },
+            regeneration_instructions: "Tighten the summary voice.",
+            regeneration_priority_dimensions: ["voice_and_human_quality"],
+            evaluator_notes: "A targeted rewrite should push this above the pass threshold.",
+            evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+            scored_at: "2026-04-07T12:12:00Z",
+            is_stale: false,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        buildApplicationDetail({
+          id: "app-1",
+          visible_status: "complete",
+          internal_state: "resume_ready",
+          resume_judge_result: {
+            status: "succeeded",
+            final_score: 77.6,
+            display_score: 78,
+            verdict: "warn",
+            pass_threshold: 80,
+            score_summary: "Strong alignment with a few voice issues.",
+            dimension_scores: {
+              role_alignment: { score: 8, weight: 0.25, weighted_contribution: 20, notes: "Aligned to the JD." },
+              specificity_and_concreteness: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Mostly specific." },
+              voice_and_human_quality: { score: 5, weight: 0.2, weighted_contribution: 10, notes: "Voice still feels templated." },
+              grounding_integrity: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Grounded." },
+              ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
+              length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable length." },
+            },
+            regeneration_instructions: "Tighten the summary voice.",
+            regeneration_priority_dimensions: ["voice_and_human_quality"],
+            evaluator_notes: "A targeted rewrite should push this above the pass threshold.",
+            evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
+            scored_at: "2026-04-07T12:12:00Z",
+            is_stale: false,
+          },
+        }),
+      );
+    api.fetchDraft
+      .mockResolvedValueOnce({
+        id: "draft-1",
+        application_id: "app-1",
+        content_md: "# Resume\n\n## Summary\nGrounded summary",
+        generation_params: {
+          page_length: "1_page",
+          aggressiveness: "medium",
+          additional_instructions: "",
+        },
+        sections_snapshot: {
+          enabled_sections: ["summary", "professional_experience", "education", "skills"],
+          section_order: ["summary", "professional_experience", "education", "skills"],
+        },
+        last_generated_at: "2026-04-07T12:10:00Z",
+        last_exported_at: null,
+        updated_at: "2026-04-07T12:10:00Z",
+      })
+      .mockResolvedValueOnce({
+        id: "draft-1",
+        application_id: "app-1",
+        content_md: "# Resume\n\n## Summary\nGrounded summary",
+        generation_params: {
+          page_length: "1_page",
+          aggressiveness: "medium",
+          additional_instructions: "",
+        },
+        sections_snapshot: {
+          enabled_sections: ["summary", "professional_experience", "education", "skills"],
+          section_order: ["summary", "professional_experience", "education", "skills"],
+        },
+        last_generated_at: "2026-04-07T12:10:00Z",
+        last_exported_at: "2026-04-07T12:12:00Z",
+        updated_at: "2026-04-07T12:12:00Z",
+      });
+    api.exportPdf.mockResolvedValue({
+      blob: new Blob(["pdf"], { type: "application/pdf" }),
+      filename: "Alex_Example_resume_20260412_101500.pdf",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const judgeCard = await screen.findByTestId("resume-judge-card");
+    expect(within(judgeCard).getByText(/78\/100/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^export$/i }));
+    await user.click(screen.getByRole("menuitem", { name: /export pdf/i }));
+
+    await waitFor(() => expect(api.exportPdf).toHaveBeenCalledWith("app-1"));
+    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/exported .*2026/i)).toBeInTheDocument();
+
+    const refreshedJudgeCard = await screen.findByTestId("resume-judge-card");
+    expect(within(refreshedJudgeCard).getByText(/78\/100/i)).toBeInTheDocument();
+    expect(within(refreshedJudgeCard).queryByText(/^stale$/i)).not.toBeInTheDocument();
+  });
+
   it("renders an unscored left-rail judge card above the job description", async () => {
     api.fetchApplicationDetail.mockResolvedValue(
       buildApplicationDetail({
@@ -3482,6 +3660,7 @@ describe("phase 1 applications UI", () => {
           status: "queued",
           message: "Resume Judge is queued.",
           evaluated_draft_updated_at: "2026-04-07T12:08:00Z",
+          is_stale: true,
         },
       }),
     );
@@ -3542,6 +3721,7 @@ describe("phase 1 applications UI", () => {
           evaluator_notes: "This score predates the latest draft edits.",
           evaluated_draft_updated_at: "2026-04-07T12:08:00Z",
           scored_at: "2026-04-07T12:09:00Z",
+          is_stale: true,
         },
       }),
     );

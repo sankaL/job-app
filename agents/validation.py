@@ -12,6 +12,7 @@ from experience_contract import (
     validate_education_contract,
     validate_professional_experience_contract,
 )
+from length_policy import TARGET_LENGTH_CONFIGS, assess_resume_length
 from privacy import EMAIL_RE, PHONE_RE, URL_RE, sanitize_resume_markdown
 
 SECTION_DISPLAY_NAMES: dict[str, str] = {
@@ -35,9 +36,8 @@ CODE_FENCE_RE = re.compile(r"```")
 EM_DASH_RE = re.compile(r"—")
 
 TARGET_WORD_LIMITS = {
-    "1_page": 850,
-    "2_page": 1600,
-    "3_page": 2400,
+    target_length: int(config["hard_cap"])
+    for target_length, config in TARGET_LENGTH_CONFIGS.items()
 }
 SUPPORTING_SNIPPET_LIMITS = {
     "summary": (2, 4),
@@ -635,25 +635,81 @@ def _check_professional_experience_tailoring(
 def _check_length_guidance(
     *,
     generated_sections: list[dict[str, Any]],
+    sanitized_base_resume_content: str,
     generation_settings: Optional[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     if not generation_settings:
         return []
 
     target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
-    limit = TARGET_WORD_LIMITS.get(target_length)
-    if limit is None:
+    generated_text = "\n\n".join(str(section.get("content") or "") for section in generated_sections)
+    assessment = assess_resume_length(
+        generated_text=generated_text,
+        source_text=sanitized_base_resume_content,
+        target_length=target_length,
+    )
+    if assessment["above_hard_cap"]:
+        return [
+            {
+                "type": "length_mismatch",
+                "section": None,
+                "detail": (
+                    "Generated content is too long for the requested target length "
+                    f"({assessment['generated_word_count']} words > {assessment['hard_cap']})."
+                ),
+                "metadata": assessment,
+            }
+        ]
+
+    if target_length not in {"2_page", "3_page"}:
         return []
 
-    total_words = len(re.findall(r"\b\w+\b", "\n\n".join(str(section.get("content") or "") for section in generated_sections)))
-    if total_words <= limit:
-        return []
+    if assessment["below_target_min"] and assessment["below_source_aware_min"]:
+        return [
+            {
+                "type": "length_underfilled",
+                "section": None,
+                "detail": (
+                    "Generated content is too short for the requested target length and below the "
+                    "source-aware minimum "
+                    f"({assessment['generated_word_count']} words < "
+                    f"{assessment['source_aware_minimum']}). Expand using grounded source-resume detail only."
+                ),
+                "metadata": assessment,
+            }
+        ]
 
+    return []
+
+
+def _check_length_warnings(
+    *,
+    generated_sections: list[dict[str, Any]],
+    sanitized_base_resume_content: str,
+    generation_settings: Optional[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not generation_settings:
+        return []
+    target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
+    if target_length not in {"2_page", "3_page"}:
+        return []
+    generated_text = "\n\n".join(str(section.get("content") or "") for section in generated_sections)
+    assessment = assess_resume_length(
+        generated_text=generated_text,
+        source_text=sanitized_base_resume_content,
+        target_length=target_length,
+    )
+    if not assessment["source_limited_length"]:
+        return []
     return [
         {
-            "type": "length_mismatch",
+            "type": "source_limited_length",
             "section": None,
-            "detail": f"Generated content is too long for the requested target length ({total_words} words > {limit}).",
+            "detail": (
+                f"This resume is shorter than the selected {assessment['target_label']} target because "
+                "the base resume does not contain enough grounded material to fill it without padding."
+            ),
+            "metadata": assessment,
         }
     ]
 
@@ -733,12 +789,19 @@ async def validate_resume(
     all_errors.extend(
         _check_length_guidance(
             generated_sections=generated_sections,
+            sanitized_base_resume_content=sanitized_base_resume,
             generation_settings=generation_settings,
         )
+    )
+    all_warnings = _check_length_warnings(
+        generated_sections=generated_sections,
+        sanitized_base_resume_content=sanitized_base_resume,
+        generation_settings=generation_settings,
     )
 
     return {
         "valid": len(all_errors) == 0,
         "errors": all_errors,
+        "warnings": all_warnings,
         "auto_corrections": all_corrections,
     }

@@ -747,6 +747,23 @@ def test_build_validation_repair_prompt_adds_experience_tailoring_guidance():
     assert "Do not satisfy this repair by changing only Summary or Skills." in repair_payload["repair_task"]
 
 
+def test_build_validation_repair_prompt_adds_grounded_length_expansion_guidance():
+    prompt = generation._build_validation_repair_prompt(
+        prompt=[("system", "sys"), ("human", json.dumps({"response_contract": {}}))],
+        validation_errors=[
+            {
+                "type": "length_underfilled",
+                "detail": "Generated content is below the source-aware minimum.",
+            }
+        ],
+        prior_response={"sections": []},
+    )
+
+    repair_payload = json.loads(prompt[-1][1])
+    assert "restoring grounded source-resume material" in repair_payload["repair_task"]
+    assert "Do not add padding" in repair_payload["repair_task"]
+
+
 @pytest.mark.asyncio
 async def test_call_json_with_fallback_preserves_timeout_error(monkeypatch):
     async def fake_invoke_structured_output(**_kwargs):
@@ -1235,3 +1252,106 @@ async def test_validate_resume_rejects_when_section_needs_more_supporting_snippe
 
     error_types = {error["type"] for error in result["errors"]}
     assert "missing_support" in error_types
+
+
+def _repeated_summary(word_target: int) -> str:
+    sentence = "Built reliable APIs for regulated financial platforms. "
+    repeated = sentence * max(1, word_target // 7)
+    return "## Summary\n" + repeated
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_rejects_two_page_draft_below_source_aware_minimum():
+    source = _repeated_summary(735)
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "summary",
+                "heading": "Summary",
+                "content": _repeated_summary(440),
+                "supporting_snippets": [
+                    "Built reliable APIs for regulated financial platforms.",
+                    "Built reliable APIs for regulated financial platforms.",
+                ],
+            }
+        ],
+        base_resume_content=source,
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "2_page", "aggressiveness": "medium"},
+    )
+
+    assert result["valid"] is False
+    assert {error["type"] for error in result["errors"]} == {"length_underfilled"}
+    assert result["errors"][0]["metadata"]["source_aware_minimum"] >= 580
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_allows_source_limited_two_page_draft_with_warning():
+    source = _repeated_summary(735)
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "summary",
+                "heading": "Summary",
+                "content": _repeated_summary(620),
+                "supporting_snippets": [
+                    "Built reliable APIs for regulated financial platforms.",
+                    "Built reliable APIs for regulated financial platforms.",
+                ],
+            }
+        ],
+        base_resume_content=source,
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "2_page", "aggressiveness": "medium"},
+    )
+
+    assert result["valid"] is True
+    assert result["warnings"][0]["type"] == "source_limited_length"
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_allows_very_short_source_limited_draft():
+    source = _repeated_summary(105)
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "summary",
+                "heading": "Summary",
+                "content": _repeated_summary(91),
+                "supporting_snippets": [
+                    "Built reliable APIs for regulated financial platforms.",
+                    "Built reliable APIs for regulated financial platforms.",
+                ],
+            }
+        ],
+        base_resume_content=source,
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "2_page", "aggressiveness": "medium"},
+    )
+
+    assert result["valid"] is True
+    assert result["warnings"][0]["type"] == "source_limited_length"
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_still_rejects_over_hard_cap_draft():
+    source = _repeated_summary(1900)
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "summary",
+                "heading": "Summary",
+                "content": _repeated_summary(1700),
+                "supporting_snippets": [
+                    "Built reliable APIs for regulated financial platforms.",
+                    "Built reliable APIs for regulated financial platforms.",
+                ],
+            }
+        ],
+        base_resume_content=source,
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "2_page", "aggressiveness": "medium"},
+    )
+
+    assert result["valid"] is False
+    assert {error["type"] for error in result["errors"]} == {"length_mismatch"}

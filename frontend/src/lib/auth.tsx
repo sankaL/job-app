@@ -7,6 +7,7 @@ let _accessToken: string | null = null;
 let _accessTokenExpiresAt: number | null = null;
 let _refreshPromise: Promise<string | null> | null = null;
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 30_000;
+const AUTH_REQUEST_TIMEOUT_MS = 10_000;
 
 interface LoginResponse {
   access_token: string;
@@ -28,6 +29,22 @@ interface MeResponse {
 function clearAccessToken() {
   _accessToken = null;
   _accessTokenExpiresAt = null;
+}
+
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = AUTH_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function hasUsableAccessToken() {
@@ -70,10 +87,9 @@ async function _attemptRefresh(): Promise<string | null> {
   if (_refreshPromise) return _refreshPromise;
   _refreshPromise = (async () => {
     try {
-      const response = await fetch(`${env.VITE_API_URL}/api/auth/refresh`, {
+      const response = await fetchWithTimeout(`${env.VITE_API_URL}/api/auth/refresh`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
       });
       if (!response.ok) return null;
       const data: RefreshResponse = await response.json();
@@ -125,6 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
@@ -146,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
-      const response = await fetch(`${env.VITE_API_URL}/api/auth/me`, {
+      const response = await fetchWithTimeout(`${env.VITE_API_URL}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -194,7 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setAccessToken(data.access_token, data.expires_in);
 
-    const meResponse = await fetch(`${env.VITE_API_URL}/api/auth/me`, {
+    const meResponse = await fetchWithTimeout(`${env.VITE_API_URL}/api/auth/me`, {
       headers: { Authorization: `Bearer ${data.access_token}` },
     });
     if (meResponse.ok) {
@@ -205,7 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await fetch(`${env.VITE_API_URL}/api/auth/logout`, {
+      await fetchWithTimeout(`${env.VITE_API_URL}/api/auth/logout`, {
         method: "POST",
         credentials: "include",
       });

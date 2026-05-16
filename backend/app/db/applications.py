@@ -136,6 +136,14 @@ BASE_COLUMNS = BASE_SELECT.split("from public.applications a")[0].replace("selec
 
 
 class ApplicationRepository:
+    JSONB_FIELDS = {
+        "extraction_failure_details",
+        "generation_failure_details",
+        "resume_judge_result",
+        "duplicate_match_fields",
+    }
+    NUL_BYTE = "\x00"
+
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
 
@@ -410,15 +418,25 @@ class ApplicationRepository:
         if value is None:
             return None
 
-        jsonb_fields = {
-            "extraction_failure_details",
-            "generation_failure_details",
-            "resume_judge_result",
-            "duplicate_match_fields",
-        }
-        if field_name in jsonb_fields:
-            return Jsonb(value)
+        sanitized = self._sanitize_database_value(value)
+        if field_name in self.JSONB_FIELDS:
+            return Jsonb(sanitized)
 
+        return sanitized
+
+    @classmethod
+    def _sanitize_database_value(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.replace(cls.NUL_BYTE, "")
+        if isinstance(value, list):
+            return [cls._sanitize_database_value(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(cls._sanitize_database_value(item) for item in value)
+        if isinstance(value, dict):
+            return {
+                cls._sanitize_database_value(key) if isinstance(key, str) else key: cls._sanitize_database_value(item)
+                for key, item in value.items()
+            }
         return value
 
     def _cast_placeholder(self, field_name: str) -> sql.SQL:
@@ -430,12 +448,7 @@ class ApplicationRepository:
             "duplicate_resolution_status": "public.duplicate_resolution_status_enum",
         }
         uuid_casts = {"base_resume_id"}
-        jsonb_casts = {
-            "extraction_failure_details",
-            "generation_failure_details",
-            "resume_judge_result",
-            "duplicate_match_fields",
-        }
+        jsonb_casts = self.JSONB_FIELDS
         if field_name in enum_casts:
             return sql.SQL("%s::{}").format(sql.SQL(enum_casts[field_name]))
         if field_name in uuid_casts:

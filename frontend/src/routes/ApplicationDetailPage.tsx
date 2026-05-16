@@ -138,35 +138,16 @@ function appendResumeJudgeFeedback(
   return `${trimmedBase}\n\n${header}\n${feedback}`;
 }
 
-function normalizeResumeJudgeContextValue(value: string | null | undefined) {
-  return String(value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function getCurrentResumeJudgeJobContextSignature(detail: ApplicationDetail | null) {
-  if (!detail) return null;
-  return [
-    normalizeResumeJudgeContextValue(detail.job_title),
-    normalizeResumeJudgeContextValue(detail.company),
-    normalizeResumeJudgeContextValue(detail.job_description),
-  ].join("\u001f");
-}
-
-function isResumeJudgePending(detail: ApplicationDetail | null, draft: ResumeDraft | null) {
+function isResumeJudgePending(detail: ApplicationDetail | null) {
   const judge = detail?.resume_judge_result;
   if (!judge || !["queued", "running"].includes(judge.status)) return false;
-  if (draft && judge.evaluated_draft_updated_at && judge.evaluated_draft_updated_at !== draft.updated_at) return false;
-  const currentJobSignature = getCurrentResumeJudgeJobContextSignature(detail);
-  if (judge.job_context_signature && currentJobSignature && judge.job_context_signature !== currentJobSignature) return false;
-  return true;
+  return !judge.is_stale;
 }
 
-function isResumeJudgeStale(detail: ApplicationDetail | null, draft: ResumeDraft | null) {
+function isResumeJudgeStale(detail: ApplicationDetail | null) {
   const judge = detail?.resume_judge_result;
   if (!judge) return false;
-  if (draft && judge.evaluated_draft_updated_at && judge.evaluated_draft_updated_at !== draft.updated_at) return true;
-  const currentJobSignature = getCurrentResumeJudgeJobContextSignature(detail);
-  if (judge.job_context_signature && currentJobSignature && judge.job_context_signature !== currentJobSignature) return true;
-  return false;
+  return Boolean(judge.is_stale);
 }
 
 function resumeJudgeTone(verdict: string | null | undefined) {
@@ -438,7 +419,7 @@ export function ApplicationDetailPage() {
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
   const [hasUserModifiedSettings, setHasUserModifiedSettings] = useState(false);
-  const resumeJudgePending = isResumeJudgePending(detail, draft);
+  const resumeJudgePending = isResumeJudgePending(detail);
   const shouldWatchApplication = Boolean(
     applicationId &&
       detail &&
@@ -509,19 +490,22 @@ export function ApplicationDetailPage() {
   const generationStartBlocker = getGenerationStartBlocker(detail, selectedResumeId, baseResumes.length);
   const fullRegenerationBlocker = getFullRegenerationBlocker(detail);
   const sectionRegenerationBlocker = getSectionRegenerationBlocker(detail, regenSectionName, regenInstructions);
-  const resumeJudgeStale = isResumeJudgeStale(detail, draft);
+  const resumeJudgeStale = isResumeJudgeStale(detail);
   const resumeJudge = detail?.resume_judge_result ?? null;
   const resumeJudgeRunLimitReached = Boolean(
     draft &&
       resumeJudge &&
       !resumeJudgeStale &&
-      (resumeJudge.run_attempt_count ?? 0) >= 3 &&
-      resumeJudge.evaluated_draft_updated_at === draft.updated_at,
+      (resumeJudge.run_attempt_count ?? 0) >= 3,
   );
   const resumeJudgeDimensionEntries = useMemo(() => getResumeJudgeDimensionEntries(resumeJudge), [resumeJudge]);
   const defaultExpandedResumeJudgeDimension = useMemo(
     () => getDefaultExpandedResumeJudgeDimension(resumeJudge),
     [resumeJudge],
+  );
+  const sourceLimitedLengthFlag = useMemo(
+    () => draft?.review_flags?.find((flag) => flag.reason === "source_limited_length") ?? null,
+    [draft],
   );
   const comparisonBaseResumeId = useMemo(() => {
     const generationResumeId = draft?.generation_params?.base_resume_id;
@@ -1931,6 +1915,13 @@ export function ApplicationDetailPage() {
           {!detail.company && detail.internal_state === "generation_pending" && !detail.failure_reason && (
             <Card variant="success" density="compact" className="p-4">
               <p className="text-sm font-medium" style={{ color: "var(--color-spruce)" }}>Company is missing from extraction. Add it to enable duplicate review.</p>
+            </Card>
+          )}
+
+          {sourceLimitedLengthFlag && detail.internal_state === "resume_ready" && (
+            <Card variant="warning" density="compact" className="p-4">
+              <h3 className="text-sm font-semibold" style={{ color: "var(--color-amber)" }}>Shorter Than Target</h3>
+              <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{sourceLimitedLengthFlag.text}</p>
             </Card>
           )}
 

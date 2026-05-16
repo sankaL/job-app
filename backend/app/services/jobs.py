@@ -141,6 +141,7 @@ class GenerationJobQueue:
         generation_settings: dict[str, Any],
         evaluated_draft_updated_at: str,
         job_context_signature: str,
+        input_signature: str,
     ) -> str:
         job_id = uuid4().hex
         redis = await create_pool(self.redis_settings)
@@ -158,6 +159,7 @@ class GenerationJobQueue:
                 generation_settings=generation_settings,
                 evaluated_draft_updated_at=evaluated_draft_updated_at,
                 job_context_signature=job_context_signature,
+                input_signature=input_signature,
                 _job_id=job_id,
             )
         finally:

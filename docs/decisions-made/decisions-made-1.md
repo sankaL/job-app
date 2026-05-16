@@ -1,5 +1,17 @@
 # Decisions Made
 
+## 2026-05-16 17:42:00 EDT — Treat resume page length as a source-aware content target
+
+- Status: Accepted
+- Context: Selecting 2 pages could produce a draft that was effectively one page with a tiny spillover because the generator treated length mostly as prompt guidance, deterministic validation only enforced upper caps, and export only ensured the PDF fit within the requested page count. A real user sample showed a 2-page export with about 440 generated words from a 734-word base resume.
+- Decision:
+  1. Keep page length as a content target rather than a visual whitespace-fill command.
+  2. For 2-page and 3-page targets, require underfilled drafts to meet a source-aware minimum: `min(target_min, floor(sanitized_base_resume_word_count * 0.80))`.
+  3. Run the existing validation repair pass for drafts below that source-aware minimum, instructing repair to expand only by restoring grounded source-resume material.
+  4. Approve drafts below the nominal target range but above the source-aware minimum with a `source_limited_length` warning instead of padding or inventing facts.
+  5. Keep PDF/DOCX export as max-page fitting, while Resume Judge caps length scores and prioritizes length feedback for under-target drafts that are not source-limited.
+- Consequences: Multi-page settings now produce stronger pressure to preserve grounded source content, users get a clear warning when source material limits length, and the system avoids artificial page filling or unsupported resume claims.
+
 ## 2026-04-19 13:30:00 EDT — Use one semantic render model to normalize and render Experience and Education across preview, PDF, and DOCX
 
 - Status: Accepted

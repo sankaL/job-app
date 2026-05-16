@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -40,6 +42,7 @@ from app.services.progress import (
     get_progress_store,
 )
 from app.services.resume_render import normalize_resume_markdown
+from app.services.resume_length import assess_resume_length
 from app.services.resume_privacy import sanitize_resume_markdown
 from app.services.workflow import derive_visible_status
 
@@ -134,6 +137,7 @@ class DuplicateWarningPayload(BaseModel):
 class ApplicationDetailPayload(BaseModel):
     application: ApplicationRecord
     duplicate_warning: Optional[DuplicateWarningPayload]
+    resume_judge_result: Optional[dict[str, Any]] = None
 
 
 class ExtractionFailureDetailsPayload(BaseModel):
@@ -234,6 +238,8 @@ class ResumeJudgeResultPayload(BaseModel):
     evaluated_draft_updated_at: Optional[str] = None
     scored_at: Optional[str] = None
     job_context_signature: Optional[str] = None
+    input_signature: Optional[str] = None
+    is_stale: Optional[bool] = None
     failure_stage: Optional[str] = None
     run_attempt_count: Optional[int] = None
     attempt_count: Optional[int] = None
@@ -253,6 +259,7 @@ class ResumeJudgeCallbackPayload(BaseModel):
     event: str
     evaluated_draft_updated_at: str
     job_context_signature: Optional[str] = None
+    input_signature: Optional[str] = None
     result: Optional[ResumeJudgeResultPayload] = None
     failure: Optional[ResumeJudgeFailurePayload] = None
 
@@ -427,21 +434,25 @@ class ApplicationService:
         ):
             draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
             if draft is not None:
-                current_run_attempt_count = self._resume_judge_run_attempt_count(
-                    current.resume_judge_result,
-                    draft_updated_at=draft.updated_at,
-                    job_context_signature=self._resume_judge_signature_for_record(current),
-                )
+                updated_job_title = updates.get("job_title", current.job_title)
+                updated_company = updates.get("company", current.company)
+                updated_job_description = updates.get("job_description", current.job_description)
                 merged_updates["resume_judge_result"] = self._resume_judge_status_payload(
                     status="failed",
                     message="Resume Judge needs another run because the job details changed.",
                     evaluated_draft_updated_at=draft.updated_at,
                     scored_at=datetime.now(timezone.utc).isoformat(),
-                    run_attempt_count=current_run_attempt_count or None,
                     job_context_signature=self._resume_judge_job_context_signature(
-                        job_title=updates.get("job_title", current.job_title),
-                        company_name=updates.get("company", current.company),
-                        job_description=updates.get("job_description", current.job_description),
+                        job_title=updated_job_title,
+                        company_name=updated_company,
+                        job_description=updated_job_description,
+                    ),
+                    input_signature=self._resume_judge_input_signature(
+                        record=current,
+                        draft=draft,
+                        job_title=updated_job_title,
+                        company_name=updated_company,
+                        job_description=updated_job_description,
                     ),
                     failure_stage="stale_job_context",
                 )
@@ -2038,6 +2049,7 @@ class ApplicationService:
 
         current_job_context_signature = self._resume_judge_signature_for_record(record)
         callback_job_context_signature = self._resume_judge_callback_signature(payload)
+        callback_input_signature = self._resume_judge_callback_input_signature(payload)
         if (
             callback_job_context_signature
             and callback_job_context_signature != current_job_context_signature
@@ -2051,13 +2063,19 @@ class ApplicationService:
         if draft is None:
             return record
 
-        if draft.updated_at != payload.evaluated_draft_updated_at:
+        current_input_signature = self._resume_judge_input_signature(record=record, draft=draft)
+        if callback_input_signature:
+            if callback_input_signature != current_input_signature:
+                return record
+        elif draft.updated_at != payload.evaluated_draft_updated_at:
             return record
 
         current_run_attempt_count = self._resume_judge_run_attempt_count(
             record.resume_judge_result,
+            input_signature=callback_input_signature or current_input_signature,
             draft_updated_at=payload.evaluated_draft_updated_at,
             job_context_signature=callback_job_context_signature or current_job_context_signature,
+            draft_last_exported_at=draft.last_exported_at,
         )
 
         if payload.event == "started":
@@ -2071,6 +2089,7 @@ class ApplicationService:
                         evaluated_draft_updated_at=payload.evaluated_draft_updated_at,
                         run_attempt_count=current_run_attempt_count or None,
                         job_context_signature=callback_job_context_signature or current_job_context_signature,
+                        input_signature=callback_input_signature or current_input_signature,
                     )
                 },
             )
@@ -2079,6 +2098,7 @@ class ApplicationService:
             if payload.failure is None:
                 raise ValueError("Missing Resume Judge failure payload.")
             failure_result = payload.failure.result.model_dump()
+            failure_result["input_signature"] = callback_input_signature or current_input_signature
             if current_run_attempt_count:
                 failure_result["run_attempt_count"] = current_run_attempt_count
             return await self._update_application_and_publish_detail(
@@ -2093,6 +2113,7 @@ class ApplicationService:
             if payload.result is None:
                 raise ValueError("Missing Resume Judge success payload.")
             success_result = payload.result.model_dump()
+            success_result["input_signature"] = callback_input_signature or current_input_signature
             if current_run_attempt_count:
                 success_result["run_attempt_count"] = current_run_attempt_count
             return await self._update_application_and_publish_detail(
@@ -2121,7 +2142,7 @@ class ApplicationService:
         draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
         if draft is None:
             return None, []
-        return draft, self._build_job_description_addition_flags(record=record, draft=draft)
+        return draft, self._build_draft_review_flags(record=record, draft=draft)
 
     async def save_draft_edit(
         self,
@@ -2136,11 +2157,14 @@ class ApplicationService:
         if draft is None:
             raise PermissionError("No draft exists. Generation must happen first.")
 
+        normalized_content = self._normalize_draft_content(content)
+        previous_input_signature = self._resume_judge_input_signature(record=record, draft=draft)
         updated_draft = self.draft_repository.update_draft_content(
             application_id=application_id,
             user_id=user_id,
-            content_md=self._normalize_draft_content(content),
+            content_md=normalized_content,
         )
+        updated_input_signature = self._resume_judge_input_signature(record=record, draft=updated_draft)
 
         # If current state indicates export happened, transition back to resume_ready
         # and let derive_visible_status figure out the right visible status.
@@ -2163,19 +2187,14 @@ class ApplicationService:
                     "visible_status": updated_vs,
                 }
             )
-        if record.resume_judge_result is not None:
-            current_run_attempt_count = self._resume_judge_run_attempt_count(
-                record.resume_judge_result,
-                draft_updated_at=str(record.resume_judge_result.get("evaluated_draft_updated_at") or ""),
-                job_context_signature=self._resume_judge_signature_for_record(record),
-            )
+        if record.resume_judge_result is not None and previous_input_signature != updated_input_signature:
             application_updates["resume_judge_result"] = self._resume_judge_status_payload(
                 status="failed",
                 message="Resume Judge needs another run because the draft changed.",
                 evaluated_draft_updated_at=updated_draft.updated_at,
                 scored_at=datetime.now(timezone.utc).isoformat(),
-                run_attempt_count=current_run_attempt_count or None,
                 job_context_signature=self._resume_judge_signature_for_record(record),
+                input_signature=updated_input_signature,
                 failure_stage="stale_draft",
             )
         if application_updates:
@@ -2257,20 +2276,36 @@ class ApplicationService:
             )
             raise ValueError(f"{format_label} export failed.") from exc
 
+        application_updates: dict[str, Any] = {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "internal_state": "resume_ready",
+            "failure_reason": None,
+            "visible_status": derive_visible_status(
+                internal_state="resume_ready",
+                failure_reason=None,
+                has_successful_export=True,
+                draft_changed_since_export=False,
+            ),
+        }
+        if (
+            isinstance(record.resume_judge_result, dict)
+            and record.resume_judge_result
+            and not str(record.resume_judge_result.get("input_signature") or "").strip()
+            and not self._resume_judge_result_is_stale(
+                record=record,
+                draft=draft,
+                resume_judge_result=record.resume_judge_result,
+            )
+        ):
+            application_updates["resume_judge_result"] = {
+                **record.resume_judge_result,
+                "input_signature": self._resume_judge_input_signature(record=record, draft=draft),
+            }
+
         self.repository.update_application(
             application_id=application_id,
             user_id=user_id,
-            updates={
-                "exported_at": datetime.now(timezone.utc).isoformat(),
-                "internal_state": "resume_ready",
-                "failure_reason": None,
-                "visible_status": derive_visible_status(
-                    internal_state="resume_ready",
-                    failure_reason=None,
-                    has_successful_export=True,
-                    draft_changed_since_export=False,
-                ),
-            },
+            updates=application_updates,
         )
         self.draft_repository.update_exported_at(
             application_id=application_id,
@@ -2665,6 +2700,7 @@ class ApplicationService:
 
     def _detail_payload(self, record: ApplicationRecord) -> ApplicationDetailPayload:
         warning = None
+        draft = self.draft_repository.fetch_draft(user_id=record.user_id, application_id=record.id)
         if (
             record.duplicate_resolution_status == "pending"
             and record.duplicate_matched_application_id
@@ -2682,7 +2718,11 @@ class ApplicationService:
                     match_basis=str(record.duplicate_match_fields.get("match_basis", "")),
                     matched_application=matched,
                 )
-        return ApplicationDetailPayload(application=record, duplicate_warning=warning)
+        return ApplicationDetailPayload(
+            application=record,
+            duplicate_warning=warning,
+            resume_judge_result=self._resume_judge_response_payload(record=record, draft=draft),
+        )
 
     def _stream_detail_payload(self, record: ApplicationRecord) -> dict[str, Any]:
         payload = self._detail_payload(record)
@@ -2705,6 +2745,7 @@ class ApplicationService:
                     "user_id",
                 },
             ),
+            "resume_judge_result": payload.resume_judge_result,
             "duplicate_warning": duplicate_warning,
         }
 
@@ -2761,12 +2802,25 @@ class ApplicationService:
         cls,
         resume_judge_result: Optional[dict[str, Any]],
         *,
+        input_signature: Optional[str] = None,
         draft_updated_at: str,
         job_context_signature: str,
+        draft_last_exported_at: Optional[str] = None,
     ) -> int:
         if not isinstance(resume_judge_result, dict) or not resume_judge_result:
             return 0
-        if str(resume_judge_result.get("evaluated_draft_updated_at") or "") != draft_updated_at:
+        stored_input_signature = str(resume_judge_result.get("input_signature") or "").strip()
+        if input_signature:
+            if stored_input_signature:
+                if stored_input_signature != input_signature:
+                    return 0
+            elif not cls._legacy_resume_judge_result_matches_current(
+                resume_judge_result,
+                draft_updated_at=draft_updated_at,
+                draft_last_exported_at=draft_last_exported_at,
+            ):
+                return 0
+        elif str(resume_judge_result.get("evaluated_draft_updated_at") or "") != draft_updated_at:
             return 0
         stored_job_context_signature = str(resume_judge_result.get("job_context_signature") or "")
         if stored_job_context_signature and stored_job_context_signature != job_context_signature:
@@ -2835,9 +2889,136 @@ class ApplicationService:
         return None
 
     @staticmethod
+    def _resume_judge_callback_input_signature(
+        payload: ResumeJudgeCallbackPayload,
+    ) -> Optional[str]:
+        if payload.input_signature:
+            return payload.input_signature
+        if payload.result and payload.result.input_signature:
+            return payload.result.input_signature
+        if payload.failure and payload.failure.result.input_signature:
+            return payload.failure.result.input_signature
+        return None
+
+    @staticmethod
+    def _normalize_resume_judge_signature_text(value: str) -> str:
+        return re.sub(r"\s+", " ", str(value or "")).strip()
+
+    @classmethod
+    def _normalize_resume_judge_draft_markdown(cls, content_md: str) -> str:
+        try:
+            return normalize_resume_markdown(content_md)
+        except ValueError:
+            return cls._normalize_resume_judge_signature_text(content_md)
+
+    def _resolve_resume_judge_base_resume_content(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: ResumeDraftRecord,
+    ) -> Optional[str]:
+        base_resume_snapshot_content = draft.generation_params.get("_base_resume_snapshot_content")
+        if (
+            isinstance(base_resume_snapshot_content, str)
+            and base_resume_snapshot_content.strip()
+        ):
+            return base_resume_snapshot_content
+
+        base_resume_id = str(
+            draft.generation_params.get("base_resume_id") or record.base_resume_id or ""
+        ).strip()
+        if not base_resume_id:
+            return None
+
+        base_resume = self.base_resume_repository.fetch_resume(record.user_id, base_resume_id)
+        if base_resume is None:
+            return None
+        return base_resume.content_md
+
+    def _resume_judge_input_signature(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: ResumeDraftRecord,
+        content_md: Optional[str] = None,
+        job_title: Optional[str] = None,
+        company_name: Optional[str] = None,
+        job_description: Optional[str] = None,
+    ) -> str:
+        base_resume_content = self._resolve_resume_judge_base_resume_content(record=record, draft=draft) or ""
+        payload = {
+            "draft_markdown": self._normalize_resume_judge_draft_markdown(content_md or draft.content_md),
+            "job_title": self._normalize_resume_judge_context_value(job_title or record.job_title),
+            "company_name": self._normalize_resume_judge_context_value(company_name or record.company),
+            "job_description": self._normalize_resume_judge_context_value(job_description or record.job_description),
+            "page_length": str(draft.generation_params.get("page_length") or "1_page").strip().lower(),
+            "aggressiveness": str(draft.generation_params.get("aggressiveness") or "medium").strip().lower(),
+            "base_resume_fingerprint": hashlib.sha256(base_resume_content.encode("utf-8")).hexdigest(),
+        }
+        canonical_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _legacy_resume_judge_result_matches_current(
+        resume_judge_result: Optional[dict[str, Any]],
+        *,
+        draft_updated_at: str,
+        draft_last_exported_at: Optional[str],
+    ) -> bool:
+        if not isinstance(resume_judge_result, dict) or not resume_judge_result:
+            return False
+        evaluated_draft_updated_at = str(resume_judge_result.get("evaluated_draft_updated_at") or "")
+        if evaluated_draft_updated_at == draft_updated_at:
+            return True
+        if draft_last_exported_at and draft_last_exported_at == draft_updated_at:
+            return True
+        return False
+
+    def _resume_judge_result_is_stale(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: Optional[ResumeDraftRecord],
+        resume_judge_result: Optional[dict[str, Any]],
+    ) -> bool:
+        if not isinstance(resume_judge_result, dict) or not resume_judge_result:
+            return False
+        current_job_signature = self._resume_judge_signature_for_record(record)
+        stored_job_signature = str(resume_judge_result.get("job_context_signature") or "")
+        if stored_job_signature and stored_job_signature != current_job_signature:
+            return True
+        if draft is None:
+            return False
+        stored_input_signature = str(resume_judge_result.get("input_signature") or "").strip()
+        if stored_input_signature:
+            return stored_input_signature != self._resume_judge_input_signature(record=record, draft=draft)
+        return not self._legacy_resume_judge_result_matches_current(
+            resume_judge_result,
+            draft_updated_at=draft.updated_at,
+            draft_last_exported_at=draft.last_exported_at,
+        )
+
+    def _resume_judge_response_payload(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: Optional[ResumeDraftRecord],
+    ) -> Optional[dict[str, Any]]:
+        if not isinstance(record.resume_judge_result, dict) or not record.resume_judge_result:
+            return None
+        result = dict(record.resume_judge_result)
+        result["is_stale"] = self._resume_judge_result_is_stale(
+            record=record,
+            draft=draft,
+            resume_judge_result=record.resume_judge_result,
+        )
+        return result
+
+    @staticmethod
     def _should_enqueue_resume_judge(
         resume_judge_result: Optional[dict[str, Any]],
         *,
+        input_signature: Optional[str] = None,
         draft_updated_at: str,
         force: bool = False,
     ) -> bool:
@@ -2845,6 +3026,11 @@ class ApplicationService:
             return True
         if not isinstance(resume_judge_result, dict) or not resume_judge_result:
             return True
+        stored_input_signature = str(resume_judge_result.get("input_signature") or "").strip()
+        if input_signature:
+            if stored_input_signature:
+                return stored_input_signature != input_signature
+            return str(resume_judge_result.get("evaluated_draft_updated_at") or "") != draft_updated_at
         return str(resume_judge_result.get("evaluated_draft_updated_at") or "") != draft_updated_at
 
     async def _enqueue_resume_judge_for_draft(
@@ -2855,18 +3041,22 @@ class ApplicationService:
         force: bool = False,
         application_updates: Optional[dict[str, Any]] = None,
     ) -> ApplicationRecord:
+        current_job_context_signature = self._resume_judge_signature_for_record(record)
+        input_signature = self._resume_judge_input_signature(record=record, draft=draft)
         if not self._should_enqueue_resume_judge(
             record.resume_judge_result,
+            input_signature=input_signature,
             draft_updated_at=draft.updated_at,
             force=force,
         ):
             return record
 
-        current_job_context_signature = self._resume_judge_signature_for_record(record)
         current_run_attempt_count = self._resume_judge_run_attempt_count(
             record.resume_judge_result,
+            input_signature=input_signature,
             draft_updated_at=draft.updated_at,
             job_context_signature=current_job_context_signature,
+            draft_last_exported_at=draft.last_exported_at,
         )
         if force and current_run_attempt_count >= RESUME_JUDGE_RUN_LIMIT_PER_DRAFT:
             raise PermissionError(
@@ -2942,6 +3132,7 @@ class ApplicationService:
             evaluated_draft_updated_at=draft.updated_at,
             run_attempt_count=current_run_attempt_count + 1,
             job_context_signature=current_job_context_signature,
+            input_signature=input_signature,
         )
         updated = await self._update_application_and_publish_detail(
             application_id=record.id,
@@ -2964,6 +3155,7 @@ class ApplicationService:
                 },
                 evaluated_draft_updated_at=draft.updated_at,
                 job_context_signature=current_job_context_signature,
+                input_signature=input_signature,
             )
             return updated
         except Exception as error:
@@ -2974,6 +3166,7 @@ class ApplicationService:
                 evaluated_draft_updated_at=draft.updated_at,
                 scored_at=datetime.now(timezone.utc).isoformat(),
                 job_context_signature=current_job_context_signature,
+                input_signature=input_signature,
                 failure_stage="enqueue",
                 error={
                     "error_type": type(error).__name__,
@@ -3071,6 +3264,54 @@ class ApplicationService:
             if len(flags) >= 20:
                 break
         return flags
+
+    def _build_source_limited_length_flags(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: ResumeDraftRecord,
+    ) -> list[DraftReviewFlagPayload]:
+        target_length = str(draft.generation_params.get("page_length") or "1_page")
+        if target_length not in {"2_page", "3_page"}:
+            return []
+        base_resume_id = str(draft.generation_params.get("base_resume_id") or record.base_resume_id or "").strip()
+        if not base_resume_id:
+            return []
+        base_resume = self.base_resume_repository.fetch_resume(record.user_id, base_resume_id)
+        if base_resume is None:
+            return []
+
+        sanitized_base = sanitize_resume_markdown(base_resume.content_md).sanitized_markdown
+        sanitized_draft = sanitize_resume_markdown(draft.content_md).sanitized_markdown
+        assessment = assess_resume_length(
+            generated_text=sanitized_draft,
+            source_text=sanitized_base,
+            target_length=target_length,
+        )
+        if not assessment["source_limited_length"]:
+            return []
+
+        return [
+            DraftReviewFlagPayload(
+                section_name="length",
+                reason="source_limited_length",
+                text=(
+                    f"This resume is shorter than the selected {assessment['target_label']} target because "
+                    "the base resume does not contain enough grounded material to fill it without padding."
+                ),
+            )
+        ]
+
+    def _build_draft_review_flags(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: ResumeDraftRecord,
+    ) -> list[DraftReviewFlagPayload]:
+        return [
+            *self._build_source_limited_length_flags(record=record, draft=draft),
+            *self._build_job_description_addition_flags(record=record, draft=draft),
+        ]
 
     def _workflow_updates(
         self,
