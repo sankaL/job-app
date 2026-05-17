@@ -49,7 +49,7 @@ class StubProfileRepo:
     def __init__(self):
         self.updates: list[tuple[str, dict]] = []
 
-    def update_profile(self, user_id: str, updates: dict) -> Optional[ProfileRecord]:
+    def upsert_profile(self, user_id: str, updates: dict) -> Optional[ProfileRecord]:
         self.updates.append((user_id, updates))
         return None
 

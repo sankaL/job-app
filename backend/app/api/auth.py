@@ -156,11 +156,11 @@ def _login_dev(
     user = user_repo.fetch_user_by_email(email=email)
     if user is None:
         user = user_repo.create_user(email=email, password_hash=hash_password(email))
-        profile_repo.update_profile(user_id=user.id, updates={"email": email})
+        profile_repo.upsert_profile(user_id=user.id, updates={"email": email})
 
     existing = profile_repo.fetch_profile(user.id)
     if existing is None:
-        profile_repo.update_profile(user_id=user.id, updates={"email": email})
+        profile_repo.upsert_profile(user_id=user.id, updates={"email": email})
 
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated.")

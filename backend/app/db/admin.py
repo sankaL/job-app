@@ -287,9 +287,9 @@ class AdminRepository:
           ui.expires_at::text,
           ui.sent_at::text,
           ui.accepted_at::text,
-          p.is_active as profile_is_active
+           coalesce(p.is_active, true) as profile_is_active
         from public.user_invites ui
-        join public.profiles p on p.id = ui.invitee_user_id
+        left join public.profiles p on p.id = ui.invitee_user_id
         where ui.token_hash = %s
         """
         with self._connection() as connection, connection.cursor() as cursor:

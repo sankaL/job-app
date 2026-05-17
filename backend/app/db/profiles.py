@@ -199,7 +199,7 @@ class ProfileRepository:
             cursor.execute(query, (user_id,))
             connection.commit()
 
-    def update_profile(
+    def upsert_profile(
         self,
         user_id: str,
         updates: dict[str, Any],
@@ -207,22 +207,30 @@ class ProfileRepository:
         if not updates:
             return self.fetch_profile(user_id)
 
-        assignments = [
-            sql.SQL("{} = {}").format(sql.Identifier(field), self._cast_placeholder(field))
-            for field in updates
+        pairs = list(updates.items())
+        columns = ["id"] + [field for field, _ in pairs]
+        placeholders = [sql.SQL("%s")] + [self._cast_placeholder(field) for field, _ in pairs]
+        set_assignments = [
+            sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(field))
+            for field, _ in pairs
         ]
-        values = [self._prepare_value(field, value) for field, value in updates.items()]
-        update_query = sql.SQL(
+        values = [user_id] + [self._prepare_value(field, value) for field, value in pairs]
+
+        upsert_query = sql.SQL(
             """
-            update public.profiles
-            set {assignments}
-            where id = %s
+            insert into public.profiles ({columns})
+            values ({placeholders})
+            on conflict (id) do update set {set_assignments}
             returning id::text
             """
-        ).format(assignments=sql.SQL(", ").join(assignments))
+        ).format(
+            columns=sql.SQL(", ").join(sql.Identifier(col) for col in columns),
+            placeholders=sql.SQL(", ").join(placeholders),
+            set_assignments=sql.SQL(", ").join(set_assignments),
+        )
 
         with self._connection() as connection, connection.cursor() as cursor:
-            cursor.execute(update_query, (*values, user_id))
+            cursor.execute(upsert_query, values)
             row = cursor.fetchone()
             connection.commit()
 

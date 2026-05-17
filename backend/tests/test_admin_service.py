@@ -94,7 +94,7 @@ class StubProfileRepository:
     def fetch_profile_by_email(self, email: str) -> Optional[ProfileRecord]:
         return self._existing_profile
 
-    def update_profile(self, user_id: str, updates: dict[str, object]) -> Optional[ProfileRecord]:
+    def upsert_profile(self, user_id: str, updates: dict[str, object]) -> Optional[ProfileRecord]:
         self.update_calls += 1
         return None
 

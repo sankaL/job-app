@@ -26,7 +26,7 @@ def _maybe_bootstrap_admin(
     if profile.is_admin:
         return profile
 
-    updated = repository.update_profile(
+    updated = repository.upsert_profile(
         user_id=current_user.id,
         updates={"is_admin": True},
     )

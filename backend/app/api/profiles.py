@@ -108,7 +108,7 @@ async def patch_profile(
     if not updates:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No profile updates provided.")
     try:
-        updated = repository.update_profile(
+        updated = repository.upsert_profile(
             user_id=current_user.id,
             updates=updates,
         )

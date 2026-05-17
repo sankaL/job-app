@@ -57,7 +57,7 @@ class StubProfileRepository(ProfileRepository):
             updated_at="2026-04-10T00:00:00+00:00",
         )
 
-    def update_profile(self, user_id: str, updates: dict):  # pragma: no cover - bootstrap branch only
+    def upsert_profile(self, user_id: str, updates: dict):  # pragma: no cover - bootstrap branch only
         return self.fetch_profile(user_id)
 
 

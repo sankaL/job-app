@@ -162,7 +162,7 @@ class StubProfileRepository:
     def fetch_profile(self, user_id: str) -> Optional[ProfileRecord]:
         return self.profile.model_copy(update={"id": user_id})
 
-    def update_profile(self, user_id: str, updates: dict) -> Optional[ProfileRecord]:
+    def upsert_profile(self, user_id: str, updates: dict) -> Optional[ProfileRecord]:
         self.profile = self.profile.model_copy(update={"id": user_id, **updates})
         return self.profile
 

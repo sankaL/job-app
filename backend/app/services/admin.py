@@ -158,7 +158,7 @@ class AdminService:
             update_fields["name"] = self._join_name(
                 first_name=update_fields.get("first_name"), last_name=update_fields.get("last_name")
             )
-        self.profile_repository.update_profile(user_id=invitee_user_id, updates=update_fields)
+        self.profile_repository.upsert_profile(user_id=invitee_user_id, updates=update_fields)
 
         self.repository.revoke_pending_invites(invitee_user_id=invitee_user_id)
 
@@ -247,7 +247,7 @@ class AdminService:
         clean_address = self._require_non_blank(address, "Location")
         clean_linkedin = self._clean_optional_text(linkedin_url)
 
-        self.profile_repository.update_profile(
+        self.profile_repository.upsert_profile(
             user_id=invite.invitee_user_id,
             updates={
                 "first_name": clean_first_name,

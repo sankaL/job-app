@@ -55,7 +55,7 @@ class StubProfileRepository(ProfileRepository):
             return None
         return self.record
 
-    def update_profile(self, user_id: str, updates: dict):
+    def upsert_profile(self, user_id: str, updates: dict):
         if user_id != self.record.id:
             return None
         self.record = self.record.model_copy(update={**updates, "updated_at": "2026-04-09T20:18:29+00:00"})
@@ -87,7 +87,7 @@ class FailingProfileRepository(ProfileRepository):
             updated_at="2026-04-07T00:00:00+00:00",
         )
 
-    def update_profile(self, user_id: str, updates: dict):
+    def upsert_profile(self, user_id: str, updates: dict):
         raise RuntimeError("sensitive-db-error-text")
 
 

@@ -23,7 +23,7 @@ class UserManager:
     def create_user(self, *, email: str, password: str) -> str:
         password_hash = hash_password(password)
         user = self.user_repo.create_user(email=email, password_hash=password_hash)
-        self.profile_repo.update_profile(
+        self.profile_repo.upsert_profile(
             user_id=user.id,
             updates={
                 "email": email,
@@ -37,7 +37,7 @@ class UserManager:
 
     def update_user_email(self, *, user_id: str, email: str) -> None:
         self.user_repo.update_user_email(user_id=user_id, email=email)
-        self.profile_repo.update_profile(user_id=user_id, updates={"email": email})
+        self.profile_repo.upsert_profile(user_id=user_id, updates={"email": email})
 
     def deactivate_user(self, *, user_id: str) -> None:
         self.user_repo.set_user_active(user_id=user_id, is_active=False)
