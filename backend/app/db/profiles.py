@@ -207,29 +207,38 @@ class ProfileRepository:
         if not updates:
             return self.fetch_profile(user_id)
 
-        pairs = list(updates.items())
-        columns = ["id"] + [field for field, _ in pairs]
-        placeholders = [sql.SQL("%s")] + [self._cast_placeholder(field) for field, _ in pairs]
-        set_assignments = [
-            sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(field))
-            for field, _ in pairs
-        ]
-        values = [user_id] + [self._prepare_value(field, value) for field, value in pairs]
-
-        upsert_query = sql.SQL(
-            """
-            insert into public.profiles ({columns})
-            values ({placeholders})
-            on conflict (id) do update set {set_assignments}
-            returning id::text
-            """
-        ).format(
-            columns=sql.SQL(", ").join(sql.Identifier(col) for col in columns),
-            placeholders=sql.SQL(", ").join(placeholders),
-            set_assignments=sql.SQL(", ").join(set_assignments),
-        )
+        resolved_updates = dict(updates)
 
         with self._connection() as connection, connection.cursor() as cursor:
+            if "email" not in resolved_updates:
+                cursor.execute("select email from public.users where id = %s", (user_id,))
+                row = cursor.fetchone()
+                if row is None:
+                    raise LookupError("User not found.")
+                resolved_updates["email"] = row["email"]
+
+            pairs = list(resolved_updates.items())
+            columns = ["id"] + [field for field, _ in pairs]
+            placeholders = [sql.SQL("%s")] + [self._cast_placeholder(field) for field, _ in pairs]
+            set_assignments = [
+                sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(field))
+                for field, _ in pairs
+            ]
+            values = [user_id] + [self._prepare_value(field, value) for field, value in pairs]
+
+            upsert_query = sql.SQL(
+                """
+                insert into public.profiles ({columns})
+                values ({placeholders})
+                on conflict (id) do update set {set_assignments}
+                returning id::text
+                """
+            ).format(
+                columns=sql.SQL(", ").join(sql.Identifier(col) for col in columns),
+                placeholders=sql.SQL(", ").join(placeholders),
+                set_assignments=sql.SQL(", ").join(set_assignments),
+            )
+
             cursor.execute(upsert_query, values)
             row = cursor.fetchone()
             connection.commit()
