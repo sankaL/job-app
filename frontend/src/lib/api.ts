@@ -31,6 +31,14 @@ export type SessionBootstrapResponse = {
     applied_count: number;
     needs_action_count: number;
   };
+  generation_quota: {
+    subscription_tier: "basic" | "pro";
+    monthly_resume_generation_limit: number;
+    generation_count: number;
+    remaining_count: number;
+    period_start: string;
+    resets_at: string;
+  };
   workflow_contract_version: string;
 };
 
@@ -385,7 +393,9 @@ export type SubscriptionTier = {
   name: string;
   monthly_resume_generation_limit: number;
   generation_model: string;
+  generation_reasoning_effort: string;
   generation_fallback_model: string;
+  generation_fallback_reasoning_effort: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -417,7 +427,9 @@ export type UpdateAdminUserPayload = {
 export type UpdateSubscriptionTierPayload = {
   monthly_resume_generation_limit: number;
   generation_model: string;
+  generation_reasoning_effort: string;
   generation_fallback_model: string;
+  generation_fallback_reasoning_effort: string;
 };
 
 type RequestOptions = Omit<RequestInit, "body"> & {
@@ -501,7 +513,11 @@ async function authenticatedRequest<T>(path: string, options: RequestOptions = {
     let detail = "Request failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      if (typeof payload.detail === "string") {
+        detail = payload.detail;
+      } else if (payload.detail?.message) {
+        detail = String(payload.detail.message);
+      }
     } catch {
       detail = "Request failed.";
     }

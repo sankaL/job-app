@@ -16,6 +16,7 @@ from app.db.applications import (
     get_application_repository,
 )
 from app.db.profiles import ProfileRecord, ProfileRepository, get_profile_repository
+from app.db.subscriptions import GenerationQuotaStatusRecord, get_subscription_repository
 from app.main import app
 
 
@@ -61,6 +62,18 @@ class StubApplicationRepository(ApplicationRepository):
         return self.summary_counts.get(
             user_id,
             ApplicationSummaryCountsRecord(total_count=0, applied_count=0, needs_action_count=0),
+        )
+
+
+class StubSubscriptionRepository:
+    def fetch_generation_quota_status(self, *, user_id: str) -> GenerationQuotaStatusRecord:
+        return GenerationQuotaStatusRecord(
+            subscription_tier="basic",
+            monthly_resume_generation_limit=10,
+            generation_count=3,
+            remaining_count=7,
+            period_start="2026-05-01",
+            resets_at="2026-06-01",
         )
 
 
@@ -111,6 +124,7 @@ def test_invalid_token_returns_401():
 def test_valid_token_bootstraps_authenticated_user_only():
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
     app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository()
+    app.dependency_overrides[get_subscription_repository] = lambda: StubSubscriptionRepository()
     app.dependency_overrides[get_application_repository] = lambda: StubApplicationRepository(
         {
             "user-123": ApplicationSummaryCountsRecord(total_count=4, applied_count=1, needs_action_count=2),
@@ -132,12 +146,14 @@ def test_valid_token_bootstraps_authenticated_user_only():
     assert payload.application_summary.total_count == 4
     assert payload.application_summary.applied_count == 1
     assert payload.application_summary.needs_action_count == 2
+    assert payload.generation_quota.remaining_count == 7
     assert payload.workflow_contract_version == get_workflow_contract().version
 
 
 def test_bootstrap_application_summary_is_scoped_to_authenticated_user():
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
     app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository()
+    app.dependency_overrides[get_subscription_repository] = lambda: StubSubscriptionRepository()
     app.dependency_overrides[get_application_repository] = lambda: StubApplicationRepository(
         {
             "user-123": ApplicationSummaryCountsRecord(total_count=3, applied_count=2, needs_action_count=1),

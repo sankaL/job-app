@@ -476,10 +476,11 @@ class FakeSubscriptionRepository:
 
     def reserve_generation_quota(self, *, user_id: str):
         from app.db.subscriptions import QuotaReservationRecord
+        from app.core.errors import QuotaExceededError
 
         current = self.count_by_user.get(user_id, 0)
         if current >= self.limit:
-            raise PermissionError(
+            raise QuotaExceededError(
                 "Monthly resume generation limit reached. Contact an administrator or upgrade your subscription tier."
             )
         next_count = current + 1
@@ -488,7 +489,9 @@ class FakeSubscriptionRepository:
             subscription_tier="basic",
             monthly_resume_generation_limit=self.limit,
             generation_model="basic-primary-model",
+            generation_reasoning_effort="medium",
             generation_fallback_model="basic-fallback-model",
+            generation_fallback_reasoning_effort="high",
             period_start="2026-04-01",
             generation_count=next_count,
         )
@@ -2146,8 +2149,9 @@ def test_full_regeneration_endpoint_returns_409_when_limit_is_reached():
         },
     )
 
-    assert response.status_code == 409
-    assert "Monthly resume generation limit reached" in response.json()["detail"]
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "quota_exhausted"
+    assert "Monthly resume generation limit reached" in response.json()["detail"]["message"]
 
 
 def test_resume_judge_endpoint_returns_202_and_queues_re_evaluation():
@@ -3130,7 +3134,9 @@ async def test_trigger_generation_consumes_subscription_quota_and_passes_tier_mo
     assert queued_settings["subscription_tier"] == "basic"
     assert queued_settings["quota_period_start"] == "2026-04-01"
     assert queued_settings["_generation_model"] == "basic-primary-model"
+    assert queued_settings["_generation_reasoning_effort"] == "medium"
     assert queued_settings["_generation_fallback_model"] == "basic-fallback-model"
+    assert queued_settings["_generation_fallback_reasoning_effort"] == "high"
 
 
 @pytest.mark.asyncio
@@ -3264,7 +3270,9 @@ async def test_section_regeneration_consumes_subscription_quota_and_passes_tier_
     assert queued_settings["subscription_tier"] == "basic"
     assert queued_settings["quota_period_start"] == "2026-04-01"
     assert queued_settings["_generation_model"] == "basic-primary-model"
+    assert queued_settings["_generation_reasoning_effort"] == "medium"
     assert queued_settings["_generation_fallback_model"] == "basic-fallback-model"
+    assert queued_settings["_generation_fallback_reasoning_effort"] == "high"
 
 
 @pytest.mark.asyncio

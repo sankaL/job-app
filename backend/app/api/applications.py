@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.access import get_current_active_user
 from app.core.auth import AuthenticatedUser
+from app.core.errors import QuotaExceededError
 from app.db.applications import ApplicationListRecord, ApplicationRecord, MatchedApplicationRecord
 from app.db.resume_drafts import ResumeDraftRecord
 from app.services.application_manager import (
@@ -444,6 +445,11 @@ def to_application_detail(payload: ApplicationDetailPayload) -> ApplicationDetai
 def _map_service_error(error: Exception) -> HTTPException:
     if isinstance(error, LookupError):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(error, QuotaExceededError):
+        return HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": error.code, "message": str(error)},
+        )
     if isinstance(error, PermissionError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     if isinstance(error, ValueError):

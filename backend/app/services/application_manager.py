@@ -2665,7 +2665,9 @@ class ApplicationService:
             "subscription_tier": reservation.subscription_tier,
             "quota_period_start": reservation.period_start,
             "_generation_model": reservation.generation_model,
+            "_generation_reasoning_effort": reservation.generation_reasoning_effort,
             "_generation_fallback_model": reservation.generation_fallback_model,
+            "_generation_fallback_reasoning_effort": reservation.generation_fallback_reasoning_effort,
         }
 
     def _require_profile_name(self, profile, *, action: str) -> None:

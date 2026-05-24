@@ -6,15 +6,25 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { updateSubscriptionTier, type SubscriptionTier } from "@/lib/api";
+import {
+  getModelOption,
+  isReasoningEffort,
+  openRouterGenerationModels,
+  reasoningEffortLabels,
+  type ReasoningEffort,
+} from "@/lib/openrouter-models";
 import { invalidateSubscriptionTierQueries, useSubscriptionTiersQuery } from "@/lib/queries";
 
 type TierFormState = {
   monthly_resume_generation_limit: string;
   generation_model: string;
+  generation_reasoning_effort: ReasoningEffort;
   generation_fallback_model: string;
+  generation_fallback_reasoning_effort: ReasoningEffort;
 };
 
 const tierAccent: Record<SubscriptionTier["key"], { accent: string; tint: string }> = {
@@ -26,7 +36,9 @@ function stateFromTier(tier: SubscriptionTier): TierFormState {
   return {
     monthly_resume_generation_limit: String(tier.monthly_resume_generation_limit),
     generation_model: tier.generation_model,
+    generation_reasoning_effort: normalizeReasoning(tier.generation_reasoning_effort),
     generation_fallback_model: tier.generation_fallback_model,
+    generation_fallback_reasoning_effort: normalizeReasoning(tier.generation_fallback_reasoning_effort),
   };
 }
 
@@ -35,7 +47,9 @@ function isDirty(tier: SubscriptionTier, form: TierFormState | undefined) {
   return (
     form.monthly_resume_generation_limit !== String(tier.monthly_resume_generation_limit) ||
     form.generation_model !== tier.generation_model ||
-    form.generation_fallback_model !== tier.generation_fallback_model
+    form.generation_reasoning_effort !== normalizeReasoning(tier.generation_reasoning_effort) ||
+    form.generation_fallback_model !== tier.generation_fallback_model ||
+    form.generation_fallback_reasoning_effort !== normalizeReasoning(tier.generation_fallback_reasoning_effort)
   );
 }
 
@@ -51,8 +65,12 @@ function formatDate(value: string) {
   }).format(parsed);
 }
 
-function isLikelyOpenRouterModelId(value: string) {
-  return value.includes("/") && !/\s/.test(value);
+function normalizeReasoning(value: string): ReasoningEffort {
+  return isReasoningEffort(value) ? value : "none";
+}
+
+function reasoningOptionsForModel(modelId: string) {
+  return getModelOption(modelId)?.reasoningEfforts ?? ["none"];
 }
 
 export function AdminSubscriptionsPage() {
@@ -87,12 +105,27 @@ export function AdminSubscriptionsPage() {
       [tierKey]: {
         ...(current[tierKey] ?? {
           monthly_resume_generation_limit: "",
-          generation_model: "",
-          generation_fallback_model: "",
+          generation_model: openRouterGenerationModels[0].id,
+          generation_reasoning_effort: "none",
+          generation_fallback_model: openRouterGenerationModels[1].id,
+          generation_fallback_reasoning_effort: "none",
         }),
         ...updates,
       },
     }));
+  }
+
+  function updateModel(tierKey: string, field: "generation_model" | "generation_fallback_model", modelId: string) {
+    const reasoningField =
+      field === "generation_model"
+        ? "generation_reasoning_effort"
+        : "generation_fallback_reasoning_effort";
+    const currentReasoning = forms[tierKey]?.[reasoningField] ?? "none";
+    const allowed = reasoningOptionsForModel(modelId);
+    updateForm(tierKey, {
+      [field]: modelId,
+      [reasoningField]: allowed.includes(currentReasoning) ? currentReasoning : "none",
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>, tier: SubscriptionTier) {
@@ -114,8 +147,18 @@ export function AdminSubscriptionsPage() {
       toast("Fallback model must be different from the primary model.", "error");
       return;
     }
-    if (!isLikelyOpenRouterModelId(primaryModel) || !isLikelyOpenRouterModelId(fallbackModel)) {
-      toast("Use OpenRouter model IDs in provider/model format.", "error");
+    const primaryOption = getModelOption(primaryModel);
+    const fallbackOption = getModelOption(fallbackModel);
+    if (!primaryOption || !fallbackOption) {
+      toast("Choose one of the supported OpenRouter models.", "error");
+      return;
+    }
+    if (!primaryOption.reasoningEfforts.includes(form.generation_reasoning_effort)) {
+      toast("Primary reasoning level is not supported by the selected primary model.", "error");
+      return;
+    }
+    if (!fallbackOption.reasoningEfforts.includes(form.generation_fallback_reasoning_effort)) {
+      toast("Fallback reasoning level is not supported by the selected fallback model.", "error");
       return;
     }
 
@@ -124,7 +167,9 @@ export function AdminSubscriptionsPage() {
       await updateSubscriptionTier(tier.key, {
         monthly_resume_generation_limit: parsedLimit,
         generation_model: primaryModel,
+        generation_reasoning_effort: form.generation_reasoning_effort,
         generation_fallback_model: fallbackModel,
+        generation_fallback_reasoning_effort: form.generation_fallback_reasoning_effort,
       });
       toast(`${tier.name} updated.`);
       await invalidateSubscriptionTierQueries(queryClient);
@@ -219,24 +264,76 @@ export function AdminSubscriptionsPage() {
 
                 <div>
                   <Label htmlFor={`${tier.key}_model`}>Primary model</Label>
-                  <Input
+                  <Select
                     id={`${tier.key}_model`}
                     value={form.generation_model}
-                    onChange={(event) => updateForm(tier.key, { generation_model: event.target.value })}
+                    onChange={(event) => updateModel(tier.key, "generation_model", event.target.value)}
                     required
-                  />
+                  >
+                    {openRouterGenerationModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor={`${tier.key}_reasoning`}>Primary reasoning</Label>
+                  <Select
+                    id={`${tier.key}_reasoning`}
+                    value={form.generation_reasoning_effort}
+                    onChange={(event) =>
+                      updateForm(tier.key, {
+                        generation_reasoning_effort: normalizeReasoning(event.target.value),
+                      })
+                    }
+                    required
+                  >
+                    {reasoningOptionsForModel(form.generation_model).map((effort) => (
+                      <option key={effort} value={effort}>
+                        {reasoningEffortLabels[effort]}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
 
                 <div>
                   <Label htmlFor={`${tier.key}_fallback_model`}>Fallback model</Label>
-                  <Input
+                  <Select
                     id={`${tier.key}_fallback_model`}
                     value={form.generation_fallback_model}
                     onChange={(event) =>
-                      updateForm(tier.key, { generation_fallback_model: event.target.value })
+                      updateModel(tier.key, "generation_fallback_model", event.target.value)
                     }
                     required
-                  />
+                  >
+                    {openRouterGenerationModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor={`${tier.key}_fallback_reasoning`}>Fallback reasoning</Label>
+                  <Select
+                    id={`${tier.key}_fallback_reasoning`}
+                    value={form.generation_fallback_reasoning_effort}
+                    onChange={(event) =>
+                      updateForm(tier.key, {
+                        generation_fallback_reasoning_effort: normalizeReasoning(event.target.value),
+                      })
+                    }
+                    required
+                  >
+                    {reasoningOptionsForModel(form.generation_fallback_model).map((effort) => (
+                      <option key={effort} value={effort}>
+                        {reasoningEffortLabels[effort]}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>

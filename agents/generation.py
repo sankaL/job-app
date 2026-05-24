@@ -1079,6 +1079,7 @@ async def _call_json_with_fallback(
     timeout: float,
     aggressiveness: str,
     reasoning_effort: Optional[str],
+    fallback_reasoning_effort: Optional[str] = None,
 ) -> tuple[BaseModel, str, list[dict[str, Any]]]:
     last_error: Optional[Exception] = None
     attempts: list[dict[str, Any]] = []
@@ -1089,7 +1090,9 @@ async def _call_json_with_fallback(
     for model_name, is_fallback, transport_mode in model_sequence:
         reasoning_config = _reasoning_config_for_operation(
             operation,
-            reasoning_effort,
+            (fallback_reasoning_effort if fallback_reasoning_effort is not None else reasoning_effort)
+            if is_fallback
+            else reasoning_effort,
             is_fallback=is_fallback,
         )
         attempt_timeout = min(timeout, _attempt_timeout_for_operation(operation, is_fallback=is_fallback))
@@ -1184,6 +1187,8 @@ async def repair_generated_response(
     base_url: str,
     timeout: float,
     aggressiveness: str,
+    reasoning_effort: Optional[str] = None,
+    fallback_reasoning_effort: Optional[str] = None,
 ) -> tuple[Optional[BaseModel], str, list[dict[str, Any]], Optional[Exception]]:
     if timeout <= 0:
         return None, model_used, [], asyncio.TimeoutError("No remaining timeout budget for validation repair.")
@@ -1207,6 +1212,20 @@ async def repair_generated_response(
             is_fallback=repair_model == fallback_model and fallback_model != model,
         ),
     )
+    repair_reasoning_effort = (
+        fallback_reasoning_effort
+        if repair_model == fallback_model and fallback_model != model and fallback_reasoning_effort is not None
+        else reasoning_effort
+    )
+    repair_reasoning_config = (
+        _reasoning_config_for_operation(
+            operation,
+            repair_reasoning_effort,
+            is_fallback=repair_model == fallback_model and fallback_model != model,
+        )
+        if repair_reasoning_effort is not None
+        else None
+    )
     try:
         payload = await _attempt_transport(
             prompt=repair_prompt,
@@ -1217,7 +1236,7 @@ async def repair_generated_response(
             api_key=api_key,
             base_url=base_url,
             timeout=repair_timeout,
-            reasoning_config=None,
+            reasoning_config=repair_reasoning_config,
             transport_mode="repair_json",
             attempts=repair_attempts,
             aggressiveness=aggressiveness,
@@ -1321,6 +1340,7 @@ async def generate_sections(
     base_url: str,
     on_progress,
     reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
+    fallback_reasoning_effort: Optional[str] = None,
 ) -> dict[str, Any]:
     enabled = sorted(
         [section for section in section_preferences if section.get("enabled") and section.get("name") in SUPPORTED_SECTIONS],
@@ -1369,6 +1389,7 @@ async def generate_sections(
             timeout=FULL_DRAFT_LLM_TIMEOUT_SECONDS,
             aggressiveness=str(aggressiveness).lower(),
             reasoning_effort=reasoning_effort,
+            fallback_reasoning_effort=fallback_reasoning_effort,
         ),
         on_progress=on_progress,
         percent=GENERATION_HEARTBEAT_PERCENT,
@@ -1445,6 +1466,7 @@ async def regenerate_single_section(
     base_url: str,
     on_progress=None,
     reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
+    fallback_reasoning_effort: Optional[str] = None,
 ) -> dict[str, Any]:
     aggressiveness = generation_settings.get("aggressiveness", "medium")
     target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
@@ -1487,6 +1509,7 @@ async def regenerate_single_section(
                 timeout=SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
                 aggressiveness=str(aggressiveness).lower(),
                 reasoning_effort=reasoning_effort,
+                fallback_reasoning_effort=fallback_reasoning_effort,
             ),
             on_progress=on_progress,
             percent=GENERATION_HEARTBEAT_PERCENT,
@@ -1505,6 +1528,7 @@ async def regenerate_single_section(
             timeout=SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
             aggressiveness=str(aggressiveness).lower(),
             reasoning_effort=reasoning_effort,
+            fallback_reasoning_effort=fallback_reasoning_effort,
         )
 
     section_content = payload.section.markdown.strip()

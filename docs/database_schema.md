@@ -1,7 +1,7 @@
 # AI Resume Builder Database Schema
 
 **Document status:** Source of truth for the MVP database contract  
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-24
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Related rollout guide:** `docs/backend-database-migration-runbook.md`
 
@@ -45,7 +45,7 @@ Backend write paths must validate these shapes before persisting them.
 | `applications.extracted_reference_id` | Lowercase or normalized requisition/reference identifier, for example `"req-42"` | Stores the reference identifier extracted during capture so duplicate detection can use a persisted signal instead of re-parsing URLs or descriptions later. |
 | `applications.duplicate_match_fields` | Object with `matched_fields` array and `match_basis` string, for example `{"matched_fields": ["job_title", "company", "job_url"], "match_basis": "exact_job_url"}` | Stores what caused the duplicate warning, not the full comparison payload. `matched_fields` may include `job_posting_origin`, `job_url`, `reference_id`, or `job_description` only when those signals actually contributed to the duplicate warning. |
 | `resume_drafts.generation_params` | Object with `page_length`, `aggressiveness`, and `additional_instructions`, for example `{"page_length": "1_page", "aggressiveness": "medium", "additional_instructions": null}` | `page_length` values: `1_page`, `2_page`, `3_page`. `aggressiveness` values: `low`, `medium`, `high`. |
-| `resume_drafts.generation_params` subscription fields | Optional generated-draft metadata with `subscription_tier`, `quota_period_start`, and `model_used`, for example `{"subscription_tier": "basic", "quota_period_start": "2026-05-01", "model_used": "openai/gpt-5-mini"}` | Internal queued model override fields must not be persisted in this JSON. Existing base-resume snapshot metadata may remain for compare/judge freshness compatibility. |
+| `resume_drafts.generation_params` subscription fields | Optional generated-draft metadata with `subscription_tier`, `quota_period_start`, and `model_used`, for example `{"subscription_tier": "basic", "quota_period_start": "2026-05-01", "model_used": "openai/gpt-5.4-mini"}` | Internal queued model and reasoning override fields must not be persisted in this JSON. Existing base-resume snapshot metadata may remain for compare/judge freshness compatibility. |
 | `resume_drafts.sections_snapshot` | Object with `enabled_sections` and `section_order`, for example `{"enabled_sections": ["summary", "professional_experience", "education", "skills"], "section_order": ["summary", "professional_experience", "education", "skills"]}` | Snapshot taken at generation time so later preference changes do not rewrite old drafts implicitly. |
 
 ## Table Definitions
@@ -140,16 +140,18 @@ Admin-configurable Basic and Pro generation limits and model access.
 | `key` | `text` | No | — | Primary key. Allowed values are `basic` and `pro`. |
 | `name` | `text` | No | — | Display label. |
 | `monthly_resume_generation_limit` | `integer` | No | — | UTC calendar-month limit for initial generation, full regeneration, and section regeneration. Must be non-negative; backend validation caps admin-entered values. |
-| `generation_model` | `text` | No | — | OpenRouter model ID used as the tier primary generation model. Backend validation requires provider/model format. |
-| `generation_fallback_model` | `text` | No | — | OpenRouter model ID used as the tier fallback generation model. Must differ from `generation_model`; backend validation requires provider/model format. |
+| `generation_model` | `text` | No | — | OpenRouter model ID used as the tier primary generation model. Must be one of the curated admin model options. |
+| `generation_reasoning_effort` | `text` | No | `none` | OpenRouter reasoning effort for the primary model. Allowed values are `none`, `low`, `medium`, `high`, and `xhigh`; `xhigh` is allowed only for `openai/gpt-5.4-mini`. |
+| `generation_fallback_model` | `text` | No | — | OpenRouter model ID used as the tier fallback generation model. Must differ from `generation_model` and be one of the curated admin model options. |
+| `generation_fallback_reasoning_effort` | `text` | No | `none` | OpenRouter reasoning effort for the fallback model with the same compatibility rules as the primary reasoning field. |
 | `is_active` | `boolean` | No | `true` | Inactive tiers cannot reserve generation quota. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
 
 **Seed values**
 
-- `basic`: limit `10`, primary `openai/gpt-5-mini`, fallback `google/gemini-flash-1.5`
-- `pro`: limit `100`, primary `z-ai/glm-5.1`, fallback `anthropic/claude-sonnet-4.6`
+- `basic`: limit `10`, primary `google/gemini-3-flash-preview` with reasoning `none`, fallback `openai/gpt-5.4-mini` with reasoning `none`
+- `pro`: limit `100`, primary `openai/gpt-5.4-mini` with reasoning `medium`, fallback `google/gemini-3.5-flash` with reasoning `medium`
 
 ### `resume_generation_usage`
 

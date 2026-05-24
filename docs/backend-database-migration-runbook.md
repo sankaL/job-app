@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-24
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -254,7 +254,25 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - existing and newly invited users resolve to `profiles.subscription_tier = basic` unless changed by an admin
   - admins can read and update tier limits/model IDs, and can assign users to Basic or Pro
   - initial generation, full regeneration, and section regeneration reserve quota in the same UTC month bucket
-  - quota exhaustion returns a sanitized conflict response and does not enqueue a worker job
+  - quota exhaustion returns a sanitized `quota_exhausted` response and does not enqueue a worker job
+
+## Current Additive Change Note: Tier Reasoning Controls and Curated Model Picker
+
+- Add the additive migration `supabase/migrations/20260524_000014_subscription_tier_reasoning_controls.sql`.
+- This migration adds:
+  - `subscription_tiers.generation_reasoning_effort text not null default 'none'`
+  - `subscription_tiers.generation_fallback_reasoning_effort text not null default 'none'`
+  - constraints limiting tier models to Gemini 3 Flash, GPT 5.4 Mini, and Gemini 3.5 Flash
+  - constraints allowing `xhigh` reasoning only on GPT 5.4 Mini
+- Rollout order for this change:
+  1. Apply the additive migration and seed updated Basic/Pro model and reasoning defaults.
+  2. Deploy backend validation and session-bootstrap quota status support.
+  3. Deploy worker support for tier-selected primary/fallback reasoning while retaining env fallback behavior for old queued jobs.
+  4. Deploy frontend admin model/reasoning dropdowns and dashboard quota display.
+- Post-deploy verification should confirm:
+  - admins can save Basic/Pro request limits, primary/fallback models, and model-compatible reasoning levels
+  - dashboard shows monthly requests remaining for Basic and Pro users
+  - quota exhaustion returns a sanitized `quota_exhausted` response and does not enqueue a worker job
   - worker jobs use the tier-selected primary/fallback models and still fall back to env settings when hidden job model values are absent
 
 ## Historical Additive Change Note: Full Regeneration Cap and Deterministic Regeneration Hardening

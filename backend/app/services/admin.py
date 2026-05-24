@@ -12,6 +12,7 @@ from fastapi import Depends
 from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
+from app.core.model_catalog import normalize_reasoning_effort, validate_generation_model_reasoning
 from app.db.admin import AdminRepository, AdminUserRecord, get_admin_repository
 from app.db.profiles import ProfileRepository, get_profile_repository
 from app.db.subscriptions import (
@@ -93,7 +94,9 @@ class AdminService:
         tier_key: str,
         monthly_resume_generation_limit: int,
         generation_model: str,
+        generation_reasoning_effort: str,
         generation_fallback_model: str,
+        generation_fallback_reasoning_effort: str,
     ) -> SubscriptionTierRecord:
         normalized_key = tier_key.strip().lower()
         if normalized_key not in {"basic", "pro"}:
@@ -109,15 +112,27 @@ class AdminService:
             generation_fallback_model,
             "Fallback generation model",
         )
+        clean_reasoning = normalize_reasoning_effort(generation_reasoning_effort)
+        clean_fallback_reasoning = normalize_reasoning_effort(generation_fallback_reasoning_effort)
         self._validate_model_id(clean_model, "Generation model")
         self._validate_model_id(clean_fallback, "Fallback generation model")
+        validate_generation_model_reasoning(
+            model_id=clean_model,
+            reasoning_effort=clean_reasoning,
+        )
+        validate_generation_model_reasoning(
+            model_id=clean_fallback,
+            reasoning_effort=clean_fallback_reasoning,
+        )
         if clean_model == clean_fallback:
             raise ValueError("Generation model and fallback model must be different.")
         return self.subscription_repository.update_tier(
             tier_key=normalized_key,
             monthly_resume_generation_limit=monthly_resume_generation_limit,
             generation_model=clean_model,
+            generation_reasoning_effort=clean_reasoning,
             generation_fallback_model=clean_fallback,
+            generation_fallback_reasoning_effort=clean_fallback_reasoning,
         )
 
     def get_metrics(self) -> AdminMetricsPayload:

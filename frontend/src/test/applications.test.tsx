@@ -113,6 +113,14 @@ const defaultBootstrap = {
     applied_count: 0,
     needs_action_count: 0,
   },
+  generation_quota: {
+    subscription_tier: "basic",
+    monthly_resume_generation_limit: 10,
+    generation_count: 3,
+    remaining_count: 7,
+    period_start: "2026-05-01",
+    resets_at: "2026-06-01",
+  },
   workflow_contract_version: "1",
 };
 
@@ -347,6 +355,8 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(<DashboardPage />);
 
     expect(await screen.findByText(/no applications yet/i)).toBeInTheDocument();
+    expect(screen.getByText("7 left")).toBeInTheDocument();
+    expect(screen.getByText(/3 of 10 used/i)).toBeInTheDocument();
     expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
     expect(api.listApplications).toHaveBeenCalledTimes(1);
   });
@@ -1638,8 +1648,10 @@ describe("phase 1 applications UI", () => {
         key: "basic",
         name: "Basic",
         monthly_resume_generation_limit: 10,
-        generation_model: "openai/gpt-5-mini",
-        generation_fallback_model: "google/gemini-flash-1.5",
+        generation_model: "google/gemini-3-flash-preview",
+        generation_reasoning_effort: "none",
+        generation_fallback_model: "openai/gpt-5.4-mini",
+        generation_fallback_reasoning_effort: "none",
         is_active: true,
         created_at: "2026-05-23T00:00:00Z",
         updated_at: "2026-05-23T00:00:00Z",
@@ -1648,8 +1660,10 @@ describe("phase 1 applications UI", () => {
         key: "pro",
         name: "Pro",
         monthly_resume_generation_limit: 100,
-        generation_model: "z-ai/glm-5.1",
-        generation_fallback_model: "anthropic/claude-sonnet-4.6",
+        generation_model: "openai/gpt-5.4-mini",
+        generation_reasoning_effort: "medium",
+        generation_fallback_model: "google/gemini-3.5-flash",
+        generation_fallback_reasoning_effort: "medium",
         is_active: true,
         created_at: "2026-05-23T00:00:00Z",
         updated_at: "2026-05-23T00:00:00Z",
@@ -1659,8 +1673,10 @@ describe("phase 1 applications UI", () => {
       key: "basic",
       name: "Basic",
       monthly_resume_generation_limit: 12,
-      generation_model: "openai/gpt-5-mini",
-      generation_fallback_model: "google/gemini-flash-1.5",
+      generation_model: "google/gemini-3-flash-preview",
+      generation_reasoning_effort: "none",
+      generation_fallback_model: "openai/gpt-5.4-mini",
+      generation_fallback_reasoning_effort: "none",
       is_active: true,
       created_at: "2026-05-23T00:00:00Z",
       updated_at: "2026-05-23T12:00:00Z",
@@ -1678,8 +1694,10 @@ describe("phase 1 applications UI", () => {
     await waitFor(() =>
       expect(api.updateSubscriptionTier).toHaveBeenCalledWith("basic", {
         monthly_resume_generation_limit: 12,
-        generation_model: "openai/gpt-5-mini",
-        generation_fallback_model: "google/gemini-flash-1.5",
+        generation_model: "google/gemini-3-flash-preview",
+        generation_reasoning_effort: "none",
+        generation_fallback_model: "openai/gpt-5.4-mini",
+        generation_fallback_reasoning_effort: "none",
       }),
     );
   });
@@ -1691,8 +1709,10 @@ describe("phase 1 applications UI", () => {
         key: "basic",
         name: "Basic",
         monthly_resume_generation_limit: 10,
-        generation_model: "openai/gpt-5-mini",
-        generation_fallback_model: "google/gemini-flash-1.5",
+        generation_model: "google/gemini-3-flash-preview",
+        generation_reasoning_effort: "none",
+        generation_fallback_model: "openai/gpt-5.4-mini",
+        generation_fallback_reasoning_effort: "none",
         is_active: true,
         created_at: "2026-05-23T00:00:00Z",
         updated_at: "2026-05-23T00:00:00Z",
@@ -1708,8 +1728,7 @@ describe("phase 1 applications UI", () => {
     const primaryInput = within(form).getByLabelText(/primary model/i);
     const fallbackInput = within(form).getByLabelText(/fallback model/i);
 
-    await user.clear(fallbackInput);
-    await user.type(fallbackInput, primaryInput.getAttribute("value") ?? "openai/gpt-5-mini");
+    await user.selectOptions(fallbackInput, (primaryInput as HTMLSelectElement).value);
     await user.click(within(form).getByRole("button", { name: /save/i }));
 
     expect(api.updateSubscriptionTier).not.toHaveBeenCalled();

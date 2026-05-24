@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.access import get_current_admin_user
 from app.core.auth import AuthenticatedUser
+from app.core.model_catalog import normalize_reasoning_effort
 from app.services.admin import (
     AdminMetricsPayload,
     AdminOperationMetric,
@@ -131,7 +132,9 @@ class SubscriptionTierResponse(BaseModel):
     name: str
     monthly_resume_generation_limit: int
     generation_model: str
+    generation_reasoning_effort: str
     generation_fallback_model: str
+    generation_fallback_reasoning_effort: str
     is_active: bool
     created_at: str
     updated_at: str
@@ -140,7 +143,9 @@ class SubscriptionTierResponse(BaseModel):
 class UpdateSubscriptionTierRequest(BaseModel):
     monthly_resume_generation_limit: int = Field(ge=0)
     generation_model: str
+    generation_reasoning_effort: str = "none"
     generation_fallback_model: str
+    generation_fallback_reasoning_effort: str = "none"
 
     @field_validator("generation_model", "generation_fallback_model")
     @classmethod
@@ -148,6 +153,14 @@ class UpdateSubscriptionTierRequest(BaseModel):
         stripped = value.strip()
         if not stripped:
             raise ValueError("Model cannot be blank.")
+        return stripped
+
+    @field_validator("generation_reasoning_effort", "generation_fallback_reasoning_effort")
+    @classmethod
+    def normalize_reasoning(cls, value: str) -> str:
+        stripped = normalize_reasoning_effort(value)
+        if not stripped:
+            raise ValueError("Reasoning effort is required.")
         return stripped
 
 
@@ -222,7 +235,9 @@ async def update_subscription_tier(
             tier_key=tier_key,
             monthly_resume_generation_limit=request.monthly_resume_generation_limit,
             generation_model=request.generation_model,
+            generation_reasoning_effort=request.generation_reasoning_effort,
             generation_fallback_model=request.generation_fallback_model,
+            generation_fallback_reasoning_effort=request.generation_fallback_reasoning_effort,
         )
         return SubscriptionTierResponse.model_validate(updated.model_dump())
     except Exception as error:

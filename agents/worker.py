@@ -174,6 +174,32 @@ def _resolve_generation_models(
     return primary_model, fallback_model
 
 
+def _resolve_generation_reasoning_efforts(
+    generation_settings: dict[str, Any],
+    settings: WorkerSettingsEnv,
+) -> tuple[str, str]:
+    primary_reasoning = str(
+        generation_settings.get(
+            "_generation_reasoning_effort",
+            settings.generation_agent_reasoning_effort,
+        )
+        or "none"
+    ).strip().lower()
+    fallback_reasoning = str(
+        generation_settings.get(
+            "_generation_fallback_reasoning_effort",
+            primary_reasoning,
+        )
+        or "none"
+    ).strip().lower()
+    allowed = {"none", "low", "medium", "high", "xhigh"}
+    if primary_reasoning not in allowed:
+        raise RuntimeError("Tier generation reasoning effort is invalid.")
+    if fallback_reasoning not in allowed:
+        raise RuntimeError("Tier fallback generation reasoning effort is invalid.")
+    return primary_reasoning, fallback_reasoning
+
+
 def _stored_generation_settings(
     generation_settings: dict[str, Any],
     *,
@@ -182,7 +208,13 @@ def _stored_generation_settings(
     stored = {
         key: value
         for key, value in generation_settings.items()
-        if key not in {"_generation_model", "_generation_fallback_model"}
+        if key
+        not in {
+            "_generation_model",
+            "_generation_reasoning_effort",
+            "_generation_fallback_model",
+            "_generation_fallback_reasoning_effort",
+        }
     }
     if model_used:
         stored["model_used"] = model_used
@@ -1260,6 +1292,8 @@ async def _validate_generated_sections_with_repair(
     attempt_diagnostics: list[dict[str, Any]],
     api_key: str,
     base_url: str,
+    reasoning_effort: str = "none",
+    fallback_reasoning_effort: str = "none",
     repair_deadline: float,
     on_progress,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], Optional[dict[str, Any]]]:
@@ -1291,6 +1325,8 @@ async def _validate_generated_sections_with_repair(
         base_url=base_url,
         timeout=remaining_timeout_seconds,
         aggressiveness=aggressiveness,
+        reasoning_effort=reasoning_effort,
+        fallback_reasoning_effort=fallback_reasoning_effort,
     )
     combined_attempts = [*attempt_diagnostics, *_sanitize_attempts(repair_attempts)]
     if repair_error is not None or repaired_payload is None:
@@ -1348,6 +1384,8 @@ async def _validate_regenerated_section_with_repair(
     attempt_diagnostics: list[dict[str, Any]],
     api_key: str,
     base_url: str,
+    reasoning_effort: str = "none",
+    fallback_reasoning_effort: str = "none",
     repair_deadline: float,
     on_progress,
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], Optional[dict[str, Any]]]:
@@ -1380,6 +1418,8 @@ async def _validate_regenerated_section_with_repair(
         base_url=base_url,
         timeout=remaining_timeout_seconds,
         aggressiveness=aggressiveness,
+        reasoning_effort=reasoning_effort,
+        fallback_reasoning_effort=fallback_reasoning_effort,
     )
     combined_attempts = [*attempt_diagnostics, *_sanitize_attempts(repair_attempts)]
     if repair_error is not None or repaired_payload is None:
@@ -1443,6 +1483,10 @@ async def run_generation_job(
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
     generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings)
+    generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts(
+        generation_settings,
+        settings,
+    )
     public_generation_settings = {
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
@@ -1504,7 +1548,8 @@ async def run_generation_job(
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
                 on_progress=on_generation_progress,
-                reasoning_effort=settings.generation_agent_reasoning_effort,
+                reasoning_effort=generation_reasoning_effort,
+                fallback_reasoning_effort=generation_fallback_reasoning_effort,
             ),
             timeout=FULL_GENERATION_MAX_TIMEOUT_SECONDS,
         )
@@ -1549,6 +1594,8 @@ async def run_generation_job(
             attempt_diagnostics=attempt_diagnostics,
             api_key=settings.openrouter_api_key,
             base_url=settings.openrouter_base_url,
+            reasoning_effort=generation_reasoning_effort,
+            fallback_reasoning_effort=generation_fallback_reasoning_effort,
             repair_deadline=job_started_at + FULL_GENERATION_MAX_TIMEOUT_SECONDS,
             on_progress=on_generation_progress,
         )
@@ -1802,6 +1849,10 @@ async def run_regeneration_job(
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
     generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings)
+    generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts(
+        generation_settings,
+        settings,
+    )
     public_generation_settings = {
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
@@ -1866,7 +1917,8 @@ async def run_regeneration_job(
                     api_key=settings.openrouter_api_key,
                     base_url=settings.openrouter_base_url,
                     on_progress=on_regen_progress,
-                    reasoning_effort=settings.generation_agent_reasoning_effort,
+                    reasoning_effort=generation_reasoning_effort,
+                    fallback_reasoning_effort=generation_fallback_reasoning_effort,
                 ),
                 timeout=FULL_GENERATION_MAX_TIMEOUT_SECONDS,
             )
@@ -1908,6 +1960,8 @@ async def run_regeneration_job(
                 attempt_diagnostics=attempt_diagnostics,
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
+                reasoning_effort=generation_reasoning_effort,
+                fallback_reasoning_effort=generation_fallback_reasoning_effort,
                 repair_deadline=job_started_at + FULL_GENERATION_MAX_TIMEOUT_SECONDS,
                 on_progress=on_regen_progress,
             )
@@ -2028,7 +2082,8 @@ async def run_regeneration_job(
                     api_key=settings.openrouter_api_key,
                     base_url=settings.openrouter_base_url,
                     on_progress=on_section_regen_progress,
-                    reasoning_effort=settings.generation_agent_reasoning_effort,
+                    reasoning_effort=generation_reasoning_effort,
+                    fallback_reasoning_effort=generation_fallback_reasoning_effort,
                 ),
                 timeout=SECTION_REGENERATION_TIMEOUT_SECONDS,
             )
@@ -2068,6 +2123,8 @@ async def run_regeneration_job(
                 attempt_diagnostics=attempt_diagnostics,
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
+                reasoning_effort=generation_reasoning_effort,
+                fallback_reasoning_effort=generation_fallback_reasoning_effort,
                 repair_deadline=job_started_at + SECTION_REGENERATION_TIMEOUT_SECONDS,
                 on_progress=on_section_regen_progress,
             )

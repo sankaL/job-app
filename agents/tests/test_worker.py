@@ -879,6 +879,8 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
     async def fake_generate_sections(**kwargs):
         observed_models["model"] = kwargs["model"]
         observed_models["fallback_model"] = kwargs["fallback_model"]
+        observed_models["reasoning_effort"] = kwargs["reasoning_effort"]
+        observed_models["fallback_reasoning_effort"] = kwargs["fallback_reasoning_effort"]
         return {
             **build_generation_result(),
             "model_used": "tier-primary-model",
@@ -922,15 +924,24 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
             "subscription_tier": "basic",
             "quota_period_start": "2026-05-01",
             "_generation_model": "tier-primary-model",
+            "_generation_reasoning_effort": "medium",
             "_generation_fallback_model": "tier-fallback-model",
+            "_generation_fallback_reasoning_effort": "high",
         },
     )
 
     generated = fake_writer.generated_by_app["app-tier"]["generated"]
-    assert observed_models == {"model": "tier-primary-model", "fallback_model": "tier-fallback-model"}
+    assert observed_models == {
+        "model": "tier-primary-model",
+        "fallback_model": "tier-fallback-model",
+        "reasoning_effort": "medium",
+        "fallback_reasoning_effort": "high",
+    }
     assert generated["generation_params"]["model_used"] == "tier-primary-model"
     assert "_generation_model" not in generated["generation_params"]
+    assert "_generation_reasoning_effort" not in generated["generation_params"]
     assert "_generation_fallback_model" not in generated["generation_params"]
+    assert "_generation_fallback_reasoning_effort" not in generated["generation_params"]
 
 
 @pytest.mark.asyncio

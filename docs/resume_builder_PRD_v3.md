@@ -45,15 +45,15 @@ The product should enable a user to:
 
 ### 3.1 OpenRouter / LLM Integration
 
-All LLM calls are routed through **OpenRouter** via LangChain's provider-agnostic interface. Resume generation model access is configurable per subscription tier in admin settings; environment model settings remain the worker fallback for legacy queued jobs or missing tier configuration. Prompt construction must not rely on any provider-specific syntax or features.
+All LLM calls are routed through **OpenRouter** via LangChain's provider-agnostic interface. Resume generation model and reasoning access are configurable per subscription tier in admin settings; environment model settings remain the worker fallback for legacy queued jobs or missing tier configuration. Prompt construction must not rely on any provider-specific syntax or features.
 
 A fallback model is configurable per subscription tier for resilience. If the primary model call fails, the system retries once with the tier fallback before treating the job as failed.
 
-Current default generation models:
-- Basic primary: `openai/gpt-5-mini`
-- Basic fallback: `google/gemini-flash-1.5`
-- Pro primary: `z-ai/glm-5.1`
-- Pro fallback: `anthropic/claude-sonnet-4.6`
+Current admin-selectable generation models are Gemini 3 Flash (`google/gemini-3-flash-preview`), GPT 5.4 Mini (`openai/gpt-5.4-mini`), and Gemini 3.5 Flash (`google/gemini-3.5-flash`). Reasoning choices are model-aware: Gemini Flash options support `none`, `low`, `medium`, and `high`; GPT 5.4 Mini also supports `xhigh` / Extra high.
+- Basic primary: `google/gemini-3-flash-preview` with reasoning `none`
+- Basic fallback: `openai/gpt-5.4-mini` with reasoning `none`
+- Pro primary: `openai/gpt-5.4-mini` with reasoning `medium`
+- Pro fallback: `google/gemini-3.5-flash` with reasoning `medium`
 
 ---
 
@@ -542,7 +542,7 @@ The main working page for a single application.
 5. Full single-call generation pipeline reruns (§10.7 → §10.8 → §10.9)
 6. Latest draft is overwritten
 
-When the subscription quota is reached, the API returns a conflict response with user-safe guidance to contact an administrator or upgrade the subscription tier.
+When the subscription quota is reached, the API returns a sanitized `quota_exhausted` response with user-safe guidance to contact an administrator or upgrade the subscription tier.
 
 **Draft versioning:** Each full regeneration overwrites the current draft. No resume version history UI is required for MVP. The `last_generated_at` timestamp on `resume_drafts` should be updated.
 
@@ -733,8 +733,10 @@ Admin has three product responsibilities in MVP:
 - view Basic and Pro tier settings
 - edit each tier's monthly resume-writing quota
 - edit each tier's OpenRouter primary generation model
+- edit each tier's OpenRouter primary reasoning level
 - edit each tier's OpenRouter fallback generation model
-- reject negative or excessive monthly limits, blank or malformed model IDs, and fallback models that match the primary model
+- edit each tier's OpenRouter fallback reasoning level
+- reject negative or excessive monthly limits, unsupported model IDs, unsupported reasoning levels for the selected model, and fallback models that match the primary model
 
 ---
 
@@ -862,8 +864,10 @@ Admin has three product responsibilities in MVP:
 | key | string | `basic` or `pro` |
 | name | string | Display label |
 | monthly_resume_generation_limit | integer | Monthly UTC quota for initial generation, full regeneration, and section regeneration; must be non-negative and bounded by backend validation |
-| generation_model | string | OpenRouter primary model ID for the tier; must use provider/model format |
-| generation_fallback_model | string | OpenRouter fallback model ID for the tier; must use provider/model format and differ from primary |
+| generation_model | string | OpenRouter primary model ID for the tier; must be one of the curated admin model options |
+| generation_reasoning_effort | string | OpenRouter reasoning effort for the primary model; model-aware allowed values are `none`, `low`, `medium`, `high`, and GPT-only `xhigh` |
+| generation_fallback_model | string | OpenRouter fallback model ID for the tier; must differ from primary and be one of the curated admin model options |
+| generation_fallback_reasoning_effort | string | OpenRouter reasoning effort for the fallback model with the same compatibility rules |
 | is_active | boolean | Active tiers can reserve generation quota |
 | created_at | timestamp | |
 | updated_at | timestamp | |

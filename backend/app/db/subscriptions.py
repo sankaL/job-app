@@ -9,6 +9,7 @@ from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.core.errors import QuotaExceededError
 
 
 class SubscriptionTierRecord(BaseModel):
@@ -16,7 +17,9 @@ class SubscriptionTierRecord(BaseModel):
     name: str
     monthly_resume_generation_limit: int
     generation_model: str
+    generation_reasoning_effort: str = "none"
     generation_fallback_model: str
+    generation_fallback_reasoning_effort: str = "none"
     is_active: bool
     created_at: str
     updated_at: str
@@ -26,9 +29,20 @@ class QuotaReservationRecord(BaseModel):
     subscription_tier: str
     monthly_resume_generation_limit: int
     generation_model: str
+    generation_reasoning_effort: str = "none"
     generation_fallback_model: str
+    generation_fallback_reasoning_effort: str = "none"
     period_start: str
     generation_count: int
+
+
+class GenerationQuotaStatusRecord(BaseModel):
+    subscription_tier: str
+    monthly_resume_generation_limit: int
+    generation_count: int
+    remaining_count: int
+    period_start: str
+    resets_at: str
 
 
 class SubscriptionRepository:
@@ -47,7 +61,9 @@ class SubscriptionRepository:
           name,
           monthly_resume_generation_limit,
           generation_model,
+          generation_reasoning_effort,
           generation_fallback_model,
+          generation_fallback_reasoning_effort,
           is_active,
           created_at::text,
           updated_at::text
@@ -67,7 +83,9 @@ class SubscriptionRepository:
           name,
           monthly_resume_generation_limit,
           generation_model,
+          generation_reasoning_effort,
           generation_fallback_model,
+          generation_fallback_reasoning_effort,
           is_active,
           created_at::text,
           updated_at::text
@@ -85,14 +103,18 @@ class SubscriptionRepository:
         tier_key: str,
         monthly_resume_generation_limit: int,
         generation_model: str,
+        generation_reasoning_effort: str,
         generation_fallback_model: str,
+        generation_fallback_reasoning_effort: str,
     ) -> SubscriptionTierRecord:
         query = """
         update public.subscription_tiers
         set
           monthly_resume_generation_limit = %s,
           generation_model = %s,
-          generation_fallback_model = %s
+          generation_reasoning_effort = %s,
+          generation_fallback_model = %s,
+          generation_fallback_reasoning_effort = %s
         where key = %s
         returning key
         """
@@ -102,7 +124,9 @@ class SubscriptionRepository:
                 (
                     monthly_resume_generation_limit,
                     generation_model,
+                    generation_reasoning_effort,
                     generation_fallback_model,
+                    generation_fallback_reasoning_effort,
                     tier_key,
                 ),
             )
@@ -127,7 +151,9 @@ class SubscriptionRepository:
                   p.subscription_tier,
                   st.monthly_resume_generation_limit,
                   st.generation_model,
-                  st.generation_fallback_model
+                  st.generation_reasoning_effort,
+                  st.generation_fallback_model,
+                  st.generation_fallback_reasoning_effort
                 from public.profiles p
                 join public.subscription_tiers st on st.key = p.subscription_tier
                 where p.id = %s and p.is_active = true and st.is_active = true
@@ -163,7 +189,7 @@ class SubscriptionRepository:
             limit = int(tier_row["monthly_resume_generation_limit"])
             if current_count >= limit:
                 connection.rollback()
-                raise PermissionError(
+                raise QuotaExceededError(
                     "Monthly resume generation limit reached. Contact an administrator or upgrade your subscription tier."
                 )
 
@@ -183,9 +209,42 @@ class SubscriptionRepository:
             subscription_tier=str(tier_row["subscription_tier"]),
             monthly_resume_generation_limit=limit,
             generation_model=str(tier_row["generation_model"]),
+            generation_reasoning_effort=str(tier_row["generation_reasoning_effort"]),
             generation_fallback_model=str(tier_row["generation_fallback_model"]),
+            generation_fallback_reasoning_effort=str(tier_row["generation_fallback_reasoning_effort"]),
             period_start=period_start.isoformat(),
             generation_count=int(updated_row["generation_count"]),
+        )
+
+    def fetch_generation_quota_status(self, *, user_id: str) -> GenerationQuotaStatusRecord:
+        period_start = self.current_utc_period_start()
+        resets_at = self.next_utc_period_start(period_start)
+        query = """
+        select
+          p.subscription_tier,
+          st.monthly_resume_generation_limit,
+          coalesce(rgu.generation_count, 0)::int as generation_count
+        from public.profiles p
+        join public.subscription_tiers st on st.key = p.subscription_tier
+        left join public.resume_generation_usage rgu
+          on rgu.user_id = p.id
+         and rgu.period_start = %s
+        where p.id = %s and p.is_active = true and st.is_active = true
+        """
+        with self._connection() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (period_start, user_id))
+            row = cursor.fetchone()
+        if row is None:
+            raise PermissionError("An active subscription tier is required before generating resumes.")
+        limit = int(row["monthly_resume_generation_limit"])
+        count = int(row["generation_count"])
+        return GenerationQuotaStatusRecord(
+            subscription_tier=str(row["subscription_tier"]),
+            monthly_resume_generation_limit=limit,
+            generation_count=count,
+            remaining_count=max(limit - count, 0),
+            period_start=period_start.isoformat(),
+            resets_at=resets_at.isoformat(),
         )
 
     def release_generation_quota(self, *, user_id: str, period_start: str) -> None:
@@ -203,6 +262,12 @@ class SubscriptionRepository:
     def current_utc_period_start() -> date:
         now = datetime.now(timezone.utc)
         return date(now.year, now.month, 1)
+
+    @staticmethod
+    def next_utc_period_start(period_start: date) -> date:
+        if period_start.month == 12:
+            return date(period_start.year + 1, 1, 1)
+        return date(period_start.year, period_start.month + 1, 1)
 
 
 def get_subscription_repository() -> SubscriptionRepository:
