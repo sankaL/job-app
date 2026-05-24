@@ -24,6 +24,7 @@ class AdminUserRecord(BaseModel):
     is_admin: bool
     is_active: bool
     onboarding_completed_at: Optional[str] = None
+    subscription_tier: str = "basic"
     latest_invite_status: Optional[str] = None
     latest_invite_sent_at: Optional[str] = None
     latest_invite_expires_at: Optional[str] = None
@@ -107,6 +108,7 @@ class AdminRepository:
           p.is_admin,
           p.is_active,
           p.onboarding_completed_at::text,
+          p.subscription_tier,
           li.status::text as latest_invite_status,
           li.sent_at::text as latest_invite_sent_at,
           li.expires_at::text as latest_invite_expires_at,
@@ -147,6 +149,7 @@ class AdminRepository:
           p.is_admin,
           p.is_active,
           p.onboarding_completed_at::text,
+          p.subscription_tier,
           li.status::text as latest_invite_status,
           li.sent_at::text as latest_invite_sent_at,
           li.expires_at::text as latest_invite_expires_at,

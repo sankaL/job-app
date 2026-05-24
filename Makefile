@@ -1,12 +1,15 @@
 ENV_FILE ?= .env.compose
 COMPOSE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
 
-.PHONY: ensure-env up down reset logs health test-prepare compose-config
+.PHONY: ensure-env auto-ports up down reset logs health test-prepare compose-config
 
 ensure-env:
 	@test -f $(ENV_FILE) || (echo "Missing $(ENV_FILE). Copy .env.compose.example to $(ENV_FILE)." && exit 1)
 
-up: ensure-env
+auto-ports: ensure-env
+	./scripts/auto-assign-ports.sh $(ENV_FILE)
+
+up: auto-ports
 	$(COMPOSE) up -d --build --remove-orphans
 
 down: ensure-env
@@ -14,7 +17,7 @@ down: ensure-env
 
 reset: ensure-env
 	$(COMPOSE) down --volumes --remove-orphans
-	$(COMPOSE) up -d --build
+	$(MAKE) up
 
 logs: ensure-env
 	$(COMPOSE) logs -f --tail=200

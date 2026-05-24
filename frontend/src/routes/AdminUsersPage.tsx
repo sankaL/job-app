@@ -67,6 +67,7 @@ export function AdminUsersPage() {
   const [editAddress, setEditAddress] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editLinkedin, setEditLinkedin] = useState("");
+  const [editSubscriptionTier, setEditSubscriptionTier] = useState<"basic" | "pro">("basic");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const {
     data: users,
@@ -90,6 +91,7 @@ export function AdminUsersPage() {
     setEditAddress(user.address ?? "");
     setEditPhone(user.phone ?? "");
     setEditLinkedin(user.linkedin_url ?? "");
+    setEditSubscriptionTier(user.subscription_tier ?? "basic");
   }
 
   async function handleInviteSubmit(event: FormEvent<HTMLFormElement>) {
@@ -125,6 +127,7 @@ export function AdminUsersPage() {
         address: editAddress || null,
         phone: editPhone || null,
         linkedin_url: editLinkedin || null,
+        subscription_tier: editSubscriptionTier,
       });
       toast("User updated.");
       setEditingUserId(null);
@@ -279,7 +282,7 @@ export function AdminUsersPage() {
             {
               key: "status",
               header: "Status",
-              width: "16%",
+              width: "14%",
               sortable: true,
               sortValue: (user) => `${user.is_active}-${user.onboarding_completed_at ? "complete" : "invited"}`,
               render: (user) => (
@@ -294,9 +297,33 @@ export function AdminUsersPage() {
               ),
             },
             {
+              key: "tier",
+              header: "Tier",
+              width: "12%",
+              sortable: true,
+              sortValue: (user) => user.subscription_tier,
+              render: (user) => (
+                <span
+                  className="inline-flex rounded-md px-2 py-1 text-xs font-semibold capitalize"
+                  style={{
+                    background:
+                      user.subscription_tier === "pro"
+                        ? "var(--color-amber-10)"
+                        : "var(--color-spruce-10)",
+                    color:
+                      user.subscription_tier === "pro"
+                        ? "var(--color-amber)"
+                        : "var(--color-spruce)",
+                  }}
+                >
+                  {user.subscription_tier}
+                </span>
+              ),
+            },
+            {
               key: "invite",
               header: "Invite",
-              width: "24%",
+              width: "22%",
               render: (user) => (
                 <div className="space-y-0.5 text-xs" style={{ color: "var(--color-ink-50)" }}>
                   <p>{user.latest_invite_status ? user.latest_invite_status : "—"}</p>
@@ -308,7 +335,7 @@ export function AdminUsersPage() {
             {
               key: "updated_at",
               header: "Updated",
-              width: "12%",
+              width: "10%",
               sortable: true,
               sortValue: (user) => user.updated_at,
               render: (user) => (
@@ -320,7 +347,7 @@ export function AdminUsersPage() {
             {
               key: "actions",
               header: <span className="block w-full text-right">Actions</span>,
-              width: "18%",
+              width: "12%",
               render: (user) => {
                 const isSelf = currentUserId === user.id;
                 return (
@@ -434,6 +461,17 @@ export function AdminUsersPage() {
                 value={editLinkedin}
                 onChange={(event) => setEditLinkedin(event.target.value)}
               />
+            </div>
+            <div>
+              <Label htmlFor="edit_subscription_tier">Subscription tier</Label>
+              <Select
+                id="edit_subscription_tier"
+                value={editSubscriptionTier}
+                onChange={(event) => setEditSubscriptionTier(event.target.value as "basic" | "pro")}
+              >
+                <option value="basic">Basic</option>
+                <option value="pro">Pro</option>
+              </Select>
             </div>
             <div className="md:col-span-2">
               <Button type="submit" loading={isSavingEdit} disabled={isSavingEdit}>

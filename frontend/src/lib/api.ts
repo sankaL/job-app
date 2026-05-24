@@ -19,6 +19,7 @@ export type SessionBootstrapResponse = {
     is_admin: boolean;
     is_active: boolean;
     onboarding_completed_at: string | null;
+    subscription_tier: "basic" | "pro";
     default_base_resume_id: string | null;
     section_preferences: Record<string, boolean>;
     section_order: string[];
@@ -298,6 +299,7 @@ export type ProfileData = {
   is_admin: boolean;
   is_active: boolean;
   onboarding_completed_at: string | null;
+  subscription_tier: "basic" | "pro";
   default_base_resume_id: string | null;
   section_preferences: Record<string, boolean>;
   section_order: string[];
@@ -370,9 +372,21 @@ export type AdminUser = {
   is_admin: boolean;
   is_active: boolean;
   onboarding_completed_at: string | null;
+  subscription_tier: "basic" | "pro";
   latest_invite_status: string | null;
   latest_invite_sent_at: string | null;
   latest_invite_expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SubscriptionTier = {
+  key: "basic" | "pro";
+  name: string;
+  monthly_resume_generation_limit: number;
+  generation_model: string;
+  generation_fallback_model: string;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -397,6 +411,13 @@ export type UpdateAdminUserPayload = {
   phone?: string | null;
   address?: string | null;
   linkedin_url?: string | null;
+  subscription_tier?: "basic" | "pro";
+};
+
+export type UpdateSubscriptionTierPayload = {
+  monthly_resume_generation_limit: number;
+  generation_model: string;
+  generation_fallback_model: string;
 };
 
 type RequestOptions = Omit<RequestInit, "body"> & {
@@ -860,6 +881,20 @@ export async function listAdminUsers(params?: {
   if (params?.status) query.set("status", params.status);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return authenticatedRequest<AdminUser[]>(`/api/admin/users${suffix}`);
+}
+
+export async function listSubscriptionTiers(): Promise<SubscriptionTier[]> {
+  return authenticatedRequest<SubscriptionTier[]>("/api/admin/subscription-tiers");
+}
+
+export async function updateSubscriptionTier(
+  tierKey: "basic" | "pro",
+  payload: UpdateSubscriptionTierPayload,
+): Promise<SubscriptionTier> {
+  return authenticatedRequest<SubscriptionTier>(`/api/admin/subscription-tiers/${tierKey}`, {
+    method: "PATCH",
+    body: payload,
+  });
 }
 
 export async function inviteAdminUser(payload: InviteUserPayload): Promise<InviteUserResponse> {

@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-04-17
+**Last updated:** 2026-05-23
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -234,10 +234,34 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - deactivated users are blocked from authenticated bootstrap and extension-token issuance
   - admin metrics endpoints return coherent totals for invites and workflow operations without exposing cross-user private content
 
-## Current Additive Change Note: Full Regeneration Cap and Deterministic Regeneration Hardening
+## Current Additive Change Note: Subscription Tiers and Monthly Generation Quotas
+
+- Add the additive migration `supabase/migrations/20260523_000013_subscription_tiers_generation_quotas.sql`.
+- This migration adds:
+  - `subscription_tiers` with seeded `basic` and `pro` rows
+  - `profiles.subscription_tier text not null default 'basic'`
+  - `resume_generation_usage` keyed by `user_id` and UTC `period_start`
+- Rollout order for this change:
+  1. Apply the additive migration and seed tier defaults.
+  2. Deploy backend admin tier APIs, user tier assignment, and quota reservation/release logic before queueing resume-writing jobs.
+  3. Deploy worker support for job-supplied primary/fallback generation models while preserving env fallback behavior for older queued jobs.
+  4. Deploy frontend admin subscription settings, user-tier editing, and quota-exhausted error guidance.
+- No explicit backfill script is required. Existing profiles receive `basic` through the column default/backfill in the migration.
+- Queue failures must release any reserved monthly generation slot so failed enqueue attempts do not consume quota.
+- The legacy `applications.full_regeneration_count` column remains for compatibility only. Monthly subscription usage supersedes it for initial generation, full regeneration, and section regeneration.
+- Post-deploy verification should confirm:
+  - `basic` and `pro` tiers exist with the expected default limits and model IDs
+  - existing and newly invited users resolve to `profiles.subscription_tier = basic` unless changed by an admin
+  - admins can read and update tier limits/model IDs, and can assign users to Basic or Pro
+  - initial generation, full regeneration, and section regeneration reserve quota in the same UTC month bucket
+  - quota exhaustion returns a sanitized conflict response and does not enqueue a worker job
+  - worker jobs use the tier-selected primary/fallback models and still fall back to env settings when hidden job model values are absent
+
+## Historical Additive Change Note: Full Regeneration Cap and Deterministic Regeneration Hardening
 
 - Add the additive migration `supabase/migrations/20260410_000011_phase_5_full_regeneration_cap.sql`.
 - This migration adds `applications.full_regeneration_count integer not null default 0` with a non-negative check constraint.
+- The cap described here has been superseded for new behavior by monthly subscription quotas. Keep this note as historical context for the retained legacy column.
 - Rollout order for this change:
   1. Apply the additive migration.
   2. Deploy backend service changes that enforce a non-admin cap of three full regenerations per application, with admin bypass.

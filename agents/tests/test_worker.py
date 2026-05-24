@@ -80,6 +80,23 @@ def test_normalize_origin_from_url_maps_common_sources():
     assert normalize_origin_from_url("https://boards.greenhouse.io/acme/jobs/123") == "company_website"
 
 
+def test_resolve_generation_models_reports_blank_tier_model():
+    settings = WorkerSettingsEnv(
+        openrouter_api_key="test-key",
+        generation_agent_model="env-primary-model",
+        generation_agent_fallback_model="env-fallback-model",
+    )
+
+    with pytest.raises(RuntimeError, match="Tier generation model is blank"):
+        worker._resolve_generation_models(
+            {
+                "_generation_model": " ",
+                "_generation_fallback_model": "tier-fallback-model",
+            },
+            settings,
+        )
+
+
 def test_extract_reference_id_prefers_query_and_path_patterns():
     assert extract_reference_id("https://example.com/job?jobId=ABC123") == "abc123"
     assert extract_reference_id("https://www.linkedin.com/jobs/view/987654321") == "987654321"
@@ -818,6 +835,102 @@ async def test_run_generation_job_completes_and_caches_result_when_callbacks_fai
     assert final_progress is not None
     assert final_progress.state == "resume_ready"
     assert fake_writer.generated_by_app["app-3"]["job_id"] == "job-3"
+
+
+@pytest.mark.asyncio
+async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
+    class FakeWriter:
+        def __init__(self) -> None:
+            self.progress_by_app: dict[str, JobProgress] = {}
+            self.generated_by_app: dict[str, dict[str, object]] = {}
+
+        async def get(self, application_id: str):
+            return self.progress_by_app.get(application_id)
+
+        async def set(self, application_id: str, progress: JobProgress, ttl_seconds: int = 86400):
+            del ttl_seconds
+            self.progress_by_app[application_id] = progress
+
+        async def clear_generation_result(self, application_id: str) -> None:
+            self.generated_by_app.pop(application_id, None)
+
+        async def set_generation_result(
+            self,
+            application_id: str,
+            *,
+            job_id: str,
+            workflow_kind: str,
+            generated: dict[str, object],
+            ttl_seconds: int = 86400,
+        ) -> None:
+            del ttl_seconds
+            self.generated_by_app[application_id] = {
+                "job_id": job_id,
+                "workflow_kind": workflow_kind,
+                "generated": generated,
+            }
+
+    class FakeCallback:
+        async def post(self, payload: dict[str, object], *, path: str = "/api/internal/worker/generation-callback"):
+            del payload, path
+
+    observed_models: dict[str, str] = {}
+
+    async def fake_generate_sections(**kwargs):
+        observed_models["model"] = kwargs["model"]
+        observed_models["fallback_model"] = kwargs["fallback_model"]
+        return {
+            **build_generation_result(),
+            "model_used": "tier-primary-model",
+            "attempt_diagnostics": [{"model": "tier-primary-model", "outcome": "success"}],
+        }
+
+    async def fake_validate_with_repair(**kwargs):
+        generated_sections = kwargs["generated_sections"]
+        return generated_sections, {"valid": True, "errors": []}, kwargs["attempt_diagnostics"], None
+
+    fake_writer = FakeWriter()
+    monkeypatch.setattr(
+        "worker.WorkerSettingsEnv",
+        lambda: WorkerSettingsEnv(
+            redis_url="redis://unused",
+            openrouter_api_key="test-key",
+            generation_agent_model="env-primary-model",
+            generation_agent_fallback_model="env-fallback-model",
+        ),
+    )
+    monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: FakeCallback())
+    monkeypatch.setattr("worker.generate_sections", fake_generate_sections)
+    monkeypatch.setattr("worker._validate_generated_sections_with_repair", fake_validate_with_repair)
+    monkeypatch.setattr("worker.assemble_resume", lambda **_kwargs: "# Test Resume")
+
+    await run_generation_job(
+        {},
+        application_id="app-tier",
+        user_id="user-tier",
+        job_id="job-tier",
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs",
+        base_resume_content="## Summary\nBuilt APIs",
+        personal_info={"name": "User"},
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "subscription_tier": "basic",
+            "quota_period_start": "2026-05-01",
+            "_generation_model": "tier-primary-model",
+            "_generation_fallback_model": "tier-fallback-model",
+        },
+    )
+
+    generated = fake_writer.generated_by_app["app-tier"]["generated"]
+    assert observed_models == {"model": "tier-primary-model", "fallback_model": "tier-fallback-model"}
+    assert generated["generation_params"]["model_used"] == "tier-primary-model"
+    assert "_generation_model" not in generated["generation_params"]
+    assert "_generation_fallback_model" not in generated["generation_params"]
 
 
 @pytest.mark.asyncio

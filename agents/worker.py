@@ -145,6 +145,50 @@ class WorkerSettingsEnv(BaseSettings):
         return self
 
 
+def _resolve_generation_models(
+    generation_settings: dict[str, Any],
+    settings: WorkerSettingsEnv,
+) -> tuple[str, str]:
+    has_tier_primary = "_generation_model" in generation_settings
+    has_tier_fallback = "_generation_fallback_model" in generation_settings
+    primary_model = str(
+        generation_settings["_generation_model"]
+        if has_tier_primary
+        else settings.generation_agent_model or ""
+    ).strip()
+    fallback_model = str(
+        generation_settings["_generation_fallback_model"]
+        if has_tier_fallback
+        else settings.generation_agent_fallback_model or ""
+    ).strip()
+    if not primary_model:
+        if has_tier_primary:
+            raise RuntimeError("Tier generation model is blank.")
+        raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
+    if not fallback_model:
+        if has_tier_fallback:
+            raise RuntimeError("Tier fallback generation model is blank.")
+        raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
+    if primary_model == fallback_model:
+        raise RuntimeError("Generation fallback model must differ from generation model.")
+    return primary_model, fallback_model
+
+
+def _stored_generation_settings(
+    generation_settings: dict[str, Any],
+    *,
+    model_used: Optional[str] = None,
+) -> dict[str, Any]:
+    stored = {
+        key: value
+        for key, value in generation_settings.items()
+        if key not in {"_generation_model", "_generation_fallback_model"}
+    }
+    if model_used:
+        stored["model_used"] = model_used
+    return stored
+
+
 class JobProgress(BaseModel):
     job_id: str
     workflow_kind: str
@@ -1398,7 +1442,7 @@ async def run_generation_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    stored_generation_settings = dict(generation_settings)
+    generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings)
     public_generation_settings = {
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
@@ -1406,10 +1450,6 @@ async def run_generation_job(
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-    if not settings.generation_agent_model:
-        raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
-    if not settings.generation_agent_fallback_model:
-        raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
 
     async def on_generation_progress(percent: int, message: str) -> None:
         await set_progress(
@@ -1430,8 +1470,8 @@ async def run_generation_job(
             application_id=application_id,
             user_id=user_id,
             job_id=job_id,
-            model=settings.generation_agent_model,
-            fallback_model=settings.generation_agent_fallback_model,
+            model=generation_model,
+            fallback_model=generation_fallback_model,
             section_count=len(section_preferences),
             job_description_chars=len(job_description),
             base_resume_chars=len(base_resume_content),
@@ -1459,8 +1499,8 @@ async def run_generation_job(
                 job_description=job_description,
                 section_preferences=section_preferences,
                 generation_settings={**public_generation_settings, "_operation": "generation"},
-                model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                model=generation_model,
+                fallback_model=generation_fallback_model,
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
                 on_progress=on_generation_progress,
@@ -1503,8 +1543,8 @@ async def run_generation_job(
             prompt=gen_result["prompt"],
             section_ids=gen_result["section_ids"],
             operation=gen_result["operation"],
-            model=settings.generation_agent_model,
-            fallback_model=settings.generation_agent_fallback_model,
+            model=generation_model,
+            fallback_model=generation_fallback_model,
             model_used=gen_result["model_used"],
             attempt_diagnostics=attempt_diagnostics,
             api_key=settings.openrouter_api_key,
@@ -1601,7 +1641,10 @@ async def run_generation_job(
             user_id=user_id,
             job_id=job_id,
             content_md=content,
-            generation_params=stored_generation_settings,
+            generation_params=_stored_generation_settings(
+                generation_settings,
+                model_used=str(gen_result.get("model_used") or ""),
+            ),
             sections_snapshot={
                 "enabled_sections": [s["name"] for s in enabled_ordered],
                 "section_order": [s["name"] for s in enabled_ordered],
@@ -1637,8 +1680,8 @@ async def run_generation_job(
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                primary_model=generation_model,
+                fallback_model=generation_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -1686,8 +1729,8 @@ async def run_generation_job(
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                primary_model=generation_model,
+                fallback_model=generation_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -1758,7 +1801,7 @@ async def run_regeneration_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    stored_generation_settings = dict(generation_settings)
+    generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings)
     public_generation_settings = {
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
@@ -1766,10 +1809,6 @@ async def run_regeneration_job(
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-    if not settings.generation_agent_model:
-        raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
-    if not settings.generation_agent_fallback_model:
-        raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
 
     is_full_regen = regeneration_target == "full"
     workflow_kind = "regeneration_full" if is_full_regen else "regeneration_section"
@@ -1786,8 +1825,8 @@ async def run_regeneration_job(
             user_id=user_id,
             job_id=job_id,
             regeneration_target=regeneration_target,
-            model=settings.generation_agent_model,
-            fallback_model=settings.generation_agent_fallback_model,
+            model=generation_model,
+            fallback_model=generation_fallback_model,
             job_description_chars=len(job_description),
             base_resume_chars=len(base_resume_content),
         )
@@ -1822,8 +1861,8 @@ async def run_regeneration_job(
                     job_description=job_description,
                     section_preferences=section_preferences,
                     generation_settings={**public_generation_settings, "_operation": "regeneration_full"},
-                    model=settings.generation_agent_model,
-                    fallback_model=settings.generation_agent_fallback_model,
+                    model=generation_model,
+                    fallback_model=generation_fallback_model,
                     api_key=settings.openrouter_api_key,
                     base_url=settings.openrouter_base_url,
                     on_progress=on_regen_progress,
@@ -1863,8 +1902,8 @@ async def run_regeneration_job(
                 prompt=gen_result["prompt"],
                 section_ids=gen_result["section_ids"],
                 operation=gen_result["operation"],
-                model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                model=generation_model,
+                fallback_model=generation_fallback_model,
                 model_used=gen_result["model_used"],
                 attempt_diagnostics=attempt_diagnostics,
                 api_key=settings.openrouter_api_key,
@@ -1984,8 +2023,8 @@ async def run_regeneration_job(
                     company_name=company_name,
                     job_description=job_description,
                     generation_settings=public_generation_settings,
-                    model=settings.generation_agent_model,
-                    fallback_model=settings.generation_agent_fallback_model,
+                    model=generation_model,
+                    fallback_model=generation_fallback_model,
                     api_key=settings.openrouter_api_key,
                     base_url=settings.openrouter_base_url,
                     on_progress=on_section_regen_progress,
@@ -2023,8 +2062,8 @@ async def run_regeneration_job(
                 prompt=regenerated_section["prompt"],
                 section_name=section_name,
                 operation=regenerated_section["operation"],
-                model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                model=generation_model,
+                fallback_model=generation_fallback_model,
                 model_used=regenerated_section["model_used"],
                 attempt_diagnostics=attempt_diagnostics,
                 api_key=settings.openrouter_api_key,
@@ -2117,7 +2156,12 @@ async def run_regeneration_job(
             user_id=user_id,
             job_id=job_id,
             content_md=content,
-            generation_params=stored_generation_settings,
+            generation_params=_stored_generation_settings(
+                generation_settings,
+                model_used=str(
+                    (gen_result if is_full_regen else regenerated_section).get("model_used") or ""
+                ),
+            ),
             sections_snapshot=sections_snapshot,
         )
         await set_generation_result_best_effort(
@@ -2150,8 +2194,8 @@ async def run_regeneration_job(
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                primary_model=generation_model,
+                fallback_model=generation_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -2199,8 +2243,8 @@ async def run_regeneration_job(
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                primary_model=generation_model,
+                fallback_model=generation_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,

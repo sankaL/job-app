@@ -67,6 +67,7 @@ class ProfileResponse(BaseModel):
     is_admin: bool
     is_active: bool
     onboarding_completed_at: Optional[str]
+    subscription_tier: str
     default_base_resume_id: Optional[str]
     section_preferences: dict[str, bool]
     section_order: list[str]

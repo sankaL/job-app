@@ -24,6 +24,7 @@ class ProfileRecord(BaseModel):
     is_admin: bool = False
     is_active: bool = True
     onboarding_completed_at: Optional[str] = None
+    subscription_tier: str = "basic"
     default_base_resume_id: Optional[str]
     section_preferences: dict[str, bool]
     section_order: list[str]
@@ -66,6 +67,7 @@ class ProfileRepository:
           is_admin,
           is_active,
           onboarding_completed_at::text,
+          subscription_tier,
           default_base_resume_id::text,
           section_preferences,
           section_order,
@@ -127,6 +129,7 @@ class ProfileRepository:
           is_admin,
           is_active,
           onboarding_completed_at::text,
+          subscription_tier,
           default_base_resume_id::text,
           section_preferences,
           section_order,

@@ -1,7 +1,7 @@
 # AI Resume Builder Database Schema
 
 **Document status:** Source of truth for the MVP database contract  
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-23
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Related rollout guide:** `docs/backend-database-migration-runbook.md`
 
@@ -45,6 +45,7 @@ Backend write paths must validate these shapes before persisting them.
 | `applications.extracted_reference_id` | Lowercase or normalized requisition/reference identifier, for example `"req-42"` | Stores the reference identifier extracted during capture so duplicate detection can use a persisted signal instead of re-parsing URLs or descriptions later. |
 | `applications.duplicate_match_fields` | Object with `matched_fields` array and `match_basis` string, for example `{"matched_fields": ["job_title", "company", "job_url"], "match_basis": "exact_job_url"}` | Stores what caused the duplicate warning, not the full comparison payload. `matched_fields` may include `job_posting_origin`, `job_url`, `reference_id`, or `job_description` only when those signals actually contributed to the duplicate warning. |
 | `resume_drafts.generation_params` | Object with `page_length`, `aggressiveness`, and `additional_instructions`, for example `{"page_length": "1_page", "aggressiveness": "medium", "additional_instructions": null}` | `page_length` values: `1_page`, `2_page`, `3_page`. `aggressiveness` values: `low`, `medium`, `high`. |
+| `resume_drafts.generation_params` subscription fields | Optional generated-draft metadata with `subscription_tier`, `quota_period_start`, and `model_used`, for example `{"subscription_tier": "basic", "quota_period_start": "2026-05-01", "model_used": "openai/gpt-5-mini"}` | Internal queued model override fields must not be persisted in this JSON. Existing base-resume snapshot metadata may remain for compare/judge freshness compatibility. |
 | `resume_drafts.sections_snapshot` | Object with `enabled_sections` and `section_order`, for example `{"enabled_sections": ["summary", "professional_experience", "education", "skills"], "section_order": ["summary", "professional_experience", "education", "skills"]}` | Snapshot taken at generation time so later preference changes do not rewrite old drafts implicitly. |
 
 ## Table Definitions
@@ -109,6 +110,7 @@ Application-owned extension of `users`.
 | `is_admin` | `boolean` | No | `false` | Grants access to admin routes and screens. |
 | `is_active` | `boolean` | No | `true` | Deactivated users are blocked from application access. |
 | `onboarding_completed_at` | `timestamptz` | Yes | `null` | Set when invite signup is accepted successfully. |
+| `subscription_tier` | `text` | No | `basic` | FK to `subscription_tiers.key`. Determines monthly resume-writing quota and generation model access. |
 | `default_base_resume_id` | `uuid` | Yes | `null` | Canonical pointer to the user's default base resume. Composite foreign key with `id` to `base_resumes (id, user_id)` and `ON DELETE SET NULL`. |
 | `section_preferences` | `jsonb` | No | `{"summary": true, "professional_experience": true, "education": true, "skills": true}` | See JSON contract above. |
 | `section_order` | `jsonb` | No | `["summary", "professional_experience", "education", "skills"]` | See JSON contract above. |
@@ -126,7 +128,45 @@ Application-owned extension of `users`.
 **Constraints**
 
 - `UNIQUE (email)`
+- `FOREIGN KEY (subscription_tier) REFERENCES subscription_tiers (key)`
 - Unique partial index on `extension_token_hash` when present
+
+### `subscription_tiers`
+
+Admin-configurable Basic and Pro generation limits and model access.
+
+| Column | Type | Null | Default | Constraints and notes |
+|---|---|---|---|---|
+| `key` | `text` | No | — | Primary key. Allowed values are `basic` and `pro`. |
+| `name` | `text` | No | — | Display label. |
+| `monthly_resume_generation_limit` | `integer` | No | — | UTC calendar-month limit for initial generation, full regeneration, and section regeneration. Must be non-negative; backend validation caps admin-entered values. |
+| `generation_model` | `text` | No | — | OpenRouter model ID used as the tier primary generation model. Backend validation requires provider/model format. |
+| `generation_fallback_model` | `text` | No | — | OpenRouter model ID used as the tier fallback generation model. Must differ from `generation_model`; backend validation requires provider/model format. |
+| `is_active` | `boolean` | No | `true` | Inactive tiers cannot reserve generation quota. |
+| `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
+| `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
+
+**Seed values**
+
+- `basic`: limit `10`, primary `openai/gpt-5-mini`, fallback `google/gemini-flash-1.5`
+- `pro`: limit `100`, primary `z-ai/glm-5.1`, fallback `anthropic/claude-sonnet-4.6`
+
+### `resume_generation_usage`
+
+Monthly quota counter for resume-writing operations.
+
+| Column | Type | Null | Default | Constraints and notes |
+|---|---|---|---|---|
+| `user_id` | `uuid` | No | — | FK to `users.id` with `ON DELETE CASCADE`. |
+| `period_start` | `date` | No | — | First day of the UTC calendar month. |
+| `generation_count` | `integer` | No | `0` | Count of successfully reserved resume-writing jobs for the period. Must be non-negative. |
+| `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
+| `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
+
+**Constraints**
+
+- `PRIMARY KEY (user_id, period_start)`
+- `CHECK (generation_count >= 0)`
 
 **Isolation requirements**
 
@@ -193,7 +233,7 @@ User-owned job application records and workflow state.
 | `duplicate_resolution_status` | `duplicate_resolution_status_enum` | Yes | `null` | `pending`, `dismissed`, or `redirected` when a duplicate is detected. |
 | `duplicate_matched_application_id` | `uuid` | Yes | `null` | Self-reference to the application surfaced in duplicate review. Composite foreign key with `user_id` to `applications (id, user_id)` and `ON DELETE SET NULL`. |
 | `notes` | `text` | Yes | `null` | Free-text notes from the application detail page. |
-| `full_regeneration_count` | `integer` | No | `0` | Per-application count of successfully queued full regenerations for non-admin cap enforcement. |
+| `full_regeneration_count` | `integer` | No | `0` | Legacy per-application counter retained for compatibility. Subscription quota now governs resume-writing limits. |
 | `exported_at` | `timestamptz` | Yes | `null` | Last successful export timestamp for the application, regardless of supported export format. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
@@ -220,7 +260,7 @@ User-owned job application records and workflow state.
 - `extracted_reference_id` should be written from the extraction pipeline when present and reused by duplicate detection before falling back to URL or description parsing.
 - Duplicate dismissal is stored on the application so the warning does not re-evaluate for that application after dismissal.
 - Duplicate detection must include normalized `job_posting_origin` when it is populated on both compared applications, and fall back to `job_title` + `company` matching when origin is missing on either side.
-- `full_regeneration_count` is incremented when a full regeneration job is successfully queued for non-admin users, and is used to enforce a hard per-application cap of three full regenerations for non-admin accounts.
+- `full_regeneration_count` is retained for historical compatibility. New quota enforcement uses `resume_generation_usage` for initial generation, full regeneration, and section regeneration.
 - `resume_judge_result.input_signature` is the primary stale-result fence. Backend code computes it from normalized draft markdown, normalized job context, judge-relevant generation settings, and the effective base-resume fingerprint so export-only writes and other non-semantic row touches do not stale the score.
 - `resume_judge_result.evaluated_draft_updated_at` remains for callback observability and legacy mixed-row compatibility, but it is no longer the primary freshness authority for current reads.
 - `resume_judge_result.run_attempt_count` counts queued Resume Judge runs for the current semantic input only. It resets when the computed `input_signature` changes and must stop manual reruns after the third queued attempt.

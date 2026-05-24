@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CreditCard } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAppContext } from "@/components/layout/AppContext";
 import { Badge } from "@/components/ui/badge";
@@ -120,6 +121,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const adminItems: NavItem[] = [
     { to: "/app/admin", label: "Metrics", icon: <IconMetrics />, end: true },
     { to: "/app/admin/users", label: "User Management", icon: <IconUsers /> },
+    { to: "/app/admin/subscriptions", label: "Subscriptions", icon: <CreditCard size={18} /> },
   ];
 
   async function handleSignOut() {

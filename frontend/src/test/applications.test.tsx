@@ -13,6 +13,7 @@ import { AppShell } from "@/routes/AppShell";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
 import { ApplicationsListPage } from "@/routes/ApplicationsListPage";
 import { AdminUsersPage } from "@/routes/AdminUsersPage";
+import { AdminSubscriptionsPage } from "@/routes/AdminSubscriptionsPage";
 import { BaseResumeEditorPage } from "@/routes/BaseResumeEditorPage";
 import { BaseResumesPage } from "@/routes/BaseResumesPage";
 import { DashboardPage } from "@/routes/DashboardPage";
@@ -43,6 +44,7 @@ const api = vi.hoisted(() => ({
   inviteAdminUser: vi.fn(),
   issueExtensionToken: vi.fn(),
   listAdminUsers: vi.fn(),
+  listSubscriptionTiers: vi.fn(),
   listBaseResumes: vi.fn(),
   listApplications: vi.fn(),
   listNotifications: vi.fn(),
@@ -61,6 +63,7 @@ const api = vi.hoisted(() => ({
   triggerResumeJudge: vi.fn(),
   triggerSectionRegeneration: vi.fn(),
   updateAdminUser: vi.fn(),
+  updateSubscriptionTier: vi.fn(),
   updateBaseResume: vi.fn(),
   updateProfile: vi.fn(),
   uploadBaseResume: vi.fn(),
@@ -93,6 +96,7 @@ const defaultBootstrap = {
     is_admin: false,
     is_active: true,
     onboarding_completed_at: "2026-04-07T12:00:00Z",
+    subscription_tier: "basic",
     default_base_resume_id: null,
     section_preferences: {
       summary: true,
@@ -1607,6 +1611,111 @@ describe("phase 1 applications UI", () => {
     expect(screen.queryByText("Casey Member")).not.toBeInTheDocument();
   });
 
+  it("edits an admin user's subscription tier", async () => {
+    const user = userEvent.setup();
+    api.listAdminUsers.mockResolvedValue([buildAdminUser()]);
+    api.updateAdminUser.mockResolvedValue(buildAdminUser({ subscription_tier: "pro" }));
+
+    renderWithAppProvider(<AdminUsersPage />);
+
+    await screen.findByText("Casey Member");
+    await user.click(screen.getByRole("button", { name: /edit member@example.com/i }));
+    await user.selectOptions(screen.getByLabelText(/subscription tier/i), "pro");
+    await user.click(screen.getByRole("button", { name: /save user updates/i }));
+
+    await waitFor(() =>
+      expect(api.updateAdminUser).toHaveBeenCalledWith(
+        "user-2",
+        expect.objectContaining({ subscription_tier: "pro" }),
+      ),
+    );
+  });
+
+  it("updates subscription tier settings from the admin page", async () => {
+    const user = userEvent.setup();
+    api.listSubscriptionTiers.mockResolvedValue([
+      {
+        key: "basic",
+        name: "Basic",
+        monthly_resume_generation_limit: 10,
+        generation_model: "openai/gpt-5-mini",
+        generation_fallback_model: "google/gemini-flash-1.5",
+        is_active: true,
+        created_at: "2026-05-23T00:00:00Z",
+        updated_at: "2026-05-23T00:00:00Z",
+      },
+      {
+        key: "pro",
+        name: "Pro",
+        monthly_resume_generation_limit: 100,
+        generation_model: "z-ai/glm-5.1",
+        generation_fallback_model: "anthropic/claude-sonnet-4.6",
+        is_active: true,
+        created_at: "2026-05-23T00:00:00Z",
+        updated_at: "2026-05-23T00:00:00Z",
+      },
+    ]);
+    api.updateSubscriptionTier.mockResolvedValue({
+      key: "basic",
+      name: "Basic",
+      monthly_resume_generation_limit: 12,
+      generation_model: "openai/gpt-5-mini",
+      generation_fallback_model: "google/gemini-flash-1.5",
+      is_active: true,
+      created_at: "2026-05-23T00:00:00Z",
+      updated_at: "2026-05-23T12:00:00Z",
+    });
+
+    renderWithAppProvider(<AdminSubscriptionsPage />);
+
+    await screen.findByRole("heading", { name: /subscription settings/i });
+    await screen.findByText("Basic");
+    const limitInput = screen.getByDisplayValue("10");
+    await user.clear(limitInput);
+    await user.type(limitInput, "12");
+    await user.click(within(limitInput.closest("form") as HTMLFormElement).getByRole("button", { name: /save/i }));
+
+    await waitFor(() =>
+      expect(api.updateSubscriptionTier).toHaveBeenCalledWith("basic", {
+        monthly_resume_generation_limit: 12,
+        generation_model: "openai/gpt-5-mini",
+        generation_fallback_model: "google/gemini-flash-1.5",
+      }),
+    );
+  });
+
+  it("validates subscription tier model fields before saving", async () => {
+    const user = userEvent.setup();
+    api.listSubscriptionTiers.mockResolvedValue([
+      {
+        key: "basic",
+        name: "Basic",
+        monthly_resume_generation_limit: 10,
+        generation_model: "openai/gpt-5-mini",
+        generation_fallback_model: "google/gemini-flash-1.5",
+        is_active: true,
+        created_at: "2026-05-23T00:00:00Z",
+        updated_at: "2026-05-23T00:00:00Z",
+      },
+    ]);
+
+    renderWithAppProvider(<AdminSubscriptionsPage />);
+
+    await screen.findByRole("heading", { name: /subscription settings/i });
+    await screen.findByText("Basic");
+    const limitInput = screen.getByDisplayValue("10");
+    const form = limitInput.closest("form") as HTMLFormElement;
+    const primaryInput = within(form).getByLabelText(/primary model/i);
+    const fallbackInput = within(form).getByLabelText(/fallback model/i);
+
+    await user.clear(fallbackInput);
+    await user.type(fallbackInput, primaryInput.getAttribute("value") ?? "openai/gpt-5-mini");
+    await user.click(within(form).getByRole("button", { name: /save/i }));
+
+    expect(api.updateSubscriptionTier).not.toHaveBeenCalled();
+    expect(await screen.findByText(/fallback model must be different/i)).toBeInTheDocument();
+  });
+
   it("renders a stop icon on the detail page while extraction is active", async () => {
     api.fetchApplicationDetail.mockResolvedValue({
       id: "app-1",
@@ -2696,7 +2805,7 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText(/company is missing from extraction/i)).toBeInTheDocument();
   });
 
-  it("shows contact-administrator guidance when full regeneration is capped", async () => {
+  it("shows subscription quota guidance when full regeneration is capped", async () => {
     const user = userEvent.setup();
     api.fetchApplicationDetail.mockResolvedValue(
       buildApplicationDetail({
@@ -2726,7 +2835,7 @@ describe("phase 1 applications UI", () => {
     });
     api.triggerFullRegeneration.mockRejectedValue(
       new Error(
-        "You have reached the full regeneration limit for this resume. Please contact an administrator for additional regenerations.",
+        "Monthly resume generation limit reached. Contact an administrator or upgrade your subscription tier.",
       ),
     );
 
@@ -2742,7 +2851,7 @@ describe("phase 1 applications UI", () => {
     await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
 
     await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/please contact an administrator for additional regenerations/i)).toBeInTheDocument();
+    expect(await screen.findByText(/monthly resume generation limit reached/i)).toBeInTheDocument();
   });
 
   it("shows backend generation stage messages while progress polling is active", async () => {

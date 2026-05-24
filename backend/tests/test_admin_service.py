@@ -7,6 +7,7 @@ import pytest
 from app.core.config import Settings
 from app.db.admin import InviteRecord
 from app.db.profiles import ProfileRecord
+from app.db.subscriptions import SubscriptionTierRecord
 from app.services.admin import AdminService
 from app.services.email import EmailMessage
 
@@ -85,6 +86,71 @@ class StubAdminRepository:
     def create_usage_event(self, *, user_id: str, event_type: str, event_status: str) -> None:
         self.usage_events.append((user_id, event_type, event_status))
 
+    def fetch_user(self, *, user_id: str):
+        return None
+
+    def update_user(self, *, user_id: str, updates: dict[str, object]):
+        return updates
+
+
+class StubSubscriptionRepository:
+    def __init__(self) -> None:
+        self.tiers = {
+            "basic": SubscriptionTierRecord(
+                key="basic",
+                name="Basic",
+                monthly_resume_generation_limit=10,
+                generation_model="openai/gpt-5-mini",
+                generation_fallback_model="google/gemini-flash-1.5",
+                is_active=True,
+                created_at="2026-05-23T00:00:00+00:00",
+                updated_at="2026-05-23T00:00:00+00:00",
+            ),
+            "pro": SubscriptionTierRecord(
+                key="pro",
+                name="Pro",
+                monthly_resume_generation_limit=100,
+                generation_model="z-ai/glm-5.1",
+                generation_fallback_model="anthropic/claude-sonnet-4.6",
+                is_active=True,
+                created_at="2026-05-23T00:00:00+00:00",
+                updated_at="2026-05-23T00:00:00+00:00",
+            ),
+        }
+        self.updated: tuple[str, int, str, str] | None = None
+
+    def list_tiers(self):
+        return list(self.tiers.values())
+
+    def fetch_tier(self, *, tier_key: str):
+        return self.tiers.get(tier_key)
+
+    def update_tier(
+        self,
+        *,
+        tier_key: str,
+        monthly_resume_generation_limit: int,
+        generation_model: str,
+        generation_fallback_model: str,
+    ):
+        self.updated = (
+            tier_key,
+            monthly_resume_generation_limit,
+            generation_model,
+            generation_fallback_model,
+        )
+        current = self.tiers[tier_key]
+        updated = current.model_copy(
+            update={
+                "monthly_resume_generation_limit": monthly_resume_generation_limit,
+                "generation_model": generation_model,
+                "generation_fallback_model": generation_fallback_model,
+                "updated_at": "2026-05-23T12:00:00+00:00",
+            }
+        )
+        self.tiers[tier_key] = updated
+        return updated
+
 
 class StubProfileRepository:
     def __init__(self, existing_profile: Optional[ProfileRecord] = None) -> None:
@@ -153,6 +219,7 @@ async def test_invite_user_fails_closed_when_email_notifications_disabled(monkey
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
         profile_repository=profiles,  # type: ignore[arg-type]
+        subscription_repository=StubSubscriptionRepository(),  # type: ignore[arg-type]
         user_manager=user_manager,  # type: ignore[arg-type]
         email_sender=SuccessfulEmailSender(),  # type: ignore[arg-type]
         settings=_make_settings(),
@@ -184,6 +251,7 @@ async def test_invite_user_records_failure_when_email_delivery_fails(monkeypatch
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
         profile_repository=profiles,  # type: ignore[arg-type]
+        subscription_repository=StubSubscriptionRepository(),  # type: ignore[arg-type]
         user_manager=user_manager,  # type: ignore[arg-type]
         email_sender=FailingEmailSender(),  # type: ignore[arg-type]
         settings=_make_settings(),
@@ -199,3 +267,78 @@ async def test_invite_user_records_failure_when_email_delivery_fails(monkeypatch
 
     assert repository.created_invite is not None
     assert repository.usage_events == [("invitee-1", "invite_sent", "failure")]
+
+
+def test_update_subscription_tier_validates_and_persists_values():
+    repository = StubAdminRepository()
+    subscriptions = StubSubscriptionRepository()
+    service = AdminService(
+        repository=repository,  # type: ignore[arg-type]
+        profile_repository=StubProfileRepository(),  # type: ignore[arg-type]
+        subscription_repository=subscriptions,  # type: ignore[arg-type]
+        user_manager=StubUserManager(),  # type: ignore[arg-type]
+        email_sender=SuccessfulEmailSender(),  # type: ignore[arg-type]
+        settings=_make_settings(),
+    )
+
+    updated = service.update_subscription_tier(
+        tier_key="basic",
+        monthly_resume_generation_limit=12,
+        generation_model="openai/gpt-5-mini",
+        generation_fallback_model="google/gemini-flash-1.5",
+    )
+
+    assert updated.monthly_resume_generation_limit == 12
+    assert subscriptions.updated == (
+        "basic",
+        12,
+        "openai/gpt-5-mini",
+        "google/gemini-flash-1.5",
+    )
+
+
+def test_update_subscription_tier_rejects_excessive_limits_and_malformed_models():
+    repository = StubAdminRepository()
+    subscriptions = StubSubscriptionRepository()
+    service = AdminService(
+        repository=repository,  # type: ignore[arg-type]
+        profile_repository=StubProfileRepository(),  # type: ignore[arg-type]
+        subscription_repository=subscriptions,  # type: ignore[arg-type]
+        user_manager=StubUserManager(),  # type: ignore[arg-type]
+        email_sender=SuccessfulEmailSender(),  # type: ignore[arg-type]
+        settings=_make_settings(),
+    )
+
+    with pytest.raises(ValueError, match="cannot exceed"):
+        service.update_subscription_tier(
+            tier_key="basic",
+            monthly_resume_generation_limit=10_001,
+            generation_model="openai/gpt-5-mini",
+            generation_fallback_model="google/gemini-flash-1.5",
+        )
+
+    with pytest.raises(ValueError, match="provider/model"):
+        service.update_subscription_tier(
+            tier_key="basic",
+            monthly_resume_generation_limit=12,
+            generation_model="not-a-model-id",
+            generation_fallback_model="google/gemini-flash-1.5",
+        )
+
+
+@pytest.mark.asyncio
+async def test_update_user_rejects_inactive_subscription_tier_assignment():
+    repository = StubAdminRepository()
+    subscriptions = StubSubscriptionRepository()
+    subscriptions.tiers["pro"] = subscriptions.tiers["pro"].model_copy(update={"is_active": False})
+    service = AdminService(
+        repository=repository,  # type: ignore[arg-type]
+        profile_repository=StubProfileRepository(),  # type: ignore[arg-type]
+        subscription_repository=subscriptions,  # type: ignore[arg-type]
+        user_manager=StubUserManager(),  # type: ignore[arg-type]
+        email_sender=SuccessfulEmailSender(),  # type: ignore[arg-type]
+        settings=_make_settings(),
+    )
+
+    with pytest.raises(ValueError, match="Subscription tier is inactive"):
+        await service.update_user(target_user_id="user-1", updates={"subscription_tier": "pro"})

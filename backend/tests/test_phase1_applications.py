@@ -163,6 +163,7 @@ class FakeProfileRepository:
         self.section_order = ["summary", "professional_experience", "education", "skills"]
         self.is_admin = False
         self.is_active = True
+        self.subscription_tier = "basic"
 
     def fetch_profile(self, user_id: str):
         class Profile:
@@ -178,6 +179,7 @@ class FakeProfileRepository:
         profile.section_order = self.section_order
         profile.is_admin = self.is_admin
         profile.is_active = self.is_active
+        profile.subscription_tier = self.subscription_tier
 
         return profile
 
@@ -465,6 +467,39 @@ class FakeGenerationJobQueue:
         return f"judge-job-{len(self.judge_jobs)}"
 
 
+class FakeSubscriptionRepository:
+    def __init__(self) -> None:
+        self.limit = 10
+        self.count_by_user: dict[str, int] = {}
+        self.reservations: list[dict[str, Any]] = []
+        self.releases: list[dict[str, str]] = []
+
+    def reserve_generation_quota(self, *, user_id: str):
+        from app.db.subscriptions import QuotaReservationRecord
+
+        current = self.count_by_user.get(user_id, 0)
+        if current >= self.limit:
+            raise PermissionError(
+                "Monthly resume generation limit reached. Contact an administrator or upgrade your subscription tier."
+            )
+        next_count = current + 1
+        self.count_by_user[user_id] = next_count
+        reservation = QuotaReservationRecord(
+            subscription_tier="basic",
+            monthly_resume_generation_limit=self.limit,
+            generation_model="basic-primary-model",
+            generation_fallback_model="basic-fallback-model",
+            period_start="2026-04-01",
+            generation_count=next_count,
+        )
+        self.reservations.append(reservation.model_dump())
+        return reservation
+
+    def release_generation_quota(self, *, user_id: str, period_start: str) -> None:
+        self.count_by_user[user_id] = max(self.count_by_user.get(user_id, 0) - 1, 0)
+        self.releases.append({"user_id": user_id, "period_start": period_start})
+
+
 class StubVerifier(AuthVerifier):
     def __init__(self) -> None:
         pass
@@ -511,6 +546,7 @@ def build_service(
     drafts = draft_repository or FakeDraftRepository()
     base_resumes = FakeBaseResumeRepository()
     generation_queue = FakeGenerationJobQueue()
+    subscriptions = FakeSubscriptionRepository()
     service = ApplicationService(
         repository=repository,
         base_resume_repository=base_resumes,
@@ -526,6 +562,7 @@ def build_service(
             (),
             {"duplicate_similarity_threshold": 85.0, "app_url": "http://localhost:5173"},
         )(),
+        subscription_repository=subscriptions,  # type: ignore[arg-type]
     )
     return service, repository, notifications, progress, queue, email, drafts
 
@@ -2094,6 +2131,7 @@ def test_full_regeneration_endpoint_returns_409_when_limit_is_reached():
         generation_params={"page_length": "1_page", "aggressiveness": "medium"},
         sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
     )
+    service.subscription_repository.limit = 0
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
     app.dependency_overrides[get_application_service] = lambda: service
     client = TestClient(app)
@@ -2109,7 +2147,7 @@ def test_full_regeneration_endpoint_returns_409_when_limit_is_reached():
     )
 
     assert response.status_code == 409
-    assert "Please contact an administrator" in response.json()["detail"]
+    assert "Monthly resume generation limit reached" in response.json()["detail"]
 
 
 def test_resume_judge_endpoint_returns_202_and_queues_re_evaluation():
@@ -3056,6 +3094,229 @@ async def test_trigger_generation_requires_profile_name():
 
 
 @pytest.mark.asyncio
+async def test_trigger_generation_consumes_subscription_quota_and_passes_tier_models():
+    service, repository, _, _, _, _, _ = build_service()
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/quota",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+        },
+    )
+
+    await service.trigger_generation(
+        user_id="user-1",
+        application_id=created.id,
+        base_resume_id="resume-1",
+        target_length="1_page",
+        aggressiveness="medium",
+        additional_instructions=None,
+    )
+
+    queued_settings = service.generation_job_queue.enqueued[0]["generation_settings"]
+    assert service.subscription_repository.count_by_user["user-1"] == 1
+    assert queued_settings["subscription_tier"] == "basic"
+    assert queued_settings["quota_period_start"] == "2026-04-01"
+    assert queued_settings["_generation_model"] == "basic-primary-model"
+    assert queued_settings["_generation_fallback_model"] == "basic-fallback-model"
+
+
+@pytest.mark.asyncio
+async def test_trigger_generation_queue_failure_does_not_consume_slot():
+    service, repository, _, _, _, _, _ = build_service()
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/generation-queue-failure",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+        },
+    )
+
+    async def fail_queue(**_kwargs):
+        raise RuntimeError("queue unavailable")
+
+    service.generation_job_queue.enqueue = fail_queue  # type: ignore[method-assign]
+
+    detail = await service.trigger_generation(
+        user_id="user-1",
+        application_id=created.id,
+        base_resume_id="resume-1",
+        target_length="1_page",
+        aggressiveness="medium",
+        additional_instructions=None,
+    )
+
+    assert detail.application.failure_reason == "generation_failed"
+    assert service.subscription_repository.count_by_user["user-1"] == 0
+    assert service.subscription_repository.releases == [{"user_id": "user-1", "period_start": "2026-04-01"}]
+
+
+@pytest.mark.asyncio
+async def test_trigger_generation_state_update_failure_does_not_consume_slot():
+    service, repository, _, _, _, _, _ = build_service()
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/generation-update-failure",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+        },
+    )
+    original_update = repository.update_application
+
+    def fail_generation_update(*, application_id: str, user_id: str, updates: dict[str, Any]):
+        if updates.get("internal_state") == "generating":
+            raise RuntimeError("database unavailable")
+        return original_update(application_id=application_id, user_id=user_id, updates=updates)
+
+    repository.update_application = fail_generation_update  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await service.trigger_generation(
+            user_id="user-1",
+            application_id=created.id,
+            base_resume_id="resume-1",
+            target_length="1_page",
+            aggressiveness="medium",
+            additional_instructions=None,
+        )
+
+    assert service.subscription_repository.count_by_user["user-1"] == 0
+    assert service.subscription_repository.releases == [{"user_id": "user-1", "period_start": "2026-04-01"}]
+
+
+@pytest.mark.asyncio
+async def test_section_regeneration_consumes_subscription_quota_and_passes_tier_models():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/section-quota",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Test User\ninvite-only@example.com | 555-0100 | Toronto, ON\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    await service.trigger_section_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        section_name="summary",
+        instructions="Make the summary more direct.",
+    )
+
+    queued_settings = service.generation_job_queue.regenerations[0]["generation_settings"]
+    assert service.subscription_repository.count_by_user["user-1"] == 1
+    assert queued_settings["subscription_tier"] == "basic"
+    assert queued_settings["quota_period_start"] == "2026-04-01"
+    assert queued_settings["_generation_model"] == "basic-primary-model"
+    assert queued_settings["_generation_fallback_model"] == "basic-fallback-model"
+
+
+@pytest.mark.asyncio
+async def test_section_regeneration_queue_failure_does_not_consume_slot():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/section-queue-failure",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Test User\ninvite-only@example.com | 555-0100 | Toronto, ON\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    async def fail_queue(**_kwargs):
+        raise RuntimeError("queue unavailable")
+
+    service.generation_job_queue.enqueue_regeneration = fail_queue  # type: ignore[method-assign]
+
+    detail = await service.trigger_section_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        section_name="summary",
+        instructions="Make the summary more direct.",
+    )
+
+    assert detail.application.failure_reason == "regeneration_failed"
+    assert service.subscription_repository.count_by_user["user-1"] == 0
+    assert service.subscription_repository.releases == [{"user_id": "user-1", "period_start": "2026-04-01"}]
+
+
+@pytest.mark.asyncio
 async def test_full_regeneration_requires_profile_name():
     drafts = FakeDraftRepository()
     service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
@@ -3101,7 +3362,7 @@ async def test_full_regeneration_requires_profile_name():
 
 
 @pytest.mark.asyncio
-async def test_full_regeneration_consumes_slot_for_non_admin_when_queued():
+async def test_full_regeneration_consumes_subscription_quota_when_queued():
     drafts = FakeDraftRepository()
     service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
     service.base_resume_repository.add_resume(
@@ -3144,12 +3405,13 @@ async def test_full_regeneration_consumes_slot_for_non_admin_when_queued():
     updated = repository.fetch_application("user-1", created.id)
     assert updated is not None
     assert detail.application.internal_state == "regenerating_full"
-    assert updated.full_regeneration_count == 2
+    assert updated.full_regeneration_count == 1
     assert len(service.generation_job_queue.regenerations) == 1
+    assert service.subscription_repository.count_by_user["user-1"] == 1
 
 
 @pytest.mark.asyncio
-async def test_full_regeneration_blocks_non_admin_after_limit_reached():
+async def test_full_regeneration_blocks_when_monthly_subscription_quota_reached():
     drafts = FakeDraftRepository()
     service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
     service.base_resume_repository.add_resume(
@@ -3181,10 +3443,9 @@ async def test_full_regeneration_blocks_non_admin_after_limit_reached():
         sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
     )
 
-    with pytest.raises(
-        PermissionError,
-        match="You have reached the full regeneration limit for this resume. Please contact an administrator",
-    ):
+    service.subscription_repository.limit = 0
+
+    with pytest.raises(PermissionError, match="Monthly resume generation limit reached"):
         await service.trigger_full_regeneration(
             user_id="user-1",
             application_id=created.id,
@@ -3197,7 +3458,7 @@ async def test_full_regeneration_blocks_non_admin_after_limit_reached():
 
 
 @pytest.mark.asyncio
-async def test_full_regeneration_allows_admin_bypass_past_limit():
+async def test_full_regeneration_does_not_use_legacy_admin_bypass_for_subscription_quota():
     drafts = FakeDraftRepository()
     service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
     service.profile_repository.is_admin = True
@@ -3230,19 +3491,18 @@ async def test_full_regeneration_allows_admin_bypass_past_limit():
         sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
     )
 
-    detail = await service.trigger_full_regeneration(
-        user_id="user-1",
-        application_id=created.id,
-        target_length="1_page",
-        aggressiveness="medium",
-        additional_instructions=None,
-    )
+    service.subscription_repository.limit = 0
 
-    updated = repository.fetch_application("user-1", created.id)
-    assert updated is not None
-    assert detail.application.internal_state == "regenerating_full"
-    assert updated.full_regeneration_count == 3
-    assert len(service.generation_job_queue.regenerations) == 1
+    with pytest.raises(PermissionError, match="Monthly resume generation limit reached"):
+        await service.trigger_full_regeneration(
+            user_id="user-1",
+            application_id=created.id,
+            target_length="1_page",
+            aggressiveness="medium",
+            additional_instructions=None,
+        )
+
+    assert len(service.generation_job_queue.regenerations) == 0
 
 
 @pytest.mark.asyncio
@@ -3295,6 +3555,8 @@ async def test_full_regeneration_queue_failure_does_not_consume_slot():
     assert updated is not None
     assert detail.application.failure_reason == "regeneration_failed"
     assert updated.full_regeneration_count == 2
+    assert service.subscription_repository.count_by_user["user-1"] == 0
+    assert service.subscription_repository.releases == [{"user_id": "user-1", "period_start": "2026-04-01"}]
 
 
 @pytest.mark.asyncio

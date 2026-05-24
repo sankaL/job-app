@@ -1,7 +1,7 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-23
 **Sources:** `agents/generation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
@@ -154,7 +154,9 @@ This section is organized by what stays constant across all resume-writing opera
 #### Runtime behavior shared by all modes
 
 - Resume-writing calls use OpenRouter via LangChain.
+- Initial generation, full regeneration, and single-section regeneration receive a hidden primary/fallback model pair from the user's subscription tier. If an older queued job does not include those values, the worker falls back to the environment-configured generation model settings for compatibility.
 - Initial generation, full regeneration, and single-section regeneration use the env-configured `GENERATION_AGENT_REASONING_EFFORT` setting for both primary and fallback attempts.
+- Current tracked subscription defaults are Basic `openai/gpt-5-mini` primary with `google/gemini-flash-1.5` fallback, and Pro `z-ai/glm-5.1` primary with `anthropic/claude-sonnet-4.6` fallback.
 - Allowed reasoning values are `none`, `low`, `medium`, `high`, and `xhigh`.
 - The current tracked env defaults set `GENERATION_AGENT_REASONING_EFFORT=none`.
 - `GENERATION_AGENT_REASONING_EFFORT=none` is passed through to OpenRouter as `reasoning: {"effort": "none"}`. Non-`none` efforts also set `exclude=true` so reasoning stays internal and is not returned in the response body.

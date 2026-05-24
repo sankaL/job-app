@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-23
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -117,6 +117,8 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
 | B5-T42 | Strip embedded NUL bytes from application update payloads before Postgres writes | BE | DONE | 2026-05-16 13:39:21 EDT | Production extraction callbacks could surface scraped text containing `0x00`, which caused `psycopg.DataError` when persisting application detail updates. `ApplicationRepository.update_application` now recursively strips NUL bytes from plain text and JSONB payloads before executing the update, with focused regression coverage for both text columns and nested JSON fields. |
+| B5-T45 | Harden subscription quota and tier-setting validation follow-ups | BE/FE/AI/Docs | DONE | 2026-05-23 20:48:00 EDT | Closed quota leak windows before job enqueueing, kept queued jobs counted even if later progress bookkeeping fails, added queue-failure release coverage for generation and section regeneration, rejected inactive tier assignment plus excessive or malformed tier settings, improved worker diagnostics for blank tier model values, and added frontend pre-submit model validation. |
+| B5-T44 | Add subscription tiers, monthly generation quotas, and tier-selected generation models | AI/BE/FE/Docs | DONE | 2026-05-23 19:31:20 EDT | Added Basic and Pro subscription tiers with admin-editable monthly resume-writing quotas and primary/fallback OpenRouter model IDs, assigned users to tiers from admin user management, enforced one shared UTC monthly quota across initial generation, full regeneration, and section regeneration, and updated the worker to use tier-selected generation models while retaining env fallback compatibility. |
 | B5-T43 | Make selected resume page length a source-aware content target | AI/BE/FE/Docs | DONE | 2026-05-16 17:42:00 EDT | Generation prompts now preserve grounded source detail for 2-page and 3-page targets, deterministic validation fails underfilled drafts below a source-aware minimum and repairs them once, source-limited drafts surface a draft warning instead of being padded, and Resume Judge caps length scores for under-target non-source-limited drafts. |
 | B5-T41 | Fail generation validation when Professional Experience rows are malformed even without source anchors | AI | DONE | 2026-04-19 19:34:40 EDT | Tightened deterministic Professional Experience validation so malformed multi-header role blocks are rejected even when the source resume does not yield parseable anchors, preventing worker-side false-success callbacks that backend markdown normalization would later reject with HTTP 400. |
 | B5-T40 | Harden base resume delete against dependent-row foreign-key drift and return conflict instead of 500 | BE | DONE | 2026-04-19 14:04:14 EDT | Base resume deletion now proactively clears `profiles.default_base_resume_id` and `applications.base_resume_id` references inside the same transaction before removing the resume, and service-level mapping now converts residual FK violations into a conflict error instead of leaking a generic 500. |

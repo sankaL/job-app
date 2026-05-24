@@ -5,6 +5,7 @@ import {
   fetchApplicationProgress,
   fetchDraft,
   fetchSessionBootstrap,
+  listSubscriptionTiers,
   listAdminUsers,
   listApplications,
   listBaseResumes,
@@ -28,6 +29,7 @@ export const queryKeys = {
   baseResumes: ["baseResumes"] as const,
   notifications: ["notifications"] as const,
   adminMetrics: ["adminMetrics"] as const,
+  subscriptionTiers: ["subscriptionTiers"] as const,
   adminUsersRoot: ADMIN_USERS_QUERY_KEY,
   adminUsers: (search: string, status: string) => [...ADMIN_USERS_QUERY_KEY, search, status] as const,
 };
@@ -121,6 +123,14 @@ export function useAdminUsersQuery(search: string, status: "all" | "active" | "i
   });
 }
 
+export function useSubscriptionTiersQuery() {
+  return useQuery({
+    queryKey: queryKeys.subscriptionTiers,
+    queryFn: listSubscriptionTiers,
+    staleTime: ONE_MINUTE_MS,
+  });
+}
+
 export async function invalidateApplicationQueries(queryClient: QueryClient, applicationId?: string) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
@@ -185,5 +195,11 @@ export function updateAdminUsersCache(
 export async function invalidateAdminUsersQueries(queryClient: QueryClient) {
   await queryClient.invalidateQueries({
     queryKey: queryKeys.adminUsersRoot,
+  });
+}
+
+export async function invalidateSubscriptionTierQueries(queryClient: QueryClient) {
+  await queryClient.invalidateQueries({
+    queryKey: queryKeys.subscriptionTiers,
   });
 }

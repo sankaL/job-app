@@ -1,5 +1,17 @@
 # Decisions Made
 
+## 2026-05-23 19:31:20 EDT — Use subscription tiers for monthly resume-writing quota and generation model selection
+
+- Status: Accepted
+- Context: The app needed Basic and Pro subscription tiers so administrators can control both how many resume-writing operations a user can run each month and which OpenRouter generation models those operations use. The previous non-admin full-regeneration cap controlled only one operation type and could not express tiered access or model policy.
+- Decision:
+  1. Add durable `basic` and `pro` subscription tiers with admin-editable monthly resume-writing limits, primary generation model IDs, and fallback generation model IDs.
+  2. Default all existing and newly invited users to Basic, while allowing admins to move individual users between Basic and Pro.
+  3. Count initial generation, full regeneration, and single-section regeneration against the same per-user UTC calendar-month quota.
+  4. Reserve quota atomically before enqueueing worker jobs and release the reservation if enqueueing fails.
+  5. Pass tier-selected primary/fallback model IDs as hidden worker settings, persist only safe summary metadata on drafts, and keep environment generation model settings as compatibility fallback for older queued jobs.
+- Consequences: Resume-writing limits are now user-tier based instead of application-specific, admins can tune quota and model access without deploys, and model selection becomes a product-configurable policy while preserving fail-closed worker behavior and older job compatibility.
+
 ## 2026-05-16 17:42:00 EDT — Treat resume page length as a source-aware content target
 
 - Status: Accepted
