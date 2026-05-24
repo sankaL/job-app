@@ -304,7 +304,7 @@ def _build_system_prompt() -> str:
         "- Score every dimension from 0 to 10.\n"
         "- Do not compute weighted arithmetic, final_score, display_score, verdict, or pass/fail thresholds. The application computes those locally.\n"
         "- Keep notes concise, evidence-based, and tied to concrete sections or patterns.\n"
-        "- regeneration_instructions must be direct instructions for the resume generation agent. If the draft clearly passes, set regeneration_instructions to null and regeneration_priority_dimensions to [].\n"
+        "- regeneration_instructions must be direct instructions for the resume generation agent. Preserve regeneration_instructions and regeneration_priority_dimensions when the draft still has meaningful refinement opportunities, including borderline passing drafts below a local final score of 90.0. Only omit them when the draft is clearly strong enough that no refinement guidance is needed.\n"
         "- regeneration_priority_dimensions must contain at most two dimension ids from the allowed list.\n"
         "- Return exactly one JSON object and no surrounding prose.\n\n"
         "Dimension weights for local scoring:\n"

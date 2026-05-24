@@ -87,7 +87,7 @@ The system prompt defines Resume Judge as an evaluator only, never a writer, and
 - concise evidence-based notes
 - no local arithmetic in the model output
 - no `final_score`, `display_score`, or `verdict` computed by the LLM
-- `regeneration_instructions = null` and `regeneration_priority_dimensions = []` when the draft clearly passes
+- regeneration guidance preserved for borderline passing drafts that still have meaningful refinement opportunities, with omission reserved for clearly strong drafts that do not need follow-up guidance
 - exactly one JSON object with no prose outside JSON
 
 ### Model response contract

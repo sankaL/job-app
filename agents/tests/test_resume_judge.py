@@ -53,6 +53,13 @@ def test_reasoning_error_detection_includes_mandatory_reasoning_rejections():
     )
 
 
+def test_system_prompt_preserves_recommendations_for_borderline_passes():
+    prompt = resume_judge._build_system_prompt()
+
+    assert "below a local final score of 90.0" in prompt
+    assert "set regeneration_instructions to null" not in prompt
+
+
 def test_finalize_response_computes_weighted_score_and_priority_order():
     result = resume_judge._finalize_response(
         response=build_response(
