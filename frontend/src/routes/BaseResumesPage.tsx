@@ -83,7 +83,11 @@ export function BaseResumesPage() {
         }
       />
 
-      <ErrorBanner error={displayedError} className="mb-4" onClear={() => setError(null)} />
+      <ErrorBanner
+        error={displayedError}
+        className="mb-4"
+        onClear={error ? () => setError(null) : undefined}
+      />
 
       {resumes == null ? (
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">

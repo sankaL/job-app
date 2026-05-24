@@ -65,7 +65,9 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
   // 3. Job Details missing
   else if (
     lowerError.includes("job title and description are required") ||
-    lowerError.includes("job title and description are required for regeneration")
+    lowerError.includes("job title and description are required for regeneration") ||
+    lowerError.includes("add a job title before generating") ||
+    lowerError.includes("add a job description before generating")
   ) {
     title = "Job Information Required";
     subtitle = "Action Required: Update Job Details";

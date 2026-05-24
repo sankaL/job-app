@@ -508,7 +508,11 @@ export function ApplicationsListPage() {
         }
       />
 
-      <ErrorBanner error={displayedError} className="mb-4" onClear={() => setError(null)} />
+      <ErrorBanner
+        error={displayedError}
+        className="mb-4"
+        onClear={error ? () => setError(null) : undefined}
+      />
 
       {/* Desktop filters */}
       <div className="hidden gap-3 md:grid md:grid-cols-[minmax(0,1.8fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)] xl:grid-cols-[minmax(320px,2.2fr)_240px_220px]">

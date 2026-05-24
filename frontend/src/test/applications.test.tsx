@@ -378,6 +378,24 @@ describe("phase 1 applications UI", () => {
     expect(api.listApplications).toHaveBeenCalledTimes(0);
   });
 
+  it("does not show a dismiss action for applications query load failures", async () => {
+    api.listApplications.mockRejectedValue(new Error("Session expired."));
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    expect(await screen.findByText("Session expired.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /dismiss/i })).not.toBeInTheDocument();
+  });
+
+  it("does not show a dismiss action for base resume query load failures", async () => {
+    api.listBaseResumes.mockRejectedValue(new Error("Resume list unavailable."));
+
+    renderWithAppProvider(<BaseResumesPage />);
+
+    expect(await screen.findByText("Resume list unavailable.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /dismiss/i })).not.toBeInTheDocument();
+  });
+
   it("initializes the profile page from bootstrap without calling the profile endpoint", async () => {
     renderWithAppProvider(<ProfilePage />);
 
@@ -2993,6 +3011,48 @@ describe("phase 1 applications UI", () => {
 
     await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/monthly resume generation limit reached/i)).toBeInTheDocument();
+  });
+
+  it("shows the contextual job-details banner when retrying generation without a job title", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "needs_action",
+        internal_state: "resume_ready",
+        failure_reason: "generation_failed",
+        job_title: null,
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+        generation_failure_details: {
+          message: "Resume generation encountered errors.",
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue(null);
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await user.click(await screen.findByRole("button", { name: /^retry$/i }));
+
+    expect(api.triggerGeneration).not.toHaveBeenCalled();
+    expect(await screen.findByText("Job Information Required")).toBeInTheDocument();
+    expect(screen.getByText(/please supply these under the job details panel/i)).toBeInTheDocument();
+    expect(screen.getByText(/details: add a job title before generating\./i)).toBeInTheDocument();
   });
 
   it("shows backend generation stage messages while progress polling is active", async () => {
