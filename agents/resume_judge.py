@@ -540,10 +540,12 @@ def _finalize_response(
     verdict = "pass" if final_score >= DEFAULT_PASS_THRESHOLD else "warn" if final_score >= Decimal("60.0") else "fail"
     if force_length_priority and verdict == "pass":
         verdict = "warn"
-    priority_dimensions = [] if verdict == "pass" else _sorted_priority_dimensions(response)
+    
+    show_recommendations = final_score < Decimal("90.0") or force_length_priority
+    priority_dimensions = _sorted_priority_dimensions(response) if show_recommendations else []
     if force_length_priority and "length_and_density" not in priority_dimensions:
         priority_dimensions = ["length_and_density", *priority_dimensions][:2]
-    regeneration_instructions = None if verdict == "pass" else response.regeneration_instructions
+    regeneration_instructions = response.regeneration_instructions if show_recommendations else None
     if force_length_priority and not regeneration_instructions:
         regeneration_instructions = (
             "Expand the resume toward the selected target length using only grounded source-resume details. "

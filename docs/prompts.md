@@ -129,7 +129,7 @@ The application computes the final persisted result locally after parsing the mo
   - `warn = 60-79.9`
   - `fail < 60`
 - If deterministic observations show the draft is outside the selected target range, `length_and_density` is capped locally (`4` when under-target without source-limited allowance, `7` when source-limited). Under-target non-source-limited drafts are forced to at least `warn` and include `length_and_density` in regeneration priorities.
-- For `pass`, regeneration fields are cleared locally even if the model returned text.
+- For scores 90.0 and above, regeneration fields are cleared locally even if the model returned text. For scores below 90.0, the regeneration instructions and prioritized dimensions are preserved to allow refinement.
 - Priority dimensions are re-sorted locally so the weakest highest-impact dimensions appear first.
 
 ## Resume Generation Prompts

@@ -1475,7 +1475,104 @@ async def test_run_resume_judge_job_posts_failure_payload_on_error(monkeypatch):
     assert failure_result["error"]["error_type"] == "RuntimeError"
 
 
+@pytest.mark.asyncio
+async def test_run_regeneration_job_success(monkeypatch):
+    from worker import run_regeneration_job
+
+    callback_payloads = []
+
+    async def fake_post_callback_best_effort(callback, payload, *, path: str, app_id: str, job_id: str, callback_stage: str):
+        del callback, path, app_id, job_id, callback_stage
+        callback_payloads.append(payload)
+
+    async def fake_regenerate_single_section(**kwargs):
+        return {
+            "content": "## Summary\nHighly direct quality engineer.",
+            "model_used": "google/gemini-35-flash",
+            "prompt": "Make it direct",
+            "operation": "regeneration_section",
+            "attempt_diagnostics": [{"model": "google/gemini-35-flash", "outcome": "success"}],
+        }
+
+    async def fake_validate_with_repair(**kwargs):
+        regenerated_section = kwargs["regenerated_section"]
+        return regenerated_section, {"valid": True, "errors": []}, kwargs["attempt_diagnostics"], None
+
+    class FakeWriter:
+        def __init__(self) -> None:
+            self.progress = None
+            self.generated = None
+
+        async def get(self, application_id: str):
+            return None
+
+        async def set(self, application_id: str, progress: JobProgress, ttl_seconds: int = 86400):
+            self.progress = progress
+
+        async def clear_generation_result(self, application_id: str) -> None:
+            pass
+
+        async def set_generation_result(
+            self,
+            application_id: str,
+            *,
+            job_id: str,
+            workflow_kind: str,
+            generated: dict[str, object],
+            ttl_seconds: int = 86400,
+        ) -> None:
+            self.generated = generated
+
+    fake_writer = FakeWriter()
+    monkeypatch.setattr(
+        "worker.WorkerSettingsEnv",
+        lambda: WorkerSettingsEnv(
+            redis_url="redis://unused",
+            openrouter_api_key="test-key",
+            generation_agent_model="primary-model",
+            generation_agent_fallback_model="fallback-model",
+        ),
+    )
+    monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: object())
+    monkeypatch.setattr("worker.post_callback_best_effort", fake_post_callback_best_effort)
+    monkeypatch.setattr("worker.regenerate_single_section", fake_regenerate_single_section)
+    monkeypatch.setattr("worker._validate_regenerated_section_with_repair", fake_validate_with_repair)
+
+    section_prefs = [
+        {"name": "summary", "enabled": True, "order": 0},
+        {"name": "experience", "enabled": True, "order": 1},
+    ]
+
+    await run_regeneration_job(
+        {},
+        application_id="app-regen-test",
+        user_id="user-regen-test",
+        job_id="job-regen-test",
+        current_draft_content="## Summary\nOld Summary\n## Experience\nOld Experience",
+        job_title="Quality Engineer",
+        company_name="Acme",
+        job_description="Quality control and analysis",
+        base_resume_content="## Summary\nOld Summary\n## Experience\nOld Experience",
+        personal_info={"name": "Sankal"},
+        section_preferences=section_prefs,
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+        regeneration_target="summary",
+        regeneration_instructions="Make the summary more direct.",
+    )
+
+    assert len(callback_payloads) == 1
+    success_payload = callback_payloads[0]
+    assert success_payload["event"] == "succeeded"
+    assert success_payload["regeneration_target"] == "summary"
+    assert success_payload["generated"]["sections_snapshot"] == {
+        "enabled_sections": ["summary", "experience"],
+        "section_order": ["summary", "experience"],
+    }
+
+
 def test_worker_settings_disable_whole_job_generation_retries():
     from worker import WorkerSettings
 
     assert WorkerSettings.max_tries == 1
+

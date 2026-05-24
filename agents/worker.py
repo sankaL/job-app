@@ -1897,6 +1897,15 @@ async def run_regeneration_job(
     }
     attempt_diagnostics: list[dict[str, Any]] = []
 
+    enabled_ordered = sorted(
+        [s for s in section_preferences if s.get("enabled")],
+        key=lambda s: s.get("order", 0),
+    )
+    sections_snapshot = {
+        "enabled_sections": [s["name"] for s in enabled_ordered],
+        "section_order": [s["name"] for s in enabled_ordered],
+    }
+
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
 
@@ -2037,18 +2046,20 @@ async def run_regeneration_job(
                     terminal_error_code="validation_failed",
                     quota_period_start=_quota_period_start(generation_settings),
                 )
+                failure_payload = build_generation_failure_payload(
+                    application_id=application_id,
+                    user_id=user_id,
+                    job_id=job_id,
+                    message="Regeneration validation failed.",
+                    terminal_error_code="validation_failed",
+                    failure_details=failure_details,
+                    validation_errors=validation_result["errors"],
+                    quota_period_start=_quota_period_start(generation_settings),
+                )
+                failure_payload["regeneration_target"] = regeneration_target
                 await post_callback_best_effort(
                     callback,
-                    build_generation_failure_payload(
-                        application_id=application_id,
-                        user_id=user_id,
-                        job_id=job_id,
-                        message="Regeneration validation failed.",
-                        terminal_error_code="validation_failed",
-                        failure_details=failure_details,
-                        validation_errors=validation_result["errors"],
-                        quota_period_start=_quota_period_start(generation_settings),
-                    ),
+                    failure_payload,
                     path=REGENERATION_CALLBACK_PATH,
                     app_id=application_id,
                     job_id=job_id,
@@ -2071,15 +2082,6 @@ async def run_regeneration_job(
             )
             if not await is_current_job(writer, application_id, job_id):
                 return
-
-            enabled_ordered = sorted(
-                [s for s in section_preferences if s.get("enabled")],
-                key=lambda s: s.get("order", 0),
-            )
-            sections_snapshot = {
-                "enabled_sections": [s["name"] for s in enabled_ordered],
-                "section_order": [s["name"] for s in enabled_ordered],
-            }
         else:
             if not section_name or not instructions or not current_draft_content:
                 raise ValueError(
@@ -2202,18 +2204,20 @@ async def run_regeneration_job(
                     terminal_error_code="validation_failed",
                     quota_period_start=_quota_period_start(generation_settings),
                 )
+                failure_payload = build_generation_failure_payload(
+                    application_id=application_id,
+                    user_id=user_id,
+                    job_id=job_id,
+                    message=f"Validation failed for regenerated {section_name} section.",
+                    terminal_error_code="validation_failed",
+                    failure_details=failure_details,
+                    validation_errors=validation_result["errors"],
+                    quota_period_start=_quota_period_start(generation_settings),
+                )
+                failure_payload["regeneration_target"] = regeneration_target
                 await post_callback_best_effort(
                     callback,
-                    build_generation_failure_payload(
-                        application_id=application_id,
-                        user_id=user_id,
-                        job_id=job_id,
-                        message=f"Validation failed for regenerated {section_name} section.",
-                        terminal_error_code="validation_failed",
-                        failure_details=failure_details,
-                        validation_errors=validation_result["errors"],
-                        quota_period_start=_quota_period_start(generation_settings),
-                    ),
+                    failure_payload,
                     path=REGENERATION_CALLBACK_PATH,
                     app_id=application_id,
                     job_id=job_id,
@@ -2236,10 +2240,6 @@ async def run_regeneration_job(
             content = _replace_section_in_draft(
                 current_draft_content, section_name, regenerated_section["content"], display_name
             )
-            sections_snapshot = {
-                "enabled_sections": [section_name],
-                "section_order": [section_name],
-            }
 
         await set_progress(
             writer,
@@ -2264,6 +2264,7 @@ async def run_regeneration_job(
             ),
             sections_snapshot=sections_snapshot,
         )
+        success_payload["regeneration_target"] = regeneration_target
         await set_generation_result_best_effort(
             writer,
             application_id=application_id,
@@ -2322,17 +2323,19 @@ async def run_regeneration_job(
             terminal_error_code="regeneration_timeout",
             quota_period_start=_quota_period_start(generation_settings),
         )
+        failure_payload = build_generation_failure_payload(
+            application_id=application_id,
+            user_id=user_id,
+            job_id=job_id,
+            message="Regeneration timed out. The LLM provider may be slow. Please try again.",
+            terminal_error_code="regeneration_timeout",
+            failure_details=failure_details,
+            quota_period_start=_quota_period_start(generation_settings),
+        )
+        failure_payload["regeneration_target"] = regeneration_target
         await post_callback_best_effort(
             callback,
-            build_generation_failure_payload(
-                application_id=application_id,
-                user_id=user_id,
-                job_id=job_id,
-                message="Regeneration timed out. The LLM provider may be slow. Please try again.",
-                terminal_error_code="regeneration_timeout",
-                failure_details=failure_details,
-                quota_period_start=_quota_period_start(generation_settings),
-            ),
+            failure_payload,
             path=REGENERATION_CALLBACK_PATH,
             app_id=application_id,
             job_id=job_id,
@@ -2375,17 +2378,19 @@ async def run_regeneration_job(
             terminal_error_code="regeneration_error",
             quota_period_start=_quota_period_start(generation_settings),
         )
+        failure_payload = build_generation_failure_payload(
+            application_id=application_id,
+            user_id=user_id,
+            job_id=job_id,
+            message="Regeneration failed unexpectedly.",
+            terminal_error_code="regeneration_error",
+            failure_details=failure_details,
+            quota_period_start=_quota_period_start(generation_settings),
+        )
+        failure_payload["regeneration_target"] = regeneration_target
         await post_callback_best_effort(
             callback,
-            build_generation_failure_payload(
-                application_id=application_id,
-                user_id=user_id,
-                job_id=job_id,
-                message="Regeneration failed unexpectedly.",
-                terminal_error_code="regeneration_error",
-                failure_details=failure_details,
-                quota_period_start=_quota_period_start(generation_settings),
-            ),
+            failure_payload,
             path=REGENERATION_CALLBACK_PATH,
             app_id=application_id,
             job_id=job_id,

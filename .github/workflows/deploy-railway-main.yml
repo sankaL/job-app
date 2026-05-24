@@ -66,8 +66,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up backend \
-            --path-as-root \
+          railway up \
             --ci \
             --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
             --environment production \
@@ -95,8 +94,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up frontend \
-            --path-as-root \
+          railway up \
             --ci \
             --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
             --environment production \
@@ -124,8 +122,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
-          railway up agents \
-            --path-as-root \
+          railway up \
             --ci \
             --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
             --environment production \
