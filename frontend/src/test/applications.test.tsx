@@ -1631,7 +1631,7 @@ describe("phase 1 applications UI", () => {
     await screen.findByText("Casey Member");
     await user.click(screen.getByRole("button", { name: /edit member@example.com/i }));
     await user.selectOptions(screen.getByLabelText(/subscription tier/i), "pro");
-    await user.click(screen.getByRole("button", { name: /save user updates/i }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() =>
       expect(api.updateAdminUser).toHaveBeenCalledWith(
@@ -1733,6 +1733,65 @@ describe("phase 1 applications UI", () => {
 
     expect(api.updateSubscriptionTier).not.toHaveBeenCalled();
     expect(await screen.findByText(/fallback model must be different/i)).toBeInTheDocument();
+  });
+
+  it("offers DeepSeek V4 Flash with its supported reasoning levels", async () => {
+    const user = userEvent.setup();
+    api.listSubscriptionTiers.mockResolvedValue([
+      {
+        key: "basic",
+        name: "Basic",
+        monthly_resume_generation_limit: 10,
+        generation_model: "google/gemini-3-flash-preview",
+        generation_reasoning_effort: "none",
+        generation_fallback_model: "openai/gpt-5.4-mini",
+        generation_fallback_reasoning_effort: "none",
+        is_active: true,
+        created_at: "2026-05-23T00:00:00Z",
+        updated_at: "2026-05-23T00:00:00Z",
+      },
+    ]);
+    api.updateSubscriptionTier.mockResolvedValue({
+      key: "basic",
+      name: "Basic",
+      monthly_resume_generation_limit: 10,
+      generation_model: "deepseek/deepseek-v4-flash",
+      generation_reasoning_effort: "xhigh",
+      generation_fallback_model: "openai/gpt-5.4-mini",
+      generation_fallback_reasoning_effort: "none",
+      is_active: true,
+      created_at: "2026-05-23T00:00:00Z",
+      updated_at: "2026-05-23T12:00:00Z",
+    });
+
+    renderWithAppProvider(<AdminSubscriptionsPage />);
+
+    await screen.findByRole("heading", { name: /subscription settings/i });
+    await screen.findByText("Basic");
+    const form = screen.getByDisplayValue("10").closest("form") as HTMLFormElement;
+    const primaryInput = within(form).getByLabelText(/primary model/i);
+    const primaryReasoningInput = within(form).getByLabelText(/primary reasoning/i);
+
+    await user.selectOptions(primaryInput, "deepseek/deepseek-v4-flash");
+
+    expect(within(primaryReasoningInput).getByRole("option", { name: "None" })).toBeInTheDocument();
+    expect(within(primaryReasoningInput).getByRole("option", { name: "High" })).toBeInTheDocument();
+    expect(within(primaryReasoningInput).getByRole("option", { name: "Extra high" })).toBeInTheDocument();
+    expect(within(primaryReasoningInput).queryByRole("option", { name: "Low" })).not.toBeInTheDocument();
+    expect(within(primaryReasoningInput).queryByRole("option", { name: "Medium" })).not.toBeInTheDocument();
+
+    await user.selectOptions(primaryReasoningInput, "xhigh");
+    await user.click(within(form).getByRole("button", { name: /save/i }));
+
+    await waitFor(() =>
+      expect(api.updateSubscriptionTier).toHaveBeenCalledWith("basic", {
+        monthly_resume_generation_limit: 10,
+        generation_model: "deepseek/deepseek-v4-flash",
+        generation_reasoning_effort: "xhigh",
+        generation_fallback_model: "openai/gpt-5.4-mini",
+        generation_fallback_reasoning_effort: "none",
+      }),
+    );
   });
 
   it("renders a stop icon on the detail page while extraction is active", async () => {

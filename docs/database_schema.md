@@ -141,7 +141,7 @@ Admin-configurable Basic and Pro generation limits and model access.
 | `name` | `text` | No | — | Display label. |
 | `monthly_resume_generation_limit` | `integer` | No | — | UTC calendar-month limit for initial generation, full regeneration, and section regeneration. Must be non-negative; backend validation caps admin-entered values. |
 | `generation_model` | `text` | No | — | OpenRouter model ID used as the tier primary generation model. Must be one of the curated admin model options. |
-| `generation_reasoning_effort` | `text` | No | `none` | OpenRouter reasoning effort for the primary model. Allowed values are `none`, `low`, `medium`, `high`, and `xhigh`; `xhigh` is allowed only for `openai/gpt-5.4-mini`. |
+| `generation_reasoning_effort` | `text` | No | `none` | OpenRouter reasoning effort for the primary model. Model-aware allowed values are `none`, `low`, `medium`, `high`, and `xhigh`; DeepSeek V4 Flash allows only `none`, `high`, and `xhigh`. |
 | `generation_fallback_model` | `text` | No | — | OpenRouter model ID used as the tier fallback generation model. Must differ from `generation_model` and be one of the curated admin model options. |
 | `generation_fallback_reasoning_effort` | `text` | No | `none` | OpenRouter reasoning effort for the fallback model with the same compatibility rules as the primary reasoning field. |
 | `is_active` | `boolean` | No | `true` | Inactive tiers cannot reserve generation quota. |

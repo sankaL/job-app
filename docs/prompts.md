@@ -158,6 +158,7 @@ This section is organized by what stays constant across all resume-writing opera
 - Initial generation, full regeneration, and single-section regeneration use hidden tier-configured reasoning values when present. Legacy queued jobs without tier reasoning fall back to the env-configured `GENERATION_AGENT_REASONING_EFFORT`; fallback attempts inherit the primary effort unless a tier-specific fallback effort is supplied.
 - Current tracked subscription defaults are Basic `google/gemini-3-flash-preview` primary reasoning `none` with `openai/gpt-5.4-mini` fallback reasoning `none`, and Pro `openai/gpt-5.4-mini` primary reasoning `medium` with `google/gemini-3.5-flash` fallback reasoning `medium`.
 - Allowed reasoning values are `none`, `low`, `medium`, `high`, and `xhigh`.
+- Admin-selectable generation models are model-aware: DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`) exposes only `none`, `high`, and `xhigh`, where `xhigh` maps to max reasoning.
 - The current tracked env defaults set `GENERATION_AGENT_REASONING_EFFORT=none`.
 - `GENERATION_AGENT_REASONING_EFFORT=none` is passed through to OpenRouter as `reasoning: {"effort": "none"}`. Non-`none` efforts also set `exclude=true` so reasoning stays internal and is not returned in the response body.
 - If a provider rejects disabled reasoning as mandatory, the generation layer retries that same model once without a `reasoning` payload before moving on to the fallback model.

@@ -25,6 +25,11 @@ OPENROUTER_GENERATION_MODELS: tuple[OpenRouterGenerationModel, ...] = (
         reasoning_efforts=("none", "low", "medium", "high", "xhigh"),
     ),
     OpenRouterGenerationModel(
+        id="deepseek/deepseek-v4-flash",
+        label="DeepSeek V4 Flash",
+        reasoning_efforts=("none", "high", "xhigh"),
+    ),
+    OpenRouterGenerationModel(
         id="google/gemini-3.5-flash",
         label="Gemini 3.5 Flash",
         reasoning_efforts=("none", "low", "medium", "high"),

@@ -275,6 +275,17 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - quota exhaustion returns a sanitized `quota_exhausted` response and does not enqueue a worker job
   - worker jobs use the tier-selected primary/fallback models and still fall back to env settings when hidden job model values are absent
 
+## Current Additive Change Note: DeepSeek V4 Flash Subscription Model Option
+
+- Add the additive migration `supabase/migrations/20260524_000015_add_deepseek_v4_flash_subscription_model.sql`.
+- This migration updates `subscription_tiers` constraints so admins can choose `deepseek/deepseek-v4-flash` as either the primary or fallback generation model.
+- DeepSeek V4 Flash reasoning is constrained to `none`, `high`, and `xhigh`, matching the provider's non-think, high, and max reasoning modes.
+- Rollout order for this change:
+  1. Apply the additive constraint migration.
+  2. Deploy backend catalog validation with DeepSeek V4 Flash support.
+  3. Deploy frontend admin model/reasoning dropdown support.
+- Post-deploy verification should confirm admins can save DeepSeek V4 Flash with `none`, `high`, or `xhigh` reasoning and cannot save `low` or `medium` reasoning for that model.
+
 ## Historical Additive Change Note: Full Regeneration Cap and Deterministic Regeneration Hardening
 
 - Add the additive migration `supabase/migrations/20260410_000011_phase_5_full_regeneration_cap.sql`.

@@ -26,6 +26,11 @@ export const openRouterGenerationModels: OpenRouterGenerationModelOption[] = [
     reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
   },
   {
+    id: "deepseek/deepseek-v4-flash",
+    label: "DeepSeek V4 Flash",
+    reasoningEfforts: ["none", "high", "xhigh"],
+  },
+  {
     id: "google/gemini-3.5-flash",
     label: "Gemini 3.5 Flash",
     reasoningEfforts: ["none", "low", "medium", "high"],

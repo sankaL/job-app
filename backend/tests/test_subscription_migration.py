@@ -13,6 +13,12 @@ REASONING_MIGRATION_PATH = (
     / "migrations"
     / "20260524_000014_subscription_tier_reasoning_controls.sql"
 )
+DEEPSEEK_MODEL_MIGRATION_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "supabase"
+    / "migrations"
+    / "20260524_000015_add_deepseek_v4_flash_subscription_model.sql"
+)
 
 
 def test_subscription_tiers_migration_declares_defaults_and_usage_contract():
@@ -42,3 +48,11 @@ def test_subscription_reasoning_migration_adds_model_reasoning_contract():
     assert "openai/gpt-5.4-mini" in sql
     assert "google/gemini-3.5-flash" in sql
     assert "generation_reasoning_effort <> 'xhigh'" in sql
+
+
+def test_deepseek_model_migration_extends_model_and_reasoning_contract():
+    sql = DEEPSEEK_MODEL_MIGRATION_PATH.read_text()
+
+    assert "deepseek/deepseek-v4-flash" in sql
+    assert "generation_reasoning_effort in ('none', 'high', 'xhigh')" in sql
+    assert "generation_fallback_reasoning_effort in ('none', 'high', 'xhigh')" in sql

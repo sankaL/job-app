@@ -16,6 +16,10 @@ def test_validate_generation_model_reasoning_accepts_supported_combo():
         model_id="openai/gpt-5.4-mini",
         reasoning_effort="xhigh",
     )
+    validate_generation_model_reasoning(
+        model_id="deepseek/deepseek-v4-flash",
+        reasoning_effort="xhigh",
+    )
 
 
 def test_validate_generation_model_reasoning_rejects_unknown_model():
@@ -31,4 +35,9 @@ def test_validate_generation_model_reasoning_rejects_unsupported_reasoning():
         validate_generation_model_reasoning(
             model_id="google/gemini-3-flash-preview",
             reasoning_effort="xhigh",
+        )
+    with pytest.raises(ValueError, match="not supported by DeepSeek V4 Flash"):
+        validate_generation_model_reasoning(
+            model_id="deepseek/deepseek-v4-flash",
+            reasoning_effort="medium",
         )
