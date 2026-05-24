@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS: dict[str, set[str]] = {
     "google/gemini-3-flash-preview": {"none", "low", "medium", "high"},
     "openai/gpt-5.4-mini": {"none", "low", "medium", "high", "xhigh"},
+    "deepseek/deepseek-v4-flash": {"none", "high", "xhigh"},
     "google/gemini-3.5-flash": {"none", "low", "medium", "high"},
 }
 logger.setLevel(logging.INFO)

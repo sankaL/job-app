@@ -148,6 +148,25 @@ def test_resolve_generation_models_rejects_unknown_tier_model():
         )
 
 
+def test_resolve_generation_models_accepts_deepseek_tier_model():
+    settings = WorkerSettingsEnv(
+        openrouter_api_key="test-key",
+        generation_agent_model="env-primary-model",
+        generation_agent_fallback_model="env-fallback-model",
+    )
+
+    primary_model, fallback_model = worker._resolve_generation_models(
+        {
+            "_generation_model": "deepseek/deepseek-v4-flash",
+            "_generation_fallback_model": "openai/gpt-5.4-mini",
+        },
+        settings,
+    )
+
+    assert primary_model == "deepseek/deepseek-v4-flash"
+    assert fallback_model == "openai/gpt-5.4-mini"
+
+
 def test_resolve_generation_reasoning_efforts_rejects_invalid_value():
     settings = WorkerSettingsEnv(openrouter_api_key="test-key")
 
@@ -166,6 +185,38 @@ def test_resolve_generation_reasoning_efforts_rejects_unsupported_model_tier():
             {
                 "_generation_model": "google/gemini-3-flash-preview",
                 "_generation_reasoning_effort": "xhigh",
+            },
+            settings,
+        )
+
+
+@pytest.mark.parametrize("reasoning_effort", ["none", "high", "xhigh"])
+def test_resolve_generation_reasoning_efforts_accepts_deepseek_supported_values(reasoning_effort: str):
+    settings = WorkerSettingsEnv(openrouter_api_key="test-key")
+
+    primary_reasoning, fallback_reasoning = worker._resolve_generation_reasoning_efforts(
+        {
+            "_generation_model": "deepseek/deepseek-v4-flash",
+            "_generation_reasoning_effort": reasoning_effort,
+            "_generation_fallback_model": "openai/gpt-5.4-mini",
+            "_generation_fallback_reasoning_effort": "none",
+        },
+        settings,
+    )
+
+    assert primary_reasoning == reasoning_effort
+    assert fallback_reasoning == "none"
+
+
+@pytest.mark.parametrize("reasoning_effort", ["low", "medium"])
+def test_resolve_generation_reasoning_efforts_rejects_deepseek_unsupported_values(reasoning_effort: str):
+    settings = WorkerSettingsEnv(openrouter_api_key="test-key")
+
+    with pytest.raises(RuntimeError, match="not supported by the generation model"):
+        worker._resolve_generation_reasoning_efforts(
+            {
+                "_generation_model": "deepseek/deepseek-v4-flash",
+                "_generation_reasoning_effort": reasoning_effort,
             },
             settings,
         )

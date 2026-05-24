@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState, type FormEvent } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, RefreshCcw, Send, Trash2, UserPlus } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
@@ -78,6 +78,12 @@ export function AdminUsersPage() {
     () => users?.find((user) => user.id === editingUserId) ?? null,
     [users, editingUserId],
   );
+
+  useEffect(() => {
+    if (editingUserId !== null && users && !editingUser) {
+      setEditingUserId(null);
+    }
+  }, [editingUserId, editingUser, users]);
 
   function beginEdit(user: AdminUser) {
     setEditingUserId(user.id);
@@ -341,7 +347,7 @@ export function AdminUsersPage() {
       />
 
       <EditUserModal
-        open={editingUserId !== null}
+        open={editingUser !== null}
         user={editingUser}
         onClose={() => setEditingUserId(null)}
         onSubmit={handleSaveEdit}

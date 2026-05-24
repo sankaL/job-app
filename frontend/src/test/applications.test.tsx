@@ -1641,6 +1641,51 @@ describe("phase 1 applications UI", () => {
     );
   });
 
+  it("submits a trimmed admin invite from the invite modal", async () => {
+    const user = userEvent.setup();
+    api.listAdminUsers.mockResolvedValue([buildAdminUser()]);
+    api.inviteAdminUser.mockResolvedValue(buildAdminUser({ email: "new@example.com" }));
+
+    renderWithAppProvider(<AdminUsersPage />);
+
+    await screen.findByText("Casey Member");
+    await user.click(screen.getByRole("button", { name: /send invite/i }));
+    const inviteDialog = screen.getByRole("dialog", { name: /send invite/i });
+    await user.type(within(inviteDialog).getByLabelText(/^email$/i), "  new@example.com  ");
+    await user.type(within(inviteDialog).getByLabelText(/first name/i), "  New  ");
+    await user.type(within(inviteDialog).getByLabelText(/last name/i), "  Person  ");
+    await user.click(within(inviteDialog).getByRole("button", { name: /^send invite$/i }));
+
+    await waitFor(() =>
+      expect(api.inviteAdminUser).toHaveBeenCalledWith({
+        email: "new@example.com",
+        first_name: "New",
+        last_name: "Person",
+      }),
+    );
+  });
+
+  it("confirms admin user deletion before calling the delete API", async () => {
+    const user = userEvent.setup();
+    api.listAdminUsers.mockResolvedValue([buildAdminUser()]);
+    api.deleteAdminUser.mockResolvedValue(undefined);
+
+    renderWithAppProvider(<AdminUsersPage />);
+
+    await screen.findByText("Casey Member");
+    await user.click(screen.getByRole("button", { name: /delete member@example.com/i }));
+    expect(api.deleteAdminUser).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+    expect(api.deleteAdminUser).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: /delete user/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /delete member@example.com/i }));
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    await waitFor(() => expect(api.deleteAdminUser).toHaveBeenCalledWith("user-2"));
+  });
+
   it("updates subscription tier settings from the admin page", async () => {
     const user = userEvent.setup();
     api.listSubscriptionTiers.mockResolvedValue([

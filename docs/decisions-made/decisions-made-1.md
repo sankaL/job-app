@@ -1,5 +1,15 @@
 # Decisions Made
 
+## 2026-05-24 13:20:00 EDT — Add DeepSeek V4 Flash to curated generation model choices
+
+- Status: Accepted
+- Context: Administrators needed another fast, lower-cost generation option in the subscription-tier model picker while preserving model-aware reasoning validation across the frontend, backend, database, and worker.
+- Decision:
+  1. Add `deepseek/deepseek-v4-flash` to the curated admin-selectable OpenRouter generation models.
+  2. Allow DeepSeek V4 Flash reasoning values `none`, `high`, and `xhigh`, matching OpenRouter's supported high/max reasoning modes while retaining `none` for no explicit reasoning request.
+  3. Keep unsupported DeepSeek reasoning values such as `low` and `medium` rejected at every validation layer before jobs reach the provider.
+- Consequences: Admins can choose DeepSeek V4 Flash as a primary or fallback tier model without a deploy-time environment change, and generation jobs remain fail-closed if model or reasoning settings drift out of the curated contract.
+
 ## 2026-05-23 19:31:20 EDT — Use subscription tiers for monthly resume-writing quota and generation model selection
 
 - Status: Accepted
