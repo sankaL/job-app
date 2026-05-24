@@ -22,6 +22,7 @@ logger.setLevel(logging.INFO)
 SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
 DEFAULT_REASONING_EFFORT = "none"
 DEFAULT_PASS_THRESHOLD = Decimal("80.0")
+REGENERATION_GUIDANCE_SCORE_THRESHOLD = Decimal("90.0")
 
 PROMPT_LIMITS = {
     "job_description": 16_000,
@@ -284,6 +285,7 @@ def _deterministic_observations(
 
 
 def _build_system_prompt() -> str:
+    recommendation_threshold_text = f"{REGENERATION_GUIDANCE_SCORE_THRESHOLD:.1f}"
     dimension_lines = "\n".join(
         f"- {dimension}: weight {weight}."
         for dimension, weight in DIMENSION_SPECS
@@ -304,7 +306,8 @@ def _build_system_prompt() -> str:
         "- Score every dimension from 0 to 10.\n"
         "- Do not compute weighted arithmetic, final_score, display_score, verdict, or pass/fail thresholds. The application computes those locally.\n"
         "- Keep notes concise, evidence-based, and tied to concrete sections or patterns.\n"
-        "- regeneration_instructions must be direct instructions for the resume generation agent. Preserve regeneration_instructions and regeneration_priority_dimensions when the draft still has meaningful refinement opportunities, including borderline passing drafts below a local final score of 90.0. Only omit them when the draft is clearly strong enough that no refinement guidance is needed.\n"
+        "- regeneration_instructions must be direct instructions for the resume generation agent. Preserve regeneration_instructions and regeneration_priority_dimensions when the draft still has meaningful refinement opportunities, including borderline passing drafts below a local final score of "
+        f"{recommendation_threshold_text}. Only omit them when the draft is clearly strong enough that no refinement guidance is needed.\n"
         "- regeneration_priority_dimensions must contain at most two dimension ids from the allowed list.\n"
         "- Return exactly one JSON object and no surrounding prose.\n\n"
         "Dimension weights for local scoring:\n"
@@ -540,8 +543,8 @@ def _finalize_response(
     verdict = "pass" if final_score >= DEFAULT_PASS_THRESHOLD else "warn" if final_score >= Decimal("60.0") else "fail"
     if force_length_priority and verdict == "pass":
         verdict = "warn"
-    
-    show_recommendations = final_score < Decimal("90.0") or force_length_priority
+
+    show_recommendations = final_score < REGENERATION_GUIDANCE_SCORE_THRESHOLD or force_length_priority
     priority_dimensions = _sorted_priority_dimensions(response) if show_recommendations else []
     if force_length_priority and "length_and_density" not in priority_dimensions:
         priority_dimensions = ["length_and_density", *priority_dimensions][:2]
@@ -618,7 +621,7 @@ async def judge_resume(
                 api_key=api_key,
                 base_url=base_url,
                 timeout=timeout,
-                reasoning_config=_reasoning_config(reasoning_effort if index == 0 else reasoning_effort),
+                reasoning_config=_reasoning_config(reasoning_effort),
                 attempts=attempts,
             )
             return {

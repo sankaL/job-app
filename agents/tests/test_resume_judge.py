@@ -172,6 +172,41 @@ def test_finalize_response_caps_under_target_length_score_and_prioritizes_length
     assert "Expand the resume toward the selected target length" in result["regeneration_instructions"]
 
 
+def test_finalize_response_force_length_priority_keeps_recommendations_above_90():
+    high_scoring_short = JudgeModelResponse(
+        score_summary="Strong draft but under target length.",
+        dimension_scores={
+            "role_alignment": JudgeDimensionResponse(score=10, notes="Excellent alignment."),
+            "specificity_and_concreteness": JudgeDimensionResponse(score=10, notes="Specific."),
+            "voice_and_human_quality": JudgeDimensionResponse(score=10, notes="Natural."),
+            "grounding_integrity": JudgeDimensionResponse(score=10, notes="Grounded."),
+            "ats_safety_and_formatting": JudgeDimensionResponse(score=10, notes="ATS-safe."),
+            "length_and_density": JudgeDimensionResponse(score=10, notes="Right length."),
+        },
+        regeneration_instructions=None,
+        regeneration_priority_dimensions=[],
+        evaluator_notes="Strong but short.",
+    )
+
+    result = resume_judge._finalize_response(
+        response=high_scoring_short,
+        evaluated_draft_updated_at="2026-04-07T12:10:00+00:00",
+        scored_at="2026-04-07T12:12:00+00:00",
+        deterministic_observations={
+            "word_count": 440,
+            "target_range_words": {"min": 900, "max": 1400},
+            "outside_target_range": True,
+            "source_limited_length": False,
+        },
+    )
+
+    assert result["final_score"] == 97.0
+    assert result["verdict"] == "warn"
+    assert result["regeneration_priority_dimensions"][0] == "length_and_density"
+    assert result["regeneration_instructions"] is not None
+    assert "Expand the resume toward the selected target length" in result["regeneration_instructions"]
+
+
 @pytest.mark.asyncio
 async def test_judge_resume_uses_fallback_model_after_primary_failure(monkeypatch):
     async def fake_attempt_model(**kwargs):
