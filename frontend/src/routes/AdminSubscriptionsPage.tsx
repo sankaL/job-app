@@ -19,6 +19,8 @@ import {
 } from "@/lib/openrouter-models";
 import { invalidateSubscriptionTierQueries, useSubscriptionTiersQuery } from "@/lib/queries";
 
+const maxMonthlyResumeGenerationLimit = 10000;
+
 type TierFormState = {
   monthly_resume_generation_limit: string;
   generation_model: string;
@@ -97,6 +99,8 @@ export function AdminSubscriptionsPage() {
     () => [...(tiers ?? [])].sort((a, b) => (a.key === "basic" ? -1 : b.key === "basic" ? 1 : 0)),
     [tiers],
   );
+  const defaultGenerationModel = openRouterGenerationModels[0]?.id ?? "";
+  const defaultFallbackGenerationModel = openRouterGenerationModels[1]?.id ?? defaultGenerationModel;
   const displayedError = error instanceof Error ? error.message : null;
 
   function updateForm(tierKey: string, updates: Partial<TierFormState>) {
@@ -105,9 +109,9 @@ export function AdminSubscriptionsPage() {
       [tierKey]: {
         ...(current[tierKey] ?? {
           monthly_resume_generation_limit: "",
-          generation_model: openRouterGenerationModels[0].id,
+          generation_model: defaultGenerationModel,
           generation_reasoning_effort: "none",
-          generation_fallback_model: openRouterGenerationModels[1].id,
+          generation_fallback_model: defaultFallbackGenerationModel,
           generation_fallback_reasoning_effort: "none",
         }),
         ...updates,
@@ -135,6 +139,10 @@ export function AdminSubscriptionsPage() {
     const parsedLimit = Number.parseInt(form.monthly_resume_generation_limit, 10);
     if (!Number.isFinite(parsedLimit) || parsedLimit < 0) {
       toast("Monthly limit must be zero or greater.", "error");
+      return;
+    }
+    if (parsedLimit > maxMonthlyResumeGenerationLimit) {
+      toast(`Monthly limit cannot exceed ${maxMonthlyResumeGenerationLimit}.`, "error");
       return;
     }
     const primaryModel = form.generation_model.trim();

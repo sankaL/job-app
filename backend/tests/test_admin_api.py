@@ -241,6 +241,27 @@ def test_admin_subscription_tier_update_returns_payload():
     assert response.json()["monthly_resume_generation_limit"] == 12
 
 
+def test_admin_subscription_tier_update_requires_admin_permissions():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_admin=False)
+    app.dependency_overrides[get_admin_service] = lambda: StubAdminService()
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/admin/subscription-tiers/basic",
+        headers={"Authorization": "Bearer valid-admin-token"},
+        json={
+            "monthly_resume_generation_limit": 12,
+            "generation_model": "openai/gpt-5.4-mini",
+            "generation_reasoning_effort": "medium",
+            "generation_fallback_model": "google/gemini-3.5-flash",
+            "generation_fallback_reasoning_effort": "high",
+        },
+    )
+
+    assert response.status_code == 403
+
+
 def test_admin_subscription_tier_update_rejects_negative_limit():
     app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
     app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_admin=True)

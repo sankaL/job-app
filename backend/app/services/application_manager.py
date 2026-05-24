@@ -273,6 +273,7 @@ class GenerationCallbackPayload(BaseModel):
     user_id: str
     job_id: str
     event: str
+    quota_period_start: Optional[str] = None
     generated: Optional[GenerationSuccessPayload] = None
     failure: Optional[GenerationFailurePayload] = None
 
@@ -283,6 +284,7 @@ class RegenerationCallbackPayload(BaseModel):
     job_id: str
     event: str
     regeneration_target: str = "full"
+    quota_period_start: Optional[str] = None
     generated: Optional[GenerationSuccessPayload] = None
     failure: Optional[GenerationFailurePayload] = None
 
@@ -793,6 +795,10 @@ class ApplicationService:
             if timed_out_for_idle
             else f"{workflow_label} exceeded the maximum processing window. You can retry with the same settings."
         )
+        self._release_generation_quota_for_period(
+            user_id=record.user_id,
+            period_start=current_progress.quota_period_start if current_progress is not None else None,
+        )
 
         updated = await self._update_application_and_publish_detail(
             application_id=record.id,
@@ -920,6 +926,11 @@ class ApplicationService:
             and record.generation_failure_details == normalized_details
         ):
             return record
+
+        self._release_generation_quota_for_period(
+            user_id=record.user_id,
+            period_start=progress.quota_period_start,
+        )
 
         updated = await self._update_application_and_publish_detail(
             application_id=record.id,
@@ -1455,6 +1466,7 @@ class ApplicationService:
                     state="generation_pending",
                     message="Resume generation is queued.",
                     percent_complete=0,
+                    quota_period_start=quota_reservation.period_start,
                 ),
             )
             return self._detail_payload(updated)
@@ -1552,9 +1564,14 @@ class ApplicationService:
                 message=failure_msg,
                 percent_complete=100,
                 terminal_error_code=terminal_code,
+                quota_period_start=payload.quota_period_start,
             )
             completed_progress.completed_at = completed_progress.updated_at
             await self.progress_store.set(record.id, completed_progress)
+            self._release_generation_quota_for_period(
+                user_id=record.user_id,
+                period_start=payload.quota_period_start,
+            )
 
             return await self._mark_generation_failure(
                 record=record,
@@ -1730,6 +1747,7 @@ class ApplicationService:
                     state="regenerating_full",
                     message="Full resume regeneration is queued.",
                     percent_complete=0,
+                    quota_period_start=quota_reservation.period_start,
                 ),
             )
             return self._detail_payload(updated)
@@ -1874,6 +1892,7 @@ class ApplicationService:
                     state="regenerating_section",
                     message=f"Section regeneration ({section_name}) is queued.",
                     percent_complete=0,
+                    quota_period_start=quota_reservation.period_start,
                 ),
             )
             return self._detail_payload(updated)
@@ -1982,9 +2001,14 @@ class ApplicationService:
                 message=failure_msg,
                 percent_complete=100,
                 terminal_error_code=failure_reason,
+                quota_period_start=payload.quota_period_start,
             )
             completed_progress.completed_at = completed_progress.updated_at
             await self.progress_store.set(record.id, completed_progress)
+            self._release_generation_quota_for_period(
+                user_id=record.user_id,
+                period_start=payload.quota_period_start,
+            )
 
             return await self._mark_generation_failure(
                 record=record,
@@ -2649,12 +2673,18 @@ class ApplicationService:
         return self.subscription_repository.reserve_generation_quota(user_id=user_id)
 
     def _release_generation_quota(self, *, user_id: str, reservation: QuotaReservationRecord) -> None:
+        self._release_generation_quota_for_period(user_id=user_id, period_start=reservation.period_start)
+
+    def _release_generation_quota_for_period(self, *, user_id: str, period_start: Optional[str]) -> None:
         if self.subscription_repository is None:
+            return
+        if not period_start:
+            logger.warning("Skipped generation quota release for user_id=%s because period_start is missing.", user_id)
             return
         try:
             self.subscription_repository.release_generation_quota(
                 user_id=user_id,
-                period_start=reservation.period_start,
+                period_start=period_start,
             )
         except Exception:
             logger.warning("Failed to release reserved generation quota for user_id=%s.", user_id, exc_info=True)
@@ -3592,6 +3622,7 @@ class ApplicationService:
             message=message,
             percent_complete=100,
             terminal_error_code=terminal_error_code,
+            quota_period_start=previous_progress.quota_period_start if previous_progress is not None else None,
         )
         completed_progress.completed_at = completed_progress.updated_at
         await self.progress_store.set(record.id, completed_progress)

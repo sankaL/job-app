@@ -467,7 +467,12 @@ export function AdminUsersPage() {
               <Select
                 id="edit_subscription_tier"
                 value={editSubscriptionTier}
-                onChange={(event) => setEditSubscriptionTier(event.target.value as "basic" | "pro")}
+                onChange={(event) => {
+                  const tier = event.target.value;
+                  if (tier === "basic" || tier === "pro") {
+                    setEditSubscriptionTier(tier);
+                  }
+                }}
               >
                 <option value="basic">Basic</option>
                 <option value="pro">Pro</option>

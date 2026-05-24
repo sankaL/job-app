@@ -398,6 +398,7 @@ Sanitized user-scoped event stream for admin metrics and workflow telemetry.
 | `applications.user_id -> users.id` | `ON DELETE CASCADE` |
 | `resume_drafts.user_id -> users.id` | `ON DELETE CASCADE` |
 | `notifications.user_id -> users.id` | `ON DELETE CASCADE` |
+| `resume_generation_usage.user_id -> users.id` | `ON DELETE CASCADE` |
 | `user_invites.invitee_user_id -> users.id` | `ON DELETE CASCADE` |
 | `user_invites.invited_by_user_id -> users.id` | `ON DELETE CASCADE` |
 | `usage_events.user_id -> users.id` | `ON DELETE CASCADE` |
@@ -425,6 +426,7 @@ If implementation constraints require equivalent ownership validation outside a 
 | `resume_drafts (application_id)` unique index | Current draft lookup for an application |
 | `notifications (user_id, read, created_at DESC)` | Notification inbox queries |
 | `notifications (user_id, action_required, read, created_at DESC)` with a partial index for unread action-required notifications | Dashboard/detail attention indicators |
+| `resume_generation_usage (period_start)` | Monthly quota audit and cleanup queries |
 | `user_invites (invitee_user_id)` partial unique index on pending rows | Prevent multiple active pending invites per user |
 | `user_invites (status, created_at DESC)` | Admin invite lifecycle filtering and counts |
 | `user_invites (invited_by_user_id, created_at DESC)` | Admin inviter activity and audit retrieval |

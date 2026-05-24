@@ -24,3 +24,14 @@ Added admin-controlled OpenRouter model and reasoning settings per subscription 
 - Focused backend admin/session/application quota/migration tests passed after installing declared backend dev dependencies into `backend/.venv`.
 - Agent worker/generation regression tests passed.
 - The full frontend applications test file still has unrelated existing failures in notifications, breadcrumbs, immersive compare setup, and stopped-extraction assertions.
+
+## Review Follow-ups
+
+**Date:** 2026-05-24 12:01:00 EDT
+
+- Failed generation and regeneration callbacks now carry `quota_period_start` and refund the reserved monthly quota for that exact period.
+- The worker rejects unsupported tier model IDs and model/reasoning combinations before calling OpenRouter.
+- Worker model resolution now treats `None` tier model values as blank instead of the literal string `"None"`.
+- Frontend API helpers now normalize object-shaped error details consistently.
+- Admin tier/user inputs now enforce subscription tier and monthly limit constraints earlier.
+- Added focused regression coverage for model catalog validation, worker model/reasoning resolution, quota refund callbacks, and non-admin subscription-tier updates.

@@ -1,6 +1,11 @@
 import { getAccessToken } from "@/lib/auth";
 import { env } from "@/lib/env";
 
+type ApiErrorDetail = {
+  code?: string;
+  message?: string;
+};
+
 export type SessionBootstrapResponse = {
   user: {
     id: string;
@@ -161,6 +166,19 @@ export type ResumeJudgeResult = {
     message?: string | null;
   } | null;
 };
+
+function messageFromErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") {
+    return detail;
+  }
+  if (detail && typeof detail === "object") {
+    const apiDetail = detail as ApiErrorDetail;
+    if (typeof apiDetail.message === "string" && apiDetail.message.trim()) {
+      return apiDetail.message;
+    }
+  }
+  return fallback;
+}
 
 export type ResumeRenderEntry = {
   row1_left: string;
@@ -513,11 +531,7 @@ async function authenticatedRequest<T>(path: string, options: RequestOptions = {
     let detail = "Request failed.";
     try {
       const payload = await response.json();
-      if (typeof payload.detail === "string") {
-        detail = payload.detail;
-      } else if (payload.detail?.message) {
-        detail = String(payload.detail.message);
-      }
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Request failed.";
     }
@@ -549,7 +563,7 @@ export async function openApplicationEventStream(
     let detail = "Unable to open live updates.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Unable to open live updates.";
     }
@@ -613,7 +627,7 @@ async function authenticatedUpload<T>(path: string, formData: FormData): Promise
     let detail = "Upload failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Upload failed.";
     }
@@ -637,7 +651,7 @@ async function unauthenticatedRequest<T>(path: string, options: RequestOptions =
     let detail = "Request failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Request failed.";
     }
@@ -664,7 +678,7 @@ export async function clearNotifications(): Promise<void> {
     let detail = "Clear failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Clear failed.";
     }
@@ -711,7 +725,7 @@ export async function deleteApplication(applicationId: string): Promise<void> {
     let detail = "Delete failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Delete failed.";
     }
@@ -827,7 +841,7 @@ export async function deleteBaseResume(resumeId: string, force: boolean = true):
     let detail = "Delete failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Delete failed.";
     }
@@ -952,7 +966,7 @@ export async function deleteAdminUser(userId: string): Promise<void> {
     let detail = "Delete failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Delete failed.";
     }
@@ -1106,7 +1120,7 @@ async function exportDownload(applicationId: string, path: string): Promise<Down
     let detail = "Export failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Export failed.";
     }

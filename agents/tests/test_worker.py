@@ -91,10 +91,97 @@ def test_resolve_generation_models_reports_blank_tier_model():
         worker._resolve_generation_models(
             {
                 "_generation_model": " ",
-                "_generation_fallback_model": "tier-fallback-model",
+                "_generation_fallback_model": "openai/gpt-5.4-mini",
             },
             settings,
         )
+
+
+def test_resolve_generation_models_reports_none_tier_model():
+    settings = WorkerSettingsEnv(
+        openrouter_api_key="test-key",
+        generation_agent_model="env-primary-model",
+        generation_agent_fallback_model="env-fallback-model",
+    )
+
+    with pytest.raises(RuntimeError, match="Tier generation model is blank"):
+        worker._resolve_generation_models(
+            {
+                "_generation_model": None,
+                "_generation_fallback_model": "google/gemini-3.5-flash",
+            },
+            settings,
+        )
+
+
+def test_resolve_generation_models_rejects_same_model():
+    settings = WorkerSettingsEnv(
+        openrouter_api_key="test-key",
+        generation_agent_model="env-primary-model",
+        generation_agent_fallback_model="env-fallback-model",
+    )
+
+    with pytest.raises(RuntimeError, match="fallback model must differ"):
+        worker._resolve_generation_models(
+            {
+                "_generation_model": "google/gemini-3-flash-preview",
+                "_generation_fallback_model": "google/gemini-3-flash-preview",
+            },
+            settings,
+        )
+
+
+def test_resolve_generation_models_rejects_unknown_tier_model():
+    settings = WorkerSettingsEnv(
+        openrouter_api_key="test-key",
+        generation_agent_model="env-primary-model",
+        generation_agent_fallback_model="env-fallback-model",
+    )
+
+    with pytest.raises(RuntimeError, match="Tier generation model is not supported"):
+        worker._resolve_generation_models(
+            {
+                "_generation_model": "unknown/provider",
+                "_generation_fallback_model": "google/gemini-3.5-flash",
+            },
+            settings,
+        )
+
+
+def test_resolve_generation_reasoning_efforts_rejects_invalid_value():
+    settings = WorkerSettingsEnv(openrouter_api_key="test-key")
+
+    with pytest.raises(RuntimeError, match="reasoning effort is invalid"):
+        worker._resolve_generation_reasoning_efforts(
+            {"_generation_reasoning_effort": "enormous"},
+            settings,
+        )
+
+
+def test_resolve_generation_reasoning_efforts_rejects_unsupported_model_tier():
+    settings = WorkerSettingsEnv(openrouter_api_key="test-key")
+
+    with pytest.raises(RuntimeError, match="not supported by the generation model"):
+        worker._resolve_generation_reasoning_efforts(
+            {
+                "_generation_model": "google/gemini-3-flash-preview",
+                "_generation_reasoning_effort": "xhigh",
+            },
+            settings,
+        )
+
+
+def test_build_generation_failure_payload_includes_quota_period_start():
+    payload = build_generation_failure_payload(
+        application_id="app-1",
+        user_id="user-1",
+        job_id="job-1",
+        message="Failed.",
+        terminal_error_code="generation_failed",
+        quota_period_start="2026-05-01",
+    )
+
+    assert payload["quota_period_start"] == "2026-05-01"
 
 
 def test_extract_reference_id_prefers_query_and_path_patterns():
@@ -883,8 +970,8 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
         observed_models["fallback_reasoning_effort"] = kwargs["fallback_reasoning_effort"]
         return {
             **build_generation_result(),
-            "model_used": "tier-primary-model",
-            "attempt_diagnostics": [{"model": "tier-primary-model", "outcome": "success"}],
+            "model_used": "google/gemini-3-flash-preview",
+            "attempt_diagnostics": [{"model": "google/gemini-3-flash-preview", "outcome": "success"}],
         }
 
     async def fake_validate_with_repair(**kwargs):
@@ -923,21 +1010,21 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
             "aggressiveness": "medium",
             "subscription_tier": "basic",
             "quota_period_start": "2026-05-01",
-            "_generation_model": "tier-primary-model",
+            "_generation_model": "google/gemini-3-flash-preview",
             "_generation_reasoning_effort": "medium",
-            "_generation_fallback_model": "tier-fallback-model",
+            "_generation_fallback_model": "openai/gpt-5.4-mini",
             "_generation_fallback_reasoning_effort": "high",
         },
     )
 
     generated = fake_writer.generated_by_app["app-tier"]["generated"]
     assert observed_models == {
-        "model": "tier-primary-model",
-        "fallback_model": "tier-fallback-model",
+        "model": "google/gemini-3-flash-preview",
+        "fallback_model": "openai/gpt-5.4-mini",
         "reasoning_effort": "medium",
         "fallback_reasoning_effort": "high",
     }
-    assert generated["generation_params"]["model_used"] == "tier-primary-model"
+    assert generated["generation_params"]["model_used"] == "google/gemini-3-flash-preview"
     assert "_generation_model" not in generated["generation_params"]
     assert "_generation_reasoning_effort" not in generated["generation_params"]
     assert "_generation_fallback_model" not in generated["generation_params"]

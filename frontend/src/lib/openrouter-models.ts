@@ -32,10 +32,12 @@ export const openRouterGenerationModels: OpenRouterGenerationModelOption[] = [
   },
 ];
 
+const reasoningEffortValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh"]);
+
 export function getModelOption(modelId: string) {
   return openRouterGenerationModels.find((model) => model.id === modelId) ?? null;
 }
 
 export function isReasoningEffort(value: string): value is ReasoningEffort {
-  return ["none", "low", "medium", "high", "xhigh"].includes(value);
+  return reasoningEffortValues.has(value as ReasoningEffort);
 }

@@ -3182,6 +3182,108 @@ async def test_trigger_generation_queue_failure_does_not_consume_slot():
 
 
 @pytest.mark.asyncio
+async def test_generation_failure_callback_releases_reserved_quota():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/generation-failure",
+        visible_status="in_progress",
+        internal_state="generating",
+    )
+    service.subscription_repository.count_by_user["user-1"] = 1
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-1",
+            workflow_kind="generation",
+            state="generating",
+            message="Resume generation is running.",
+            percent_complete=50,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:00:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    updated = await service.handle_generation_callback(
+        GenerationCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "job-1",
+                "event": "failed",
+                "quota_period_start": "2026-04-01",
+                "failure": {
+                    "message": "Provider timed out.",
+                    "terminal_error_code": "generation_timeout",
+                    "failure_details": {"failure_stage": "llm"},
+                },
+            }
+        )
+    )
+
+    assert updated.failure_reason == "generation_timeout"
+    assert service.subscription_repository.count_by_user["user-1"] == 0
+    assert service.subscription_repository.releases == [{"user_id": "user-1", "period_start": "2026-04-01"}]
+
+
+@pytest.mark.asyncio
+async def test_regeneration_failure_callback_releases_reserved_quota():
+    service, repository, _, progress_store, _, _, drafts = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/regeneration-failure",
+        visible_status="in_progress",
+        internal_state="regenerating_full",
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Old Resume",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    service.subscription_repository.count_by_user["user-1"] = 1
+    await progress_store.set(
+        created.id,
+        ProgressRecord(
+            job_id="job-regen-1",
+            workflow_kind="regeneration_full",
+            state="regenerating_full",
+            message="Regeneration is running.",
+            percent_complete=50,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:00:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    updated = await service.handle_regeneration_callback(
+        application_manager_service.RegenerationCallbackPayload.model_validate(
+            {
+                "application_id": created.id,
+                "user_id": "user-1",
+                "job_id": "job-regen-1",
+                "event": "failed",
+                "regeneration_target": "full",
+                "quota_period_start": "2026-04-01",
+                "failure": {
+                    "message": "Provider timed out.",
+                    "terminal_error_code": "regeneration_timeout",
+                    "failure_details": {"failure_stage": "llm"},
+                },
+            }
+        )
+    )
+
+    assert updated.failure_reason == "regeneration_failed"
+    assert service.subscription_repository.count_by_user["user-1"] == 0
+    assert service.subscription_repository.releases == [{"user_id": "user-1", "period_start": "2026-04-01"}]
+
+
+@pytest.mark.asyncio
 async def test_trigger_generation_state_update_failure_does_not_consume_slot():
     service, repository, _, _, _, _, _ = build_service()
     service.base_resume_repository.add_resume(
@@ -4192,8 +4294,10 @@ async def test_stuck_generation_recovery_marks_timeout_and_terminal_progress():
             updated_at="2026-04-07T10:00:00+00:00",
             completed_at=None,
             terminal_error_code=None,
+            quota_period_start="2026-04-01",
         ),
     )
+    service.subscription_repository.count_by_user["user-1"] = 1
 
     recovered = await service._detect_and_recover_stuck_generation(repository.records[created.id])
 
@@ -4206,6 +4310,8 @@ async def test_stuck_generation_recovery_marks_timeout_and_terminal_progress():
     assert timeout_progress is not None
     assert timeout_progress.terminal_error_code == "generation_timeout"
     assert timeout_progress.job_id != "job-1"
+    assert timeout_progress.quota_period_start == "2026-04-01"
+    assert service.subscription_repository.count_by_user["user-1"] == 0
 
 
 @pytest.mark.asyncio

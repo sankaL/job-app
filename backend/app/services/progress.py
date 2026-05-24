@@ -23,6 +23,7 @@ class ProgressRecord(BaseModel):
     updated_at: str
     completed_at: Optional[str] = None
     terminal_error_code: Optional[str] = None
+    quota_period_start: Optional[str] = None
 
 
 class ApplicationEvent(BaseModel):
@@ -44,6 +45,7 @@ def build_progress(
     completed_at: Optional[str] = None,
     terminal_error_code: Optional[str] = None,
     created_at: Optional[str] = None,
+    quota_period_start: Optional[str] = None,
 ) -> ProgressRecord:
     return ProgressRecord(
         job_id=job_id,
@@ -55,6 +57,7 @@ def build_progress(
         updated_at=now_iso(),
         completed_at=completed_at,
         terminal_error_code=terminal_error_code,
+        quota_period_start=quota_period_start,
     )
 
 

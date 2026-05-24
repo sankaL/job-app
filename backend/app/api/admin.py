@@ -12,6 +12,7 @@ from app.services.admin import (
     AdminMetricsPayload,
     AdminOperationMetric,
     AdminService,
+    MAX_MONTHLY_RESUME_GENERATION_LIMIT,
     get_admin_service,
 )
 
@@ -114,6 +115,8 @@ class UpdateAdminUserRequest(BaseModel):
         stripped = value.strip().lower()
         if not stripped:
             raise ValueError("Subscription tier is required.")
+        if stripped not in {"basic", "pro"}:
+            raise ValueError("Subscription tier must be basic or pro.")
         return stripped
 
     @field_validator("email")
@@ -141,7 +144,7 @@ class SubscriptionTierResponse(BaseModel):
 
 
 class UpdateSubscriptionTierRequest(BaseModel):
-    monthly_resume_generation_limit: int = Field(ge=0)
+    monthly_resume_generation_limit: int = Field(ge=0, le=MAX_MONTHLY_RESUME_GENERATION_LIMIT)
     generation_model: str
     generation_reasoning_effort: str = "none"
     generation_fallback_model: str
