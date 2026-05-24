@@ -25,6 +25,11 @@ from app.db.base_resumes import BaseResumeRepository, get_base_resume_repository
 from app.db.notifications import NotificationRepository, get_notification_repository
 from app.db.profiles import ProfileRepository, get_profile_repository
 from app.db.resume_drafts import ResumeDraftRecord, ResumeDraftRepository, get_resume_draft_repository
+from app.db.subscriptions import (
+    QuotaReservationRecord,
+    SubscriptionRepository,
+    get_subscription_repository,
+)
 from app.services.duplicates import DuplicateDetector
 from app.services.email import EmailMessage, EmailSender, build_email_sender
 from app.services.jobs import (
@@ -52,7 +57,6 @@ FULL_GENERATION_IDLE_TIMEOUT_SECONDS = 240
 FULL_GENERATION_MAX_TIMEOUT_SECONDS = 240
 SECTION_REGENERATION_IDLE_TIMEOUT_SECONDS = 120
 SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 120
-FULL_REGENERATION_LIMIT_PER_APPLICATION = 3
 RESUME_JUDGE_RUN_LIMIT_PER_DRAFT = 3
 ACTIVE_GENERATION_STATES = {"generating", "regenerating_full", "regenerating_section"}
 ACTIVE_GENERATION_PROGRESS_STATES = {
@@ -269,6 +273,7 @@ class GenerationCallbackPayload(BaseModel):
     user_id: str
     job_id: str
     event: str
+    quota_period_start: Optional[str] = None
     generated: Optional[GenerationSuccessPayload] = None
     failure: Optional[GenerationFailurePayload] = None
 
@@ -279,6 +284,7 @@ class RegenerationCallbackPayload(BaseModel):
     job_id: str
     event: str
     regeneration_target: str = "full"
+    quota_period_start: Optional[str] = None
     generated: Optional[GenerationSuccessPayload] = None
     failure: Optional[GenerationFailurePayload] = None
 
@@ -287,6 +293,12 @@ class DraftReviewFlagPayload(BaseModel):
     section_name: str
     text: str
     reason: str = "job_description_only_addition"
+
+
+GENERATION_DUPLICATE_BLOCKER_MESSAGE = (
+    "This looks like a duplicate application. Review the duplicate warning and choose "
+    "Proceed Anyway before generating."
+)
 
 
 class ApplicationService:
@@ -304,6 +316,7 @@ class ApplicationService:
         email_sender: EmailSender,
         settings: Settings,
         admin_repository: Optional[AdminRepository] = None,
+        subscription_repository: Optional[SubscriptionRepository] = None,
     ) -> None:
         self.repository = repository
         self.base_resume_repository = base_resume_repository
@@ -316,6 +329,7 @@ class ApplicationService:
         self.email_sender = email_sender
         self.settings = settings
         self.admin_repository = admin_repository
+        self.subscription_repository = subscription_repository
         self.duplicate_detector = DuplicateDetector(settings.duplicate_similarity_threshold)
 
     async def list_applications(
@@ -787,6 +801,10 @@ class ApplicationService:
             if timed_out_for_idle
             else f"{workflow_label} exceeded the maximum processing window. You can retry with the same settings."
         )
+        self._release_generation_quota_for_period(
+            user_id=record.user_id,
+            period_start=current_progress.quota_period_start if current_progress is not None else None,
+        )
 
         updated = await self._update_application_and_publish_detail(
             application_id=record.id,
@@ -914,6 +932,11 @@ class ApplicationService:
             and record.generation_failure_details == normalized_details
         ):
             return record
+
+        self._release_generation_quota_for_period(
+            user_id=record.user_id,
+            period_start=progress.quota_period_start,
+        )
 
         updated = await self._update_application_and_publish_detail(
             application_id=record.id,
@@ -1354,6 +1377,12 @@ class ApplicationService:
     ) -> ApplicationDetailPayload:
         record = self._require_application(user_id=user_id, application_id=application_id)
 
+        if record.internal_state == "manual_entry_required":
+            raise PermissionError("Submit manual entry before generating.")
+
+        if record.internal_state == "duplicate_review_required":
+            raise PermissionError(GENERATION_DUPLICATE_BLOCKER_MESSAGE)
+
         if record.internal_state not in ("generation_pending", "resume_ready"):
             raise PermissionError("Application is not ready for generation.")
 
@@ -1364,7 +1393,7 @@ class ApplicationService:
             return await self._route_blocked_job_data_to_manual_entry(record)
 
         if record.duplicate_resolution_status == "pending":
-            raise PermissionError("Unresolved duplicate must be resolved before generation.")
+            raise PermissionError(GENERATION_DUPLICATE_BLOCKER_MESSAGE)
 
         base_resume = self.base_resume_repository.fetch_resume(user_id, base_resume_id)
         if base_resume is None:
@@ -1375,6 +1404,7 @@ class ApplicationService:
         personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
+        quota_reservation = self._reserve_generation_quota(user_id=user_id)
 
         generation_settings = {
             "page_length": target_length,
@@ -1382,25 +1412,27 @@ class ApplicationService:
             "additional_instructions": additional_instructions,
             "base_resume_id": base_resume_id,
             "_base_resume_snapshot_content": base_resume.content_md,
+            **self._quota_generation_settings(quota_reservation),
         }
 
-        updated = self.repository.update_application(
-            application_id=application_id,
-            user_id=user_id,
-            updates={
-                "base_resume_id": base_resume_id,
-                **self._workflow_updates(
-                    internal_state="generating",
-                    failure_reason=None,
-                    generation_failure_details=None,
-                ),
-            },
-        )
-        self.notification_repository.clear_action_required(
-            user_id=user_id, application_id=application_id,
-        )
-
+        updated = None
+        job_queued = False
         try:
+            updated = self.repository.update_application(
+                application_id=application_id,
+                user_id=user_id,
+                updates={
+                    "base_resume_id": base_resume_id,
+                    **self._workflow_updates(
+                        internal_state="generating",
+                        failure_reason=None,
+                        generation_failure_details=None,
+                    ),
+                },
+            )
+            self.notification_repository.clear_action_required(
+                user_id=user_id, application_id=application_id,
+            )
             enqueue_started_at = perf_counter()
             logger.info(
                 "generation_enqueue %s",
@@ -1426,6 +1458,7 @@ class ApplicationService:
                 section_preferences=section_prefs,
                 generation_settings=generation_settings,
             )
+            job_queued = True
             logger.info(
                 "generation_enqueue %s",
                 {
@@ -1445,10 +1478,13 @@ class ApplicationService:
                     state="generation_pending",
                     message="Resume generation is queued.",
                     percent_complete=0,
+                    quota_period_start=quota_reservation.period_start,
                 ),
             )
             return self._detail_payload(updated)
         except Exception as error:
+            if not job_queued:
+                self._release_generation_quota(user_id=user_id, reservation=quota_reservation)
             logger.warning(
                 "generation_enqueue %s",
                 {
@@ -1460,6 +1496,8 @@ class ApplicationService:
                     "message": str(error),
                 },
             )
+            if updated is None:
+                raise
             failed = await self._mark_generation_failure(
                 record=updated,
                 message="Generation could not be started. Try again or adjust settings.",
@@ -1538,9 +1576,14 @@ class ApplicationService:
                 message=failure_msg,
                 percent_complete=100,
                 terminal_error_code=terminal_code,
+                quota_period_start=payload.quota_period_start,
             )
             completed_progress.completed_at = completed_progress.updated_at
             await self.progress_store.set(record.id, completed_progress)
+            self._release_generation_quota_for_period(
+                user_id=record.user_id,
+                period_start=payload.quota_period_start,
+            )
 
             return await self._mark_generation_failure(
                 record=record,
@@ -1641,40 +1684,34 @@ class ApplicationService:
 
         profile = self._require_profile(user_id=user_id, action="regenerating the full resume")
         self._require_profile_name(profile, action="regenerating the full resume")
-        is_admin_profile = self._profile_is_admin(profile)
-        if (
-            not is_admin_profile
-            and record.full_regeneration_count >= FULL_REGENERATION_LIMIT_PER_APPLICATION
-        ):
-            raise PermissionError(
-                "You have reached the full regeneration limit for this resume. "
-                "Please contact an administrator for additional regenerations."
-            )
         personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
+        quota_reservation = self._reserve_generation_quota(user_id=user_id)
         generation_settings = {
             "page_length": target_length,
             "aggressiveness": aggressiveness,
             "additional_instructions": additional_instructions,
             "base_resume_id": base_resume_id,
             "_base_resume_snapshot_content": base_resume.content_md,
+            **self._quota_generation_settings(quota_reservation),
         }
 
-        updated = self.repository.update_application(
-            application_id=application_id,
-            user_id=user_id,
-            updates=self._workflow_updates(
-                internal_state="regenerating_full",
-                failure_reason=None,
-                generation_failure_details=None,
-            ),
-        )
-        self.notification_repository.clear_action_required(
-            user_id=user_id, application_id=application_id,
-        )
-
+        updated = None
+        job_queued = False
         try:
+            updated = self.repository.update_application(
+                application_id=application_id,
+                user_id=user_id,
+                updates=self._workflow_updates(
+                    internal_state="regenerating_full",
+                    failure_reason=None,
+                    generation_failure_details=None,
+                ),
+            )
+            self.notification_repository.clear_action_required(
+                user_id=user_id, application_id=application_id,
+            )
             enqueue_started_at = perf_counter()
             logger.info(
                 "generation_enqueue %s",
@@ -1702,6 +1739,7 @@ class ApplicationService:
                 regeneration_target="full",
                 regeneration_instructions=additional_instructions,
             )
+            job_queued = True
             logger.info(
                 "generation_enqueue %s",
                 {
@@ -1713,14 +1751,6 @@ class ApplicationService:
                     "latency_ms": round((perf_counter() - enqueue_started_at) * 1000),
                 },
             )
-            if not is_admin_profile:
-                updated = self.repository.update_application(
-                    application_id=application_id,
-                    user_id=user_id,
-                    updates={
-                        "full_regeneration_count": updated.full_regeneration_count + 1,
-                    },
-                )
             await self.progress_store.set(
                 application_id,
                 build_progress(
@@ -1729,10 +1759,13 @@ class ApplicationService:
                     state="regenerating_full",
                     message="Full resume regeneration is queued.",
                     percent_complete=0,
+                    quota_period_start=quota_reservation.period_start,
                 ),
             )
             return self._detail_payload(updated)
         except Exception as error:
+            if not job_queued:
+                self._release_generation_quota(user_id=user_id, reservation=quota_reservation)
             logger.warning(
                 "generation_enqueue %s",
                 {
@@ -1744,6 +1777,8 @@ class ApplicationService:
                     "message": str(error),
                 },
             )
+            if updated is None:
+                raise
             failed = await self._mark_generation_failure(
                 record=updated,
                 message="Full regeneration could not be started. Try again.",
@@ -1800,26 +1835,29 @@ class ApplicationService:
         personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
+        quota_reservation = self._reserve_generation_quota(user_id=user_id)
         generation_settings = {
             **draft.generation_params,
             "base_resume_id": base_resume_id,
             "_base_resume_snapshot_content": base_resume.content_md,
+            **self._quota_generation_settings(quota_reservation),
         }
 
-        updated = self.repository.update_application(
-            application_id=application_id,
-            user_id=user_id,
-            updates=self._workflow_updates(
-                internal_state="regenerating_section",
-                failure_reason=None,
-                generation_failure_details=None,
-            ),
-        )
-        self.notification_repository.clear_action_required(
-            user_id=user_id, application_id=application_id,
-        )
-
+        updated = None
+        job_queued = False
         try:
+            updated = self.repository.update_application(
+                application_id=application_id,
+                user_id=user_id,
+                updates=self._workflow_updates(
+                    internal_state="regenerating_section",
+                    failure_reason=None,
+                    generation_failure_details=None,
+                ),
+            )
+            self.notification_repository.clear_action_required(
+                user_id=user_id, application_id=application_id,
+            )
             enqueue_started_at = perf_counter()
             logger.info(
                 "generation_enqueue %s",
@@ -1846,6 +1884,7 @@ class ApplicationService:
                 regeneration_target=section_name,
                 regeneration_instructions=instructions.strip(),
             )
+            job_queued = True
             logger.info(
                 "generation_enqueue %s",
                 {
@@ -1865,10 +1904,13 @@ class ApplicationService:
                     state="regenerating_section",
                     message=f"Section regeneration ({section_name}) is queued.",
                     percent_complete=0,
+                    quota_period_start=quota_reservation.period_start,
                 ),
             )
             return self._detail_payload(updated)
         except Exception as error:
+            if not job_queued:
+                self._release_generation_quota(user_id=user_id, reservation=quota_reservation)
             logger.warning(
                 "generation_enqueue %s",
                 {
@@ -1881,6 +1923,8 @@ class ApplicationService:
                     "message": str(error),
                 },
             )
+            if updated is None:
+                raise
             failed = await self._mark_generation_failure(
                 record=updated,
                 message="Section regeneration could not be started. Try again.",
@@ -1969,9 +2013,14 @@ class ApplicationService:
                 message=failure_msg,
                 percent_complete=100,
                 terminal_error_code=failure_reason,
+                quota_period_start=payload.quota_period_start,
             )
             completed_progress.completed_at = completed_progress.updated_at
             await self.progress_store.set(record.id, completed_progress)
+            self._release_generation_quota_for_period(
+                user_id=record.user_id,
+                period_start=payload.quota_period_start,
+            )
 
             return await self._mark_generation_failure(
                 record=record,
@@ -2629,6 +2678,39 @@ class ApplicationService:
     @staticmethod
     def _profile_is_admin(profile: Any) -> bool:
         return bool(getattr(profile, "is_admin", False))
+
+    def _reserve_generation_quota(self, *, user_id: str) -> QuotaReservationRecord:
+        if self.subscription_repository is None:
+            raise PermissionError("Subscription configuration is unavailable.")
+        return self.subscription_repository.reserve_generation_quota(user_id=user_id)
+
+    def _release_generation_quota(self, *, user_id: str, reservation: QuotaReservationRecord) -> None:
+        self._release_generation_quota_for_period(user_id=user_id, period_start=reservation.period_start)
+
+    def _release_generation_quota_for_period(self, *, user_id: str, period_start: Optional[str]) -> None:
+        if self.subscription_repository is None:
+            return
+        if not period_start:
+            logger.warning("Skipped generation quota release for user_id=%s because period_start is missing.", user_id)
+            return
+        try:
+            self.subscription_repository.release_generation_quota(
+                user_id=user_id,
+                period_start=period_start,
+            )
+        except Exception:
+            logger.warning("Failed to release reserved generation quota for user_id=%s.", user_id, exc_info=True)
+
+    @staticmethod
+    def _quota_generation_settings(reservation: QuotaReservationRecord) -> dict[str, Any]:
+        return {
+            "subscription_tier": reservation.subscription_tier,
+            "quota_period_start": reservation.period_start,
+            "_generation_model": reservation.generation_model,
+            "_generation_reasoning_effort": reservation.generation_reasoning_effort,
+            "_generation_fallback_model": reservation.generation_fallback_model,
+            "_generation_fallback_reasoning_effort": reservation.generation_fallback_reasoning_effort,
+        }
 
     def _require_profile_name(self, profile, *, action: str) -> None:
         if not self._clean_profile_value(getattr(profile, "name", None)):
@@ -3552,6 +3634,7 @@ class ApplicationService:
             message=message,
             percent_complete=100,
             terminal_error_code=terminal_error_code,
+            quota_period_start=previous_progress.quota_period_start if previous_progress is not None else None,
         )
         completed_progress.completed_at = completed_progress.updated_at
         await self.progress_store.set(record.id, completed_progress)
@@ -3668,6 +3751,7 @@ def get_application_service(
     extraction_job_queue: ExtractionJobQueue = Depends(get_extraction_job_queue),
     generation_job_queue: GenerationJobQueue = Depends(get_generation_job_queue),
     admin_repository: AdminRepository = Depends(get_admin_repository),
+    subscription_repository: SubscriptionRepository = Depends(get_subscription_repository),
     settings: Settings = Depends(get_settings),
 ) -> ApplicationService:
     return ApplicationService(
@@ -3682,4 +3766,5 @@ def get_application_service(
         email_sender=build_email_sender(settings),
         settings=settings,
         admin_repository=admin_repository,
+        subscription_repository=subscription_repository,
     )

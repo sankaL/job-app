@@ -1,6 +1,11 @@
 import { getAccessToken } from "@/lib/auth";
 import { env } from "@/lib/env";
 
+type ApiErrorDetail = {
+  code?: string;
+  message?: string;
+};
+
 export type SessionBootstrapResponse = {
   user: {
     id: string;
@@ -19,6 +24,7 @@ export type SessionBootstrapResponse = {
     is_admin: boolean;
     is_active: boolean;
     onboarding_completed_at: string | null;
+    subscription_tier: "basic" | "pro";
     default_base_resume_id: string | null;
     section_preferences: Record<string, boolean>;
     section_order: string[];
@@ -29,6 +35,14 @@ export type SessionBootstrapResponse = {
     total_count: number;
     applied_count: number;
     needs_action_count: number;
+  };
+  generation_quota: {
+    subscription_tier: "basic" | "pro";
+    monthly_resume_generation_limit: number;
+    generation_count: number;
+    remaining_count: number;
+    period_start: string;
+    resets_at: string;
   };
   workflow_contract_version: string;
 };
@@ -152,6 +166,19 @@ export type ResumeJudgeResult = {
     message?: string | null;
   } | null;
 };
+
+function messageFromErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === "string") {
+    return detail;
+  }
+  if (detail && typeof detail === "object") {
+    const apiDetail = detail as ApiErrorDetail;
+    if (typeof apiDetail.message === "string" && apiDetail.message.trim()) {
+      return apiDetail.message;
+    }
+  }
+  return fallback;
+}
 
 export type ResumeRenderEntry = {
   row1_left: string;
@@ -298,6 +325,7 @@ export type ProfileData = {
   is_admin: boolean;
   is_active: boolean;
   onboarding_completed_at: string | null;
+  subscription_tier: "basic" | "pro";
   default_base_resume_id: string | null;
   section_preferences: Record<string, boolean>;
   section_order: string[];
@@ -370,9 +398,23 @@ export type AdminUser = {
   is_admin: boolean;
   is_active: boolean;
   onboarding_completed_at: string | null;
+  subscription_tier: "basic" | "pro";
   latest_invite_status: string | null;
   latest_invite_sent_at: string | null;
   latest_invite_expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SubscriptionTier = {
+  key: "basic" | "pro";
+  name: string;
+  monthly_resume_generation_limit: number;
+  generation_model: string;
+  generation_reasoning_effort: string;
+  generation_fallback_model: string;
+  generation_fallback_reasoning_effort: string;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -397,6 +439,15 @@ export type UpdateAdminUserPayload = {
   phone?: string | null;
   address?: string | null;
   linkedin_url?: string | null;
+  subscription_tier?: "basic" | "pro";
+};
+
+export type UpdateSubscriptionTierPayload = {
+  monthly_resume_generation_limit: number;
+  generation_model: string;
+  generation_reasoning_effort: string;
+  generation_fallback_model: string;
+  generation_fallback_reasoning_effort: string;
 };
 
 type RequestOptions = Omit<RequestInit, "body"> & {
@@ -480,7 +531,7 @@ async function authenticatedRequest<T>(path: string, options: RequestOptions = {
     let detail = "Request failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Request failed.";
     }
@@ -512,7 +563,7 @@ export async function openApplicationEventStream(
     let detail = "Unable to open live updates.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Unable to open live updates.";
     }
@@ -576,7 +627,7 @@ async function authenticatedUpload<T>(path: string, formData: FormData): Promise
     let detail = "Upload failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Upload failed.";
     }
@@ -600,7 +651,7 @@ async function unauthenticatedRequest<T>(path: string, options: RequestOptions =
     let detail = "Request failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Request failed.";
     }
@@ -627,7 +678,7 @@ export async function clearNotifications(): Promise<void> {
     let detail = "Clear failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Clear failed.";
     }
@@ -674,7 +725,7 @@ export async function deleteApplication(applicationId: string): Promise<void> {
     let detail = "Delete failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Delete failed.";
     }
@@ -790,7 +841,7 @@ export async function deleteBaseResume(resumeId: string, force: boolean = true):
     let detail = "Delete failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Delete failed.";
     }
@@ -862,6 +913,20 @@ export async function listAdminUsers(params?: {
   return authenticatedRequest<AdminUser[]>(`/api/admin/users${suffix}`);
 }
 
+export async function listSubscriptionTiers(): Promise<SubscriptionTier[]> {
+  return authenticatedRequest<SubscriptionTier[]>("/api/admin/subscription-tiers");
+}
+
+export async function updateSubscriptionTier(
+  tierKey: "basic" | "pro",
+  payload: UpdateSubscriptionTierPayload,
+): Promise<SubscriptionTier> {
+  return authenticatedRequest<SubscriptionTier>(`/api/admin/subscription-tiers/${tierKey}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
 export async function inviteAdminUser(payload: InviteUserPayload): Promise<InviteUserResponse> {
   return authenticatedRequest<InviteUserResponse>("/api/admin/users/invite", {
     method: "POST",
@@ -901,7 +966,7 @@ export async function deleteAdminUser(userId: string): Promise<void> {
     let detail = "Delete failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Delete failed.";
     }
@@ -1055,7 +1120,7 @@ async function exportDownload(applicationId: string, path: string): Promise<Down
     let detail = "Export failed.";
     try {
       const payload = await response.json();
-      detail = payload.detail ?? detail;
+      detail = messageFromErrorDetail(payload.detail, detail);
     } catch {
       detail = "Export failed.";
     }

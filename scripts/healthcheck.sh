@@ -17,6 +17,12 @@ if [ -f "$ENV_FILE" ]; then
   APP_URL="$(load_env_value APP_URL "$ENV_FILE")"
 fi
 
+API_URL="${API_URL:-http://localhost:54800}"
+APP_URL="${APP_URL:-http://localhost:5173}"
+
+echo "Checking backend at ${API_URL}/healthz"
+echo "Checking frontend at ${APP_URL}"
+
 check() {
   url="$1"
   name="$2"
@@ -28,5 +34,5 @@ check() {
   fi
 }
 
-check "${API_URL:-http://localhost:54800}/healthz" "backend"
-check "${APP_URL:-http://localhost:5173}" "frontend"
+check "${API_URL}/healthz" "backend"
+check "${APP_URL}" "frontend"

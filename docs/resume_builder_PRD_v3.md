@@ -45,13 +45,15 @@ The product should enable a user to:
 
 ### 3.1 OpenRouter / LLM Integration
 
-All LLM calls are routed through **OpenRouter** via LangChain's provider-agnostic interface. The specific model must be configurable via an environment variable (e.g., `OPENROUTER_MODEL`) so it can be changed without a code deployment. Prompt construction must not rely on any provider-specific syntax or features. The system must support swapping models at the config level only.
+All LLM calls are routed through **OpenRouter** via LangChain's provider-agnostic interface. Resume generation model and reasoning access are configurable per subscription tier in admin settings; environment model settings remain the worker fallback for legacy queued jobs or missing tier configuration. Prompt construction must not rely on any provider-specific syntax or features.
 
-A fallback model should be configurable via a second environment variable (e.g., `OPENROUTER_FALLBACK_MODEL`) for resilience. If the primary model call fails, the system retries once with the fallback before treating the job as failed.
+A fallback model is configurable per subscription tier for resilience. If the primary model call fails, the system retries once with the tier fallback before treating the job as failed.
 
-Current default generation models:
-- Primary: `z-ai/glm-5.1`
-- Fallback: `anthropic/claude-sonnet-4.6`
+Current admin-selectable generation models are Gemini 3 Flash (`google/gemini-3-flash-preview`), GPT 5.4 Mini (`openai/gpt-5.4-mini`), DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`), and Gemini 3.5 Flash (`google/gemini-3.5-flash`). Reasoning choices are model-aware: Gemini Flash options support `none`, `low`, `medium`, and `high`; GPT 5.4 Mini supports `none`, `low`, `medium`, `high`, and `xhigh` / Extra high; DeepSeek V4 Flash supports `none`, `high`, and `xhigh` / Extra high.
+- Basic primary: `google/gemini-3-flash-preview` with reasoning `none`
+- Basic fallback: `openai/gpt-5.4-mini` with reasoning `none`
+- Pro primary: `openai/gpt-5.4-mini` with reasoning `medium`
+- Pro fallback: `google/gemini-3.5-flash` with reasoning `medium`
 
 ---
 
@@ -63,6 +65,7 @@ This is an **invite-only** application.
 - Admins invite users by email from an admin users screen
 - Sending an invite pre-provisions the user in Supabase Auth and sends an invite link by email
 - Invite links open a dedicated signup page (not a public signup page) where the invited user completes onboarding
+- New and invited users default to the Basic subscription tier unless an admin changes the tier later
 - Authentication: Supabase Auth — **email + password only**
 - Invite signup requires password confirmation and password complexity: at least 12 characters with uppercase, lowercase, number, and symbol
 - Password reset via Supabase's built-in email flow
@@ -412,7 +415,7 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - Prompt variants must explicitly reflect the selected page target and aggressiveness level
 - A second model request is allowed only when the first request fails at the provider or transport level, or returns invalid structured output
 - Output must be Markdown
-- Model called via OpenRouter; model name from environment variable (see §3.1)
+- Model called via OpenRouter; model names come from the user's subscription tier, with environment settings retained only as worker fallback for legacy or incomplete queued jobs (see §3.1)
 
 **ATS guidance for generation prompts:**
 - Standard, recognizable section headings
@@ -535,11 +538,11 @@ The main working page for a single application.
 1. User opens full regeneration
 2. Existing generation settings are pre-filled
 3. User may update: page length, aggressiveness, additional instructions
-4. System enforces a cap of 3 full regenerations per application for non-admin users; admin users bypass this limit
+4. System enforces the user's monthly subscription quota before queueing regeneration
 5. Full single-call generation pipeline reruns (§10.7 → §10.8 → §10.9)
 6. Latest draft is overwritten
 
-When the non-admin cap is reached, the API returns a conflict response with user-safe guidance to contact an administrator.
+When the subscription quota is reached, the API returns a sanitized `quota_exhausted` response with user-safe guidance to contact an administrator or upgrade the subscription tier.
 
 **Draft versioning:** Each full regeneration overwrites the current draft. No resume version history UI is required for MVP. The `last_generated_at` timestamp on `resume_drafts` should be updated.
 
@@ -703,10 +706,11 @@ All emails must include a direct link to the relevant application.
 
 ### 10.19 Admin Persona and Surfaces
 
-Admin has exactly two product responsibilities in MVP:
+Admin has three product responsibilities in MVP:
 
 1. Metrics dashboard
 2. User management
+3. Subscription tier settings
 
 **Admin metrics dashboard must show meaningful usage metrics only:**
 
@@ -720,8 +724,19 @@ Admin has exactly two product responsibilities in MVP:
 - list users with search and status filters (active, invited, deactivated)
 - invite new users (triggering Resend email)
 - edit user profile fields (email, first name, last name, location, phone, LinkedIn)
+- view and edit each user's subscription tier
 - deactivate/reactivate users
 - delete users
+
+**Admin subscription settings page must support:**
+
+- view Basic and Pro tier settings
+- edit each tier's monthly resume-writing quota
+- edit each tier's OpenRouter primary generation model
+- edit each tier's OpenRouter primary reasoning level
+- edit each tier's OpenRouter fallback generation model
+- edit each tier's OpenRouter fallback reasoning level
+- reject negative or excessive monthly limits, unsupported model IDs, unsupported reasoning levels for the selected model, and fallback models that match the primary model
 
 ---
 
@@ -741,6 +756,7 @@ Admin has exactly two product responsibilities in MVP:
 | is_admin | boolean | default false |
 | is_active | boolean | default true; false blocks application access |
 | onboarding_completed_at | timestamp | nullable; set after invite signup completion |
+| subscription_tier | string | `basic` or `pro`; default `basic`; controls monthly resume-writing quota and generation model access |
 | default_base_resume_id | UUID FK | nullable |
 | section_preferences | JSONB | Map of section_id → enabled boolean |
 | section_order | JSONB | Ordered array of section identifiers |
@@ -786,7 +802,7 @@ Admin has exactly two product responsibilities in MVP:
 | duplicate_match_fields | JSONB | nullable |
 | duplicate_resolution_status | enum | `pending`, `dismissed`, `redirected`; nullable |
 | notes | text | nullable |
-| full_regeneration_count | integer | non-null, default 0; per-application counter used to enforce non-admin full-regeneration cap |
+| full_regeneration_count | integer | non-null, default 0; legacy counter retained for compatibility; subscription quota now controls generation limits |
 | exported_at | timestamp | nullable |
 | created_at | timestamp | |
 | updated_at | timestamp | |
@@ -798,7 +814,7 @@ Admin has exactly two product responsibilities in MVP:
 | application_id | UUID FK | |
 | user_id | UUID FK | |
 | content_md | text | Latest assembled resume in Markdown |
-| generation_params | JSONB | `{ page_length, aggressiveness, additional_instructions }` |
+| generation_params | JSONB | `{ page_length, aggressiveness, additional_instructions }` plus safe generation metadata such as `subscription_tier`, `quota_period_start`, and `model_used`; hidden queue-only model override keys must not be persisted |
 | sections_snapshot | JSONB | Enabled sections and order at time of generation |
 | last_generated_at | timestamp | |
 | last_exported_at | timestamp | nullable |
@@ -841,6 +857,29 @@ Admin has exactly two product responsibilities in MVP:
 | event_status | enum | `success`, `failure`, `info` |
 | metadata | JSONB | Sanitized event context |
 | created_at | timestamp | |
+
+### `subscription_tiers`
+| Field | Type | Notes |
+|---|---|---|
+| key | string | `basic` or `pro` |
+| name | string | Display label |
+| monthly_resume_generation_limit | integer | Monthly UTC quota for initial generation, full regeneration, and section regeneration; must be non-negative and bounded by backend validation |
+| generation_model | string | OpenRouter primary model ID for the tier; must be one of the curated admin model options |
+| generation_reasoning_effort | string | OpenRouter reasoning effort for the primary model; model-aware allowed values are `none`, `low`, `medium`, `high`, and model-specific `xhigh` |
+| generation_fallback_model | string | OpenRouter fallback model ID for the tier; must differ from primary and be one of the curated admin model options |
+| generation_fallback_reasoning_effort | string | OpenRouter reasoning effort for the fallback model with the same compatibility rules |
+| is_active | boolean | Active tiers can reserve generation quota |
+| created_at | timestamp | |
+| updated_at | timestamp | |
+
+### `resume_generation_usage`
+| Field | Type | Notes |
+|---|---|---|
+| user_id | UUID FK | User whose quota is counted |
+| period_start | date | First day of the UTC calendar month |
+| generation_count | integer | Reserved resume-writing jobs for the user in the period |
+| created_at | timestamp | |
+| updated_at | timestamp | |
 
 ---
 
@@ -898,7 +937,7 @@ These are implementation decisions, not product decisions:
 | Fuzzy match threshold | Default 85% recommended; must be environment-configurable, not hardcoded |
 | Markdown rendering library | React Markdown or equivalent for preview mode |
 | Resume file ingestion | Validate `python-docx` + `pdfplumber` output quality; evaluate optional LLM cleanup pass |
-| OpenRouter model selection | Define primary and fallback model env vars; validate LangChain compatibility with OpenRouter's API format |
+| OpenRouter model compatibility | Validate LangChain compatibility with OpenRouter's API format for tier-configured primary and fallback model IDs |
 
 ---
 

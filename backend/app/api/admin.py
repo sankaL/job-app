@@ -3,14 +3,16 @@ from __future__ import annotations
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.access import get_current_admin_user
 from app.core.auth import AuthenticatedUser
+from app.core.model_catalog import normalize_reasoning_effort
 from app.services.admin import (
     AdminMetricsPayload,
     AdminOperationMetric,
     AdminService,
+    MAX_MONTHLY_RESUME_GENERATION_LIMIT,
     get_admin_service,
 )
 
@@ -51,6 +53,7 @@ class AdminUserResponse(BaseModel):
     is_admin: bool
     is_active: bool
     onboarding_completed_at: Optional[str] = None
+    subscription_tier: str = "basic"
     latest_invite_status: Optional[str] = None
     latest_invite_sent_at: Optional[str] = None
     latest_invite_expires_at: Optional[str] = None
@@ -94,6 +97,7 @@ class UpdateAdminUserRequest(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     linkedin_url: Optional[str] = None
+    subscription_tier: Optional[str] = None
 
     @field_validator("first_name", "last_name", "phone", "address", "linkedin_url")
     @classmethod
@@ -103,6 +107,18 @@ class UpdateAdminUserRequest(BaseModel):
         stripped = value.strip()
         return stripped or None
 
+    @field_validator("subscription_tier")
+    @classmethod
+    def normalize_subscription_tier(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip().lower()
+        if not stripped:
+            raise ValueError("Subscription tier is required.")
+        if stripped not in {"basic", "pro"}:
+            raise ValueError("Subscription tier must be basic or pro.")
+        return stripped
+
     @field_validator("email")
     @classmethod
     def validate_optional_email(cls, value: Optional[str]) -> Optional[str]:
@@ -111,6 +127,43 @@ class UpdateAdminUserRequest(BaseModel):
         stripped = value.strip()
         if "@" not in stripped or stripped.startswith("@") or stripped.endswith("@"):
             raise ValueError("Email is invalid.")
+        return stripped
+
+
+class SubscriptionTierResponse(BaseModel):
+    key: str
+    name: str
+    monthly_resume_generation_limit: int
+    generation_model: str
+    generation_reasoning_effort: str
+    generation_fallback_model: str
+    generation_fallback_reasoning_effort: str
+    is_active: bool
+    created_at: str
+    updated_at: str
+
+
+class UpdateSubscriptionTierRequest(BaseModel):
+    monthly_resume_generation_limit: int = Field(ge=0, le=MAX_MONTHLY_RESUME_GENERATION_LIMIT)
+    generation_model: str
+    generation_reasoning_effort: str = "none"
+    generation_fallback_model: str
+    generation_fallback_reasoning_effort: str = "none"
+
+    @field_validator("generation_model", "generation_fallback_model")
+    @classmethod
+    def require_non_blank_string(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Model cannot be blank.")
+        return stripped
+
+    @field_validator("generation_reasoning_effort", "generation_fallback_reasoning_effort")
+    @classmethod
+    def normalize_reasoning(cls, value: str) -> str:
+        stripped = normalize_reasoning_effort(value)
+        if not stripped:
+            raise ValueError("Reasoning effort is required.")
         return stripped
 
 
@@ -162,6 +215,36 @@ def list_users(
 ) -> list[AdminUserResponse]:
     rows = service.list_users(search=search, status=status_filter)
     return [AdminUserResponse.model_validate(row.model_dump()) for row in rows]
+
+
+@router.get("/subscription-tiers", response_model=list[SubscriptionTierResponse])
+def list_subscription_tiers(
+    _: Annotated[AuthenticatedUser, Depends(get_current_admin_user)],
+    service: Annotated[AdminService, Depends(get_admin_service)],
+) -> list[SubscriptionTierResponse]:
+    rows = service.list_subscription_tiers()
+    return [SubscriptionTierResponse.model_validate(row.model_dump()) for row in rows]
+
+
+@router.patch("/subscription-tiers/{tier_key}", response_model=SubscriptionTierResponse)
+async def update_subscription_tier(
+    tier_key: str,
+    request: UpdateSubscriptionTierRequest,
+    _: Annotated[AuthenticatedUser, Depends(get_current_admin_user)],
+    service: Annotated[AdminService, Depends(get_admin_service)],
+) -> SubscriptionTierResponse:
+    try:
+        updated = service.update_subscription_tier(
+            tier_key=tier_key,
+            monthly_resume_generation_limit=request.monthly_resume_generation_limit,
+            generation_model=request.generation_model,
+            generation_reasoning_effort=request.generation_reasoning_effort,
+            generation_fallback_model=request.generation_fallback_model,
+            generation_fallback_reasoning_effort=request.generation_fallback_reasoning_effort,
+        )
+        return SubscriptionTierResponse.model_validate(updated.model_dump())
+    except Exception as error:
+        raise _map_error(error) from error
 
 
 @router.post("/users/invite", response_model=InviteUserResponse, status_code=status.HTTP_201_CREATED)

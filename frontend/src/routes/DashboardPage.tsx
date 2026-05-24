@@ -8,12 +8,14 @@ import {
   Link2,
   Search,
   TrendingUp,
+  Zap,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { useAppContext } from "@/components/layout/AppContext";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,7 +29,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/select";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { visibleStatusLabels } from "@/lib/application-options";
-import type { ApplicationSummary } from "@/lib/api";
+import type { ApplicationSummary, SessionBootstrapResponse } from "@/lib/api";
 import { useApplicationsQuery } from "@/lib/queries";
 
 type StatusKey = keyof typeof visibleStatusLabels;
@@ -167,6 +169,7 @@ function polarToCartesian(cx: number, cy: number, radius: number, angle: number)
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const { bootstrap } = useAppContext();
   const [selectedYear, setSelectedYear] = useState<number>(() => getCurrentYear());
   const [chartExpanded, setChartExpanded] = useState(false);
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
@@ -176,6 +179,7 @@ export function DashboardPage() {
     refetch,
   } = useApplicationsQuery();
   const error = applicationsError instanceof Error ? applicationsError.message : null;
+  const quota = bootstrap?.generation_quota ?? null;
 
   useEffect(() => {
     function handleResize() {
@@ -226,6 +230,7 @@ export function DashboardPage() {
     return (
       <div className="page-enter space-y-5">
         <PageHeader title="Dashboard" subtitle="Application analytics and activity overview" />
+        <QuotaCard quota={quota} />
         <EmptyState
           title="No applications yet"
           description="Create your first application to start tracking your job search progress and see analytics here."
@@ -302,6 +307,8 @@ export function DashboardPage() {
         subtitle="Application analytics and activity overview"
         actions={<Button onClick={() => navigate("/app/applications")}>View All Applications</Button>}
       />
+
+      <QuotaCard quota={quota} />
 
       <div className="stagger-children grid gap-3 grid-cols-2 lg:grid-cols-4 sm:gap-4">
         <StatCard label="Total Applications" value={total} accent="var(--color-ink)" tint="var(--color-ink-05)" icon={Briefcase} />
@@ -589,6 +596,69 @@ export function DashboardPage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+type QuotaCardProps = {
+  quota: SessionBootstrapResponse["generation_quota"] | null;
+};
+
+function formatResetDate(value: string | undefined) {
+  if (!value) return "next month";
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(parsed);
+}
+
+function QuotaCard({ quota }: QuotaCardProps) {
+  if (!quota) return null;
+  const used = quota.generation_count;
+  const limit = quota.monthly_resume_generation_limit;
+  const remaining = quota.remaining_count;
+  const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 100;
+  const depleted = remaining <= 0;
+
+  return (
+    <Card density="compact" className="overflow-hidden">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg"
+            style={{
+              background: depleted ? "var(--color-ember-10)" : "var(--color-spruce-10)",
+              color: depleted ? "var(--color-ember)" : "var(--color-spruce)",
+            }}
+          >
+            <Zap size={18} />
+          </span>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-40)" }}>
+              Monthly Requests
+            </p>
+            <p className="mt-1 text-lg font-semibold" style={{ color: "var(--color-ink)" }}>
+              {remaining} left
+            </p>
+          </div>
+        </div>
+        <div className="min-w-[220px] sm:text-right">
+          <p className="text-sm font-medium capitalize" style={{ color: "var(--color-ink)" }}>
+            {quota.subscription_tier} tier
+          </p>
+          <p className="mt-1 text-xs" style={{ color: "var(--color-ink-50)" }}>
+            {used} of {limit} used. Resets {formatResetDate(quota.resets_at)}.
+          </p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "var(--color-ink-10)" }}>
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${percent}%`,
+                background: depleted ? "var(--color-ember)" : "var(--color-spruce)",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 

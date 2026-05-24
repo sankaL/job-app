@@ -12,8 +12,14 @@ from fastapi import Depends
 from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
+from app.core.model_catalog import normalize_reasoning_effort, validate_generation_model_reasoning
 from app.db.admin import AdminRepository, AdminUserRecord, get_admin_repository
 from app.db.profiles import ProfileRepository, get_profile_repository
+from app.db.subscriptions import (
+    SubscriptionRepository,
+    SubscriptionTierRecord,
+    get_subscription_repository,
+)
 from app.services.email import EmailMessage, EmailSender, build_email_sender
 from app.services.user_manager import UserManager, build_user_manager
 
@@ -64,18 +70,70 @@ PASSWORD_UPPERCASE_PATTERN = re.compile(r"[A-Z]")
 PASSWORD_LOWERCASE_PATTERN = re.compile(r"[a-z]")
 PASSWORD_DIGIT_PATTERN = re.compile(r"\d")
 PASSWORD_SYMBOL_PATTERN = re.compile(r"[^A-Za-z0-9]")
+MAX_MONTHLY_RESUME_GENERATION_LIMIT = 10_000
 
 
 @dataclass
 class AdminService:
     repository: AdminRepository
     profile_repository: ProfileRepository
+    subscription_repository: SubscriptionRepository
     user_manager: UserManager
     email_sender: EmailSender
     settings: Settings
 
     def list_users(self, *, search: Optional[str], status: Optional[str]) -> list[AdminUserRecord]:
         return self.repository.list_users(search=search, status=status)
+
+    def list_subscription_tiers(self) -> list[SubscriptionTierRecord]:
+        return self.subscription_repository.list_tiers()
+
+    def update_subscription_tier(
+        self,
+        *,
+        tier_key: str,
+        monthly_resume_generation_limit: int,
+        generation_model: str,
+        generation_reasoning_effort: str,
+        generation_fallback_model: str,
+        generation_fallback_reasoning_effort: str,
+    ) -> SubscriptionTierRecord:
+        normalized_key = tier_key.strip().lower()
+        if normalized_key not in {"basic", "pro"}:
+            raise LookupError("Subscription tier not found.")
+        if monthly_resume_generation_limit < 0:
+            raise ValueError("Monthly generation limit cannot be negative.")
+        if monthly_resume_generation_limit > MAX_MONTHLY_RESUME_GENERATION_LIMIT:
+            raise ValueError(
+                f"Monthly generation limit cannot exceed {MAX_MONTHLY_RESUME_GENERATION_LIMIT}."
+            )
+        clean_model = self._require_non_blank(generation_model, "Generation model")
+        clean_fallback = self._require_non_blank(
+            generation_fallback_model,
+            "Fallback generation model",
+        )
+        clean_reasoning = normalize_reasoning_effort(generation_reasoning_effort)
+        clean_fallback_reasoning = normalize_reasoning_effort(generation_fallback_reasoning_effort)
+        self._validate_model_id(clean_model, "Generation model")
+        self._validate_model_id(clean_fallback, "Fallback generation model")
+        validate_generation_model_reasoning(
+            model_id=clean_model,
+            reasoning_effort=clean_reasoning,
+        )
+        validate_generation_model_reasoning(
+            model_id=clean_fallback,
+            reasoning_effort=clean_fallback_reasoning,
+        )
+        if clean_model == clean_fallback:
+            raise ValueError("Generation model and fallback model must be different.")
+        return self.subscription_repository.update_tier(
+            tier_key=normalized_key,
+            monthly_resume_generation_limit=monthly_resume_generation_limit,
+            generation_model=clean_model,
+            generation_reasoning_effort=clean_reasoning,
+            generation_fallback_model=clean_fallback,
+            generation_fallback_reasoning_effort=clean_fallback_reasoning,
+        )
 
     def get_metrics(self) -> AdminMetricsPayload:
         user_counts = self.repository.get_user_counts()
@@ -294,6 +352,17 @@ class AdminService:
                     self._clean_optional_text(str(value)) if value is not None else None
                 )
 
+        if "subscription_tier" in updates:
+            tier = str(updates["subscription_tier"] or "").strip().lower()
+            if tier not in {"basic", "pro"}:
+                raise ValueError("Subscription tier must be basic or pro.")
+            tier_record = self.subscription_repository.fetch_tier(tier_key=tier)
+            if tier_record is None:
+                raise ValueError("Subscription tier is unavailable.")
+            if not tier_record.is_active:
+                raise ValueError("Subscription tier is inactive.")
+            normalized_updates["subscription_tier"] = tier
+
         if "first_name" in normalized_updates or "last_name" in normalized_updates:
             existing = self.repository.fetch_user(user_id=target_user_id)
             if existing is None:
@@ -410,6 +479,11 @@ class AdminService:
         return stripped
 
     @staticmethod
+    def _validate_model_id(value: str, field_name: str) -> None:
+        if "/" not in value or any(char.isspace() for char in value):
+            raise ValueError(f"{field_name} must be an OpenRouter model ID like provider/model.")
+
+    @staticmethod
     def _validate_password_strength(password: str) -> None:
         if len(password) < PASSWORD_MIN_LENGTH:
             raise ValueError("Password must be at least 12 characters long.")
@@ -446,11 +520,13 @@ class AdminService:
 def get_admin_service(
     repository: AdminRepository = Depends(get_admin_repository),
     profile_repository: ProfileRepository = Depends(get_profile_repository),
+    subscription_repository: SubscriptionRepository = Depends(get_subscription_repository),
     settings: Settings = Depends(get_settings),
 ) -> AdminService:
     return AdminService(
         repository=repository,
         profile_repository=profile_repository,
+        subscription_repository=subscription_repository,
         user_manager=build_user_manager(settings),
         email_sender=build_email_sender(settings),
         settings=settings,

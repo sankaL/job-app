@@ -1,7 +1,7 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-24
 **Sources:** `agents/generation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
@@ -154,12 +154,15 @@ This section is organized by what stays constant across all resume-writing opera
 #### Runtime behavior shared by all modes
 
 - Resume-writing calls use OpenRouter via LangChain.
-- Initial generation, full regeneration, and single-section regeneration use the env-configured `GENERATION_AGENT_REASONING_EFFORT` setting for both primary and fallback attempts.
+- Initial generation, full regeneration, and single-section regeneration receive a hidden primary/fallback model pair from the user's subscription tier. If an older queued job does not include those values, the worker falls back to the environment-configured generation model settings for compatibility.
+- Initial generation, full regeneration, and single-section regeneration use hidden tier-configured reasoning values when present. Legacy queued jobs without tier reasoning fall back to the env-configured `GENERATION_AGENT_REASONING_EFFORT`; fallback attempts inherit the primary effort unless a tier-specific fallback effort is supplied.
+- Current tracked subscription defaults are Basic `google/gemini-3-flash-preview` primary reasoning `none` with `openai/gpt-5.4-mini` fallback reasoning `none`, and Pro `openai/gpt-5.4-mini` primary reasoning `medium` with `google/gemini-3.5-flash` fallback reasoning `medium`.
 - Allowed reasoning values are `none`, `low`, `medium`, `high`, and `xhigh`.
+- Admin-selectable generation models are model-aware: DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`) exposes only `none`, `high`, and `xhigh`, where `xhigh` maps to max reasoning.
 - The current tracked env defaults set `GENERATION_AGENT_REASONING_EFFORT=none`.
 - `GENERATION_AGENT_REASONING_EFFORT=none` is passed through to OpenRouter as `reasoning: {"effort": "none"}`. Non-`none` efforts also set `exclude=true` so reasoning stays internal and is not returned in the response body.
 - If a provider rejects disabled reasoning as mandatory, the generation layer retries that same model once without a `reasoning` payload before moving on to the fallback model.
-- Validation-aware repair runs with no reasoning so the repair path stays narrow and deterministic.
+- Validation-aware repair uses the same tier-selected model/reasoning pairing as the generation attempt when the worker job includes tier reasoning; direct legacy repair calls with no reasoning still omit the reasoning payload.
 - Full generation and full regeneration allow up to `240s` per LLM attempt and use heartbeat progress updates while waiting on the model. Section regeneration allows up to `120s` per attempt.
 - The generation layer uses a bounded two-model pipeline:
   - primary model first with schema-enforced structured output

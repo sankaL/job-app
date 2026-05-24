@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState, type FormEvent } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, RefreshCcw, Send, Trash2, UserPlus } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
+import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { InviteUserModal } from "@/components/admin/InviteUserModal";
+import { EditUserModal } from "@/components/admin/EditUserModal";
 import {
   deactivateAdminUser,
   deleteAdminUser,
@@ -19,6 +21,7 @@ import {
   reactivateAdminUser,
   updateAdminUser,
   type AdminUser,
+  type UpdateAdminUserPayload,
 } from "@/lib/api";
 import { invalidateAdminUsersQueries, useAdminUsersQuery } from "@/lib/queries";
 
@@ -55,19 +58,13 @@ export function AdminUsersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const deferredSearch = useDeferredValue(search);
 
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteFirstName, setInviteFirstName] = useState("");
-  const [inviteLastName, setInviteLastName] = useState("");
-  const [isInviting, setIsInviting] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [editEmail, setEditEmail] = useState("");
-  const [editFirstName, setEditFirstName] = useState("");
-  const [editLastName, setEditLastName] = useState("");
-  const [editAddress, setEditAddress] = useState("");
-  const [editPhone, setEditPhone] = useState("");
-  const [editLinkedin, setEditLinkedin] = useState("");
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<AdminUser | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const {
     data: users,
     error: queryError,
@@ -82,57 +79,36 @@ export function AdminUsersPage() {
     [users, editingUserId],
   );
 
+  useEffect(() => {
+    if (editingUserId !== null && users && !editingUser) {
+      setEditingUserId(null);
+    }
+  }, [editingUserId, editingUser, users]);
+
   function beginEdit(user: AdminUser) {
     setEditingUserId(user.id);
-    setEditEmail(user.email);
-    setEditFirstName(user.first_name ?? "");
-    setEditLastName(user.last_name ?? "");
-    setEditAddress(user.address ?? "");
-    setEditPhone(user.phone ?? "");
-    setEditLinkedin(user.linkedin_url ?? "");
   }
 
-  async function handleInviteSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsInviting(true);
+  async function handleInviteSubmit(payload: { email: string; first_name: string | null; last_name: string | null }) {
     try {
-      await inviteAdminUser({
-        email: inviteEmail,
-        first_name: inviteFirstName || null,
-        last_name: inviteLastName || null,
-      });
+      await inviteAdminUser(payload);
       toast("Invite sent.");
-      setInviteEmail("");
-      setInviteFirstName("");
-      setInviteLastName("");
       await invalidateAdminUsersQueries(queryClient);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Invite failed.", "error");
-    } finally {
-      setIsInviting(false);
+      throw err;
     }
   }
 
-  async function handleSaveEdit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editingUserId) return;
-    setIsSavingEdit(true);
+  async function handleSaveEdit(userId: string, payload: UpdateAdminUserPayload) {
     try {
-      await updateAdminUser(editingUserId, {
-        email: editEmail,
-        first_name: editFirstName || null,
-        last_name: editLastName || null,
-        address: editAddress || null,
-        phone: editPhone || null,
-        linkedin_url: editLinkedin || null,
-      });
+      await updateAdminUser(userId, payload);
       toast("User updated.");
       setEditingUserId(null);
       await invalidateAdminUsersQueries(queryClient);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Update failed.", "error");
-    } finally {
-      setIsSavingEdit(false);
+      throw err;
     }
   }
 
@@ -152,14 +128,16 @@ export function AdminUsersPage() {
   }
 
   async function handleDelete(user: AdminUser) {
-    const confirmed = window.confirm(`Delete ${user.email}? This permanently removes their account and data.`);
-    if (!confirmed) return;
+    setIsDeleting(true);
     try {
       await deleteAdminUser(user.id);
       toast("User deleted.");
       await invalidateAdminUsersQueries(queryClient);
+      setDeleteConfirmUser(null);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Delete failed.", "error");
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -178,10 +156,16 @@ export function AdminUsersPage() {
         title="User Management"
         subtitle="Invite, update, and control user access."
         actions={
-          <Button variant="secondary" onClick={() => void refetch()} loading={isLoading}>
-            <RefreshCcw size={14} />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => void refetch()} loading={isLoading}>
+              <RefreshCcw size={14} />
+              Refresh
+            </Button>
+            <Button onClick={() => setInviteModalOpen(true)}>
+              <Send size={14} />
+              Send Invite
+            </Button>
+          </div>
         }
       />
 
@@ -195,42 +179,6 @@ export function AdminUsersPage() {
           </p>
         </Card>
       ) : null}
-
-      <Card density="compact" className="overflow-hidden">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-40)" }}>
-              Invite user
-            </p>
-            <p className="mt-1 text-xs" style={{ color: "var(--color-ink-50)" }}>
-              Creates a Supabase account immediately and sends a signup link through Resend.
-            </p>
-          </div>
-        </div>
-        <form className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto]" onSubmit={handleInviteSubmit}>
-          <Input
-            type="email"
-            placeholder="user@example.com"
-            value={inviteEmail}
-            onChange={(event) => setInviteEmail(event.target.value)}
-            required
-          />
-          <Input
-            placeholder="First name (optional)"
-            value={inviteFirstName}
-            onChange={(event) => setInviteFirstName(event.target.value)}
-          />
-          <Input
-            placeholder="Last name (optional)"
-            value={inviteLastName}
-            onChange={(event) => setInviteLastName(event.target.value)}
-          />
-          <Button type="submit" loading={isInviting} disabled={isInviting}>
-            <Send size={14} />
-            Send invite
-          </Button>
-        </form>
-      </Card>
 
       <Card density="compact">
         <div className="mb-4 grid gap-3 md:grid-cols-[2fr_220px]">
@@ -279,7 +227,7 @@ export function AdminUsersPage() {
             {
               key: "status",
               header: "Status",
-              width: "16%",
+              width: "14%",
               sortable: true,
               sortValue: (user) => `${user.is_active}-${user.onboarding_completed_at ? "complete" : "invited"}`,
               render: (user) => (
@@ -294,9 +242,33 @@ export function AdminUsersPage() {
               ),
             },
             {
+              key: "tier",
+              header: "Tier",
+              width: "12%",
+              sortable: true,
+              sortValue: (user) => user.subscription_tier,
+              render: (user) => (
+                <span
+                  className="inline-flex rounded-md px-2 py-1 text-xs font-semibold capitalize"
+                  style={{
+                    background:
+                      user.subscription_tier === "pro"
+                        ? "var(--color-amber-10)"
+                        : "var(--color-spruce-10)",
+                    color:
+                      user.subscription_tier === "pro"
+                        ? "var(--color-amber)"
+                        : "var(--color-spruce)",
+                  }}
+                >
+                  {user.subscription_tier}
+                </span>
+              ),
+            },
+            {
               key: "invite",
               header: "Invite",
-              width: "24%",
+              width: "22%",
               render: (user) => (
                 <div className="space-y-0.5 text-xs" style={{ color: "var(--color-ink-50)" }}>
                   <p>{user.latest_invite_status ? user.latest_invite_status : "—"}</p>
@@ -308,7 +280,7 @@ export function AdminUsersPage() {
             {
               key: "updated_at",
               header: "Updated",
-              width: "12%",
+              width: "10%",
               sortable: true,
               sortValue: (user) => user.updated_at,
               render: (user) => (
@@ -320,7 +292,7 @@ export function AdminUsersPage() {
             {
               key: "actions",
               header: <span className="block w-full text-right">Actions</span>,
-              width: "18%",
+              width: "12%",
               render: (user) => {
                 const isSelf = currentUserId === user.id;
                 return (
@@ -342,7 +314,7 @@ export function AdminUsersPage() {
                     </Button>
                     <IconButton
                       variant="danger"
-                      onClick={() => void handleDelete(user)}
+                      onClick={() => setDeleteConfirmUser(user)}
                       disabled={isSelf}
                       aria-label={`Delete ${user.email}`}
                       title="Delete user"
@@ -368,81 +340,42 @@ export function AdminUsersPage() {
         />
       </Card>
 
-      {editingUser ? (
-        <Card density="compact">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-40)" }}>
-                Edit user
-              </p>
-              <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
-                {editingUser.email}
-              </p>
-            </div>
-            <Button variant="secondary" size="sm" onClick={() => setEditingUserId(null)}>
-              Cancel
-            </Button>
-          </div>
+      <InviteUserModal
+        open={inviteModalOpen}
+        onClose={() => setInviteModalOpen(false)}
+        onSubmit={handleInviteSubmit}
+      />
 
-          <form className="grid gap-4 md:grid-cols-2" onSubmit={handleSaveEdit}>
-            <div>
-              <Label htmlFor="edit_email">Email</Label>
-              <Input
-                id="edit_email"
-                type="email"
-                value={editEmail}
-                onChange={(event) => setEditEmail(event.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit_phone">Phone</Label>
-              <Input
-                id="edit_phone"
-                value={editPhone}
-                onChange={(event) => setEditPhone(event.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit_first_name">First name</Label>
-              <Input
-                id="edit_first_name"
-                value={editFirstName}
-                onChange={(event) => setEditFirstName(event.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit_last_name">Last name</Label>
-              <Input
-                id="edit_last_name"
-                value={editLastName}
-                onChange={(event) => setEditLastName(event.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit_address">Location</Label>
-              <Input
-                id="edit_address"
-                value={editAddress}
-                onChange={(event) => setEditAddress(event.target.value)}
-              />
-            </div>
-            <div>
-              <Label htmlFor="edit_linkedin">LinkedIn</Label>
-              <Input
-                id="edit_linkedin"
-                value={editLinkedin}
-                onChange={(event) => setEditLinkedin(event.target.value)}
-              />
-            </div>
-            <div className="md:col-span-2">
-              <Button type="submit" loading={isSavingEdit} disabled={isSavingEdit}>
-                Save user updates
-              </Button>
-            </div>
-          </form>
-        </Card>
-      ) : null}
+      <EditUserModal
+        open={editingUser !== null}
+        user={editingUser}
+        onClose={() => setEditingUserId(null)}
+        onSubmit={handleSaveEdit}
+      />
+
+      <ConfirmModal
+        open={deleteConfirmUser !== null}
+        title="Delete user"
+        message={
+          deleteConfirmUser
+            ? `Delete ${deleteConfirmUser.email}? This permanently removes their account and data.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        loading={isDeleting}
+        onConfirm={() => {
+          if (deleteConfirmUser) {
+            void handleDelete(deleteConfirmUser);
+          }
+        }}
+        onCancel={() => {
+          if (!isDeleting) {
+            setDeleteConfirmUser(null);
+          }
+        }}
+      />
     </div>
   );
 }

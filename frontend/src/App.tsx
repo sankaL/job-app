@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/routes/AppShell";
 import { AdminDashboardPage } from "@/routes/AdminDashboardPage";
 import { AdminRoute } from "@/routes/AdminRoute";
+import { AdminSubscriptionsPage } from "@/routes/AdminSubscriptionsPage";
 import { AdminUsersPage } from "@/routes/AdminUsersPage";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
 import { ApplicationsListPage } from "@/routes/ApplicationsListPage";
@@ -49,6 +50,14 @@ export default function App() {
           element={
             <AdminRoute>
               <AdminUsersPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="admin/subscriptions"
+          element={
+            <AdminRoute>
+              <AdminSubscriptionsPage />
             </AdminRoute>
           }
         />

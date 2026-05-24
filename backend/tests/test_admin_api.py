@@ -45,6 +45,7 @@ class StubProfileRepository(ProfileRepository):
             is_admin=self.is_admin,
             is_active=True,
             onboarding_completed_at="2026-04-10T00:00:00+00:00",
+            subscription_tier="basic",
             default_base_resume_id=None,
             section_preferences={
                 "summary": True,
@@ -84,6 +85,49 @@ class StubAdminService(AdminService):
 
     def list_users(self, *, search: Optional[str], status: Optional[str]):
         return []
+
+    def list_subscription_tiers(self):
+        from app.db.subscriptions import SubscriptionTierRecord
+
+        return [
+            SubscriptionTierRecord(
+                key="basic",
+                name="Basic",
+                monthly_resume_generation_limit=10,
+                generation_model="google/gemini-3-flash-preview",
+                generation_reasoning_effort="none",
+                generation_fallback_model="openai/gpt-5.4-mini",
+                generation_fallback_reasoning_effort="none",
+                is_active=True,
+                created_at="2026-05-23T00:00:00+00:00",
+                updated_at="2026-05-23T00:00:00+00:00",
+            )
+        ]
+
+    def update_subscription_tier(
+        self,
+        *,
+        tier_key: str,
+        monthly_resume_generation_limit: int,
+        generation_model: str,
+        generation_reasoning_effort: str,
+        generation_fallback_model: str,
+        generation_fallback_reasoning_effort: str,
+    ):
+        from app.db.subscriptions import SubscriptionTierRecord
+
+        return SubscriptionTierRecord(
+            key=tier_key,
+            name=tier_key.title(),
+            monthly_resume_generation_limit=monthly_resume_generation_limit,
+            generation_model=generation_model,
+            generation_reasoning_effort=generation_reasoning_effort,
+            generation_fallback_model=generation_fallback_model,
+            generation_fallback_reasoning_effort=generation_fallback_reasoning_effort,
+            is_active=True,
+            created_at="2026-05-23T00:00:00+00:00",
+            updated_at="2026-05-23T12:00:00+00:00",
+        )
 
     async def invite_user(self, *, invited_by_user_id: str, email: str, first_name: Optional[str], last_name: Optional[str]):
         from app.services.admin import InviteResultPayload
@@ -143,3 +187,97 @@ def test_admin_invite_returns_created_payload():
     payload = response.json()
     assert payload["invite_id"] == "invite-1"
     assert payload["invited_email"] == "new-user@example.com"
+
+
+def test_admin_subscription_tiers_returns_payload():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_admin=True)
+    app.dependency_overrides[get_admin_service] = lambda: StubAdminService()
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/admin/subscription-tiers",
+        headers={"Authorization": "Bearer valid-admin-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["key"] == "basic"
+
+
+def test_admin_subscription_tiers_requires_admin_permissions():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_admin=False)
+    app.dependency_overrides[get_admin_service] = lambda: StubAdminService()
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/admin/subscription-tiers",
+        headers={"Authorization": "Bearer valid-admin-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admin access is required."
+
+
+def test_admin_subscription_tier_update_returns_payload():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_admin=True)
+    app.dependency_overrides[get_admin_service] = lambda: StubAdminService()
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/admin/subscription-tiers/basic",
+        headers={"Authorization": "Bearer valid-admin-token"},
+        json={
+            "monthly_resume_generation_limit": 12,
+            "generation_model": "openai/gpt-5.4-mini",
+            "generation_reasoning_effort": "medium",
+            "generation_fallback_model": "google/gemini-3.5-flash",
+            "generation_fallback_reasoning_effort": "high",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["monthly_resume_generation_limit"] == 12
+
+
+def test_admin_subscription_tier_update_requires_admin_permissions():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_admin=False)
+    app.dependency_overrides[get_admin_service] = lambda: StubAdminService()
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/admin/subscription-tiers/basic",
+        headers={"Authorization": "Bearer valid-admin-token"},
+        json={
+            "monthly_resume_generation_limit": 12,
+            "generation_model": "openai/gpt-5.4-mini",
+            "generation_reasoning_effort": "medium",
+            "generation_fallback_model": "google/gemini-3.5-flash",
+            "generation_fallback_reasoning_effort": "high",
+        },
+    )
+
+    assert response.status_code == 403
+
+
+def test_admin_subscription_tier_update_rejects_negative_limit():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_admin=True)
+    app.dependency_overrides[get_admin_service] = lambda: StubAdminService()
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/admin/subscription-tiers/basic",
+        headers={"Authorization": "Bearer valid-admin-token"},
+        json={
+            "monthly_resume_generation_limit": -1,
+            "generation_model": "openai/gpt-5.4-mini",
+            "generation_reasoning_effort": "medium",
+            "generation_fallback_model": "google/gemini-3.5-flash",
+            "generation_fallback_reasoning_effort": "high",
+        },
+    )
+
+    assert response.status_code == 422

@@ -1,5 +1,27 @@
 # Decisions Made
 
+## 2026-05-24 13:20:00 EDT — Add DeepSeek V4 Flash to curated generation model choices
+
+- Status: Accepted
+- Context: Administrators needed another fast, lower-cost generation option in the subscription-tier model picker while preserving model-aware reasoning validation across the frontend, backend, database, and worker.
+- Decision:
+  1. Add `deepseek/deepseek-v4-flash` to the curated admin-selectable OpenRouter generation models.
+  2. Allow DeepSeek V4 Flash reasoning values `none`, `high`, and `xhigh`, matching OpenRouter's supported high/max reasoning modes while retaining `none` for no explicit reasoning request.
+  3. Keep unsupported DeepSeek reasoning values such as `low` and `medium` rejected at every validation layer before jobs reach the provider.
+- Consequences: Admins can choose DeepSeek V4 Flash as a primary or fallback tier model without a deploy-time environment change, and generation jobs remain fail-closed if model or reasoning settings drift out of the curated contract.
+
+## 2026-05-23 19:31:20 EDT — Use subscription tiers for monthly resume-writing quota and generation model selection
+
+- Status: Accepted
+- Context: The app needed Basic and Pro subscription tiers so administrators can control both how many resume-writing operations a user can run each month and which OpenRouter generation models those operations use. The previous non-admin full-regeneration cap controlled only one operation type and could not express tiered access or model policy.
+- Decision:
+  1. Add durable `basic` and `pro` subscription tiers with admin-editable monthly resume-writing limits, primary generation model IDs, and fallback generation model IDs.
+  2. Default all existing and newly invited users to Basic, while allowing admins to move individual users between Basic and Pro.
+  3. Count initial generation, full regeneration, and single-section regeneration against the same per-user UTC calendar-month quota.
+  4. Reserve quota atomically before enqueueing worker jobs and release the reservation if enqueueing fails.
+  5. Pass tier-selected primary/fallback model IDs as hidden worker settings, persist only safe summary metadata on drafts, and keep environment generation model settings as compatibility fallback for older queued jobs.
+- Consequences: Resume-writing limits are now user-tier based instead of application-specific, admins can tune quota and model access without deploys, and model selection becomes a product-configurable policy while preserving fail-closed worker behavior and older job compatibility.
+
 ## 2026-05-16 17:42:00 EDT — Treat resume page length as a source-aware content target
 
 - Status: Accepted

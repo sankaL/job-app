@@ -38,6 +38,13 @@ root_logger = logging.getLogger()
 if root_logger.level > logging.INFO:
     root_logger.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
+
+OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS: dict[str, set[str]] = {
+    "google/gemini-3-flash-preview": {"none", "low", "medium", "high"},
+    "openai/gpt-5.4-mini": {"none", "low", "medium", "high", "xhigh"},
+    "deepseek/deepseek-v4-flash": {"none", "high", "xhigh"},
+    "google/gemini-3.5-flash": {"none", "low", "medium", "high"},
+}
 logger.setLevel(logging.INFO)
 
 CALLBACK_REQUEST_TIMEOUT_SECONDS = 5.0
@@ -145,6 +152,99 @@ class WorkerSettingsEnv(BaseSettings):
         return self
 
 
+def _resolve_generation_models(
+    generation_settings: dict[str, Any],
+    settings: WorkerSettingsEnv,
+) -> tuple[str, str]:
+    has_tier_primary = "_generation_model" in generation_settings
+    has_tier_fallback = "_generation_fallback_model" in generation_settings
+    primary_value = generation_settings.get("_generation_model") if has_tier_primary else settings.generation_agent_model
+    fallback_value = (
+        generation_settings.get("_generation_fallback_model")
+        if has_tier_fallback
+        else settings.generation_agent_fallback_model
+    )
+    primary_model = str(primary_value or "").strip()
+    fallback_model = str(fallback_value or "").strip()
+    if not primary_model:
+        if has_tier_primary:
+            raise RuntimeError("Tier generation model is blank.")
+        raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
+    if not fallback_model:
+        if has_tier_fallback:
+            raise RuntimeError("Tier fallback generation model is blank.")
+        raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
+    if primary_model == fallback_model:
+        raise RuntimeError("Generation fallback model must differ from generation model.")
+    if has_tier_primary and primary_model not in OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS:
+        raise RuntimeError("Tier generation model is not supported.")
+    if has_tier_fallback and fallback_model not in OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS:
+        raise RuntimeError("Tier fallback generation model is not supported.")
+    return primary_model, fallback_model
+
+
+def _resolve_generation_reasoning_efforts(
+    generation_settings: dict[str, Any],
+    settings: WorkerSettingsEnv,
+) -> tuple[str, str]:
+    primary_reasoning = str(
+        generation_settings.get(
+            "_generation_reasoning_effort",
+            settings.generation_agent_reasoning_effort,
+        )
+        or "none"
+    ).strip().lower()
+    fallback_reasoning = str(
+        generation_settings.get(
+            "_generation_fallback_reasoning_effort",
+            primary_reasoning,
+        )
+        or "none"
+    ).strip().lower()
+    allowed = {"none", "low", "medium", "high", "xhigh"}
+    if primary_reasoning not in allowed:
+        raise RuntimeError("Tier generation reasoning effort is invalid.")
+    if fallback_reasoning not in allowed:
+        raise RuntimeError("Tier fallback generation reasoning effort is invalid.")
+    primary_model = str(generation_settings.get("_generation_model") or "").strip()
+    fallback_model = str(generation_settings.get("_generation_fallback_model") or "").strip()
+    if primary_model:
+        model_efforts = OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS.get(primary_model)
+        if model_efforts is None or primary_reasoning not in model_efforts:
+            raise RuntimeError("Tier generation reasoning effort is not supported by the generation model.")
+    if fallback_model:
+        fallback_efforts = OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS.get(fallback_model)
+        if fallback_efforts is None or fallback_reasoning not in fallback_efforts:
+            raise RuntimeError("Tier fallback reasoning effort is not supported by the fallback generation model.")
+    return primary_reasoning, fallback_reasoning
+
+
+def _stored_generation_settings(
+    generation_settings: dict[str, Any],
+    *,
+    model_used: Optional[str] = None,
+) -> dict[str, Any]:
+    stored = {
+        key: value
+        for key, value in generation_settings.items()
+        if key
+        not in {
+            "_generation_model",
+            "_generation_reasoning_effort",
+            "_generation_fallback_model",
+            "_generation_fallback_reasoning_effort",
+        }
+    }
+    if model_used is not None:
+        stored["model_used"] = model_used
+    return stored
+
+
+def _quota_period_start(generation_settings: dict[str, Any]) -> Optional[str]:
+    value = str(generation_settings.get("quota_period_start") or "").strip()
+    return value or None
+
+
 class JobProgress(BaseModel):
     job_id: str
     workflow_kind: str
@@ -155,6 +255,7 @@ class JobProgress(BaseModel):
     updated_at: str
     completed_at: Optional[str] = None
     terminal_error_code: Optional[str] = None
+    quota_period_start: Optional[str] = None
 
 
 class PageContext(BaseModel):
@@ -291,6 +392,7 @@ def build_generation_failure_payload(
     terminal_error_code: str,
     failure_details: Optional[dict[str, Any]] = None,
     validation_errors: Optional[list[Any]] = None,
+    quota_period_start: Optional[str] = None,
 ) -> dict[str, Any]:
     normalized_details = dict(failure_details or {})
     if validation_errors:
@@ -302,7 +404,7 @@ def build_generation_failure_payload(
         if normalized:
             normalized_details["validation_errors"] = normalized
 
-    return {
+    payload = {
         "application_id": application_id,
         "user_id": user_id,
         "job_id": job_id,
@@ -313,6 +415,9 @@ def build_generation_failure_payload(
             "failure_details": normalized_details or None,
         },
     }
+    if quota_period_start:
+        payload["quota_period_start"] = quota_period_start
+    return payload
 
 
 def build_resume_judge_success_payload(
@@ -529,6 +634,7 @@ def build_progress(
     created_at: Optional[str] = None,
     completed_at: Optional[str] = None,
     terminal_error_code: Optional[str] = None,
+    quota_period_start: Optional[str] = None,
 ) -> JobProgress:
     return JobProgress(
         job_id=job_id,
@@ -540,6 +646,7 @@ def build_progress(
         updated_at=now_iso(),
         completed_at=completed_at,
         terminal_error_code=terminal_error_code,
+        quota_period_start=quota_period_start,
     )
 
 
@@ -867,6 +974,7 @@ async def set_progress(
     percent_complete: int,
     completed_at: Optional[str] = None,
     terminal_error_code: Optional[str] = None,
+    quota_period_start: Optional[str] = None,
 ) -> JobProgress:
     existing = await writer.get(application_id)
     if existing is not None and existing.job_id != job_id:
@@ -880,6 +988,7 @@ async def set_progress(
         created_at=existing.created_at if existing and existing.job_id == job_id else None,
         completed_at=completed_at,
         terminal_error_code=terminal_error_code,
+        quota_period_start=quota_period_start or (existing.quota_period_start if existing is not None else None),
     )
     await writer.set(application_id, progress)
     return progress
@@ -1216,6 +1325,8 @@ async def _validate_generated_sections_with_repair(
     attempt_diagnostics: list[dict[str, Any]],
     api_key: str,
     base_url: str,
+    reasoning_effort: str = "none",
+    fallback_reasoning_effort: str = "none",
     repair_deadline: float,
     on_progress,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], Optional[dict[str, Any]]]:
@@ -1247,6 +1358,8 @@ async def _validate_generated_sections_with_repair(
         base_url=base_url,
         timeout=remaining_timeout_seconds,
         aggressiveness=aggressiveness,
+        reasoning_effort=reasoning_effort,
+        fallback_reasoning_effort=fallback_reasoning_effort,
     )
     combined_attempts = [*attempt_diagnostics, *_sanitize_attempts(repair_attempts)]
     if repair_error is not None or repaired_payload is None:
@@ -1304,6 +1417,8 @@ async def _validate_regenerated_section_with_repair(
     attempt_diagnostics: list[dict[str, Any]],
     api_key: str,
     base_url: str,
+    reasoning_effort: str = "none",
+    fallback_reasoning_effort: str = "none",
     repair_deadline: float,
     on_progress,
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], Optional[dict[str, Any]]]:
@@ -1336,6 +1451,8 @@ async def _validate_regenerated_section_with_repair(
         base_url=base_url,
         timeout=remaining_timeout_seconds,
         aggressiveness=aggressiveness,
+        reasoning_effort=reasoning_effort,
+        fallback_reasoning_effort=fallback_reasoning_effort,
     )
     combined_attempts = [*attempt_diagnostics, *_sanitize_attempts(repair_attempts)]
     if repair_error is not None or repaired_payload is None:
@@ -1398,7 +1515,11 @@ async def run_generation_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    stored_generation_settings = dict(generation_settings)
+    generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings)
+    generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts(
+        generation_settings,
+        settings,
+    )
     public_generation_settings = {
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
@@ -1406,10 +1527,6 @@ async def run_generation_job(
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-    if not settings.generation_agent_model:
-        raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
-    if not settings.generation_agent_fallback_model:
-        raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
 
     async def on_generation_progress(percent: int, message: str) -> None:
         await set_progress(
@@ -1430,8 +1547,8 @@ async def run_generation_job(
             application_id=application_id,
             user_id=user_id,
             job_id=job_id,
-            model=settings.generation_agent_model,
-            fallback_model=settings.generation_agent_fallback_model,
+            model=generation_model,
+            fallback_model=generation_fallback_model,
             section_count=len(section_preferences),
             job_description_chars=len(job_description),
             base_resume_chars=len(base_resume_content),
@@ -1459,12 +1576,13 @@ async def run_generation_job(
                 job_description=job_description,
                 section_preferences=section_preferences,
                 generation_settings={**public_generation_settings, "_operation": "generation"},
-                model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                model=generation_model,
+                fallback_model=generation_fallback_model,
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
                 on_progress=on_generation_progress,
-                reasoning_effort=settings.generation_agent_reasoning_effort,
+                reasoning_effort=generation_reasoning_effort,
+                fallback_reasoning_effort=generation_fallback_reasoning_effort,
             ),
             timeout=FULL_GENERATION_MAX_TIMEOUT_SECONDS,
         )
@@ -1503,12 +1621,14 @@ async def run_generation_job(
             prompt=gen_result["prompt"],
             section_ids=gen_result["section_ids"],
             operation=gen_result["operation"],
-            model=settings.generation_agent_model,
-            fallback_model=settings.generation_agent_fallback_model,
+            model=generation_model,
+            fallback_model=generation_fallback_model,
             model_used=gen_result["model_used"],
             attempt_diagnostics=attempt_diagnostics,
             api_key=settings.openrouter_api_key,
             base_url=settings.openrouter_base_url,
+            reasoning_effort=generation_reasoning_effort,
+            fallback_reasoning_effort=generation_fallback_reasoning_effort,
             repair_deadline=job_started_at + FULL_GENERATION_MAX_TIMEOUT_SECONDS,
             on_progress=on_generation_progress,
         )
@@ -1543,6 +1663,7 @@ async def run_generation_job(
                 percent_complete=100,
                 completed_at=now_iso(),
                 terminal_error_code="validation_failed",
+                quota_period_start=_quota_period_start(generation_settings),
             )
             await post_callback_best_effort(
                 callback,
@@ -1554,6 +1675,7 @@ async def run_generation_job(
                     terminal_error_code="validation_failed",
                     failure_details=failure_details,
                     validation_errors=validation_result["errors"],
+                    quota_period_start=_quota_period_start(generation_settings),
                 ),
                 path=GENERATION_CALLBACK_PATH,
                 app_id=application_id,
@@ -1601,7 +1723,10 @@ async def run_generation_job(
             user_id=user_id,
             job_id=job_id,
             content_md=content,
-            generation_params=stored_generation_settings,
+            generation_params=_stored_generation_settings(
+                generation_settings,
+                model_used=str(gen_result.get("model_used") or ""),
+            ),
             sections_snapshot={
                 "enabled_sections": [s["name"] for s in enabled_ordered],
                 "section_order": [s["name"] for s in enabled_ordered],
@@ -1637,8 +1762,8 @@ async def run_generation_job(
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                primary_model=generation_model,
+                fallback_model=generation_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -1663,6 +1788,7 @@ async def run_generation_job(
             percent_complete=100,
             completed_at=now_iso(),
             terminal_error_code="generation_timeout",
+            quota_period_start=_quota_period_start(generation_settings),
         )
         await post_callback_best_effort(
             callback,
@@ -1673,6 +1799,7 @@ async def run_generation_job(
                 message="Resume generation timed out. The LLM provider may be slow. Please try again.",
                 terminal_error_code="generation_timeout",
                 failure_details=failure_details,
+                quota_period_start=_quota_period_start(generation_settings),
             ),
             path=GENERATION_CALLBACK_PATH,
             app_id=application_id,
@@ -1686,8 +1813,8 @@ async def run_generation_job(
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                primary_model=generation_model,
+                fallback_model=generation_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -1714,6 +1841,7 @@ async def run_generation_job(
             percent_complete=100,
             completed_at=now_iso(),
             terminal_error_code="generation_error",
+            quota_period_start=_quota_period_start(generation_settings),
         )
         await post_callback_best_effort(
             callback,
@@ -1724,6 +1852,7 @@ async def run_generation_job(
                 message="Resume generation failed unexpectedly.",
                 terminal_error_code="generation_error",
                 failure_details=failure_details,
+                quota_period_start=_quota_period_start(generation_settings),
             ),
             path=GENERATION_CALLBACK_PATH,
             app_id=application_id,
@@ -1758,7 +1887,11 @@ async def run_regeneration_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    stored_generation_settings = dict(generation_settings)
+    generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings)
+    generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts(
+        generation_settings,
+        settings,
+    )
     public_generation_settings = {
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
@@ -1766,10 +1899,6 @@ async def run_regeneration_job(
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-    if not settings.generation_agent_model:
-        raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
-    if not settings.generation_agent_fallback_model:
-        raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
 
     is_full_regen = regeneration_target == "full"
     workflow_kind = "regeneration_full" if is_full_regen else "regeneration_section"
@@ -1786,8 +1915,8 @@ async def run_regeneration_job(
             user_id=user_id,
             job_id=job_id,
             regeneration_target=regeneration_target,
-            model=settings.generation_agent_model,
-            fallback_model=settings.generation_agent_fallback_model,
+            model=generation_model,
+            fallback_model=generation_fallback_model,
             job_description_chars=len(job_description),
             base_resume_chars=len(base_resume_content),
         )
@@ -1822,12 +1951,13 @@ async def run_regeneration_job(
                     job_description=job_description,
                     section_preferences=section_preferences,
                     generation_settings={**public_generation_settings, "_operation": "regeneration_full"},
-                    model=settings.generation_agent_model,
-                    fallback_model=settings.generation_agent_fallback_model,
+                    model=generation_model,
+                    fallback_model=generation_fallback_model,
                     api_key=settings.openrouter_api_key,
                     base_url=settings.openrouter_base_url,
                     on_progress=on_regen_progress,
-                    reasoning_effort=settings.generation_agent_reasoning_effort,
+                    reasoning_effort=generation_reasoning_effort,
+                    fallback_reasoning_effort=generation_fallback_reasoning_effort,
                 ),
                 timeout=FULL_GENERATION_MAX_TIMEOUT_SECONDS,
             )
@@ -1863,12 +1993,14 @@ async def run_regeneration_job(
                 prompt=gen_result["prompt"],
                 section_ids=gen_result["section_ids"],
                 operation=gen_result["operation"],
-                model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                model=generation_model,
+                fallback_model=generation_fallback_model,
                 model_used=gen_result["model_used"],
                 attempt_diagnostics=attempt_diagnostics,
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
+                reasoning_effort=generation_reasoning_effort,
+                fallback_reasoning_effort=generation_fallback_reasoning_effort,
                 repair_deadline=job_started_at + FULL_GENERATION_MAX_TIMEOUT_SECONDS,
                 on_progress=on_regen_progress,
             )
@@ -1903,6 +2035,7 @@ async def run_regeneration_job(
                     percent_complete=100,
                     completed_at=now_iso(),
                     terminal_error_code="validation_failed",
+                    quota_period_start=_quota_period_start(generation_settings),
                 )
                 await post_callback_best_effort(
                     callback,
@@ -1914,6 +2047,7 @@ async def run_regeneration_job(
                         terminal_error_code="validation_failed",
                         failure_details=failure_details,
                         validation_errors=validation_result["errors"],
+                        quota_period_start=_quota_period_start(generation_settings),
                     ),
                     path=REGENERATION_CALLBACK_PATH,
                     app_id=application_id,
@@ -1984,12 +2118,13 @@ async def run_regeneration_job(
                     company_name=company_name,
                     job_description=job_description,
                     generation_settings=public_generation_settings,
-                    model=settings.generation_agent_model,
-                    fallback_model=settings.generation_agent_fallback_model,
+                    model=generation_model,
+                    fallback_model=generation_fallback_model,
                     api_key=settings.openrouter_api_key,
                     base_url=settings.openrouter_base_url,
                     on_progress=on_section_regen_progress,
-                    reasoning_effort=settings.generation_agent_reasoning_effort,
+                    reasoning_effort=generation_reasoning_effort,
+                    fallback_reasoning_effort=generation_fallback_reasoning_effort,
                 ),
                 timeout=SECTION_REGENERATION_TIMEOUT_SECONDS,
             )
@@ -2023,12 +2158,14 @@ async def run_regeneration_job(
                 prompt=regenerated_section["prompt"],
                 section_name=section_name,
                 operation=regenerated_section["operation"],
-                model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                model=generation_model,
+                fallback_model=generation_fallback_model,
                 model_used=regenerated_section["model_used"],
                 attempt_diagnostics=attempt_diagnostics,
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
+                reasoning_effort=generation_reasoning_effort,
+                fallback_reasoning_effort=generation_fallback_reasoning_effort,
                 repair_deadline=job_started_at + SECTION_REGENERATION_TIMEOUT_SECONDS,
                 on_progress=on_section_regen_progress,
             )
@@ -2063,6 +2200,7 @@ async def run_regeneration_job(
                     percent_complete=100,
                     completed_at=now_iso(),
                     terminal_error_code="validation_failed",
+                    quota_period_start=_quota_period_start(generation_settings),
                 )
                 await post_callback_best_effort(
                     callback,
@@ -2074,6 +2212,7 @@ async def run_regeneration_job(
                         terminal_error_code="validation_failed",
                         failure_details=failure_details,
                         validation_errors=validation_result["errors"],
+                        quota_period_start=_quota_period_start(generation_settings),
                     ),
                     path=REGENERATION_CALLBACK_PATH,
                     app_id=application_id,
@@ -2117,7 +2256,12 @@ async def run_regeneration_job(
             user_id=user_id,
             job_id=job_id,
             content_md=content,
-            generation_params=stored_generation_settings,
+            generation_params=_stored_generation_settings(
+                generation_settings,
+                model_used=str(
+                    (gen_result if is_full_regen else regenerated_section).get("model_used") or ""
+                ),
+            ),
             sections_snapshot=sections_snapshot,
         )
         await set_generation_result_best_effort(
@@ -2150,8 +2294,8 @@ async def run_regeneration_job(
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                primary_model=generation_model,
+                fallback_model=generation_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -2176,6 +2320,7 @@ async def run_regeneration_job(
             percent_complete=100,
             completed_at=now_iso(),
             terminal_error_code="regeneration_timeout",
+            quota_period_start=_quota_period_start(generation_settings),
         )
         await post_callback_best_effort(
             callback,
@@ -2186,6 +2331,7 @@ async def run_regeneration_job(
                 message="Regeneration timed out. The LLM provider may be slow. Please try again.",
                 terminal_error_code="regeneration_timeout",
                 failure_details=failure_details,
+                quota_period_start=_quota_period_start(generation_settings),
             ),
             path=REGENERATION_CALLBACK_PATH,
             app_id=application_id,
@@ -2199,8 +2345,8 @@ async def run_regeneration_job(
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.generation_agent_model,
-                fallback_model=settings.generation_agent_fallback_model,
+                primary_model=generation_model,
+                fallback_model=generation_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -2227,6 +2373,7 @@ async def run_regeneration_job(
             percent_complete=100,
             completed_at=now_iso(),
             terminal_error_code="regeneration_error",
+            quota_period_start=_quota_period_start(generation_settings),
         )
         await post_callback_best_effort(
             callback,
@@ -2237,6 +2384,7 @@ async def run_regeneration_job(
                 message="Regeneration failed unexpectedly.",
                 terminal_error_code="regeneration_error",
                 failure_details=failure_details,
+                quota_period_start=_quota_period_start(generation_settings),
             ),
             path=REGENERATION_CALLBACK_PATH,
             app_id=application_id,
