@@ -369,8 +369,9 @@ def build_generation_success_payload(
     content_md: str,
     generation_params: dict[str, Any],
     sections_snapshot: dict[str, Any],
+    regeneration_target: Optional[str] = None,
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "application_id": application_id,
         "user_id": user_id,
         "job_id": job_id,
@@ -381,6 +382,9 @@ def build_generation_success_payload(
             "sections_snapshot": sections_snapshot,
         },
     }
+    if regeneration_target is not None:
+        payload["regeneration_target"] = regeneration_target
+    return payload
 
 
 def build_generation_failure_payload(
@@ -393,6 +397,7 @@ def build_generation_failure_payload(
     failure_details: Optional[dict[str, Any]] = None,
     validation_errors: Optional[list[Any]] = None,
     quota_period_start: Optional[str] = None,
+    regeneration_target: Optional[str] = None,
 ) -> dict[str, Any]:
     normalized_details = dict(failure_details or {})
     if validation_errors:
@@ -404,7 +409,7 @@ def build_generation_failure_payload(
         if normalized:
             normalized_details["validation_errors"] = normalized
 
-    payload = {
+    payload: dict[str, Any] = {
         "application_id": application_id,
         "user_id": user_id,
         "job_id": job_id,
@@ -417,6 +422,8 @@ def build_generation_failure_payload(
     }
     if quota_period_start:
         payload["quota_period_start"] = quota_period_start
+    if regeneration_target is not None:
+        payload["regeneration_target"] = regeneration_target
     return payload
 
 
@@ -1897,6 +1904,15 @@ async def run_regeneration_job(
     }
     attempt_diagnostics: list[dict[str, Any]] = []
 
+    enabled_ordered = sorted(
+        [s for s in section_preferences if s.get("enabled")],
+        key=lambda s: s.get("order", 0),
+    )
+    sections_snapshot = {
+        "enabled_sections": [s["name"] for s in enabled_ordered],
+        "section_order": [s["name"] for s in enabled_ordered],
+    }
+
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
 
@@ -1905,6 +1921,33 @@ async def run_regeneration_job(
     workflow_state = "regenerating_full" if is_full_regen else "regenerating_section"
     section_name = None if is_full_regen else regeneration_target
     instructions = None if is_full_regen else regeneration_instructions
+    quota_period_start = _quota_period_start(generation_settings)
+
+    async def _post_regeneration_failure_callback(
+        *,
+        message: str,
+        terminal_error_code: str,
+        failure_details: Optional[dict[str, Any]] = None,
+        validation_errors: Optional[list[Any]] = None,
+    ) -> None:
+        await post_callback_best_effort(
+            callback,
+            build_generation_failure_payload(
+                application_id=application_id,
+                user_id=user_id,
+                job_id=job_id,
+                message=message,
+                terminal_error_code=terminal_error_code,
+                failure_details=failure_details,
+                validation_errors=validation_errors,
+                quota_period_start=quota_period_start,
+                regeneration_target=regeneration_target,
+            ),
+            path=REGENERATION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="regeneration failed",
+        )
 
     try:
         job_started_at = perf_counter()
@@ -2035,24 +2078,13 @@ async def run_regeneration_job(
                     percent_complete=100,
                     completed_at=now_iso(),
                     terminal_error_code="validation_failed",
-                    quota_period_start=_quota_period_start(generation_settings),
+                    quota_period_start=quota_period_start,
                 )
-                await post_callback_best_effort(
-                    callback,
-                    build_generation_failure_payload(
-                        application_id=application_id,
-                        user_id=user_id,
-                        job_id=job_id,
-                        message="Regeneration validation failed.",
-                        terminal_error_code="validation_failed",
-                        failure_details=failure_details,
-                        validation_errors=validation_result["errors"],
-                        quota_period_start=_quota_period_start(generation_settings),
-                    ),
-                    path=REGENERATION_CALLBACK_PATH,
-                    app_id=application_id,
-                    job_id=job_id,
-                    callback_stage="regeneration failed",
+                await _post_regeneration_failure_callback(
+                    message="Regeneration validation failed.",
+                    terminal_error_code="validation_failed",
+                    failure_details=failure_details,
+                    validation_errors=validation_result["errors"],
                 )
                 return
 
@@ -2071,15 +2103,6 @@ async def run_regeneration_job(
             )
             if not await is_current_job(writer, application_id, job_id):
                 return
-
-            enabled_ordered = sorted(
-                [s for s in section_preferences if s.get("enabled")],
-                key=lambda s: s.get("order", 0),
-            )
-            sections_snapshot = {
-                "enabled_sections": [s["name"] for s in enabled_ordered],
-                "section_order": [s["name"] for s in enabled_ordered],
-            }
         else:
             if not section_name or not instructions or not current_draft_content:
                 raise ValueError(
@@ -2200,24 +2223,13 @@ async def run_regeneration_job(
                     percent_complete=100,
                     completed_at=now_iso(),
                     terminal_error_code="validation_failed",
-                    quota_period_start=_quota_period_start(generation_settings),
+                    quota_period_start=quota_period_start,
                 )
-                await post_callback_best_effort(
-                    callback,
-                    build_generation_failure_payload(
-                        application_id=application_id,
-                        user_id=user_id,
-                        job_id=job_id,
-                        message=f"Validation failed for regenerated {section_name} section.",
-                        terminal_error_code="validation_failed",
-                        failure_details=failure_details,
-                        validation_errors=validation_result["errors"],
-                        quota_period_start=_quota_period_start(generation_settings),
-                    ),
-                    path=REGENERATION_CALLBACK_PATH,
-                    app_id=application_id,
-                    job_id=job_id,
-                    callback_stage="regeneration failed",
+                await _post_regeneration_failure_callback(
+                    message=f"Validation failed for regenerated {section_name} section.",
+                    terminal_error_code="validation_failed",
+                    failure_details=failure_details,
+                    validation_errors=validation_result["errors"],
                 )
                 return
 
@@ -2236,10 +2248,6 @@ async def run_regeneration_job(
             content = _replace_section_in_draft(
                 current_draft_content, section_name, regenerated_section["content"], display_name
             )
-            sections_snapshot = {
-                "enabled_sections": [section_name],
-                "section_order": [section_name],
-            }
 
         await set_progress(
             writer,
@@ -2263,6 +2271,7 @@ async def run_regeneration_job(
                 ),
             ),
             sections_snapshot=sections_snapshot,
+            regeneration_target=regeneration_target,
         )
         await set_generation_result_best_effort(
             writer,
@@ -2320,23 +2329,12 @@ async def run_regeneration_job(
             percent_complete=100,
             completed_at=now_iso(),
             terminal_error_code="regeneration_timeout",
-            quota_period_start=_quota_period_start(generation_settings),
+            quota_period_start=quota_period_start,
         )
-        await post_callback_best_effort(
-            callback,
-            build_generation_failure_payload(
-                application_id=application_id,
-                user_id=user_id,
-                job_id=job_id,
-                message="Regeneration timed out. The LLM provider may be slow. Please try again.",
-                terminal_error_code="regeneration_timeout",
-                failure_details=failure_details,
-                quota_period_start=_quota_period_start(generation_settings),
-            ),
-            path=REGENERATION_CALLBACK_PATH,
-            app_id=application_id,
-            job_id=job_id,
-            callback_stage="regeneration failed",
+        await _post_regeneration_failure_callback(
+            message="Regeneration timed out. The LLM provider may be slow. Please try again.",
+            terminal_error_code="regeneration_timeout",
+            failure_details=failure_details,
         )
         raise
     except Exception as error:
@@ -2373,23 +2371,12 @@ async def run_regeneration_job(
             percent_complete=100,
             completed_at=now_iso(),
             terminal_error_code="regeneration_error",
-            quota_period_start=_quota_period_start(generation_settings),
+            quota_period_start=quota_period_start,
         )
-        await post_callback_best_effort(
-            callback,
-            build_generation_failure_payload(
-                application_id=application_id,
-                user_id=user_id,
-                job_id=job_id,
-                message="Regeneration failed unexpectedly.",
-                terminal_error_code="regeneration_error",
-                failure_details=failure_details,
-                quota_period_start=_quota_period_start(generation_settings),
-            ),
-            path=REGENERATION_CALLBACK_PATH,
-            app_id=application_id,
-            job_id=job_id,
-            callback_stage="regeneration failed",
+        await _post_regeneration_failure_callback(
+            message="Regeneration failed unexpectedly.",
+            terminal_error_code="regeneration_error",
+            failure_details=failure_details,
         )
         raise
 

@@ -53,6 +53,13 @@ def test_reasoning_error_detection_includes_mandatory_reasoning_rejections():
     )
 
 
+def test_system_prompt_preserves_recommendations_for_borderline_passes():
+    prompt = resume_judge._build_system_prompt()
+
+    assert "below a local final score of 90.0" in prompt
+    assert "set regeneration_instructions to null" not in prompt
+
+
 def test_finalize_response_computes_weighted_score_and_priority_order():
     result = resume_judge._finalize_response(
         response=build_response(
@@ -77,11 +84,11 @@ def test_finalize_response_clears_regeneration_fields_for_pass():
         score_summary="Strong draft.",
         dimension_scores={
             "role_alignment": JudgeDimensionResponse(score=9, notes="Aligned."),
-            "specificity_and_concreteness": JudgeDimensionResponse(score=8, notes="Specific."),
-            "voice_and_human_quality": JudgeDimensionResponse(score=8, notes="Natural."),
+            "specificity_and_concreteness": JudgeDimensionResponse(score=9, notes="Specific."),
+            "voice_and_human_quality": JudgeDimensionResponse(score=9, notes="Natural."),
             "grounding_integrity": JudgeDimensionResponse(score=9, notes="Grounded."),
             "ats_safety_and_formatting": JudgeDimensionResponse(score=9, notes="ATS-safe."),
-            "length_and_density": JudgeDimensionResponse(score=8, notes="Right length."),
+            "length_and_density": JudgeDimensionResponse(score=9, notes="Right length."),
         },
         regeneration_instructions="This should be dropped.",
         regeneration_priority_dimensions=["voice_and_human_quality"],
@@ -95,8 +102,40 @@ def test_finalize_response_clears_regeneration_fields_for_pass():
     )
 
     assert result["verdict"] == "pass"
+    assert result["final_score"] == 90.0
     assert result["regeneration_instructions"] is None
     assert result["regeneration_priority_dimensions"] == []
+
+
+def test_finalize_response_keeps_regeneration_fields_for_borderline_pass():
+    borderline_passing = JudgeModelResponse(
+        score_summary="Borderline strong draft.",
+        dimension_scores={
+            "role_alignment": JudgeDimensionResponse(score=9, notes="Aligned."),
+            "specificity_and_concreteness": JudgeDimensionResponse(score=8, notes="Specific."),
+            "voice_and_human_quality": JudgeDimensionResponse(score=8, notes="Natural."),
+            "grounding_integrity": JudgeDimensionResponse(score=9, notes="Grounded."),
+            "ats_safety_and_formatting": JudgeDimensionResponse(score=9, notes="ATS-safe."),
+            "length_and_density": JudgeDimensionResponse(score=8, notes="Right length."),
+        },
+        regeneration_instructions="Keep and show these recommendations.",
+        regeneration_priority_dimensions=["voice_and_human_quality", "specificity_and_concreteness"],
+        evaluator_notes="Looks strong but has refine options.",
+    )
+
+    result = resume_judge._finalize_response(
+        response=borderline_passing,
+        evaluated_draft_updated_at="2026-04-07T12:10:00+00:00",
+        scored_at="2026-04-07T12:12:00+00:00",
+    )
+
+    assert result["verdict"] == "pass"
+    assert result["final_score"] == 85.5
+    assert result["regeneration_instructions"] == "Keep and show these recommendations."
+    assert result["regeneration_priority_dimensions"] == [
+        "specificity_and_concreteness",
+        "voice_and_human_quality",
+    ]
 
 
 def test_finalize_response_caps_under_target_length_score_and_prioritizes_length():
@@ -130,6 +169,41 @@ def test_finalize_response_caps_under_target_length_score_and_prioritizes_length
     assert result["verdict"] == "warn"
     assert result["dimension_scores"]["length_and_density"]["score"] == 4
     assert result["regeneration_priority_dimensions"][0] == "length_and_density"
+    assert "Expand the resume toward the selected target length" in result["regeneration_instructions"]
+
+
+def test_finalize_response_force_length_priority_keeps_recommendations_above_90():
+    high_scoring_short = JudgeModelResponse(
+        score_summary="Strong draft but under target length.",
+        dimension_scores={
+            "role_alignment": JudgeDimensionResponse(score=10, notes="Excellent alignment."),
+            "specificity_and_concreteness": JudgeDimensionResponse(score=10, notes="Specific."),
+            "voice_and_human_quality": JudgeDimensionResponse(score=10, notes="Natural."),
+            "grounding_integrity": JudgeDimensionResponse(score=10, notes="Grounded."),
+            "ats_safety_and_formatting": JudgeDimensionResponse(score=10, notes="ATS-safe."),
+            "length_and_density": JudgeDimensionResponse(score=10, notes="Right length."),
+        },
+        regeneration_instructions=None,
+        regeneration_priority_dimensions=[],
+        evaluator_notes="Strong but short.",
+    )
+
+    result = resume_judge._finalize_response(
+        response=high_scoring_short,
+        evaluated_draft_updated_at="2026-04-07T12:10:00+00:00",
+        scored_at="2026-04-07T12:12:00+00:00",
+        deterministic_observations={
+            "word_count": 440,
+            "target_range_words": {"min": 900, "max": 1400},
+            "outside_target_range": True,
+            "source_limited_length": False,
+        },
+    )
+
+    assert result["final_score"] == 97.0
+    assert result["verdict"] == "warn"
+    assert result["regeneration_priority_dimensions"][0] == "length_and_density"
+    assert result["regeneration_instructions"] is not None
     assert "Expand the resume toward the selected target length" in result["regeneration_instructions"]
 
 

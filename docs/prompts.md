@@ -87,7 +87,7 @@ The system prompt defines Resume Judge as an evaluator only, never a writer, and
 - concise evidence-based notes
 - no local arithmetic in the model output
 - no `final_score`, `display_score`, or `verdict` computed by the LLM
-- `regeneration_instructions = null` and `regeneration_priority_dimensions = []` when the draft clearly passes
+- regeneration guidance preserved for borderline passing drafts that still have meaningful refinement opportunities, with omission reserved for clearly strong drafts that do not need follow-up guidance
 - exactly one JSON object with no prose outside JSON
 
 ### Model response contract
@@ -129,7 +129,7 @@ The application computes the final persisted result locally after parsing the mo
   - `warn = 60-79.9`
   - `fail < 60`
 - If deterministic observations show the draft is outside the selected target range, `length_and_density` is capped locally (`4` when under-target without source-limited allowance, `7` when source-limited). Under-target non-source-limited drafts are forced to at least `warn` and include `length_and_density` in regeneration priorities.
-- For `pass`, regeneration fields are cleared locally even if the model returned text.
+- For scores 90.0 and above, regeneration fields are cleared locally even if the model returned text. For scores below 90.0, the regeneration instructions and prioritized dimensions are preserved to allow refinement.
 - Priority dimensions are re-sorted locally so the weakest highest-impact dimensions appear first.
 
 ## Resume Generation Prompts
