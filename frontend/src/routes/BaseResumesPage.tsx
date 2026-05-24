@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IconButton } from "@/components/ui/icon-button";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { useToast } from "@/components/ui/toast";
 import {
   deleteBaseResume,
@@ -82,12 +83,7 @@ export function BaseResumesPage() {
         }
       />
 
-      {displayedError && (
-        <Card variant="danger" density="compact">
-          <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>Request failed</p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{displayedError}</p>
-        </Card>
-      )}
+      <ErrorBanner error={displayedError} className="mb-4" onClear={() => setError(null)} />
 
       {resumes == null ? (
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">

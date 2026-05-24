@@ -295,6 +295,12 @@ class DraftReviewFlagPayload(BaseModel):
     reason: str = "job_description_only_addition"
 
 
+GENERATION_DUPLICATE_BLOCKER_MESSAGE = (
+    "This looks like a duplicate application. Review the duplicate warning and choose "
+    "Proceed Anyway before generating."
+)
+
+
 class ApplicationService:
     def __init__(
         self,
@@ -1371,6 +1377,12 @@ class ApplicationService:
     ) -> ApplicationDetailPayload:
         record = self._require_application(user_id=user_id, application_id=application_id)
 
+        if record.internal_state == "manual_entry_required":
+            raise PermissionError("Submit manual entry before generating.")
+
+        if record.internal_state == "duplicate_review_required":
+            raise PermissionError(GENERATION_DUPLICATE_BLOCKER_MESSAGE)
+
         if record.internal_state not in ("generation_pending", "resume_ready"):
             raise PermissionError("Application is not ready for generation.")
 
@@ -1381,7 +1393,7 @@ class ApplicationService:
             return await self._route_blocked_job_data_to_manual_entry(record)
 
         if record.duplicate_resolution_status == "pending":
-            raise PermissionError("Unresolved duplicate must be resolved before generation.")
+            raise PermissionError(GENERATION_DUPLICATE_BLOCKER_MESSAGE)
 
         base_resume = self.base_resume_repository.fetch_resume(user_id, base_resume_id)
         if base_resume is None:

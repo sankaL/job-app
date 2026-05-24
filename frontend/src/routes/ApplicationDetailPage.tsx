@@ -23,6 +23,7 @@ import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { ResumeRenderPreview } from "@/components/ResumeRenderPreview";
 import { GenerationProgress, ResumeSkeleton } from "@/components/ui/generation-progress";
 import { SkeletonCard } from "@/components/ui/skeleton";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import {
   cancelExtraction,
   deleteApplication,
@@ -321,13 +322,19 @@ function getGenerationStartBlocker(
   selectedResumeId: string | null,
   baseResumeCount: number,
 ): string | null {
+  const duplicateBlocker =
+    "This looks like a duplicate application. Review the duplicate warning and choose Proceed Anyway before generating.";
   if (!detail) return "Application details are still loading.";
   if (isGenerationWorkflowActive(detail)) return "Generation is already in progress.";
+  if (detail.internal_state === "manual_entry_required") return "Submit manual entry before generating.";
+  if (detail.internal_state === "duplicate_review_required") return duplicateBlocker;
+  if (["extraction_pending", "extracting"].includes(detail.internal_state)) return "Wait until extraction finishes before generating.";
+  if (!["generation_pending", "resume_ready"].includes(detail.internal_state)) return "This application is not ready for generation yet.";
   if (!selectedResumeId) return "Select a base resume before generating.";
   if (baseResumeCount === 0) return "Create a base resume before generating.";
   if (!detail.job_title) return "Add a job title before generating.";
   if (!detail.job_description) return "Add a job description before generating.";
-  if (detail.duplicate_resolution_status === "pending") return "Resolve the duplicate warning before generating.";
+  if (detail.duplicate_resolution_status === "pending") return duplicateBlocker;
   return null;
 }
 
@@ -1743,12 +1750,7 @@ export function ApplicationDetailPage() {
   return (
     <div className="page-enter space-y-4">
       {/* Error banner */}
-      {error && (
-        <Card variant="danger" density="compact" className="p-4">
-          <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>Request failed</p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{error}</p>
-        </Card>
-      )}
+      <ErrorBanner error={error} className="mb-4" onClear={() => setError(null)} />
 
       {/* Loading skeleton */}
       {!detail ? (

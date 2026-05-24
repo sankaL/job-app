@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { AppliedToggleButton } from "@/components/AppliedToggleButton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonTable } from "@/components/ui/skeleton";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { useToast } from "@/components/ui/toast";
@@ -507,14 +508,7 @@ export function ApplicationsListPage() {
         }
       />
 
-      {displayedError && (
-        <Card variant="danger" density="compact">
-          <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>
-            Request failed
-          </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>{displayedError}</p>
-        </Card>
-      )}
+      <ErrorBanner error={displayedError} className="mb-4" onClear={() => setError(null)} />
 
       {/* Desktop filters */}
       <div className="hidden gap-3 md:grid md:grid-cols-[minmax(0,1.8fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)] xl:grid-cols-[minmax(320px,2.2fr)_240px_220px]">

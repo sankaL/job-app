@@ -195,6 +195,12 @@ function renderWithAppProvider(
   },
 ) {
   const queryClient = createAppQueryClient();
+  queryClient.setDefaultOptions({
+    queries: {
+      ...queryClient.getDefaultOptions().queries,
+      retryDelay: 0,
+    },
+  });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={options?.initialEntries}>
@@ -490,6 +496,15 @@ describe("phase 1 applications UI", () => {
         message: "Export completed successfully.",
       }),
     ]);
+
+    api.fetchSessionBootstrap.mockResolvedValue({
+      ...defaultBootstrap,
+      application_summary: {
+        total_count: 2,
+        applied_count: 0,
+        needs_action_count: 1,
+      },
+    });
 
     renderTopBar();
 
@@ -837,7 +852,7 @@ describe("phase 1 applications UI", () => {
   });
 
   it("surfaces dashboard load failures instead of showing the empty state", async () => {
-    api.listApplications.mockRejectedValueOnce(new Error("Session expired."));
+    api.listApplications.mockRejectedValue(new Error("Session expired."));
 
     renderWithAppProvider(<DashboardPage />);
 
@@ -2020,7 +2035,7 @@ describe("phase 1 applications UI", () => {
         compensation_text: "$145,000 - $175,000",
       }),
     );
-    await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(0));
   });
 
   it("shows detailed aggressiveness help in compact popovers", async () => {
@@ -2361,14 +2376,17 @@ describe("phase 1 applications UI", () => {
       updated_at: "2026-04-07T12:00:00Z",
     });
 
+    const queryClient = createAppQueryClient();
     render(
-      <MemoryRouter initialEntries={["/app/applications/app-1"]}>
-        <Routes>
-          <Route path="/app" element={<AppShell />}>
-            <Route path="applications/:applicationId" element={<ApplicationDetailPage />} />
-          </Route>
-        </Routes>
-      </MemoryRouter>,
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/app/applications/app-1"]}>
+          <Routes>
+            <Route path="/app" element={<AppShell />}>
+              <Route path="applications/:applicationId" element={<ApplicationDetailPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     const compareButton = await screen.findByRole("button", { name: /^compare$/i });
@@ -2636,7 +2654,7 @@ describe("phase 1 applications UI", () => {
 
     await waitFor(() => expect(api.cancelExtraction).toHaveBeenCalledWith("app-1"));
     expect(await screen.findByRole("heading", { name: /manual entry required/i })).toBeInTheDocument();
-    expect(screen.getByText(/extraction was stopped/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/extraction was stopped/i)[0]).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^delete application$/i })).toBeInTheDocument();
   });

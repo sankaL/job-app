@@ -1470,6 +1470,41 @@ async def test_duplicate_resolution_requires_pending_duplicate_review_state():
     assert str(exc_info.value) == "Duplicate resolution is unavailable for this application."
 
 
+@pytest.mark.asyncio
+async def test_generation_start_returns_specific_duplicate_review_blocker():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="needs_action",
+        internal_state="duplicate_review_required",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Backend Engineer",
+            "company": "Acme",
+            "job_description": "Build APIs for customers.",
+            "duplicate_resolution_status": "pending",
+        },
+    )
+
+    with pytest.raises(PermissionError) as exc_info:
+        await service.trigger_generation(
+            user_id="user-1",
+            application_id=created.id,
+            base_resume_id="resume-1",
+            target_length="1_page",
+            aggressiveness="medium",
+        )
+
+    assert str(exc_info.value) == (
+        "This looks like a duplicate application. Review the duplicate warning and choose "
+        "Proceed Anyway before generating."
+    )
+
+
 def test_applications_endpoint_requires_authentication():
     client = TestClient(app)
     response = client.get("/api/applications")
