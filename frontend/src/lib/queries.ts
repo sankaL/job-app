@@ -2,6 +2,7 @@ import { useQuery, type QueryClient } from "@tanstack/react-query";
 import {
   fetchAdminMetrics,
   fetchApplicationDetail,
+  listApplicationActivity,
   fetchApplicationProgress,
   fetchDraft,
   fetchSessionBootstrap,
@@ -26,6 +27,7 @@ export const queryKeys = {
   application: (applicationId: string) => ["application", applicationId] as const,
   applicationDraft: (applicationId: string) => ["applicationDraft", applicationId] as const,
   applicationProgress: (applicationId: string) => ["applicationProgress", applicationId] as const,
+  applicationActivity: (applicationId: string) => ["applicationActivity", applicationId] as const,
   baseResumes: ["baseResumes"] as const,
   notifications: ["notifications"] as const,
   adminMetrics: ["adminMetrics"] as const,
@@ -85,6 +87,15 @@ export function useApplicationProgressQuery(
   });
 }
 
+export function useApplicationActivityQuery(applicationId: string | undefined, enabled = false) {
+  return useQuery({
+    queryKey: queryKeys.applicationActivity(applicationId ?? ""),
+    queryFn: () => listApplicationActivity(applicationId!),
+    staleTime: THIRTY_SECONDS_MS,
+    enabled: enabled && Boolean(applicationId),
+  });
+}
+
 export function useBaseResumesQuery(enabled = true) {
   return useQuery({
     queryKey: queryKeys.baseResumes,
@@ -137,6 +148,9 @@ export async function invalidateApplicationQueries(queryClient: QueryClient, app
     queryClient.invalidateQueries({ queryKey: queryKeys.applications }),
     applicationId
       ? queryClient.invalidateQueries({ queryKey: queryKeys.application(applicationId) })
+      : Promise.resolve(),
+    applicationId
+      ? queryClient.invalidateQueries({ queryKey: queryKeys.applicationActivity(applicationId) })
       : Promise.resolve(),
   ]);
 }

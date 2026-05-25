@@ -2,10 +2,11 @@ import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
-import { ChevronDown, CircleStop, FileText, Gauge, MessageSquare, Ruler, Sparkles, Trash2 } from "lucide-react";
+import { ChevronDown, CircleStop, FileText, Gauge, History, MessageSquare, Ruler, Sparkles, Trash2 } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { ApplicationActivityPanel } from "@/components/applications/ApplicationActivityPanel";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
@@ -409,6 +410,7 @@ export function ApplicationDetailPage() {
   const [showAppliedConfirm, setShowAppliedConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelExtractionConfirm, setShowCancelExtractionConfirm] = useState(false);
+  const [activityPanelOpen, setActivityPanelOpen] = useState(false);
   const [showResumeJudgeDialog, setShowResumeJudgeDialog] = useState(false);
   const [expandedResumeJudgeDimension, setExpandedResumeJudgeDimension] = useState<string | null>(null);
   const [isTriggeringResumeJudge, setIsTriggeringResumeJudge] = useState(false);
@@ -602,6 +604,10 @@ export function ApplicationDetailPage() {
   }
 
   useEffect(() => {
+    setActivityPanelOpen(false);
+  }, [applicationId]);
+
+  useEffect(() => {
     if (!showResumeJudgeDialog) {
       setExpandedResumeJudgeDimension(null);
       return;
@@ -706,6 +712,7 @@ export function ApplicationDetailPage() {
           return;
         }
         applyDetailState(response, { refreshShell: true });
+        refreshActivityTimeline();
         if (EXTRACTION_POLL_STATES.includes(response.internal_state) && response.failure_reason === null) {
           applyTerminalExtractionFallback(nextProgress);
           if (isTerminalExtractionSuccess(nextProgress)) {
@@ -797,6 +804,7 @@ export function ApplicationDetailPage() {
           return;
         }
         applyDetailState(response, { refreshShell: true });
+        refreshActivityTimeline();
         if (nextProgress.state === "resume_ready" && !nextProgress.terminal_error_code) {
           await invalidateApplicationDraftQueries(queryClient, applicationId);
         }
@@ -876,6 +884,7 @@ export function ApplicationDetailPage() {
         .then((response) => {
           setDetail(response);
           setNotesState("saved");
+          refreshActivityTimeline();
         })
         .catch((err: Error) => { setError(err.message); setNotesState("idle"); });
     }, 500);
@@ -903,6 +912,7 @@ export function ApplicationDetailPage() {
     try {
       const response = await patchApplication(activeApplicationId, { applied });
       applyDetailState(response, { refreshShell: true });
+      refreshActivityTimeline();
       toast(applied ? "Marked as applied" : "Unmarked as applied");
     } catch (err) {
       setDetail(previous);
@@ -936,6 +946,7 @@ export function ApplicationDetailPage() {
       });
       toast("Job information saved");
       applyDetailState(response, { refreshShell: true });
+      refreshActivityTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save job information.");
     } finally {
@@ -957,6 +968,7 @@ export function ApplicationDetailPage() {
         notes: notesDraft || null,
       });
       applyDetailState(response, { refreshShell: true });
+      refreshActivityTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to submit manual entry.");
     } finally {
@@ -969,6 +981,7 @@ export function ApplicationDetailPage() {
       const response = await retryExtraction(activeApplicationId);
       applyDetailState(response, { refreshShell: true });
       setProgress(null);
+      refreshActivityTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to retry extraction.");
     }
@@ -982,6 +995,7 @@ export function ApplicationDetailPage() {
       applyDetailState(response, { refreshShell: true });
       setProgress(null);
       setShowCancelExtractionConfirm(false);
+      refreshActivityTimeline();
       toast("Extraction stopped.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to stop extraction.");
@@ -1021,6 +1035,7 @@ export function ApplicationDetailPage() {
       applyDetailState(response, { refreshShell: true });
       setProgress(null);
       setSourceTextDraft("");
+      refreshActivityTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to recover from pasted source text.");
     } finally {
@@ -1032,6 +1047,7 @@ export function ApplicationDetailPage() {
     try {
       const response = await resolveDuplicate(activeApplicationId, "dismissed");
       applyDetailState(response, { refreshShell: true });
+      refreshActivityTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to dismiss duplicate warning.");
     }
@@ -1042,6 +1058,7 @@ export function ApplicationDetailPage() {
     try {
       const response = await resolveDuplicate(activeApplicationId, "redirected");
       applyDetailState(response, { refreshShell: true });
+      refreshActivityTimeline();
       navigate(`/app/applications/${detail.duplicate_warning.matched_application.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to open matched application.");
@@ -1056,6 +1073,7 @@ export function ApplicationDetailPage() {
     try {
       const response = await patchApplication(activeApplicationId, { base_resume_id: selectedResumeId });
       applyDetailState(response, { refreshShell: true });
+      refreshActivityTimeline();
       toast("Settings saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save settings.");
@@ -1090,6 +1108,7 @@ export function ApplicationDetailPage() {
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
       setHasUserModifiedSettings(false);
+      refreshActivityTimeline();
     } catch (err) {
       setShowOptimisticProgress(false);
       setIsGenerating(false);
@@ -1107,6 +1126,7 @@ export function ApplicationDetailPage() {
       applyDraftState(updated);
       await invalidateApplicationDraftQueries(queryClient, activeApplicationId);
       setEditMode(false);
+      refreshActivityTimeline();
       toast("Draft saved successfully");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save draft.");
@@ -1148,6 +1168,7 @@ export function ApplicationDetailPage() {
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
       setHasUserModifiedSettings(false);
+      refreshActivityTimeline();
     } catch (err) {
       setShowOptimisticProgress(false);
       setIsRegenerating(false);
@@ -1179,6 +1200,7 @@ export function ApplicationDetailPage() {
       setRegenSectionName("");
       setRegenInstructions("");
       setHasUserModifiedSettings(false);
+      refreshActivityTimeline();
     } catch (err) {
       setShowOptimisticProgress(false);
       setIsRegenerating(false);
@@ -1194,6 +1216,7 @@ export function ApplicationDetailPage() {
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
       setShowOptimisticProgress(false);
+      refreshActivityTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to cancel generation.");
     } finally {
@@ -1209,6 +1232,7 @@ export function ApplicationDetailPage() {
       const response = await triggerResumeJudge(activeApplicationId);
       applyDetailState(response);
       await invalidateApplicationQueries(queryClient, activeApplicationId);
+      refreshActivityTimeline();
       toast(resumeJudgeStale ? "Resume re-evaluation queued" : "Resume Judge queued");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to run Resume Judge.");
@@ -1246,6 +1270,7 @@ export function ApplicationDetailPage() {
       if (updated.data) {
         applyDetailState(updated.data, { refreshShell: true });
       }
+      refreshActivityTimeline();
       toast(`${format.toUpperCase()} exported successfully`);
     } catch (err) {
       setError(err instanceof Error ? err.message : `Unable to export ${format.toUpperCase()}.`);
@@ -1363,6 +1388,13 @@ export function ApplicationDetailPage() {
     WebkitLineClamp: 2,
     overflow: "hidden",
   };
+
+  function refreshActivityTimeline() {
+    if (!applicationId) return;
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.applicationActivity(applicationId),
+    });
+  }
 
   function renderResumeJudgeCard() {
     if (!draft) return null;
@@ -1775,6 +1807,10 @@ export function ApplicationDetailPage() {
                     Action Required
                   </span>
                 )}
+                <Button size="sm" variant="secondary" onClick={() => setActivityPanelOpen(true)}>
+                  <History size={14} aria-hidden="true" />
+                  Activity
+                </Button>
                 {draft && (
                   <div ref={exportMenuRef} className="relative">
                     <Button
@@ -2817,6 +2853,12 @@ export function ApplicationDetailPage() {
             </div>,
             document.body
           )}
+
+          <ApplicationActivityPanel
+            applicationId={activeApplicationId}
+            open={activityPanelOpen}
+            onClose={() => setActivityPanelOpen(false)}
+          />
         </>
       )}
     </div>

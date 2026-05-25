@@ -9,7 +9,7 @@ from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 from app.core.config import get_settings
-from app.core.errors import QuotaExceededError
+from app.core.errors import QuotaExceededError, QuotaReservationBusyError
 
 
 class SubscriptionTierRecord(BaseModel):
@@ -142,68 +142,74 @@ class SubscriptionRepository:
 
     def reserve_generation_quota(self, *, user_id: str) -> QuotaReservationRecord:
         period_start = self.current_utc_period_start()
-        with self._connection() as connection, connection.cursor() as cursor:
-            cursor.execute("set local lock_timeout = '5s'")
-            cursor.execute("set local statement_timeout = '10s'")
-            cursor.execute(
-                """
-                select
-                  p.subscription_tier,
-                  st.monthly_resume_generation_limit,
-                  st.generation_model,
-                  st.generation_reasoning_effort,
-                  st.generation_fallback_model,
-                  st.generation_fallback_reasoning_effort
-                from public.profiles p
-                join public.subscription_tiers st on st.key = p.subscription_tier
-                where p.id = %s and p.is_active = true and st.is_active = true
-                """,
-                (user_id,),
-            )
-            tier_row = cursor.fetchone()
-            if tier_row is None:
-                raise PermissionError("An active subscription tier is required before generating resumes.")
-
-            cursor.execute(
-                """
-                insert into public.resume_generation_usage (user_id, period_start, generation_count)
-                values (%s, %s, 0)
-                on conflict (user_id, period_start) do nothing
-                """,
-                (user_id, period_start),
-            )
-            cursor.execute(
-                """
-                select generation_count
-                from public.resume_generation_usage
-                where user_id = %s and period_start = %s
-                for update
-                """,
-                (user_id, period_start),
-            )
-            usage_row = cursor.fetchone()
-            if usage_row is None:
-                connection.rollback()
-                raise RuntimeError("Generation usage row was not created.")
-            current_count = int(usage_row["generation_count"])
-            limit = int(tier_row["monthly_resume_generation_limit"])
-            if current_count >= limit:
-                connection.rollback()
-                raise QuotaExceededError(
-                    "Monthly resume generation limit reached. Contact an administrator or upgrade your subscription tier."
+        try:
+            with self._connection() as connection, connection.cursor() as cursor:
+                cursor.execute("set local lock_timeout = '5s'")
+                cursor.execute("set local statement_timeout = '10s'")
+                cursor.execute(
+                    """
+                    select
+                      p.subscription_tier,
+                      st.monthly_resume_generation_limit,
+                      st.generation_model,
+                      st.generation_reasoning_effort,
+                      st.generation_fallback_model,
+                      st.generation_fallback_reasoning_effort
+                    from public.profiles p
+                    join public.subscription_tiers st on st.key = p.subscription_tier
+                    where p.id = %s and p.is_active = true and st.is_active = true
+                    for update of p
+                    """,
+                    (user_id,),
                 )
+                tier_row = cursor.fetchone()
+                if tier_row is None:
+                    raise PermissionError("An active subscription tier is required before generating resumes.")
 
-            cursor.execute(
-                """
-                update public.resume_generation_usage
-                set generation_count = generation_count + 1
-                where user_id = %s and period_start = %s
-                returning generation_count
-                """,
-                (user_id, period_start),
-            )
-            updated_row = cursor.fetchone()
-            connection.commit()
+                cursor.execute(
+                    """
+                    insert into public.resume_generation_usage (user_id, period_start, generation_count)
+                    values (%s, %s, 0)
+                    on conflict (user_id, period_start) do nothing
+                    """,
+                    (user_id, period_start),
+                )
+                cursor.execute(
+                    """
+                    select generation_count
+                    from public.resume_generation_usage
+                    where user_id = %s and period_start = %s
+                    for update
+                    """,
+                    (user_id, period_start),
+                )
+                usage_row = cursor.fetchone()
+                if usage_row is None:
+                    connection.rollback()
+                    raise RuntimeError("Generation usage row was not created.")
+                current_count = int(usage_row["generation_count"])
+                limit = int(tier_row["monthly_resume_generation_limit"])
+                if current_count >= limit:
+                    connection.rollback()
+                    raise QuotaExceededError(
+                        "Monthly resume generation limit reached. Contact an administrator or upgrade your subscription tier."
+                    )
+
+                cursor.execute(
+                    """
+                    update public.resume_generation_usage
+                    set generation_count = generation_count + 1
+                    where user_id = %s and period_start = %s
+                    returning generation_count
+                    """,
+                    (user_id, period_start),
+                )
+                updated_row = cursor.fetchone()
+                connection.commit()
+        except psycopg.errors.LockNotAvailable as error:
+            raise QuotaReservationBusyError(
+                "Generation quota is busy. Try starting generation again in a moment."
+            ) from error
 
         return QuotaReservationRecord(
             subscription_tier=str(tier_row["subscription_tier"]),

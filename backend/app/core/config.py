@@ -44,7 +44,10 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
-    cors_origins: str = Field(default="http://localhost:5173", alias="CORS_ORIGINS")
+    cors_origins: str = Field(
+        default="http://localhost:5173,https://applix.ca,https://www.applix.ca",
+        alias="CORS_ORIGINS",
+    )
     jwt_private_key: str = Field(..., alias="JWT_PRIVATE_KEY")
     jwt_public_key: str = Field(..., alias="JWT_PUBLIC_KEY")
     access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")

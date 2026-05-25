@@ -467,16 +467,63 @@ class FakeGenerationJobQueue:
         return f"judge-job-{len(self.judge_jobs)}"
 
 
+class FakeUsageEventRepository:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    def create_usage_event(
+        self,
+        *,
+        user_id: str,
+        event_type: str,
+        event_status: str,
+        application_id: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
+        event_id = f"evt-{len(self.events) + 1}"
+        self.events.append(
+            {
+                "id": event_id,
+                "user_id": user_id,
+                "application_id": application_id,
+                "event_type": event_type,
+                "event_status": event_status,
+                "metadata": metadata or {},
+                "created_at": f"2026-04-07T12:{len(self.events)+10:02d}:00+00:00",
+            }
+        )
+
+    def list_application_events(self, *, user_id: str, application_id: str, limit: int = 200):
+        matching = [
+            event
+            for event in self.events
+            if event["user_id"] == user_id and event["application_id"] == application_id
+        ]
+        rows = sorted(matching, key=lambda event: event["created_at"], reverse=True)[:limit]
+        from app.db.usage_events import UsageEventRecord
+
+        return [UsageEventRecord.model_validate(row) for row in rows]
+
+    def get_operation_metrics(self):
+        return []
+
+
 class FakeSubscriptionRepository:
     def __init__(self) -> None:
         self.limit = 10
+        self.busy = False
         self.count_by_user: dict[str, int] = {}
         self.reservations: list[dict[str, Any]] = []
         self.releases: list[dict[str, str]] = []
 
     def reserve_generation_quota(self, *, user_id: str):
+        from app.core.errors import QuotaExceededError, QuotaReservationBusyError
         from app.db.subscriptions import QuotaReservationRecord
-        from app.core.errors import QuotaExceededError
+
+        if self.busy:
+            raise QuotaReservationBusyError(
+                "Generation quota is busy. Try starting generation again in a moment."
+            )
 
         current = self.count_by_user.get(user_id, 0)
         if current >= self.limit:
@@ -549,6 +596,7 @@ def build_service(
     drafts = draft_repository or FakeDraftRepository()
     base_resumes = FakeBaseResumeRepository()
     generation_queue = FakeGenerationJobQueue()
+    usage_events = FakeUsageEventRepository()
     subscriptions = FakeSubscriptionRepository()
     service = ApplicationService(
         repository=repository,
@@ -565,6 +613,7 @@ def build_service(
             (),
             {"duplicate_similarity_threshold": 85.0, "app_url": "http://localhost:5173"},
         )(),
+        usage_event_repository=usage_events,  # type: ignore[arg-type]
         subscription_repository=subscriptions,  # type: ignore[arg-type]
     )
     return service, repository, notifications, progress, queue, email, drafts
@@ -1833,6 +1882,176 @@ def test_application_events_endpoint_rejects_cross_user_access():
     assert response.json()["detail"] == "Application not found."
 
 
+def test_application_activity_endpoint_rejects_cross_user_access():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-2",
+        job_url="https://example.com/jobs/private",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/applications/{created.id}/activity",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Application not found."
+
+
+def test_application_activity_endpoint_requires_authentication():
+    client = TestClient(app)
+    response = client.get("/api/applications/app-1/activity")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Missing bearer token."
+
+
+def test_application_activity_endpoint_returns_synthetic_created_event_for_legacy_records():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/legacy",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/applications/{created.id}/activity",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["type"] == "application_created"
+    assert payload[0]["title"] == "Application created"
+    assert payload[0]["created_at"] == created.created_at
+
+
+def test_application_activity_endpoint_surfaces_failure_message_and_attempt_metadata():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/failure",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    service.usage_event_repository.create_usage_event(  # type: ignore[union-attr]
+        user_id="user-1",
+        application_id=created.id,
+        event_type="generation",
+        event_status="failure",
+        metadata={
+            "activity_type": "generation_failed",
+            "failure_message": "Validation failed.",
+            "details": {"failure_stage": "validation", "attempt_count": 2},
+            "attempts": [
+                {"model": "openai/gpt-5-mini", "outcome": "invalid_json", "elapsed_ms": 3000},
+                {"model": "google/gemini-3.5-flash", "outcome": "schema_failed", "elapsed_ms": 2100},
+            ],
+        },
+    )
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/applications/{created.id}/activity",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    failure_event = next(item for item in payload if item["type"] == "generation_failed")
+    assert failure_event["failure_message"] == "Validation failed."
+    assert failure_event["details"]["failure_stage"] == "validation"
+    assert failure_event["attempts"][0]["model"] == "openai/gpt-5-mini"
+
+
+@pytest.mark.asyncio
+async def test_manual_entry_records_activity_event_without_sensitive_payload_fields():
+    service, repository, _, _, _, _, _ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/manual",
+        visible_status="needs_action",
+        internal_state="manual_entry_required",
+    )
+
+    await service.complete_manual_entry(
+        user_id="user-1",
+        application_id=record.id,
+        updates={
+            "job_title": "Platform Engineer",
+            "company": "Acme",
+            "job_description": "Build and maintain APIs.",
+        },
+    )
+
+    activity_events = [
+        event
+        for event in service.usage_event_repository.events  # type: ignore[union-attr]
+        if event["event_type"] == "application_activity"
+    ]
+    assert any(event["metadata"].get("activity_type") == "manual_entry_submitted" for event in activity_events)
+    serialized_activity = json.dumps(activity_events)
+    assert "Build and maintain APIs." not in serialized_activity
+
+
+@pytest.mark.asyncio
+async def test_generation_failure_activity_sanitizes_attempt_metadata():
+    service, repository, _, _, _, _, _ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/generation",
+        visible_status="draft",
+        internal_state="generating",
+    )
+
+    await service._mark_generation_failure(
+        record=record,
+        message="Generation failed due to validation.",
+        failure_details={
+            "failure_stage": "validation",
+            "attempt_count": 2,
+            "raw_provider_payload": {"token": "secret"},
+            "attempts": [
+                {
+                    "model": "openai/gpt-5-mini",
+                    "reasoning_effort": "medium",
+                    "transport_mode": "responses",
+                    "outcome": "invalid_json",
+                    "elapsed_ms": 1200,
+                    "retry_reason": "invalid json",
+                    "raw_debug_output": "do-not-store",
+                }
+            ],
+            "error": {
+                "error_type": "ValidationError",
+                "message": "Schema mismatch",
+                "raw": "sensitive",
+            },
+        },
+    )
+
+    latest_event = service.usage_event_repository.events[-1]  # type: ignore[union-attr]
+    assert latest_event["event_type"] == "generation"
+    assert latest_event["metadata"]["activity_type"] == "generation_failed"
+    assert latest_event["metadata"]["details"]["failure_stage"] == "validation"
+    assert latest_event["metadata"]["details"]["attempt_count"] == 2
+    assert latest_event["metadata"]["attempts"][0]["model"] == "openai/gpt-5-mini"
+    assert "raw_debug_output" not in latest_event["metadata"]["attempts"][0]
+    assert "raw_provider_payload" not in latest_event["metadata"]
+
+
 @pytest.mark.asyncio
 async def test_application_events_endpoint_streams_initial_snapshot():
     service, repository, _, progress_store, _, _, _ = build_service()
@@ -2189,6 +2408,56 @@ def test_full_regeneration_endpoint_returns_409_when_limit_is_reached():
     assert "Monthly resume generation limit reached" in response.json()["detail"]["message"]
 
 
+def test_full_regeneration_endpoint_returns_409_when_quota_reservation_is_busy():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/quota-busy",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Draft\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    service.subscription_repository.busy = True
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/applications/{created.id}/regenerate",
+        headers={"Authorization": "Bearer valid-token"},
+        json={
+            "target_length": "1_page",
+            "aggressiveness": "medium",
+            "additional_instructions": None,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "quota_busy"
+    assert "Try starting generation again" in response.json()["detail"]["message"]
+
+
 def test_resume_judge_endpoint_returns_202_and_queues_re_evaluation():
     drafts = FakeDraftRepository()
     service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
@@ -2286,6 +2555,9 @@ async def test_generation_success_callback_persists_draft_marks_resume_ready_and
                     "content_md": "# Resume",
                     "generation_params": {"page_length": "1_page", "aggressiveness": "medium"},
                     "sections_snapshot": {"enabled_sections": ["summary"], "section_order": ["summary"]},
+                    "attempts": [
+                        {"model": "primary", "outcome": "success", "elapsed_ms": 1200},
+                    ],
                 },
             }
         )
@@ -2301,6 +2573,13 @@ async def test_generation_success_callback_persists_draft_marks_resume_ready_and
     assert notifications.notifications[-1]["notification_type"] == "success"
     assert len(service.generation_job_queue.judge_jobs) == 1
     assert service.generation_job_queue.judge_jobs[0]["generated_resume_content"] == "# Resume\n"
+    draft = drafts.fetch_draft("user-1", created.id)
+    assert draft is not None
+    assert "attempts" not in draft.generation_params
+    generation_event = next(
+        event for event in service.usage_event_repository.events if event["event_type"] == "generation"
+    )
+    assert generation_event["metadata"]["attempts"][0]["model"] == "primary"
 
 
 @pytest.mark.asyncio

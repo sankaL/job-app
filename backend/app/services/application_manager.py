@@ -13,7 +13,6 @@ from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import Settings, get_settings
-from app.db.admin import AdminRepository, get_admin_repository
 from app.db.applications import (
     ApplicationListRecord,
     ApplicationRecord,
@@ -30,6 +29,7 @@ from app.db.subscriptions import (
     SubscriptionRepository,
     get_subscription_repository,
 )
+from app.db.usage_events import UsageEventRecord, UsageEventRepository, get_usage_event_repository
 from app.services.duplicates import DuplicateDetector
 from app.services.email import EmailMessage, EmailSender, build_email_sender
 from app.services.jobs import (
@@ -65,6 +65,7 @@ ACTIVE_GENERATION_PROGRESS_STATES = {
     "regenerating_full",
     "regenerating_section",
 }
+ACTIVITY_EVENT_TYPE = "application_activity"
 ACTIVE_EXTRACTION_STATES = {"extraction_pending", "extracting"}
 ACTIVE_DELETE_BLOCKING_STATES = {
     "extraction_pending",
@@ -207,6 +208,7 @@ class GenerationSuccessPayload(BaseModel):
     content_md: str
     generation_params: dict[str, Any]
     sections_snapshot: dict[str, Any]
+    attempts: Optional[list[dict[str, Any]]] = None
 
 
 class GenerationFailurePayload(BaseModel):
@@ -295,10 +297,52 @@ class DraftReviewFlagPayload(BaseModel):
     reason: str = "job_description_only_addition"
 
 
+class ApplicationActivityPayload(BaseModel):
+    id: str
+    type: str
+    status: str
+    title: str
+    summary: str
+    created_at: str
+    details: Optional[dict[str, Any]] = None
+    failure_message: Optional[str] = None
+    attempts: Optional[list[dict[str, Any]]] = None
+
+
 GENERATION_DUPLICATE_BLOCKER_MESSAGE = (
     "This looks like a duplicate application. Review the duplicate warning and choose "
     "Proceed Anyway before generating."
 )
+
+ACTIVITY_CONTENT_MAP: dict[str, tuple[str, str]] = {
+    "application_created": ("Application created", "Application added and extraction queued."),
+    "extraction_started": ("Extraction started", "Job extraction started."),
+    "extraction_retried": ("Extraction retried", "Extraction was retried for this posting."),
+    "extraction_recovered": ("Recovery extraction queued", "Extraction was queued from pasted job content."),
+    "manual_entry_submitted": ("Manual entry submitted", "Manual job details were saved."),
+    "job_info_updated": ("Job details updated", "Job details were edited."),
+    "generation_started": ("Resume generation started", "Resume generation started."),
+    "generation_succeeded": ("Resume generated", "Resume generation completed."),
+    "generation_failed": ("Generation failed", "Resume generation failed."),
+    "generation_cancelled": ("Generation cancelled", "Generation was cancelled."),
+    "regeneration_full_started": ("Full regeneration started", "Full resume regeneration started."),
+    "regeneration_full_succeeded": ("Full regeneration completed", "Full resume regeneration completed."),
+    "regeneration_section_started": ("Section regeneration started", "Section regeneration started."),
+    "regeneration_section_succeeded": ("Section regenerated", "Section regeneration completed."),
+    "regeneration_failed": ("Regeneration failed", "Resume regeneration failed."),
+    "resume_judge_queued": ("Resume Judge queued", "Resume Judge was queued."),
+    "resume_judge_succeeded": ("Resume Judge completed", "Resume Judge completed."),
+    "resume_judge_failed": ("Resume Judge failed", "Resume Judge failed."),
+    "draft_saved": ("Draft saved", "Draft edits were saved."),
+    "export_succeeded": ("Export completed", "Resume export completed."),
+    "export_failed": ("Export failed", "Resume export failed."),
+    "applied_toggled": ("Applied status changed", "Applied status was updated."),
+    "duplicate_resolution": ("Duplicate review resolved", "Duplicate warning resolution was saved."),
+    "notes_updated": ("Notes updated", "Application notes were updated."),
+    "extraction_cancelled": ("Extraction stopped", "Extraction was stopped."),
+    "extraction_succeeded": ("Extraction completed", "Job details were extracted."),
+    "extraction_failed": ("Extraction failed", "Extraction failed and manual recovery is required."),
+}
 
 
 class ApplicationService:
@@ -315,7 +359,7 @@ class ApplicationService:
         generation_job_queue: GenerationJobQueue,
         email_sender: EmailSender,
         settings: Settings,
-        admin_repository: Optional[AdminRepository] = None,
+        usage_event_repository: Optional[UsageEventRepository] = None,
         subscription_repository: Optional[SubscriptionRepository] = None,
     ) -> None:
         self.repository = repository
@@ -328,7 +372,7 @@ class ApplicationService:
         self.generation_job_queue = generation_job_queue
         self.email_sender = email_sender
         self.settings = settings
-        self.admin_repository = admin_repository
+        self.usage_event_repository = usage_event_repository
         self.subscription_repository = subscription_repository
         self.duplicate_detector = DuplicateDetector(settings.duplicate_similarity_threshold)
 
@@ -351,6 +395,12 @@ class ApplicationService:
             job_url=job_url,
             visible_status="draft",
             internal_state="extraction_pending",
+        )
+        self._record_activity_event(
+            user_id=user_id,
+            application_id=record.id,
+            activity_type="application_created",
+            summary="Application created and extraction queued.",
         )
 
         try:
@@ -401,6 +451,13 @@ class ApplicationService:
             visible_status="draft",
             internal_state="extraction_pending",
         )
+        self._record_activity_event(
+            user_id=user_id,
+            application_id=record.id,
+            activity_type="application_created",
+            summary="Application created from capture and extraction queued.",
+            details={"source": "capture"},
+        )
 
         return await self._enqueue_source_capture(
             record=record,
@@ -423,6 +480,51 @@ class ApplicationService:
         record = await self._reconcile_terminal_generation_progress(record, progress)
 
         return self._detail_payload(record)
+
+    async def list_application_activity(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> list[ApplicationActivityPayload]:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        events: list[UsageEventRecord] = []
+        if self.usage_event_repository is not None:
+            events = self.usage_event_repository.list_application_events(
+                user_id=user_id,
+                application_id=application_id,
+            )
+
+        payload = [self._to_activity_payload(event) for event in events]
+        for item in payload:
+            if item.type == "extraction_succeeded":
+                if item.details is None:
+                    item.details = {}
+                for key in ("job_title", "company", "job_location_text", "job_posting_origin", "job_posting_origin_other_text", "compensation_text"):
+                    val = getattr(record, key, None)
+                    if val is not None and item.details.get(key) is None:
+                        item.details[key] = val
+            elif item.type == "resume_judge_succeeded":
+                if item.details is None:
+                    item.details = {}
+                if isinstance(record.resume_judge_result, dict):
+                    for key in ("display_score", "verdict", "score_summary", "evaluator_notes"):
+                        val = record.resume_judge_result.get(key)
+                        if val is not None and item.details.get(key) is None:
+                            item.details[key] = val
+
+        if not any(item.type == "application_created" for item in payload):
+            payload.append(
+                ApplicationActivityPayload(
+                    id=f"synthetic-{application_id}-created",
+                    type="application_created",
+                    status="info",
+                    title="Application created",
+                    summary="Application added.",
+                    created_at=record.created_at,
+                )
+            )
+        return sorted(payload, key=lambda item: self._timestamp_for_sort(item.created_at), reverse=True)
 
     async def patch_application(
         self,
@@ -484,6 +586,31 @@ class ApplicationService:
         elif "applied" in updates or "notes" in updates:
             updated = self._refresh(user_id=user_id, application_id=application_id)
 
+        if "applied" in updates and updates.get("applied") != current.applied:
+            applied_value = bool(updates.get("applied"))
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="applied_toggled",
+                summary=f"Marked as {'applied' if applied_value else 'not applied'}.",
+                details={"applied": applied_value},
+            )
+        if "notes" in updates and updates.get("notes") != current.notes:
+            notes_value = str(updates.get("notes") or "")
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="notes_updated",
+                details={"has_notes": bool(notes_value.strip())},
+            )
+        if duplicate_relevant_fields.intersection(updates.keys()):
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="job_info_updated",
+                details={"fields": sorted(list(duplicate_relevant_fields.intersection(updates.keys())))},
+            )
+
         return self._detail_payload(updated)
 
     async def delete_application(
@@ -542,6 +669,11 @@ class ApplicationService:
                 "extraction_failure_details": None,
             },
         )
+        self._record_activity_event(
+            user_id=user_id,
+            application_id=application_id,
+            activity_type="manual_entry_submitted",
+        )
         updated = await self._run_duplicate_resolution_flow(updated)
         return self._detail_payload(updated)
 
@@ -588,6 +720,11 @@ class ApplicationService:
                     percent_complete=0,
                 ),
             )
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="extraction_recovered",
+            )
             return self._detail_payload(updated)
         except Exception:
             failed = await self._mark_extraction_failure(
@@ -632,6 +769,11 @@ class ApplicationService:
                     percent_complete=0,
                 ),
             )
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="extraction_retried",
+            )
             return self._detail_payload(updated)
         except Exception:
             fallback_job_id = f"failed-{application_id}"
@@ -675,6 +817,13 @@ class ApplicationService:
             ),
         )
         self.notification_repository.clear_action_required(user_id=user_id, application_id=application_id)
+        self._record_activity_event(
+            user_id=user_id,
+            application_id=application_id,
+            activity_type="duplicate_resolution",
+            summary=f"Duplicate warning marked as {resolution}.",
+            details={"resolution": resolution},
+        )
         return self._detail_payload(updated)
 
     async def cancel_generation(
@@ -713,6 +862,13 @@ class ApplicationService:
             notification_type="info",
             message="Generation was cancelled.",
             action_required=False,
+        )
+        self._record_activity_event(
+            user_id=user_id,
+            application_id=application_id,
+            activity_type="generation_cancelled",
+            status="failure",
+            failure_message="Generation was cancelled by user.",
         )
 
         return self._detail_payload(updated)
@@ -753,6 +909,11 @@ class ApplicationService:
             previous_progress=current_progress,
             message="Extraction was stopped. Retry or delete this application.",
             terminal_error_code="extraction_failed",
+        )
+        self._record_activity_event(
+            user_id=user_id,
+            application_id=application_id,
+            activity_type="extraction_cancelled",
         )
         return self._detail_payload(updated)
 
@@ -1044,6 +1205,11 @@ class ApplicationService:
                 application_id=record.id,
                 event_type="extraction",
                 event_status="failure",
+                metadata={
+                    "activity_type": "extraction_failed",
+                    "failure_message": EXTRACTION_CALLBACK_SYNC_FAILURE_MESSAGE,
+                    "details": {"failure_stage": "callback_sync"},
+                },
             )
             return updated
 
@@ -1094,6 +1260,10 @@ class ApplicationService:
             application_id=record.id,
             event_type="extraction",
             event_status="failure",
+            metadata={
+                "activity_type": "extraction_failed",
+                "failure_message": progress.message,
+            },
         )
         return updated
 
@@ -1150,6 +1320,7 @@ class ApplicationService:
             application_id=record.id,
             event_type="extraction",
             event_status="success",
+            metadata={"activity_type": "extraction_succeeded"},
         )
         return await self._run_duplicate_resolution_flow(updated)
 
@@ -1221,6 +1392,12 @@ class ApplicationService:
                     application_id=record.id,
                     event_type="generation",
                     event_status="success",
+                    metadata={
+                        "activity_type": "generation_succeeded",
+                        "details": {
+                            "model_used": generated.generation_params.get("model_used"),
+                        },
+                    },
                 )
             else:
                 self.notification_repository.create_notification(
@@ -1240,6 +1417,12 @@ class ApplicationService:
                     application_id=record.id,
                     event_type="regeneration",
                     event_status="success",
+                    metadata={
+                        "activity_type": "regeneration_full_succeeded",
+                        "details": {
+                            "model_used": generated.generation_params.get("model_used"),
+                        },
+                    },
                 )
         except Exception:
             logger.exception("Failed reconciling cached generation success notifications for %s", record.id)
@@ -1311,7 +1494,7 @@ class ApplicationService:
             return record
 
         if payload.event == "started":
-            return await self._update_application_and_publish_detail(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1320,6 +1503,12 @@ class ApplicationService:
                     extraction_failure_details=None,
                 ),
             )
+            self._record_activity_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                activity_type="extraction_started",
+            )
+            return updated
 
         if payload.event == "failed":
             return await self._mark_extraction_failure(
@@ -1360,6 +1549,7 @@ class ApplicationService:
                 application_id=record.id,
                 event_type="extraction",
                 event_status="success",
+                metadata={"activity_type": "extraction_succeeded"},
             )
             return await self._run_duplicate_resolution_flow(updated)
 
@@ -1481,6 +1671,15 @@ class ApplicationService:
                     quota_period_start=quota_reservation.period_start,
                 ),
             )
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="generation_started",
+                details={
+                    "page_length": target_length,
+                    "aggressiveness": aggressiveness,
+                },
+            )
             return self._detail_payload(updated)
         except Exception as error:
             if not job_queued:
@@ -1537,7 +1736,7 @@ class ApplicationService:
                     percent_complete=25,
                 ),
             )
-            return await self._update_application_and_publish_detail(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -1546,6 +1745,7 @@ class ApplicationService:
                     generation_failure_details=None,
                 ),
             )
+            return updated
 
         if payload.event == "progress" and current_progress is not None:
             current_progress.percent_complete = min(
@@ -1640,11 +1840,35 @@ class ApplicationService:
                 subject="Applix: resume generated",
                 body="Your tailored resume has been generated and is ready for review.",
             )
+            model_used = str(payload.generated.generation_params.get("model_used") or "").strip() or None
+            duration_ms = None
+            if current_progress is not None:
+                try:
+                    started = datetime.fromisoformat(current_progress.created_at.replace("Z", "+00:00"))
+                    ended = datetime.fromisoformat(completed_progress.updated_at.replace("Z", "+00:00"))
+                    duration = int((ended - started).total_seconds() * 1000)
+                    duration_ms = max(duration, 0)
+                except Exception:
+                    pass
+            if duration_ms is None:
+                duration_ms = self._progress_duration_ms(completed_progress)
+
+            details: dict[str, Any] = {}
+            if model_used:
+                details["model_used"] = model_used
+            if duration_ms is not None:
+                details["duration_ms"] = duration_ms
+            attempts = payload.generated.attempts
             self._record_usage_event(
                 user_id=record.user_id,
                 application_id=record.id,
                 event_type="generation",
                 event_status="success",
+                metadata={
+                    "activity_type": "generation_succeeded",
+                    "details": details or None,
+                    "attempts": attempts,
+                },
             )
             return updated
 
@@ -1761,6 +1985,15 @@ class ApplicationService:
                     percent_complete=0,
                     quota_period_start=quota_reservation.period_start,
                 ),
+            )
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="regeneration_full_started",
+                details={
+                    "page_length": target_length,
+                    "aggressiveness": aggressiveness,
+                },
             )
             return self._detail_payload(updated)
         except Exception as error:
@@ -1907,6 +2140,12 @@ class ApplicationService:
                     quota_period_start=quota_reservation.period_start,
                 ),
             )
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="regeneration_section_started",
+                details={"section_name": section_name},
+            )
             return self._detail_payload(updated)
         except Exception as error:
             if not job_queued:
@@ -1931,6 +2170,7 @@ class ApplicationService:
                 failure_details={
                     "failure_stage": "enqueue",
                     "terminal_error_code": "regeneration_failed",
+                    "section_name": section_name,
                     "error": {
                         "error_type": type(error).__name__,
                         "message": str(error),
@@ -1991,7 +2231,7 @@ class ApplicationService:
                     percent_complete=25,
                 ),
             )
-            return await self._update_application_and_publish_detail(
+            updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
                 updates=self._workflow_updates(
@@ -2000,11 +2240,15 @@ class ApplicationService:
                     generation_failure_details=None,
                 ),
             )
+            return updated
 
         if payload.event == "failed":
             await self.progress_store.clear_generation_result(record.id)
             failure_msg = payload.failure.message if payload.failure else "Regeneration failed."
             failure_details = payload.failure.failure_details if payload.failure else None
+            if is_section:
+                failure_details = dict(failure_details) if isinstance(failure_details, dict) else {}
+                failure_details["section_name"] = payload.regeneration_target
 
             completed_progress = build_progress(
                 job_id=payload.job_id,
@@ -2077,11 +2321,37 @@ class ApplicationService:
                 subject="Applix: resume regenerated",
                 body="Your resume has been regenerated and is ready for review.",
             )
+            model_used = str(payload.generated.generation_params.get("model_used") or "").strip() or None
+            duration_ms = None
+            if current_progress is not None:
+                try:
+                    started = datetime.fromisoformat(current_progress.created_at.replace("Z", "+00:00"))
+                    ended = datetime.fromisoformat(completed_progress.updated_at.replace("Z", "+00:00"))
+                    duration = int((ended - started).total_seconds() * 1000)
+                    duration_ms = max(duration, 0)
+                except Exception:
+                    pass
+            if duration_ms is None:
+                duration_ms = self._progress_duration_ms(completed_progress)
+
+            details: dict[str, Any] = {}
+            if model_used:
+                details["model_used"] = model_used
+            if duration_ms is not None:
+                details["duration_ms"] = duration_ms
+            if is_section:
+                details["section_name"] = payload.regeneration_target
+            attempts = payload.generated.attempts
             self._record_usage_event(
                 user_id=record.user_id,
                 application_id=record.id,
                 event_type="regeneration",
                 event_status="success",
+                metadata={
+                    "activity_type": "regeneration_section_succeeded" if is_section else "regeneration_full_succeeded",
+                    "details": details or None,
+                    "attempts": attempts,
+                },
             )
             return updated
 
@@ -2149,6 +2419,18 @@ class ApplicationService:
             failure_result["input_signature"] = callback_input_signature or current_input_signature
             if current_run_attempt_count:
                 failure_result["run_attempt_count"] = current_run_attempt_count
+            self._record_activity_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                activity_type="resume_judge_failed",
+                status="failure",
+                failure_message=str(failure_result.get("message") or "Resume Judge failed."),
+                details={
+                    "failure_stage": failure_result.get("failure_stage"),
+                    "attempt_count": failure_result.get("attempt_count"),
+                },
+                attempts=self._sanitize_attempts_for_activity(failure_result.get("attempts")),
+            )
             return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
@@ -2164,6 +2446,19 @@ class ApplicationService:
             success_result["input_signature"] = callback_input_signature or current_input_signature
             if current_run_attempt_count:
                 success_result["run_attempt_count"] = current_run_attempt_count
+            self._record_activity_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                activity_type="resume_judge_succeeded",
+                details={
+                    "attempt_count": success_result.get("attempt_count"),
+                    "display_score": success_result.get("display_score"),
+                    "verdict": success_result.get("verdict"),
+                    "score_summary": success_result.get("score_summary"),
+                    "evaluator_notes": success_result.get("evaluator_notes"),
+                },
+                attempts=self._sanitize_attempts_for_activity(success_result.get("attempts")),
+            )
             return await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
@@ -2251,6 +2546,12 @@ class ApplicationService:
                 user_id=user_id,
                 updates=application_updates,
             )
+
+        self._record_activity_event(
+            user_id=user_id,
+            application_id=application_id,
+            activity_type="draft_saved",
+        )
 
         return updated_draft
 
@@ -2372,6 +2673,10 @@ class ApplicationService:
             application_id=application_id,
             event_type="export",
             event_status="success",
+            metadata={
+                "activity_type": "export_succeeded",
+                "details": {"format": format_label},
+            },
         )
 
         return export_bytes, filename
@@ -2403,6 +2708,11 @@ class ApplicationService:
             application_id=record.id,
             event_type="export",
             event_status="failure",
+            metadata={
+                "activity_type": "export_failed",
+                "failure_message": message,
+                "details": {"format": format_label},
+            },
         )
         try:
             await self.email_sender.send(
@@ -2532,6 +2842,11 @@ class ApplicationService:
             application_id=record.id,
             event_type="extraction",
             event_status="failure",
+            metadata={
+                "activity_type": "extraction_failed",
+                "failure_message": message,
+                "details": failure_details.model_dump() if failure_details is not None else None,
+            },
         )
         return updated
 
@@ -2564,11 +2879,24 @@ class ApplicationService:
             send_email=True,
             email_subject=f"Applix: {'regeneration' if 'regeneration' in failure_reason else 'generation'} failed",
         )
+        normalized_details = self._normalize_generation_failure_details(message=message, failure_details=failure_details)
+        activity_type = "regeneration_failed" if "regeneration" in failure_reason else "generation_failed"
         self._record_usage_event(
             user_id=record.user_id,
             application_id=record.id,
             event_type="regeneration" if "regeneration" in failure_reason else "generation",
             event_status="failure",
+            metadata={
+                "activity_type": activity_type,
+                "failure_message": message,
+                "details": {
+                    key: normalized_details.get(key)
+                    for key in ("failure_stage", "attempt_count", "terminal_error_code", "repair_model", "section_name")
+                    if normalized_details.get(key) not in (None, "")
+                }
+                or None,
+                "attempts": self._sanitize_attempts_for_activity(normalized_details.get("attempts")),
+            },
         )
         return updated
 
@@ -3213,6 +3541,12 @@ class ApplicationService:
             user_id=record.user_id,
             updates=queued_updates,
         )
+        self._record_activity_event(
+            user_id=record.user_id,
+            application_id=record.id,
+            activity_type="resume_judge_queued",
+            details={"run_attempt_count": current_run_attempt_count + 1},
+        )
 
         try:
             await self.generation_job_queue.enqueue_resume_judge(
@@ -3245,6 +3579,17 @@ class ApplicationService:
                 error={
                     "error_type": type(error).__name__,
                     "message": str(error),
+                },
+            )
+            self._record_activity_event(
+                user_id=record.user_id,
+                application_id=record.id,
+                activity_type="resume_judge_failed",
+                status="failure",
+                failure_message="Resume Judge could not be started. Score unavailable.",
+                details={
+                    "failure_stage": "enqueue",
+                    "error_type": type(error).__name__,
                 },
             )
             return await self._update_application_and_publish_detail(
@@ -3442,7 +3787,7 @@ class ApplicationService:
         if not failure_details:
             return normalized
 
-        for key in ("failure_stage", "attempt_count", "terminal_error_code", "repair_model"):
+        for key in ("failure_stage", "attempt_count", "terminal_error_code", "repair_model", "section_name"):
             value = failure_details.get(key)
             if value not in (None, ""):
                 normalized[key] = value
@@ -3659,6 +4004,137 @@ class ApplicationService:
         completed_progress.completed_at = completed_progress.updated_at
         await self.progress_store.set(record.id, completed_progress)
 
+    def _to_activity_payload(self, event: UsageEventRecord) -> ApplicationActivityPayload:
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        activity_type = str(metadata.get("activity_type") or "").strip() or self._legacy_activity_type(event)
+        title, summary = self._activity_title_and_summary(activity_type)
+        title = str(metadata.get("title") or title)
+        summary = str(metadata.get("summary") or summary)
+
+        details = metadata.get("details")
+        sanitized_details = details if isinstance(details, dict) and details else None
+
+        failure_message = metadata.get("failure_message")
+        if failure_message is None and event.event_status == "failure":
+            if isinstance(metadata.get("message"), str):
+                failure_message = metadata.get("message")
+            elif isinstance(sanitized_details, dict) and isinstance(sanitized_details.get("message"), str):
+                failure_message = sanitized_details.get("message")
+        if failure_message is not None and not isinstance(failure_message, str):
+            failure_message = str(failure_message)
+
+        attempts = self._sanitize_attempts_for_activity(metadata.get("attempts"))
+        if attempts is None and isinstance(sanitized_details, dict):
+            attempts = self._sanitize_attempts_for_activity(sanitized_details.get("attempts"))
+
+        return ApplicationActivityPayload(
+            id=event.id,
+            type=activity_type,
+            status=event.event_status,
+            title=title,
+            summary=summary,
+            created_at=event.created_at,
+            details=sanitized_details,
+            failure_message=failure_message,
+            attempts=attempts,
+        )
+
+    @staticmethod
+    def _sanitize_attempts_for_activity(value: Any) -> Optional[list[dict[str, Any]]]:
+        if not isinstance(value, list):
+            return None
+        sanitized: list[dict[str, Any]] = []
+        for attempt in value:
+            if not isinstance(attempt, dict):
+                continue
+            item: dict[str, Any] = {}
+            for key in ("model", "reasoning_effort", "transport_mode", "outcome", "elapsed_ms", "retry_reason"):
+                field = attempt.get(key)
+                if field not in (None, ""):
+                    item[key] = field
+            if item:
+                sanitized.append(item)
+        return sanitized or None
+
+    @staticmethod
+    def _timestamp_for_sort(timestamp_value: str) -> datetime:
+        try:
+            parsed = datetime.fromisoformat(timestamp_value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except Exception:
+            return datetime.fromtimestamp(0, tz=timezone.utc)
+
+    @staticmethod
+    def _progress_duration_ms(progress: ProgressRecord) -> Optional[int]:
+        try:
+            started = datetime.fromisoformat(progress.created_at.replace("Z", "+00:00"))
+            ended = datetime.fromisoformat(progress.updated_at.replace("Z", "+00:00"))
+        except Exception:
+            return None
+        duration = int((ended - started).total_seconds() * 1000)
+        return max(duration, 0)
+
+    @staticmethod
+    def _activity_title_and_summary(activity_type: str) -> tuple[str, str]:
+        return ACTIVITY_CONTENT_MAP.get(
+            activity_type,
+            ("Activity updated", "An application activity was recorded."),
+        )
+
+    @staticmethod
+    def _legacy_activity_type(event: UsageEventRecord) -> str:
+        if event.event_type == "extraction":
+            return "extraction_succeeded" if event.event_status == "success" else "extraction_failed"
+        if event.event_type == "generation":
+            if event.event_status == "failure":
+                message = ""
+                if isinstance(event.metadata, dict):
+                    message = str(event.metadata.get("failure_message") or event.metadata.get("message") or "").lower()
+                if "cancel" in message:
+                    return "generation_cancelled"
+                return "generation_failed"
+            return "generation_succeeded"
+        if event.event_type == "regeneration":
+            return "regeneration_full_succeeded" if event.event_status == "success" else "regeneration_failed"
+        if event.event_type == "export":
+            return "export_succeeded" if event.event_status == "success" else "export_failed"
+        return event.event_type
+
+    def _record_activity_event(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+        activity_type: str,
+        status: str = "info",
+        title: Optional[str] = None,
+        summary: Optional[str] = None,
+        details: Optional[dict[str, Any]] = None,
+        failure_message: Optional[str] = None,
+        attempts: Optional[list[dict[str, Any]]] = None,
+    ) -> None:
+        metadata: dict[str, Any] = {"activity_type": activity_type}
+        if title:
+            metadata["title"] = title
+        if summary:
+            metadata["summary"] = summary
+        if details:
+            metadata["details"] = details
+        if failure_message:
+            metadata["failure_message"] = failure_message
+        sanitized_attempts = self._sanitize_attempts_for_activity(attempts)
+        if sanitized_attempts:
+            metadata["attempts"] = sanitized_attempts
+        self._record_usage_event(
+            user_id=user_id,
+            application_id=application_id,
+            event_type=ACTIVITY_EVENT_TYPE,
+            event_status=status,
+            metadata=metadata,
+        )
+
     def _application_url(self, application_id: str) -> str:
         return f"{self.settings.app_url.rstrip('/')}/app/applications/{application_id}"
 
@@ -3671,10 +4147,10 @@ class ApplicationService:
         application_id: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> None:
-        if self.admin_repository is None:
+        if self.usage_event_repository is None:
             return
         try:
-            self.admin_repository.create_usage_event(
+            self.usage_event_repository.create_usage_event(
                 user_id=user_id,
                 application_id=application_id,
                 event_type=event_type,
@@ -3750,7 +4226,7 @@ def get_application_service(
     progress_store: RedisProgressStore = Depends(get_progress_store),
     extraction_job_queue: ExtractionJobQueue = Depends(get_extraction_job_queue),
     generation_job_queue: GenerationJobQueue = Depends(get_generation_job_queue),
-    admin_repository: AdminRepository = Depends(get_admin_repository),
+    usage_event_repository: UsageEventRepository = Depends(get_usage_event_repository),
     subscription_repository: SubscriptionRepository = Depends(get_subscription_repository),
     settings: Settings = Depends(get_settings),
 ) -> ApplicationService:
@@ -3765,6 +4241,6 @@ def get_application_service(
         generation_job_queue=generation_job_queue,
         email_sender=build_email_sender(settings),
         settings=settings,
-        admin_repository=admin_repository,
+        usage_event_repository=usage_event_repository,
         subscription_repository=subscription_repository,
     )

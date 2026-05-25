@@ -47,6 +47,7 @@ const api = vi.hoisted(() => ({
   listSubscriptionTiers: vi.fn(),
   listBaseResumes: vi.fn(),
   listApplications: vi.fn(),
+  listApplicationActivity: vi.fn(),
   listNotifications: vi.fn(),
   openApplicationEventStream: vi.fn(),
   patchApplication: vi.fn(),
@@ -311,6 +312,7 @@ describe("phase 1 applications UI", () => {
     api.listAdminUsers.mockResolvedValue([]);
     api.listBaseResumes.mockResolvedValue([]);
     api.listApplications.mockResolvedValue([]);
+    api.listApplicationActivity.mockResolvedValue([]);
     api.listNotifications.mockResolvedValue([]);
     api.updateProfile.mockImplementation(async (payload) => ({
       id: "user-1",
@@ -4272,5 +4274,177 @@ describe("phase 1 applications UI", () => {
     const judgeCard = await screen.findByTestId("resume-judge-card");
     expect(within(judgeCard).getByText(/maximum of 3 attempts/i)).toBeInTheDocument();
     expect(within(judgeCard).getByRole("button", { name: /max attempts reached/i })).toBeDisabled();
+  });
+
+  it("shows the activity button in the detail header and fetches activity only when opened", async () => {
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(await screen.findByText("Backend Engineer")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /activity/i })).toBeInTheDocument();
+    expect(api.listApplicationActivity).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: /activity/i }));
+
+    expect(await screen.findByRole("dialog", { name: /application activity/i })).toBeInTheDocument();
+    await waitFor(() => expect(api.listApplicationActivity).toHaveBeenCalledWith("app-1"));
+  });
+
+  it("renders a simplified activity timeline and expands AI details on row click", async () => {
+    api.listApplicationActivity.mockResolvedValue([
+      {
+        id: "evt-2",
+        type: "generation_failed",
+        status: "failure",
+        title: "Generation failed",
+        summary: "Resume generation failed.",
+        created_at: "2026-05-25T12:13:00Z",
+        failure_message: "Validation failed at the post-check stage.",
+        details: {
+          failure_stage: "validation",
+          attempt_count: 2,
+          validation_errors: ["summary: content was too generic"],
+        },
+        attempts: [
+          {
+            model: "openai/gpt-5-mini",
+            reasoning_effort: "medium",
+            transport_mode: "responses",
+            outcome: "invalid_json",
+            elapsed_ms: 1200,
+            retry_reason: "invalid structured output",
+          },
+          {
+            model: "google/gemini-3.5-flash",
+            reasoning_effort: "high",
+            transport_mode: "responses",
+            outcome: "schema_failed",
+            elapsed_ms: 900,
+            retry_reason: "schema mismatch",
+          },
+        ],
+      },
+      {
+        id: "evt-1",
+        type: "generation_succeeded",
+        status: "success",
+        title: "Resume generated",
+        summary: "Resume generation completed.",
+        created_at: "2026-05-25T12:12:00Z",
+        details: {
+          model_used: "openai/gpt-5-mini",
+          attempt_count: 1,
+          duration_ms: 3400,
+        },
+      },
+      {
+        id: "evt-0",
+        type: "job_info_updated",
+        status: "info",
+        title: "Job details updated",
+        summary: "Job details were edited.",
+        created_at: "2026-05-25T12:11:00Z",
+      },
+    ]);
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await screen.findByText("Backend Engineer");
+    await userEvent.click(screen.getByRole("button", { name: /activity/i }));
+
+    expect(await screen.findByText("Generation failed")).toBeInTheDocument();
+    expect(screen.getByText("Validation failed at the post-check stage.")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("Resume generated")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByText("Info")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /resume generated/i }));
+
+    expect(await screen.findByText(/model:/i)).toBeInTheDocument();
+    expect(screen.getByText("openai/gpt-5-mini")).toBeInTheDocument();
+    expect(screen.getByText(/attempts:/i)).toBeInTheDocument();
+    expect(screen.getByText(/duration:/i)).toBeInTheDocument();
+  });
+
+  it("renders a loading state in the activity panel while activity is being fetched", async () => {
+    api.listApplicationActivity.mockImplementationOnce(
+      () =>
+        new Promise(() => {
+          // Keep pending so the loading state is visible.
+        }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await screen.findByText("Backend Engineer");
+    await userEvent.click(screen.getByRole("button", { name: /activity/i }));
+    expect(await screen.findByText(/loading activity/i)).toBeInTheDocument();
+  });
+
+  it("renders a clean error state in the activity panel", async () => {
+    api.listApplicationActivity.mockRejectedValue(new Error("Activity feed unavailable."));
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await screen.findByText("Backend Engineer");
+    await userEvent.click(screen.getByRole("button", { name: /activity/i }));
+    expect(await screen.findByText(/activity unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText(/activity feed unavailable/i)).toBeInTheDocument();
+  });
+
+  it("renders a clean empty state in the activity panel", async () => {
+    api.listApplicationActivity.mockResolvedValueOnce([]);
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await screen.findByText("Backend Engineer");
+    await userEvent.click(screen.getByRole("button", { name: /activity/i }));
+    expect(await screen.findByText(/no activity yet/i)).toBeInTheDocument();
+  });
+
+  it("restores focus to the activity trigger after closing the panel", async () => {
+    api.listApplicationActivity.mockResolvedValueOnce([]);
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await screen.findByText("Backend Engineer");
+    const activityButton = screen.getByRole("button", { name: /activity/i });
+    await userEvent.click(activityButton);
+
+    const dialog = await screen.findByRole("dialog", { name: /application activity/i });
+    expect(dialog).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: /close activity panel/i }));
+
+    await waitFor(() => expect(activityButton).toHaveFocus());
   });
 });

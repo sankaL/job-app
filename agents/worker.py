@@ -233,6 +233,7 @@ def _stored_generation_settings(
             "_generation_reasoning_effort",
             "_generation_fallback_model",
             "_generation_fallback_reasoning_effort",
+            "_base_resume_snapshot_content",
         }
     }
     if model_used is not None:
@@ -370,17 +371,21 @@ def build_generation_success_payload(
     generation_params: dict[str, Any],
     sections_snapshot: dict[str, Any],
     regeneration_target: Optional[str] = None,
+    attempts: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
+    generated: dict[str, Any] = {
+        "content_md": content_md,
+        "generation_params": generation_params,
+        "sections_snapshot": sections_snapshot,
+    }
+    if attempts is not None:
+        generated["attempts"] = attempts
     payload: dict[str, Any] = {
         "application_id": application_id,
         "user_id": user_id,
         "job_id": job_id,
         "event": "succeeded",
-        "generated": {
-            "content_md": content_md,
-            "generation_params": generation_params,
-            "sections_snapshot": sections_snapshot,
-        },
+        "generated": generated,
     }
     if regeneration_target is not None:
         payload["regeneration_target"] = regeneration_target
@@ -1738,6 +1743,7 @@ async def run_generation_job(
                 "enabled_sections": [s["name"] for s in enabled_ordered],
                 "section_order": [s["name"] for s in enabled_ordered],
             },
+            attempts=attempt_diagnostics,
         )
         await set_generation_result_best_effort(
             writer,
@@ -2272,6 +2278,7 @@ async def run_regeneration_job(
             ),
             sections_snapshot=sections_snapshot,
             regeneration_target=regeneration_target,
+            attempts=attempt_diagnostics,
         )
         await set_generation_result_best_effort(
             writer,
@@ -2461,6 +2468,8 @@ async def run_resume_judge_job(
         resume_judge_result = dict(judge_result["resume_judge_result"])
         resume_judge_result["job_context_signature"] = job_context_signature
         resume_judge_result["input_signature"] = input_signature
+        resume_judge_result["attempts"] = attempt_diagnostics
+        resume_judge_result["attempt_count"] = len(attempt_diagnostics)
         _log_generation_event(
             "llm_attempts_completed",
             workflow_kind="resume_judge",
