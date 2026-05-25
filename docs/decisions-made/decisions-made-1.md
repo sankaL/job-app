@@ -1,5 +1,17 @@
 # Decisions Made
 
+## 2026-05-25 17:55:00 EDT — Apply code review refactoring fixes across backend and frontend layers
+
+- Status: Accepted
+- Context: An interactive code review identified opportunities to remove duplication, add robust defensive guards, prevent silent parsing failures, and clean up debugging statements before production release.
+- Decision:
+  1. Extract ISO timestamp parsing and duration calculations into safe, centralized static helpers `_parse_iso_timestamp` and `_calculate_duration_ms` on `ApplicationService`.
+  2. Consolidate Resume Judge recommendation retrieval into a centralized helper `_get_judge_instructions` wrapped with defensive `isinstance(dict)` type guards.
+  3. Add logger warnings inside duration-parsing bare except blocks to prevent silent validation/formatting failures.
+  4. Use the new duration calculator in the extraction success callback and regeneration callback handlers consistently.
+  5. Remove ad-hoc `console.info` / `console.warn` logging statements and their helper utilities from all production paths in frontend `api.ts`.
+- Consequences: Improved codebase maintainability, DRY utility patterns, enhanced telemetry for timestamp errors, defensive state guards against database drift, and a production-compliant console output.
+
 ## 2026-05-25 17:10:00 EDT — Differentiate regeneration with judge feedback and enrich activity log with models, duration, and instructions
 
 - Status: Accepted

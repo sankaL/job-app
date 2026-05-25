@@ -1555,15 +1555,9 @@ class ApplicationService:
                     ),
                 },
             )
-            duration_ms = None
-            if current_progress is not None:
-                try:
-                    started = datetime.fromisoformat(current_progress.created_at.replace("Z", "+00:00"))
-                    ended = datetime.now(timezone.utc)
-                    duration = int((ended - started).total_seconds() * 1000)
-                    duration_ms = max(duration, 0)
-                except Exception:
-                    pass
+            duration_ms = self._calculate_duration_ms(
+                current_progress.created_at if current_progress else None
+            )
 
             details = {}
             if payload.extracted.model_used:
@@ -1873,13 +1867,10 @@ class ApplicationService:
             model_used = str(payload.generated.generation_params.get("model_used") or "").strip() or None
             duration_ms = None
             if current_progress is not None:
-                try:
-                    started = datetime.fromisoformat(current_progress.created_at.replace("Z", "+00:00"))
-                    ended = datetime.fromisoformat(completed_progress.updated_at.replace("Z", "+00:00"))
-                    duration = int((ended - started).total_seconds() * 1000)
-                    duration_ms = max(duration, 0)
-                except Exception:
-                    pass
+                duration_ms = self._calculate_duration_ms(
+                    current_progress.created_at,
+                    completed_progress.updated_at
+                )
             if duration_ms is None:
                 duration_ms = self._progress_duration_ms(completed_progress)
 
@@ -2020,9 +2011,7 @@ class ApplicationService:
             )
             title = "Regeneration with Judge Feedback started" if use_judge_feedback else None
             summary = "Full resume regeneration with Resume Judge feedback started." if use_judge_feedback else None
-            judge_instructions = None
-            if record.resume_judge_result:
-                judge_instructions = record.resume_judge_result.get("regeneration_instructions")
+            judge_instructions = self._get_judge_instructions(record.resume_judge_result)
             self._record_activity_event(
                 user_id=user_id,
                 application_id=application_id,
@@ -2183,9 +2172,7 @@ class ApplicationService:
                     quota_period_start=quota_reservation.period_start,
                 ),
             )
-            judge_instructions = None
-            if record.resume_judge_result:
-                judge_instructions = record.resume_judge_result.get("regeneration_instructions")
+            judge_instructions = self._get_judge_instructions(record.resume_judge_result)
             self._record_activity_event(
                 user_id=user_id,
                 application_id=application_id,
@@ -2374,13 +2361,10 @@ class ApplicationService:
             model_used = str(payload.generated.generation_params.get("model_used") or "").strip() or None
             duration_ms = None
             if current_progress is not None:
-                try:
-                    started = datetime.fromisoformat(current_progress.created_at.replace("Z", "+00:00"))
-                    ended = datetime.fromisoformat(completed_progress.updated_at.replace("Z", "+00:00"))
-                    duration = int((ended - started).total_seconds() * 1000)
-                    duration_ms = max(duration, 0)
-                except Exception:
-                    pass
+                duration_ms = self._calculate_duration_ms(
+                    current_progress.created_at,
+                    completed_progress.updated_at
+                )
             if duration_ms is None:
                 duration_ms = self._progress_duration_ms(completed_progress)
 
@@ -2388,9 +2372,7 @@ class ApplicationService:
             additional_instructions = payload.generated.generation_params.get("additional_instructions")
             instructions = payload.generated.generation_params.get("instructions")
 
-            judge_instructions = None
-            if record.resume_judge_result:
-                judge_instructions = record.resume_judge_result.get("regeneration_instructions")
+            judge_instructions = self._get_judge_instructions(record.resume_judge_result)
 
             details: dict[str, Any] = {}
             if model_used:
@@ -4132,24 +4114,51 @@ class ApplicationService:
         return sanitized or None
 
     @staticmethod
-    def _timestamp_for_sort(timestamp_value: str) -> datetime:
+    def _parse_iso_timestamp(timestamp_value: Optional[str]) -> Optional[datetime]:
+        if not timestamp_value:
+            return None
         try:
             parsed = datetime.fromisoformat(timestamp_value.replace("Z", "+00:00"))
             if parsed.tzinfo is None:
                 return parsed.replace(tzinfo=timezone.utc)
             return parsed
-        except Exception:
-            return datetime.fromtimestamp(0, tz=timezone.utc)
+        except Exception as e:
+            logger.warning("Failed parsing ISO timestamp '%s': %s", timestamp_value, e)
+            return None
+
+    @staticmethod
+    def _calculate_duration_ms(
+        started_str: Optional[str],
+        ended_str: Optional[str] = None
+    ) -> Optional[int]:
+        if not started_str:
+            return None
+        started = ApplicationService._parse_iso_timestamp(started_str)
+        if started is None:
+            return None
+        if ended_str:
+            ended = ApplicationService._parse_iso_timestamp(ended_str)
+            if ended is None:
+                return None
+        else:
+            ended = datetime.now(timezone.utc)
+        duration = int((ended - started).total_seconds() * 1000)
+        return max(duration, 0)
+
+    @staticmethod
+    def _timestamp_for_sort(timestamp_value: str) -> datetime:
+        parsed = ApplicationService._parse_iso_timestamp(timestamp_value)
+        return parsed if parsed is not None else datetime.fromtimestamp(0, tz=timezone.utc)
 
     @staticmethod
     def _progress_duration_ms(progress: ProgressRecord) -> Optional[int]:
-        try:
-            started = datetime.fromisoformat(progress.created_at.replace("Z", "+00:00"))
-            ended = datetime.fromisoformat(progress.updated_at.replace("Z", "+00:00"))
-        except Exception:
-            return None
-        duration = int((ended - started).total_seconds() * 1000)
-        return max(duration, 0)
+        return ApplicationService._calculate_duration_ms(progress.created_at, progress.updated_at)
+
+    @staticmethod
+    def _get_judge_instructions(resume_judge_result: Optional[dict[str, Any]]) -> Optional[str]:
+        if isinstance(resume_judge_result, dict):
+            return resume_judge_result.get("regeneration_instructions")
+        return None
 
     @staticmethod
     def _activity_title_and_summary(activity_type: str) -> tuple[str, str]:
