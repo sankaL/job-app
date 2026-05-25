@@ -89,10 +89,28 @@ function hasExpandableDetails(item: ApplicationActivityEvent) {
       return Boolean(details.job_title || details.company || details.job_location_text || details.compensation_text || details.job_posting_origin);
     }
     if (item.type === "resume_judge_succeeded") {
-      return Boolean(typeof details.display_score === "number" || details.verdict || details.score_summary || details.evaluator_notes || typeof details.attempt_count === "number");
+      return Boolean(
+        typeof details.display_score === "number" ||
+        details.verdict ||
+        details.score_summary ||
+        details.evaluator_notes ||
+        typeof details.attempt_count === "number" ||
+        details.regeneration_instructions
+      );
     }
-    if (item.type === "generation_started" || (item.type?.includes("regeneration_") && item.type?.endsWith("_started"))) {
-      return Boolean(details.page_length || details.aggressiveness);
+    if (
+      item.type === "generation_started" ||
+      item.type === "generation_succeeded" ||
+      (item.type?.includes("regeneration_") &&
+        (item.type?.endsWith("_started") || item.type?.endsWith("_succeeded")))
+    ) {
+      return Boolean(
+        details.page_length ||
+        details.aggressiveness ||
+        details.additional_instructions ||
+        details.instructions ||
+        details.regeneration_instructions
+      );
     }
   }
   return false;
@@ -394,7 +412,10 @@ export function ApplicationActivityPanel({ applicationId, open, onClose }: Appli
                                 </div>
                               )}
 
-                              {(item.type === "generation_started" || (item.type?.includes("regeneration_") && item.type?.endsWith("_started"))) && details && (
+                              {(item.type === "generation_started" ||
+                                item.type === "generation_succeeded" ||
+                                (item.type?.includes("regeneration_") &&
+                                  (item.type?.endsWith("_started") || item.type?.endsWith("_succeeded")))) && details && (
                                 <div className="space-y-1">
                                   {details.page_length && (
                                     <div>
@@ -410,6 +431,22 @@ export function ApplicationActivityPanel({ applicationId, open, onClose }: Appli
                                       <span className="capitalize" style={{ color: "var(--color-ink)" }}>
                                         {details.aggressiveness}
                                       </span>
+                                    </div>
+                                  )}
+                                  {(details.additional_instructions || details.instructions) && (
+                                    <div className="mt-1 pl-2 border-l-2" style={{ borderColor: "var(--color-ink-20)" }}>
+                                      <span style={{ color: "var(--color-ink-40)" }}>Specific Instructions: </span>
+                                      <p className="mt-0.5 italic whitespace-pre-line font-normal" style={{ color: "var(--color-ink-65)" }}>
+                                        "{details.additional_instructions || details.instructions}"
+                                      </p>
+                                    </div>
+                                  )}
+                                  {details.regeneration_instructions && (
+                                    <div className="mt-1 pl-2 border-l-2" style={{ borderColor: "var(--color-ember-30, var(--color-ember))" }}>
+                                      <span style={{ color: "var(--color-ember)" }}>Judge Feedback: </span>
+                                      <p className="mt-0.5 italic whitespace-pre-line font-normal" style={{ color: "var(--color-ink-65)" }}>
+                                        "{details.regeneration_instructions}"
+                                      </p>
                                     </div>
                                   )}
                                 </div>
@@ -448,6 +485,14 @@ export function ApplicationActivityPanel({ applicationId, open, onClose }: Appli
                                     <div className="mt-1">
                                       <span style={{ color: "var(--color-ink-40)" }}>Notes: </span>
                                       <span className="italic" style={{ color: "var(--color-ink-65)" }}>"{details.evaluator_notes}"</span>
+                                    </div>
+                                  )}
+                                  {details.regeneration_instructions && (
+                                    <div className="mt-1.5 pl-2 border-l-2" style={{ borderColor: "var(--color-ember-30, var(--color-ember))" }}>
+                                      <span style={{ color: "var(--color-ember)" }}>Judge Recommendations: </span>
+                                      <p className="mt-0.5 italic whitespace-pre-line font-normal" style={{ color: "var(--color-ink-65)" }}>
+                                        "{details.regeneration_instructions}"
+                                      </p>
                                     </div>
                                   )}
                                   {typeof details.attempt_count === "number" && (

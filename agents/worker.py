@@ -425,8 +425,7 @@ def build_generation_failure_payload(
             "failure_details": normalized_details or None,
         },
     }
-    if quota_period_start:
-        payload["quota_period_start"] = quota_period_start
+    payload["quota_period_start"] = quota_period_start
     if regeneration_target is not None:
         payload["regeneration_target"] = regeneration_target
     return payload
@@ -801,7 +800,7 @@ class OpenRouterExtractionAgent:
     def __init__(self, settings: WorkerSettingsEnv) -> None:
         self._settings = settings
 
-    async def extract(self, context: PageContext) -> ExtractedJobPosting:
+    async def extract(self, context: PageContext) -> tuple[ExtractedJobPosting, str]:
         if not self._settings.openrouter_api_key:
             raise RuntimeError("OPENROUTER_API_KEY is not configured.")
         if not self._settings.extraction_agent_model:
@@ -815,7 +814,8 @@ class OpenRouterExtractionAgent:
             self._settings.extraction_agent_fallback_model,
         ):
             try:
-                return await self._extract_with_model(model_name, context)
+                res = await self._extract_with_model(model_name, context)
+                return res, model_name
             except Exception as error:
                 last_error = error
         raise RuntimeError("Extraction agent failed on both primary and fallback models.") from last_error
@@ -1242,7 +1242,7 @@ async def run_extraction_job(
             message="Running structured extraction.",
             percent_complete=65,
         )
-        extracted = await extractor.extract(context)
+        extracted, model_used = await extractor.extract(context)
         finalized = finalize_extracted_posting(extracted, context)
         await set_progress(
             writer,
@@ -1264,6 +1264,7 @@ async def run_extraction_job(
             completed_at=completed_at,
         )
         success_payload = finalized.model_dump()
+        success_payload["model_used"] = model_used
         await writer.set_extracted_result(
             application_id,
             job_id=job_id,

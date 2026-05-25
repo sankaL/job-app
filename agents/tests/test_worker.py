@@ -383,10 +383,11 @@ class FakeExtractionAgent(OpenRouterExtractionAgent):
 @pytest.mark.asyncio
 async def test_extraction_agent_uses_fallback_model_after_primary_failure():
     agent = FakeExtractionAgent()
-    result = await agent.extract(build_context())
+    result, model = await agent.extract(build_context())
     assert result.company == "Acme"
     assert result.job_location_text == "Toronto, ON"
     assert result.compensation_text == "$140,000 - $170,000"
+    assert model == "fallback-model"
     assert agent.calls == ["primary-model", "fallback-model"]
 
 
@@ -800,7 +801,7 @@ async def test_run_extraction_job_continues_when_started_callback_fails(monkeypa
                 raise RuntimeError("backend temporarily unreachable")
 
     class FakeExtractor:
-        async def extract(self, context: PageContext) -> ExtractedJobPosting:
+        async def extract(self, context: PageContext) -> tuple[ExtractedJobPosting, str]:
             del context
             return ExtractedJobPosting(
                 job_title="Senior Backend Engineer",
@@ -810,7 +811,7 @@ async def test_run_extraction_job_continues_when_started_callback_fails(monkeypa
                 compensation_text="$140,000 - $170,000",
                 job_posting_origin="linkedin",
                 extracted_reference_id="1234567890",
-            )
+            ), "google/gemini-3-flash-preview"
 
     fake_writer = FakeWriter()
     fake_callback = FakeCallback()
@@ -881,7 +882,7 @@ async def test_run_extraction_job_returns_success_when_success_callback_fails(mo
                 raise RuntimeError("backend still unreachable")
 
     class FakeExtractor:
-        async def extract(self, context: PageContext) -> ExtractedJobPosting:
+        async def extract(self, context: PageContext) -> tuple[ExtractedJobPosting, str]:
             del context
             return ExtractedJobPosting(
                 job_title="Senior Backend Engineer",
@@ -891,7 +892,7 @@ async def test_run_extraction_job_returns_success_when_success_callback_fails(mo
                 compensation_text="$140,000 - $170,000",
                 job_posting_origin="linkedin",
                 extracted_reference_id="1234567890",
-            )
+            ), "google/gemini-3-flash-preview"
 
     fake_writer = FakeWriter()
     fake_callback = FakeCallback()

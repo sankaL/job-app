@@ -4170,6 +4170,7 @@ describe("phase 1 applications UI", () => {
         aggressiveness: "high",
         additional_instructions:
           "Keep infrastructure metrics prominent.\n\nResume Judge Feedback:\nRewrite the summary to be candidate-specific and vary bullet openings.",
+        use_judge_feedback: true,
       }),
     );
   });

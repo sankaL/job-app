@@ -162,6 +162,7 @@ class WorkerSuccessPayload(BaseModel):
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
     extracted_reference_id: Optional[str] = None
+    model_used: Optional[str] = None
 
 
 class WorkerFailurePayload(BaseModel):
@@ -1315,12 +1316,22 @@ class ApplicationService:
             },
         )
         await self.progress_store.clear_extraction_result(record.id)
+        duration_ms = self._progress_duration_ms(progress)
+        details = {}
+        if extracted.model_used:
+            details["model_used"] = extracted.model_used
+        if duration_ms is not None:
+            details["duration_ms"] = duration_ms
+
         self._record_usage_event(
             user_id=record.user_id,
             application_id=record.id,
             event_type="extraction",
             event_status="success",
-            metadata={"activity_type": "extraction_succeeded"},
+            metadata={
+                "activity_type": "extraction_succeeded",
+                "details": details or None,
+            },
         )
         return await self._run_duplicate_resolution_flow(updated)
 
@@ -1544,12 +1555,31 @@ class ApplicationService:
                     ),
                 },
             )
+            duration_ms = None
+            if current_progress is not None:
+                try:
+                    started = datetime.fromisoformat(current_progress.created_at.replace("Z", "+00:00"))
+                    ended = datetime.now(timezone.utc)
+                    duration = int((ended - started).total_seconds() * 1000)
+                    duration_ms = max(duration, 0)
+                except Exception:
+                    pass
+
+            details = {}
+            if payload.extracted.model_used:
+                details["model_used"] = payload.extracted.model_used
+            if duration_ms is not None:
+                details["duration_ms"] = duration_ms
+
             self._record_usage_event(
                 user_id=record.user_id,
                 application_id=record.id,
                 event_type="extraction",
                 event_status="success",
-                metadata={"activity_type": "extraction_succeeded"},
+                metadata={
+                    "activity_type": "extraction_succeeded",
+                    "details": details or None,
+                },
             )
             return await self._run_duplicate_resolution_flow(updated)
 
@@ -1882,6 +1912,7 @@ class ApplicationService:
         target_length: str,
         aggressiveness: str,
         additional_instructions: Optional[str] = None,
+        use_judge_feedback: bool = False,
     ) -> ApplicationDetailPayload:
         record = self._require_application(user_id=user_id, application_id=application_id)
 
@@ -1916,6 +1947,7 @@ class ApplicationService:
             "page_length": target_length,
             "aggressiveness": aggressiveness,
             "additional_instructions": additional_instructions,
+            "use_judge_feedback": use_judge_feedback,
             "base_resume_id": base_resume_id,
             "_base_resume_snapshot_content": base_resume.content_md,
             **self._quota_generation_settings(quota_reservation),
@@ -1986,13 +2018,23 @@ class ApplicationService:
                     quota_period_start=quota_reservation.period_start,
                 ),
             )
+            title = "Regeneration with Judge Feedback started" if use_judge_feedback else None
+            summary = "Full resume regeneration with Resume Judge feedback started." if use_judge_feedback else None
+            judge_instructions = None
+            if record.resume_judge_result:
+                judge_instructions = record.resume_judge_result.get("regeneration_instructions")
             self._record_activity_event(
                 user_id=user_id,
                 application_id=application_id,
                 activity_type="regeneration_full_started",
+                title=title,
+                summary=summary,
                 details={
                     "page_length": target_length,
                     "aggressiveness": aggressiveness,
+                    "additional_instructions": additional_instructions or None,
+                    "use_judge_feedback": use_judge_feedback,
+                    "regeneration_instructions": judge_instructions or None,
                 },
             )
             return self._detail_payload(updated)
@@ -2072,6 +2114,7 @@ class ApplicationService:
         generation_settings = {
             **draft.generation_params,
             "base_resume_id": base_resume_id,
+            "instructions": instructions.strip(),
             "_base_resume_snapshot_content": base_resume.content_md,
             **self._quota_generation_settings(quota_reservation),
         }
@@ -2140,11 +2183,18 @@ class ApplicationService:
                     quota_period_start=quota_reservation.period_start,
                 ),
             )
+            judge_instructions = None
+            if record.resume_judge_result:
+                judge_instructions = record.resume_judge_result.get("regeneration_instructions")
             self._record_activity_event(
                 user_id=user_id,
                 application_id=application_id,
                 activity_type="regeneration_section_started",
-                details={"section_name": section_name},
+                details={
+                    "section_name": section_name,
+                    "instructions": instructions.strip(),
+                    "regeneration_instructions": judge_instructions or None,
+                },
             )
             return self._detail_payload(updated)
         except Exception as error:
@@ -2334,24 +2384,48 @@ class ApplicationService:
             if duration_ms is None:
                 duration_ms = self._progress_duration_ms(completed_progress)
 
+            use_judge_feedback = bool(payload.generated.generation_params.get("use_judge_feedback"))
+            additional_instructions = payload.generated.generation_params.get("additional_instructions")
+            instructions = payload.generated.generation_params.get("instructions")
+
+            judge_instructions = None
+            if record.resume_judge_result:
+                judge_instructions = record.resume_judge_result.get("regeneration_instructions")
+
             details: dict[str, Any] = {}
             if model_used:
                 details["model_used"] = model_used
             if duration_ms is not None:
                 details["duration_ms"] = duration_ms
+            
             if is_section:
                 details["section_name"] = payload.regeneration_target
+                if instructions:
+                    details["instructions"] = instructions
+            else:
+                if additional_instructions:
+                    details["additional_instructions"] = additional_instructions
+                details["use_judge_feedback"] = use_judge_feedback
+
+            if judge_instructions:
+                details["regeneration_instructions"] = judge_instructions
+
+            title = None
+            summary = None
+            if not is_section and use_judge_feedback:
+                title = "Regeneration with Judge Feedback completed"
+                summary = "Full resume regeneration with Resume Judge feedback completed."
+
             attempts = payload.generated.attempts
-            self._record_usage_event(
+            self._record_activity_event(
                 user_id=record.user_id,
                 application_id=record.id,
-                event_type="regeneration",
-                event_status="success",
-                metadata={
-                    "activity_type": "regeneration_section_succeeded" if is_section else "regeneration_full_succeeded",
-                    "details": details or None,
-                    "attempts": attempts,
-                },
+                activity_type="regeneration_section_succeeded" if is_section else "regeneration_full_succeeded",
+                title=title,
+                summary=summary,
+                status="success",
+                details=details or None,
+                attempts=attempts,
             )
             return updated
 
@@ -2456,6 +2530,7 @@ class ApplicationService:
                     "verdict": success_result.get("verdict"),
                     "score_summary": success_result.get("score_summary"),
                     "evaluator_notes": success_result.get("evaluator_notes"),
+                    "regeneration_instructions": success_result.get("regeneration_instructions"),
                 },
                 attempts=self._sanitize_attempts_for_activity(success_result.get("attempts")),
             )

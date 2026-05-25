@@ -1,5 +1,17 @@
 # Decisions Made
 
+## 2026-05-25 17:10:00 EDT — Differentiate regeneration with judge feedback and enrich activity log with models, duration, and instructions
+
+- Status: Accepted
+- Context: Users needed to clearly differentiate "Regeneration with Judge Feedback" from standard full regeneration in the application timeline (Activity Log). Additionally, to provide proper diagnostic visibility for both extractions and generations/regenerations, the Activity Log needed to capture and show the AI model used, job durations, user instructions, and specific judge recommendations.
+- Decision:
+  1. Add `use_judge_feedback` to full regeneration request payloads and persist it in the draft's `generation_params` to statelessly identify judge-feedback-driven runs in callbacks.
+  2. Map custom timeline titles ("Regeneration with Judge Feedback started/completed") and summaries at runtime in `handle_regeneration_callback()` when `use_judge_feedback` is active.
+  3. Enrich the extraction success callback payload with `model_used` and compute accurate duration (`duration_ms`) before writing to timeline events.
+  4. Persist user instructions (`additional_instructions` for full, `instructions` for section) and judge feedback recommendations (`regeneration_instructions`) inside start and completed activity event metadata.
+  5. Update `ApplicationActivityPanel` to render `Specific Instructions` and `Judge Recommendations` in elegant timeline detail blocks, and dynamically expand them when present.
+- Consequences: The Activity Log timeline is highly detailed and informative, judge-specific flows are visually highlighted and traceable, and operator diagnostics are persisted cleanly without breaking retro-compatibility.
+
 ## 2026-05-24 13:20:00 EDT — Add DeepSeek V4 Flash to curated generation model choices
 
 - Status: Accepted

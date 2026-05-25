@@ -1060,6 +1060,7 @@ export async function triggerFullRegeneration(
     target_length: string;
     aggressiveness: string;
     additional_instructions?: string;
+    use_judge_feedback?: boolean;
   },
 ): Promise<ApplicationDetail> {
   logGenerationRequest("start", {
@@ -1068,6 +1069,7 @@ export async function triggerFullRegeneration(
     target_length: settings.target_length,
     aggressiveness: settings.aggressiveness,
     additional_instructions_length: settings.additional_instructions?.length ?? 0,
+    use_judge_feedback: settings.use_judge_feedback,
   });
   try {
     return await authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/regenerate`, {

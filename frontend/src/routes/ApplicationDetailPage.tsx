@@ -1144,7 +1144,7 @@ export function ApplicationDetailPage() {
     dismissDraftEditor();
   }
 
-  async function handleFullRegeneration(overrideInstructions?: string) {
+  async function handleFullRegeneration(overrideInstructions?: string, useJudgeFeedback?: boolean) {
     if (fullRegenerationBlocker) {
       console.warn("[generation-ui]", {
         event: "blocked_before_request",
@@ -1164,6 +1164,7 @@ export function ApplicationDetailPage() {
         target_length: pageLength,
         aggressiveness,
         additional_instructions: (overrideInstructions ?? additionalInstructions) || undefined,
+        use_judge_feedback: useJudgeFeedback,
       });
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
@@ -2821,6 +2822,7 @@ export function ApplicationDetailPage() {
                                 setShowResumeJudgeDialog(false);
                                 void handleFullRegeneration(
                                   appendResumeJudgeFeedback(additionalInstructions, resumeJudge.regeneration_instructions),
+                                  true,
                                 );
                               }}
                             >

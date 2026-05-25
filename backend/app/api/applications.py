@@ -306,6 +306,7 @@ class FullRegenerationRequest(BaseModel):
     target_length: str = "1_page"
     aggressiveness: str = "medium"
     additional_instructions: Optional[str] = None
+    use_judge_feedback: bool = False
 
     @field_validator("target_length")
     @classmethod
@@ -926,6 +927,7 @@ async def regenerate_full(
                 target_length=request.target_length,
                 aggressiveness=request.aggressiveness,
                 additional_instructions=request.additional_instructions,
+                use_judge_feedback=request.use_judge_feedback,
             )
         )
     except Exception as error:
