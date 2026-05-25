@@ -20,6 +20,7 @@ from app.db.subscriptions import (
     SubscriptionTierRecord,
     get_subscription_repository,
 )
+from app.db.usage_events import UsageEventRepository, get_usage_event_repository
 from app.services.email import EmailMessage, EmailSender, build_email_sender
 from app.services.user_manager import UserManager, build_user_manager
 
@@ -76,6 +77,7 @@ MAX_MONTHLY_RESUME_GENERATION_LIMIT = 10_000
 @dataclass
 class AdminService:
     repository: AdminRepository
+    usage_event_repository: UsageEventRepository
     profile_repository: ProfileRepository
     subscription_repository: SubscriptionRepository
     user_manager: UserManager
@@ -140,7 +142,7 @@ class AdminService:
         invite_counts = self.repository.get_invite_counts()
         total_applications = self.repository.get_total_applications()
 
-        operation_rows = {row.event_type: row for row in self.repository.get_operation_metrics()}
+        operation_rows = {row.event_type: row for row in self.usage_event_repository.get_operation_metrics()}
 
         def build_operation(name: str) -> AdminOperationMetric:
             row = operation_rows.get(name)
@@ -449,7 +451,7 @@ class AdminService:
         event_type: str,
         event_status: str,
     ) -> None:
-        self.repository.create_usage_event(
+        self.usage_event_repository.create_usage_event(
             user_id=user_id,
             event_type=event_type,
             event_status=event_status,
@@ -519,12 +521,14 @@ class AdminService:
 
 def get_admin_service(
     repository: AdminRepository = Depends(get_admin_repository),
+    usage_event_repository: UsageEventRepository = Depends(get_usage_event_repository),
     profile_repository: ProfileRepository = Depends(get_profile_repository),
     subscription_repository: SubscriptionRepository = Depends(get_subscription_repository),
     settings: Settings = Depends(get_settings),
 ) -> AdminService:
     return AdminService(
         repository=repository,
+        usage_event_repository=usage_event_repository,
         profile_repository=profile_repository,
         subscription_repository=subscription_repository,
         user_manager=build_user_manager(settings),

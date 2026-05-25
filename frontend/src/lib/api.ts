@@ -289,6 +289,27 @@ export type ApplicationHeartbeat = {
   sent_at: string;
 };
 
+export type ApplicationActivityAttempt = {
+  model?: string | null;
+  reasoning_effort?: string | null;
+  transport_mode?: string | null;
+  outcome?: string | null;
+  elapsed_ms?: number | null;
+  retry_reason?: string | null;
+};
+
+export type ApplicationActivityEvent = {
+  id: string;
+  type: string;
+  status: "info" | "success" | "failure";
+  title: string;
+  summary: string;
+  created_at: string;
+  details?: Record<string, unknown> | null;
+  failure_message?: string | null;
+  attempts?: ApplicationActivityAttempt[] | null;
+};
+
 export type ExtensionTokenResponse = {
   token: string;
   status: ExtensionConnectionStatus;
@@ -770,6 +791,10 @@ export async function resolveDuplicate(
 
 export async function fetchApplicationProgress(applicationId: string): Promise<ExtractionProgress> {
   return authenticatedRequest<ExtractionProgress>(`/api/applications/${applicationId}/progress`);
+}
+
+export async function listApplicationActivity(applicationId: string): Promise<ApplicationActivityEvent[]> {
+  return authenticatedRequest<ApplicationActivityEvent[]>(`/api/applications/${applicationId}/activity`);
 }
 
 export async function recoverApplicationFromSource(

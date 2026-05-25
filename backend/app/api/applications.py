@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.core.access import get_current_active_user
 from app.core.auth import AuthenticatedUser
-from app.core.errors import QuotaExceededError
+from app.core.errors import QuotaExceededError, QuotaReservationBusyError
 from app.db.applications import ApplicationListRecord, ApplicationRecord, MatchedApplicationRecord
 from app.db.resume_drafts import ResumeDraftRecord
 from app.services.application_manager import (
@@ -395,6 +395,27 @@ class ApplicationEventSnapshot(BaseModel):
     progress: Optional[WorkflowProgress]
 
 
+class ApplicationActivityAttempt(BaseModel):
+    model: Optional[str] = None
+    reasoning_effort: Optional[str] = None
+    transport_mode: Optional[str] = None
+    outcome: Optional[str] = None
+    elapsed_ms: Optional[int] = None
+    retry_reason: Optional[str] = None
+
+
+class ApplicationActivityEntry(BaseModel):
+    id: str
+    type: str
+    status: str
+    title: str
+    summary: str
+    created_at: str
+    details: Optional[dict[str, Any]] = None
+    failure_message: Optional[str] = None
+    attempts: Optional[list[ApplicationActivityAttempt]] = None
+
+
 def to_application_summary(record: ApplicationListRecord) -> ApplicationSummary:
     return ApplicationSummary(
         **record.model_dump(),
@@ -448,6 +469,11 @@ def _map_service_error(error: Exception) -> HTTPException:
     if isinstance(error, QuotaExceededError):
         return HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": error.code, "message": str(error)},
+        )
+    if isinstance(error, QuotaReservationBusyError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
             detail={"code": error.code, "message": str(error)},
         )
     if isinstance(error, PermissionError):
@@ -693,6 +719,22 @@ async def get_progress(
             application_id=application_id,
         )
         return WorkflowProgress.model_validate(progress.model_dump())
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+
+@router.get("/{application_id}/activity", response_model=list[ApplicationActivityEntry])
+async def list_application_activity(
+    application_id: str,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> list[ApplicationActivityEntry]:
+    try:
+        events = await service.list_application_activity(
+            user_id=current_user.id,
+            application_id=application_id,
+        )
+        return [ApplicationActivityEntry.model_validate(event.model_dump()) for event in events]
     except Exception as error:
         raise _map_service_error(error) from error
 

@@ -30,6 +30,10 @@ function isNewerDetail(
   return !current || next.updated_at >= current.updated_at;
 }
 
+function isTerminalWorkflowProgress(progress: ExtractionProgress) {
+  return Boolean(progress.completed_at || progress.terminal_error_code);
+}
+
 export function useApplicationEventStream(
   applicationId: string | undefined,
   enabled: boolean,
@@ -88,6 +92,9 @@ export function useApplicationEventStream(
           (current: ExtractionProgress | undefined) =>
             isNewerProgress(current, snapshot.progress as ExtractionProgress) ? snapshot.progress : current,
         );
+        if (isTerminalWorkflowProgress(snapshot.progress)) {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.applicationActivity(applicationId) });
+        }
       }
     };
 
@@ -98,6 +105,9 @@ export function useApplicationEventStream(
         (current: ExtractionProgress | undefined) =>
           isNewerProgress(current, progress) ? progress : current,
       );
+      if (isTerminalWorkflowProgress(progress)) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.applicationActivity(applicationId) });
+      }
     };
 
     const applyDetail = (detail: ApplicationDetail) => {
@@ -105,6 +115,7 @@ export function useApplicationEventStream(
       queryClient.setQueryData(queryKeys.application(applicationId), (current: ApplicationDetail | undefined) =>
         isNewerDetail(current, detail) ? detail : current,
       );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.applicationActivity(applicationId) });
     };
 
     const applyHeartbeat = (_heartbeat: ApplicationHeartbeat) => {

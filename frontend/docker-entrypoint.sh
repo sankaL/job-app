@@ -8,6 +8,19 @@ NGINX_CONFIG="/etc/nginx/conf.d/default.conf"
 ENV_CONFIG="/usr/share/nginx/html/env-config.js"
 ENV_CONFIG_ENTRY_COUNT=0
 
+format_nginx_resolver() {
+  nameserver="$(awk '/^nameserver[[:space:]]+/ { print $2; exit }' /etc/resolv.conf)"
+
+  case "$nameserver" in
+    *:*)
+      printf '[%s]' "$nameserver"
+      ;;
+    *)
+      printf '%s' "$nameserver"
+      ;;
+  esac
+}
+
 escape_js_string() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
@@ -39,6 +52,6 @@ append_runtime_config "VITE_API_URL" "${VITE_API_URL:-}"
 
 printf '\n});\n' >> "$ENV_CONFIG"
 
-sed "s/__PORT__/${PORT_VALUE}/g" "$NGINX_TEMPLATE" > "$NGINX_CONFIG"
+sed "s/__PORT__/${PORT_VALUE}/g; s|__BACKEND_URL__|${BACKEND_URL:-http://backend.railway.internal:8080}|g; s|__DNS_RESOLVER__|$(format_nginx_resolver)|g" "$NGINX_TEMPLATE" > "$NGINX_CONFIG"
 
 exec nginx -g 'daemon off;'

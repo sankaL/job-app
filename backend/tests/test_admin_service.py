@@ -55,7 +55,6 @@ class StubAdminRepository:
     def __init__(self) -> None:
         self.revoked_invitee_user_id: Optional[str] = None
         self.created_invite: Optional[InviteRecord] = None
-        self.usage_events: list[tuple[str, str, str]] = []
 
     def revoke_pending_invites(self, *, invitee_user_id: str) -> None:
         self.revoked_invitee_user_id = invitee_user_id
@@ -82,9 +81,6 @@ class StubAdminRepository:
             updated_at="2026-04-10T00:00:00+00:00",
         )
         return self.created_invite
-
-    def create_usage_event(self, *, user_id: str, event_type: str, event_status: str) -> None:
-        self.usage_events.append((user_id, event_type, event_status))
 
     def fetch_user(self, *, user_id: str):
         return None
@@ -217,6 +213,17 @@ def _make_settings():
     )
 
 
+class StubUsageEventRepository:
+    def __init__(self) -> None:
+        self.usage_events: list[tuple[str, str, str]] = []
+
+    def create_usage_event(self, *, user_id: str, event_type: str, event_status: str, **_kwargs) -> None:
+        self.usage_events.append((user_id, event_type, event_status))
+
+    def get_operation_metrics(self):
+        return []
+
+
 @pytest.mark.asyncio
 async def test_invite_user_fails_closed_when_email_notifications_disabled(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EMAIL_NOTIFICATIONS_ENABLED", "false")
@@ -224,10 +231,12 @@ async def test_invite_user_fails_closed_when_email_notifications_disabled(monkey
     monkeypatch.delenv("EMAIL_FROM", raising=False)
 
     repository = StubAdminRepository()
+    usage_events = StubUsageEventRepository()
     profiles = StubProfileRepository()
     user_manager = StubUserManager()
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
+        usage_event_repository=usage_events,  # type: ignore[arg-type]
         profile_repository=profiles,  # type: ignore[arg-type]
         subscription_repository=StubSubscriptionRepository(),  # type: ignore[arg-type]
         user_manager=user_manager,  # type: ignore[arg-type]
@@ -244,7 +253,7 @@ async def test_invite_user_fails_closed_when_email_notifications_disabled(monkey
         )
 
     assert repository.created_invite is None
-    assert repository.usage_events == []
+    assert usage_events.usage_events == []
     assert user_manager.create_user_calls == 0
     assert profiles.update_calls == 0
 
@@ -256,10 +265,12 @@ async def test_invite_user_records_failure_when_email_delivery_fails(monkeypatch
     monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
 
     repository = StubAdminRepository()
+    usage_events = StubUsageEventRepository()
     profiles = StubProfileRepository()
     user_manager = StubUserManager(user_id="invitee-1")
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
+        usage_event_repository=usage_events,  # type: ignore[arg-type]
         profile_repository=profiles,  # type: ignore[arg-type]
         subscription_repository=StubSubscriptionRepository(),  # type: ignore[arg-type]
         user_manager=user_manager,  # type: ignore[arg-type]
@@ -276,14 +287,16 @@ async def test_invite_user_records_failure_when_email_delivery_fails(monkeypatch
         )
 
     assert repository.created_invite is not None
-    assert repository.usage_events == [("invitee-1", "invite_sent", "failure")]
+    assert usage_events.usage_events == [("invitee-1", "invite_sent", "failure")]
 
 
 def test_update_subscription_tier_validates_and_persists_values():
     repository = StubAdminRepository()
     subscriptions = StubSubscriptionRepository()
+    usage_events = StubUsageEventRepository()
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
+        usage_event_repository=usage_events,  # type: ignore[arg-type]
         profile_repository=StubProfileRepository(),  # type: ignore[arg-type]
         subscription_repository=subscriptions,  # type: ignore[arg-type]
         user_manager=StubUserManager(),  # type: ignore[arg-type]
@@ -314,8 +327,10 @@ def test_update_subscription_tier_validates_and_persists_values():
 def test_update_subscription_tier_rejects_excessive_limits_and_malformed_models():
     repository = StubAdminRepository()
     subscriptions = StubSubscriptionRepository()
+    usage_events = StubUsageEventRepository()
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
+        usage_event_repository=usage_events,  # type: ignore[arg-type]
         profile_repository=StubProfileRepository(),  # type: ignore[arg-type]
         subscription_repository=subscriptions,  # type: ignore[arg-type]
         user_manager=StubUserManager(),  # type: ignore[arg-type]
@@ -348,9 +363,11 @@ def test_update_subscription_tier_rejects_excessive_limits_and_malformed_models(
 async def test_update_user_rejects_inactive_subscription_tier_assignment():
     repository = StubAdminRepository()
     subscriptions = StubSubscriptionRepository()
+    usage_events = StubUsageEventRepository()
     subscriptions.tiers["pro"] = subscriptions.tiers["pro"].model_copy(update={"is_active": False})
     service = AdminService(
         repository=repository,  # type: ignore[arg-type]
+        usage_event_repository=usage_events,  # type: ignore[arg-type]
         profile_repository=StubProfileRepository(),  # type: ignore[arg-type]
         subscription_repository=subscriptions,  # type: ignore[arg-type]
         user_manager=StubUserManager(),  # type: ignore[arg-type]

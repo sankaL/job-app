@@ -188,7 +188,7 @@ def test_login_success():
     # Refresh cookie should be set
     assert "refresh_token" in response.cookies
     assert "Secure" in response.headers["set-cookie"]
-    assert "SameSite=none" in response.headers["set-cookie"]
+    assert "SameSite=lax" in response.headers["set-cookie"]
 
     app.dependency_overrides.clear()
 

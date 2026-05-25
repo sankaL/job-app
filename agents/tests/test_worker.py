@@ -234,6 +234,16 @@ def test_build_generation_failure_payload_includes_quota_period_start():
 
     assert payload["quota_period_start"] == "2026-05-01"
 
+    payload_none = build_generation_failure_payload(
+        application_id="app-1",
+        user_id="user-1",
+        job_id="job-1",
+        message="Failed.",
+        terminal_error_code="generation_failed",
+        quota_period_start=None,
+    )
+    assert payload_none["quota_period_start"] is None
+
 
 def test_extract_reference_id_prefers_query_and_path_patterns():
     assert extract_reference_id("https://example.com/job?jobId=ABC123") == "abc123"
@@ -388,11 +398,14 @@ def test_build_generation_success_payload_nests_generated_fields():
         content_md="# Resume",
         generation_params={"page_length": "1_page"},
         sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+        attempts=[{"model": "primary", "outcome": "success"}],
     )
 
     assert payload["event"] == "succeeded"
     assert payload["generated"]["content_md"] == "# Resume"
     assert payload["generated"]["generation_params"]["page_length"] == "1_page"
+    assert payload["generated"]["generation_params"].get("attempts") is None
+    assert payload["generated"]["attempts"] == [{"model": "primary", "outcome": "success"}]
 
 
 def test_build_generation_failure_payload_normalizes_validation_errors():
@@ -425,6 +438,7 @@ def test_stored_generation_settings_strips_private_model_fields():
             "_generation_reasoning_effort": "medium",
             "_generation_fallback_model": "openai/gpt-5.4-mini",
             "_generation_fallback_reasoning_effort": "high",
+            "_base_resume_snapshot_content": "# Resume\n\nOld content",
         },
         model_used="google/gemini-3-flash-preview",
     )
@@ -436,6 +450,7 @@ def test_stored_generation_settings_strips_private_model_fields():
     assert "_generation_reasoning_effort" not in stored
     assert "_generation_fallback_model" not in stored
     assert "_generation_fallback_reasoning_effort" not in stored
+    assert "_base_resume_snapshot_content" not in stored
 
 
 def test_quota_period_start_normalizes_blank_values():
@@ -1108,6 +1123,8 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
     assert "_generation_reasoning_effort" not in generated["generation_params"]
     assert "_generation_fallback_model" not in generated["generation_params"]
     assert "_generation_fallback_reasoning_effort" not in generated["generation_params"]
+    assert "attempts" not in generated["generation_params"]
+    assert generated["attempts"][0]["model"] == "google/gemini-3-flash-preview"
 
 
 @pytest.mark.asyncio
@@ -1616,6 +1633,8 @@ async def test_run_regeneration_job_success(monkeypatch):
     assert "_generation_reasoning_effort" not in generation_params
     assert "_generation_fallback_model" not in generation_params
     assert "_generation_fallback_reasoning_effort" not in generation_params
+    assert "attempts" not in generation_params
+    assert success_payload["generated"]["attempts"][0]["model"] == "google/gemini-35-flash"
 
 
 @pytest.mark.asyncio
