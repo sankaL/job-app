@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.services.resume_parser import ResumeParserService
+from app.services.resume_parser import ResumeParserService, _validate_cleanup_payload
 
 
 class FakeResponse:
@@ -209,3 +209,46 @@ async def test_cleanup_with_llm_accepts_fenced_json_payload(monkeypatch):
 
     assert "## Summary\nBuilt backend systems." in cleaned.cleaned_markdown
     assert cleaned.needs_review is False
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {
+                "cleaned_markdown": "## Summary\nBuilt backend systems.\n",
+                "needs_review": False,
+                "review_reason": None,
+                "extra": "not allowed",
+            },
+            "exactly cleaned_markdown",
+        ),
+        (
+            {
+                "cleaned_markdown": "",
+                "needs_review": False,
+                "review_reason": None,
+            },
+            "non-empty string",
+        ),
+        (
+            {
+                "cleaned_markdown": "## Summary\nBuilt backend systems.\n",
+                "needs_review": "false",
+                "review_reason": None,
+            },
+            "needs_review must be a boolean",
+        ),
+        (
+            {
+                "cleaned_markdown": "## Summary\nBuilt backend systems.\n",
+                "needs_review": True,
+                "review_reason": None,
+            },
+            "review_reason is required",
+        ),
+    ],
+)
+def test_validate_cleanup_payload_rejects_malformed_contracts(payload, message):
+    with pytest.raises(ValueError, match=message):
+        _validate_cleanup_payload(payload)

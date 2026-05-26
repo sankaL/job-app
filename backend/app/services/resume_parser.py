@@ -45,6 +45,27 @@ def _extract_json_payload(text: str) -> dict:
     return payload
 
 
+def _validate_cleanup_payload(payload: dict) -> tuple[str, bool, Optional[str]]:
+    expected_keys = {"cleaned_markdown", "needs_review", "review_reason"}
+    if set(payload.keys()) != expected_keys:
+        raise ValueError("Cleanup response must contain exactly cleaned_markdown, needs_review, and review_reason.")
+    cleaned_markdown = payload["cleaned_markdown"]
+    needs_review = payload["needs_review"]
+    review_reason = payload["review_reason"]
+    if not isinstance(cleaned_markdown, str) or not cleaned_markdown.strip():
+        raise ValueError("cleaned_markdown must be a non-empty string.")
+    if not isinstance(needs_review, bool):
+        raise ValueError("needs_review must be a boolean.")
+    if review_reason is not None and not isinstance(review_reason, str):
+        raise ValueError("review_reason must be a string or null.")
+    normalized_reason = review_reason.strip() if isinstance(review_reason, str) else None
+    if needs_review and not normalized_reason:
+        raise ValueError("review_reason is required when needs_review is true.")
+    if not needs_review:
+        normalized_reason = None
+    return cleaned_markdown, needs_review, normalized_reason
+
+
 class ResumeParserService:
     """Service for parsing PDF resumes and optionally cleaning them up with LLM."""
 
@@ -226,6 +247,8 @@ class ResumeParserService:
         system_prompt = (
             "You are a resume formatting assistant. Improve the structure of parsed resume text into clean Markdown.\n"
             "Return a single JSON object with exactly these keys: cleaned_markdown, needs_review, review_reason.\n"
+            "Expected JSON shape: {\"cleaned_markdown\":\"## Summary\\n...\",\"needs_review\":false,\"review_reason\":null}.\n"
+            "Return JSON only, with no prose, code fences, extra keys, HTML, or XML.\n"
             "Rules:\n"
             "- Detect and format section headings (## level), bullet points, dates, job titles, company names, and education entries.\n"
             "- The input has already had personal/contact data removed. Do NOT add or infer contact info.\n"
@@ -258,10 +281,7 @@ class ResumeParserService:
                 data = response.json()
                 cleaned_body_raw = data["choices"][0]["message"]["content"]
                 payload = _extract_json_payload(cleaned_body_raw)
-                cleaned_body = str(payload["cleaned_markdown"])
-                needs_review = bool(payload.get("needs_review"))
-                review_reason = payload.get("review_reason")
-                review_reason = str(review_reason).strip() if review_reason is not None else None
+                cleaned_body, needs_review, review_reason = _validate_cleanup_payload(payload)
                 cleaned_sanitized = sanitize_resume_markdown(cleaned_body).sanitized_markdown or cleaned_body
                 return ResumeCleanupResult(
                     cleaned_markdown=reattach_header_lines(cleaned_sanitized, sanitized.header_lines),

@@ -28,6 +28,7 @@ from generation import (
     SECTION_REGENERATION_LLM_TIMEOUT_SECONDS,
     _replace_section_in_draft,
     generate_sections,
+    render_semantic_section,
     regenerate_single_section,
     repair_generated_response,
 )
@@ -516,7 +517,7 @@ def _build_sections_response_payload(generated_sections: list[dict[str, Any]]) -
             {
                 "id": section["name"],
                 "heading": section["heading"],
-                "markdown": section["content"],
+                "content": section.get("semantic_content") or {},
                 "supporting_snippets": section.get("supporting_snippets") or [],
             }
             for section in generated_sections
@@ -529,7 +530,7 @@ def _build_section_response_payload(regenerated_section: dict[str, Any]) -> dict
         "section": {
             "id": regenerated_section["name"],
             "heading": regenerated_section["heading"],
-            "markdown": regenerated_section["content"],
+            "content": regenerated_section.get("semantic_content") or {},
             "supporting_snippets": regenerated_section.get("supporting_snippets") or [],
         }
     }
@@ -838,6 +839,11 @@ class OpenRouterExtractionAgent:
                 "system",
                 (
                     "Extract structured job-posting fields from the supplied webpage context.\n"
+                    "Return exactly one JSON object matching this schema and no prose or extra keys: "
+                    '{"job_title":"...","job_description":"...","company":null,'
+                    '"job_location_text":null,"compensation_text":null,'
+                    '"job_posting_origin":null,"job_posting_origin_other_text":null,'
+                    '"extracted_reference_id":null}.\n'
                     "Rules:\n"
                     "- Do not invent facts. job_title and job_description are required.\n"
                     "- Use json_ld for structured metadata when it is coherent.\n"
@@ -1387,12 +1393,11 @@ async def _validate_generated_sections_with_repair(
         return generated_sections, validation_result, combined_attempts, failure_details
 
     repaired_sections = [
-        {
-            "name": section.id,
-            "heading": section.heading,
-            "content": section.markdown.strip(),
-            "supporting_snippets": section.supporting_snippets,
-        }
+        render_semantic_section(
+            section,
+            professional_experience_anchors=professional_experience_anchors or [],
+            aggressiveness=aggressiveness,
+        )
         for section in repaired_payload.sections
     ]
     validation_after_repair = await validate_resume(
@@ -1479,13 +1484,12 @@ async def _validate_regenerated_section_with_repair(
         }
         return regenerated_section, validation_result, combined_attempts, failure_details
 
-    repaired_section = {
-        "name": repaired_payload.section.id,
-        "heading": repaired_payload.section.heading,
-        "content": repaired_payload.section.markdown.strip(),
-        "supporting_snippets": repaired_payload.section.supporting_snippets,
-        "professional_experience_anchors": professional_experience_anchors,
-    }
+    repaired_section = render_semantic_section(
+        repaired_payload.section,
+        professional_experience_anchors=professional_experience_anchors or [],
+        aggressiveness=aggressiveness,
+    )
+    repaired_section["professional_experience_anchors"] = professional_experience_anchors
     validation_after_repair = await validate_resume(
         generated_sections=[repaired_section],
         base_resume_content=base_resume_content,
@@ -1628,7 +1632,7 @@ async def run_generation_job(
         generated_sections, validation_result, attempt_diagnostics, repair_failure_details = await _validate_generated_sections_with_repair(
             generated_sections=generated_sections,
             base_resume_content=base_resume_content,
-            section_preferences=section_preferences,
+            section_preferences=gen_result.get("eligible_section_preferences") or section_preferences,
             generation_settings=public_generation_settings,
             professional_experience_anchors=gen_result.get("professional_experience_anchors"),
             prompt=gen_result["prompt"],
@@ -1715,8 +1719,9 @@ async def run_generation_job(
         if not await is_current_job(writer, application_id, job_id):
             return
 
+        effective_section_preferences = gen_result.get("eligible_section_preferences") or section_preferences
         enabled_ordered = sorted(
-            [s for s in section_preferences if s.get("enabled")],
+            [s for s in effective_section_preferences if s.get("enabled")],
             key=lambda s: s.get("order", 0),
         )
 
@@ -2037,7 +2042,7 @@ async def run_regeneration_job(
             generated_sections, validation_result, attempt_diagnostics, repair_failure_details = await _validate_generated_sections_with_repair(
                 generated_sections=generated_sections,
                 base_resume_content=base_resume_content,
-                section_preferences=section_preferences,
+                section_preferences=gen_result.get("eligible_section_preferences") or section_preferences,
                 generation_settings=public_generation_settings,
                 professional_experience_anchors=gen_result.get("professional_experience_anchors"),
                 prompt=gen_result["prompt"],
@@ -2110,6 +2115,15 @@ async def run_regeneration_job(
             )
             if not await is_current_job(writer, application_id, job_id):
                 return
+            effective_section_preferences = gen_result.get("eligible_section_preferences") or section_preferences
+            enabled_ordered = sorted(
+                [s for s in effective_section_preferences if s.get("enabled")],
+                key=lambda s: s.get("order", 0),
+            )
+            sections_snapshot = {
+                "enabled_sections": [s["name"] for s in enabled_ordered],
+                "section_order": [s["name"] for s in enabled_ordered],
+            }
         else:
             if not section_name or not instructions or not current_draft_content:
                 raise ValueError(

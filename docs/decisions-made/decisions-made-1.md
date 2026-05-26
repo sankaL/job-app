@@ -1,5 +1,17 @@
 # Decisions Made
 
+## 2026-05-25 18:49:35 EDT — Use semantic JSON as the resume-writing agent contract
+
+- Status: Accepted
+- Context: Section-level Markdown strings from resume-writing agents still left too much formatting probability in the LLM path, creating validation and rendering fragility around headings, bullets, row layout, and optional sections.
+- Decision:
+  1. Require full generation, full regeneration, section regeneration, and validation repair to return strict semantic JSON section objects with `id`, `heading`, `content`, and grounded `supporting_snippets`.
+  2. Render persisted Markdown locally from section-specific semantic content schemas for Summary, Professional Experience, Education, Skills, Projects, and Certifications.
+  3. Generate only the intersection of user-enabled sections and sections detected in the sanitized base resume, with Summary allowed for substantive non-contact source content.
+  4. Store Resume Judge regeneration guidance as section-keyed JSON arrays and convert it to bounded instructions only when triggering judge-feedback regeneration.
+  5. Keep job extraction and upload cleanup on explicit JSON contracts with stricter prompt wording and local type/key validation where applicable.
+- Consequences: Resume output formatting is deterministic at the application layer, validation has a structured object to inspect before Markdown rendering, optional source-absent sections no longer become required by preference alone, and saved drafts remain Markdown-compatible for preview, editing, and export.
+
 ## 2026-05-25 17:55:00 EDT — Apply code review refactoring fixes across backend and frontend layers
 
 - Status: Accepted

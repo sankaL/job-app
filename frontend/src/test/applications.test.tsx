@@ -104,8 +104,10 @@ const defaultBootstrap = {
       professional_experience: true,
       education: true,
       skills: true,
+      projects: true,
+      certifications: true,
     },
-    section_order: ["summary", "professional_experience", "education", "skills"],
+    section_order: ["summary", "professional_experience", "education", "skills", "projects", "certifications"],
     created_at: "2026-04-07T12:00:00Z",
     updated_at: "2026-04-07T12:00:00Z",
   },
@@ -295,8 +297,10 @@ describe("phase 1 applications UI", () => {
         professional_experience: true,
         education: true,
         skills: true,
+        projects: true,
+        certifications: true,
       },
-      section_order: ["summary", "professional_experience", "education", "skills"],
+      section_order: ["summary", "professional_experience", "education", "skills", "projects", "certifications"],
       created_at: "2026-04-07T12:00:00Z",
       updated_at: "2026-04-07T12:00:00Z",
     });
@@ -327,8 +331,10 @@ describe("phase 1 applications UI", () => {
         professional_experience: true,
         education: true,
         skills: true,
+        projects: true,
+        certifications: true,
       },
-      section_order: payload.section_order ?? ["summary", "professional_experience", "education", "skills"],
+      section_order: payload.section_order ?? ["summary", "professional_experience", "education", "skills", "projects", "certifications"],
       created_at: "2026-04-07T12:00:00Z",
       updated_at: "2026-04-07T12:05:00Z",
     }));
@@ -3627,7 +3633,9 @@ describe("phase 1 applications UI", () => {
             ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
             length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable length." },
           },
-          regeneration_instructions: "Tighten the summary voice.",
+          regeneration_instructions: {
+            summary: ["Tighten the summary voice.", null as unknown as string],
+          },
           regeneration_priority_dimensions: ["voice_and_human_quality"],
           evaluator_notes: "A targeted rewrite should push this above the pass threshold.",
           evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
@@ -3675,6 +3683,8 @@ describe("phase 1 applications UI", () => {
     expect(screen.queryByText(/aligned to the jd/i)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /role alignment/i }));
     expect(screen.getByText(/aligned to the jd/i)).toBeInTheDocument();
+    expect(screen.getByText(/summary:/i)).toBeInTheDocument();
+    expect(screen.getByText(/- tighten the summary voice\./i)).toBeInTheDocument();
     expect(screen.getByText(/a targeted rewrite should push this above the pass threshold/i)).toBeInTheDocument();
   });
 
@@ -4106,7 +4116,10 @@ describe("phase 1 applications UI", () => {
             ats_safety_and_formatting: { score: 8, weight: 0.1, weighted_contribution: 8, notes: "ATS-safe." },
             length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Length is okay." },
           },
-          regeneration_instructions: "Rewrite the summary to be candidate-specific and vary bullet openings.",
+          regeneration_instructions: {
+            summary: ["Rewrite the summary to be candidate-specific."],
+            professional_experience: ["Vary bullet openings."],
+          },
           regeneration_priority_dimensions: ["voice_and_human_quality", "role_alignment"],
           evaluator_notes: "The draft should be regenerated with targeted feedback.",
           evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
@@ -4168,8 +4181,7 @@ describe("phase 1 applications UI", () => {
       expect(api.triggerFullRegeneration).toHaveBeenCalledWith("app-1", {
         target_length: "2_page",
         aggressiveness: "high",
-        additional_instructions:
-          "Keep infrastructure metrics prominent.\n\nResume Judge Feedback:\nRewrite the summary to be candidate-specific and vary bullet openings.",
+        additional_instructions: "Keep infrastructure metrics prominent.",
         use_judge_feedback: true,
       }),
     );

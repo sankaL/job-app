@@ -6,17 +6,17 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 - Product behavior for generation, regeneration, validation, and grounding: `docs/resume_builder_PRD_v3.md`
 
 ## Prompt-Layer Rules
-- All generated resume content must be Markdown.
-- Generation must stay grounded in the user's base resume, the job description, enabled sections, section order, generation settings, and user instructions.
+- Persisted generated resumes must be Markdown, but resume-writing LLMs must return semantic JSON that the application renders to Markdown locally.
+- Generation must stay grounded in the user's base resume, the job description, eligible sections, section order, generation settings, and user instructions.
 - Remove personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
 - Do not rely on provider-specific prompt syntax or model-specific features. Prompts must remain portable across OpenRouter-supported models.
 - Model selection belongs in configuration, not prompt assets or code constants.
 - If the primary OpenRouter model fails or returns invalid structured output, allow one retry using the configured fallback model before treating the operation as failed.
 
 ## Generation Rules
-- Initial generation and full regeneration must use a single LLM call that returns a strict JSON envelope for all enabled sections in order.
-- MVP default sections are Summary, Professional Experience, Education, and Skills.
-- Generate only enabled sections and preserve the requested section order in the returned JSON.
+- Initial generation and full regeneration must use a single LLM call that returns a strict semantic JSON envelope for all eligible sections in order.
+- Supported sections are Summary, Professional Experience, Education, Skills, Projects, and Certifications.
+- Generate only sections that are both user-enabled and supported by the sanitized base resume, and preserve the requested eligible section order in the returned JSON.
 - Use prompt variants that explicitly reflect the selected page-length target and aggressiveness level.
 - Section regeneration requires explicit user instructions and must reject blank instruction input.
 - Do not generate or rewrite personal information such as name, email, phone number, or address.
@@ -28,7 +28,7 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 - Validator outcomes are limited to:
   - approve
   - fail
-- Missing enabled sections, wrong section order, or hallucinated credentials must fail validation.
+- Missing eligible sections, wrong section order, or hallucinated credentials must fail validation.
 
 ## Failure Posture
 - Fail closed on invalid, ungrounded, or incomplete AI output.

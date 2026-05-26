@@ -15,7 +15,7 @@ from time import perf_counter
 from typing import Any, Awaitable, Optional, TypeVar
 
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from experience_contract import (
     extract_professional_experience_anchors,
@@ -34,13 +34,15 @@ OPERATION_PROMPTS: dict[str, str] = {
     "regeneration_section": "Regenerate only the requested section while keeping it compatible with the rest of the draft.",
 }
 
-SUPPORTED_SECTIONS = {"summary", "professional_experience", "education", "skills"}
+SUPPORTED_SECTIONS = {"summary", "professional_experience", "education", "skills", "projects", "certifications"}
 
 SECTION_DISPLAY_NAMES: dict[str, str] = {
     "summary": "Summary",
     "professional_experience": "Professional Experience",
     "education": "Education",
     "skills": "Skills",
+    "projects": "Projects",
+    "certifications": "Certifications",
 }
 
 SUPPORTING_SNIPPET_LIMITS: dict[str, tuple[int, int]] = {
@@ -48,6 +50,43 @@ SUPPORTING_SNIPPET_LIMITS: dict[str, tuple[int, int]] = {
     "professional_experience": (2, 4),
     "education": (1, 2),
     "skills": (1, 3),
+    "projects": (1, 3),
+    "certifications": (1, 2),
+}
+
+SECTION_HEADING_ALIASES: dict[str, set[str]] = {
+    "summary": {"summary", "professional summary", "profile", "objective", "about", "about me"},
+    "professional_experience": {
+        "professional experience",
+        "experience",
+        "work experience",
+        "employment",
+        "employment history",
+        "career experience",
+    },
+    "education": {"education", "academic background", "academic experience"},
+    "skills": {
+        "skills",
+        "technical skills",
+        "core skills",
+        "competencies",
+        "technologies",
+        "technical skills proficiencies",
+        "skills proficiencies",
+        "technical skills competencies",
+        "skills technologies",
+    },
+    "projects": {"projects", "project experience", "selected projects", "personal projects"},
+    "certifications": {
+        "certifications",
+        "certificates",
+        "licenses",
+        "credentials",
+        "certificates licenses",
+        "certifications licenses",
+        "licenses certifications",
+        "licenses credentials",
+    },
 }
 
 PROMPT_TRUNCATION_LIMITS = {
@@ -83,6 +122,8 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
         ),
         "skills": "Do not change skills content or grouping. Preserve the source skills list as-is except for Markdown cleanup.",
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
+        "projects": "Preserve source projects and wording except for minimal cleanup.",
+        "certifications": "Preserve certification names, issuers, and dates exactly as supported by the source.",
     },
     "medium": {
         "summary": (
@@ -103,6 +144,8 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
             "skill cluster and you may add JD-aligned keyword skills for fit."
         ),
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
+        "projects": "Reorder and lightly reframe grounded project bullets for role alignment without inventing project facts.",
+        "certifications": "Keep certification facts fixed and prioritize the most relevant grounded certifications.",
     },
     "high": {
         "summary": (
@@ -123,6 +166,8 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
             "skill cluster and include JD-driven keyword skills when helpful."
         ),
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
+        "projects": "Strongly tailor grounded project framing and bullet emphasis for the target role without inventing facts.",
+        "certifications": "Keep certification facts fixed and include only source-supported certification details.",
     },
 }
 
@@ -148,6 +193,13 @@ SECTION_RULES: dict[str, str] = {
     "skills": (
         "Lead with the most role-relevant skill cluster and avoid keyword stuffing, duplicate categories, or generic buzzwords. "
         "Low keeps source skills only; medium and high may include JD-driven keyword skills for fit."
+    ),
+    "projects": (
+        "Use only projects present in the source resume. Keep names, dates, and context grounded, and write concise bullets "
+        "that emphasize target-role relevance without inventing outcomes."
+    ),
+    "certifications": (
+        "Use only certifications, credentials, licenses, or certificates present in the source resume. Never invent issuers, dates, or credential names."
     ),
 }
 
@@ -192,19 +244,265 @@ VOICE_BOUNDARY_EXAMPLE = (
 )
 
 
-class GeneratedSectionPayload(BaseModel):
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class SummaryContent(StrictModel):
+    paragraph: str
+
+    @field_validator("paragraph")
+    @classmethod
+    def require_paragraph(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Summary paragraph cannot be blank.")
+        return stripped
+
+
+class ExperienceJobContent(StrictModel):
+    source_role_index: int
+    company: str
+    location: Optional[str] = None
+    title: str
+    date_range: str
+    bullets: list[str]
+
+    @field_validator("company", "title", "date_range")
+    @classmethod
+    def require_non_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Experience fields cannot be blank.")
+        return stripped
+
+    @field_validator("location")
+    @classmethod
+    def normalize_optional_location(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("bullets")
+    @classmethod
+    def require_bullets(cls, value: list[str]) -> list[str]:
+        bullets = [bullet.strip() for bullet in value if bullet and bullet.strip()]
+        if not bullets:
+            raise ValueError("Experience jobs require at least one bullet.")
+        return bullets
+
+
+class ProfessionalExperienceContent(StrictModel):
+    jobs: list[ExperienceJobContent]
+
+    @field_validator("jobs")
+    @classmethod
+    def require_jobs(cls, value: list[ExperienceJobContent]) -> list[ExperienceJobContent]:
+        if not value:
+            raise ValueError("Professional Experience requires at least one job.")
+        return value
+
+
+class EducationEntryContent(StrictModel):
+    school: str
+    location: Optional[str] = None
+    degree_or_program: str
+    graduation_date: Optional[str] = None
+    bullets: list[str] = Field(default_factory=list)
+
+    @field_validator("school", "degree_or_program")
+    @classmethod
+    def require_non_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Education fields cannot be blank.")
+        return stripped
+
+    @field_validator("location", "graduation_date")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("bullets")
+    @classmethod
+    def normalize_bullets(cls, value: list[str]) -> list[str]:
+        return [bullet.strip() for bullet in value if bullet and bullet.strip()]
+
+
+class EducationContent(StrictModel):
+    entries: list[EducationEntryContent]
+
+    @field_validator("entries")
+    @classmethod
+    def require_entries(cls, value: list[EducationEntryContent]) -> list[EducationEntryContent]:
+        if not value:
+            raise ValueError("Education requires at least one entry.")
+        return value
+
+
+class SkillCategoryContent(StrictModel):
+    name: str
+    items: list[str]
+
+    @field_validator("name")
+    @classmethod
+    def require_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Skill category name cannot be blank.")
+        return stripped
+
+    @field_validator("items")
+    @classmethod
+    def require_items(cls, value: list[str]) -> list[str]:
+        items = [item.strip() for item in value if item and item.strip()]
+        if not items:
+            raise ValueError("Skill categories require at least one item.")
+        return items
+
+
+class SkillsContent(StrictModel):
+    categories: list[SkillCategoryContent]
+
+    @field_validator("categories")
+    @classmethod
+    def require_categories(cls, value: list[SkillCategoryContent]) -> list[SkillCategoryContent]:
+        if not value:
+            raise ValueError("Skills requires at least one category.")
+        return value
+
+
+class ProjectContent(StrictModel):
+    name: str
+    context: Optional[str] = None
+    date_range: Optional[str] = None
+    bullets: list[str]
+
+    @field_validator("name")
+    @classmethod
+    def require_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Project name cannot be blank.")
+        return stripped
+
+    @field_validator("context", "date_range")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("bullets")
+    @classmethod
+    def require_bullets(cls, value: list[str]) -> list[str]:
+        bullets = [bullet.strip() for bullet in value if bullet and bullet.strip()]
+        if not bullets:
+            raise ValueError("Projects require at least one bullet.")
+        return bullets
+
+
+class ProjectsContent(StrictModel):
+    projects: list[ProjectContent]
+
+    @field_validator("projects")
+    @classmethod
+    def require_projects(cls, value: list[ProjectContent]) -> list[ProjectContent]:
+        if not value:
+            raise ValueError("Projects requires at least one project.")
+        return value
+
+
+class CertificationContent(StrictModel):
+    name: str
+    issuer: Optional[str] = None
+    date: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def require_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Certification name cannot be blank.")
+        return stripped
+
+    @field_validator("issuer", "date")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class CertificationsContent(StrictModel):
+    certifications: list[CertificationContent]
+
+    @field_validator("certifications")
+    @classmethod
+    def require_certifications(cls, value: list[CertificationContent]) -> list[CertificationContent]:
+        if not value:
+            raise ValueError("Certifications requires at least one item.")
+        return value
+
+
+SECTION_CONTENT_MODELS: dict[str, type[BaseModel]] = {
+    "summary": SummaryContent,
+    "professional_experience": ProfessionalExperienceContent,
+    "education": EducationContent,
+    "skills": SkillsContent,
+    "projects": ProjectsContent,
+    "certifications": CertificationsContent,
+}
+
+SECTION_CONTENT_ROOT_KEYS: dict[str, set[str]] = {
+    "summary": {"paragraph"},
+    "professional_experience": {"jobs"},
+    "education": {"entries"},
+    "skills": {"categories"},
+    "projects": {"projects"},
+    "certifications": {"certifications"},
+}
+
+SECTION_ENTRY_METADATA_KEYS = {
+    "id",
+    "section_id",
+    "name",
+    "heading",
+    "title",
+    "label",
+    "supporting_snippets",
+    "supportingSnippets",
+    "support",
+    "snippets",
+}
+
+
+class GeneratedSectionPayload(StrictModel):
     id: str
     heading: str
-    markdown: str
+    content: dict[str, Any]
     supporting_snippets: list[str] = Field(default_factory=list)
 
-    @field_validator("id", "heading", "markdown")
+    @field_validator("id", "heading")
     @classmethod
     def require_non_blank_text(cls, value: str) -> str:
         stripped = value.strip()
         if not stripped:
             raise ValueError("Field cannot be blank.")
         return stripped
+
+    @field_validator("content")
+    @classmethod
+    def require_content_object(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(value, dict) or not value:
+            raise ValueError("content must be a non-empty semantic object.")
+        return value
 
     @field_validator("supporting_snippets")
     @classmethod
@@ -215,17 +513,25 @@ class GeneratedSectionPayload(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def cap_supporting_snippets(self) -> "GeneratedSectionPayload":
+    def validate_section_contract(self) -> "GeneratedSectionPayload":
+        if self.id not in SUPPORTED_SECTIONS:
+            raise ValueError(f"Unsupported section id: {self.id}")
+        expected_heading = _display_name(self.id)
+        if self.heading != expected_heading:
+            raise ValueError(f"Section heading must equal {expected_heading}.")
+        content_model = SECTION_CONTENT_MODELS[self.id]
+        validated = content_model.model_validate(self.content)
+        self.content = validated.model_dump()
         max_snippets = SUPPORTING_SNIPPET_LIMITS.get(self.id, (1, 4))[1]
         self.supporting_snippets = self.supporting_snippets[:max_snippets]
         return self
 
 
-class GeneratedResumePayload(BaseModel):
+class GeneratedResumePayload(StrictModel):
     sections: list[GeneratedSectionPayload]
 
 
-class RegeneratedSectionPayload(BaseModel):
+class RegeneratedSectionPayload(StrictModel):
     section: GeneratedSectionPayload
 
 
@@ -278,22 +584,36 @@ def _normalize_snippet_list(value: Any) -> list[str]:
     return []
 
 
+def _looks_like_raw_semantic_content(section_id: str, payload: dict[str, Any]) -> bool:
+    root_keys = SECTION_CONTENT_ROOT_KEYS.get(section_id, set())
+    return bool(root_keys.intersection(payload))
+
+
 def _normalize_section_entry(section_id: str, payload: Any) -> dict[str, Any]:
-    if isinstance(payload, str):
-        payload_dict: dict[str, Any] = {"markdown": payload}
-    elif isinstance(payload, dict):
+    if isinstance(payload, dict):
         payload_dict = payload
     else:
         raise TypeError(f"Unsupported section payload for {section_id}.")
 
-    markdown = (
-        payload_dict.get("markdown")
-        or payload_dict.get("content")
-        or payload_dict.get("content_md")
-        or payload_dict.get("body")
-        or payload_dict.get("text")
-        or ""
-    )
+    if any(key in payload_dict for key in ("markdown", "content_md", "body", "text")):
+        raise ValueError(f"Section {section_id} must return semantic content, not Markdown or text aliases.")
+
+    if "content" not in payload_dict and _looks_like_raw_semantic_content(section_id, payload_dict):
+        semantic_content = {
+            key: value
+            for key, value in payload_dict.items()
+            if key not in SECTION_ENTRY_METADATA_KEYS
+        }
+        metadata = {
+            key: value
+            for key, value in payload_dict.items()
+            if key in SECTION_ENTRY_METADATA_KEYS
+        }
+        payload_dict = {**metadata, "content": semantic_content}
+
+    content = payload_dict.get("content")
+    if content is None:
+        raise ValueError(f"Section {section_id} must include a non-null 'content' key with semantic JSON.")
     heading = (
         payload_dict.get("heading")
         or payload_dict.get("title")
@@ -315,7 +635,7 @@ def _normalize_section_entry(section_id: str, payload: Any) -> dict[str, Any]:
     return {
         "id": str(normalized_id),
         "heading": str(heading),
-        "markdown": str(markdown),
+        "content": content,
         "supporting_snippets": supporting_snippets,
     }
 
@@ -342,7 +662,7 @@ def _looks_like_section_map(payload: dict[str, Any], expected_section_ids: list[
     section_like_keys = [
         key
         for key, value in payload.items()
-        if isinstance(value, (dict, str)) and (key in SUPPORTED_SECTIONS or key in expected_section_ids)
+        if isinstance(value, dict) and (key in SUPPORTED_SECTIONS or key in expected_section_ids)
     ]
     return bool(section_like_keys) and len(section_like_keys) == len(payload)
 
@@ -373,8 +693,7 @@ def _normalize_regenerated_section_payload(payload: Any, expected_section_id: Op
         return payload
 
     if isinstance(payload, str):
-        return {"section": _normalize_section_entry(expected_section_id, payload)}
-
+        raise ValueError(f"Unexpected string payload for section regeneration; expected a JSON object.")
     if not isinstance(payload, dict):
         return payload
 
@@ -384,10 +703,7 @@ def _normalize_regenerated_section_payload(payload: Any, expected_section_id: Op
     if expected_section_id in payload:
         return {"section": _normalize_section_entry(expected_section_id, payload[expected_section_id])}
 
-    if any(
-        key in payload
-        for key in ("markdown", "content", "content_md", "body", "text", "heading", "title", "supporting_snippets")
-    ):
+    if any(key in payload for key in ("content", "heading", "title", "supporting_snippets")):
         return {"section": _normalize_section_entry(expected_section_id, payload)}
 
     return payload
@@ -414,21 +730,27 @@ def _supporting_snippet_instruction(section_id: str) -> str:
 
 def _build_response_contract_instruction(*, enabled_sections: list[str], section_wrapper: bool = False) -> str:
     snippet_rules = ", ".join(_supporting_snippet_instruction(section_id) for section_id in enabled_sections)
+    contract_rules = (
+        "- Return JSON only: no prose, no markdown fields, no HTML/XML, no code fences, and no extra keys.\n"
+        "- Section content must be semantic JSON objects using the section-specific shape in response_contract.\n"
+    )
     if section_wrapper:
         section_id = enabled_sections[0]
         return (
             "Response contract:\n"
             '- Return a single JSON object with exactly one top-level key: "section".\n'
-            '- "section" must be an object with exactly these keys: id, heading, markdown, supporting_snippets.\n'
+            '- "section" must be an object with exactly these keys: id, heading, content, supporting_snippets.\n'
             f'- "section.id" must equal "{section_id}" and "section.heading" must equal "{_display_name(section_id)}".\n'
-            f"- supporting_snippets counts by section: {snippet_rules}.\n"
+            + contract_rules
+            + f"- supporting_snippets counts by section: {snippet_rules}.\n"
         )
     return (
         "Response contract:\n"
         '- Return a single JSON object with exactly one top-level key: "sections".\n'
         '- "sections" must be an array ordered exactly as requested.\n'
-        '- Each array item must be an object with exactly these keys: id, heading, markdown, supporting_snippets.\n'
-        f"- supporting_snippets counts by section: {snippet_rules}.\n"
+        '- Each array item must be an object with exactly these keys: id, heading, content, supporting_snippets.\n'
+        + contract_rules
+        + f"- supporting_snippets counts by section: {snippet_rules}.\n"
     )
 
 
@@ -460,13 +782,13 @@ def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str],
             "- Professional Experience structure contract: preserve source company and date range for every role so duration stays consistent. "
             "Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; "
             "high may retitle more freely only when the rewrite still matches demonstrated work. Company and dates must stay unchanged in every mode.\n"
-            "- Professional Experience row layout must be `Company | Location` on row 1 and `Role Title | Date Range` on row 2. Location may be omitted only when the source does not provide one.\n"
+            "- Professional Experience content must return jobs with source_role_index, company, location, title, date_range, and bullets. The application renders rows locally.\n"
             "- Keep Professional Experience role order fixed to the source anchors. Reprioritize by changing bullet emphasis inside each anchored role, not by reordering the roles themselves.\n"
             "- When Professional Experience is enabled in medium or high mode, do not leave the first up to 2 roles with bullets effectively source-identical while spending nearly all tailoring effort on Summary or Skills.\n"
         )
     if "education" in enabled_sections:
         education_contract_line = (
-            "- Education row layout must be `School | Location` on row 1 and `Degree or Program | Graduation Date` on row 2. Location or date may be omitted only when the source does not provide them.\n"
+            "- Education content must return entries with school, location, degree_or_program, graduation_date, and bullets. The application renders rows locally.\n"
             "- Education bullets are optional and allowed only when they remain grounded in the source education content.\n"
         )
     return (
@@ -480,9 +802,8 @@ def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str],
         + education_contract_line
         + "- User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.\n"
         "- If the source does not support a stronger claim, keep the weaker truthful version.\n"
-        "- Use only standard Markdown inside markdown fields. No HTML, tables, images, columns, code fences, commentary, or em dashes.\n"
+        "- Do not return Markdown-formatted resume bodies. Return semantic JSON content only. No HTML, XML, tables, images, columns, code fences, commentary, or em dashes.\n"
         f"- Return only these sections and in exactly this order: {section_spec}.\n"
-        "- Each markdown value must begin with the exact `## Heading` line for that section.\n"
         + _build_response_contract_instruction(enabled_sections=enabled_sections, section_wrapper=section_wrapper)
     )
 
@@ -499,10 +820,8 @@ def _build_aggressiveness_block(*, aggressiveness: str) -> str:
     experience_rewrite_example = f"{EXPERIENCE_REWRITE_EXAMPLE}\n" if aggressiveness in {"medium", "high"} else ""
     return (
         f"Aggressiveness contract ({aggressiveness}):\n"
-        f"- Summary: {contract['summary']}\n"
-        f"- Professional Experience: {contract['professional_experience']}\n"
-        f"- Skills: {contract['skills']}\n"
-        f"- Education: {contract['education']}\n"
+        + "\n".join(f"- {_display_name(section_id)}: {rule}" for section_id, rule in contract.items())
+        + "\n"
         f"{FACT_BOUNDARY_EXAMPLE}\n"
         f"{medium_title_example}"
         f"{experience_rewrite_example}"
@@ -572,6 +891,52 @@ def _build_shared_system_prompt(
     )
 
 
+def _section_content_contract(section_id: str) -> dict[str, Any]:
+    if section_id == "summary":
+        return {"paragraph": "role-aligned summary paragraph"}
+    if section_id == "professional_experience":
+        return {
+            "jobs": [
+                {
+                    "source_role_index": 0,
+                    "company": "exact source company",
+                    "location": "exact source location or null",
+                    "title": "source or allowed rewritten title",
+                    "date_range": "exact source date range",
+                    "bullets": ["grounded generated bullet"],
+                }
+            ]
+        }
+    if section_id == "education":
+        return {
+            "entries": [
+                {
+                    "school": "exact source school",
+                    "location": "exact source location or null",
+                    "degree_or_program": "exact source degree or program",
+                    "graduation_date": "exact source date or null",
+                    "bullets": [],
+                }
+            ]
+        }
+    if section_id == "skills":
+        return {"categories": [{"name": "category name", "items": ["source-supported skill"]}]}
+    if section_id == "projects":
+        return {
+            "projects": [
+                {
+                    "name": "exact source project name",
+                    "context": "source-supported context or null",
+                    "date_range": "source-supported date range or null",
+                    "bullets": ["grounded generated project bullet"],
+                }
+            ]
+        }
+    if section_id == "certifications":
+        return {"certifications": [{"name": "exact source certification", "issuer": "issuer or null", "date": "date or null"}]}
+    return {}
+
+
 def _response_contract_payload(enabled_sections: list[str]) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     for section_id in enabled_sections:
@@ -580,11 +945,193 @@ def _response_contract_payload(enabled_sections: list[str]) -> list[dict[str, An
             {
                 "id": section_id,
                 "heading": _display_name(section_id),
-                "markdown": f"## {_display_name(section_id)}\\n...",
+                "content": _section_content_contract(section_id),
                 "supporting_snippets": ["exact snippet copied from sanitized base resume"] * minimum,
             }
         )
     return payload
+
+
+def _normalized_heading(value: str) -> str:
+    lowered = value.strip().lower()
+    lowered = re.sub(r"^#+\s*", "", lowered)
+    lowered = re.sub(r"[^a-z0-9 ]+", " ", lowered)
+    return re.sub(r"\s+", " ", lowered).strip()
+
+
+def detect_source_sections(sanitized_base_resume: str) -> set[str]:
+    """Return supported sections that are actually present in the sanitized source resume."""
+    detected: set[str] = set()
+    for line in sanitized_base_resume.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            continue
+        heading = _normalized_heading(stripped)
+        for section_id, aliases in SECTION_HEADING_ALIASES.items():
+            if heading in aliases:
+                detected.add(section_id)
+
+    if extract_professional_experience_anchors(sanitized_base_resume):
+        detected.add("professional_experience")
+
+    substantive_text = re.sub(r"^#+\s+.*$", "", sanitized_base_resume, flags=re.MULTILINE).strip()
+    if substantive_text:
+        detected.add("summary")
+    return detected
+
+
+def _eligible_sections(
+    *,
+    section_preferences: list[dict[str, Any]],
+    sanitized_base_resume: str,
+) -> list[dict[str, Any]]:
+    source_sections = detect_source_sections(sanitized_base_resume)
+    enabled = sorted(
+        [
+            section
+            for section in section_preferences
+            if section.get("enabled")
+            and section.get("name") in SUPPORTED_SECTIONS
+            and section.get("name") in source_sections
+        ],
+        key=lambda section: section.get("order", 0),
+    )
+    return enabled
+
+
+def _clean_line(value: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip())
+
+
+def _append_bullets(lines: list[str], bullets: list[str]) -> None:
+    for bullet in bullets:
+        cleaned = _clean_line(bullet)
+        if cleaned:
+            lines.append(f"- {cleaned}")
+
+
+def _render_summary(content: dict[str, Any]) -> str:
+    payload = SummaryContent.model_validate(content)
+    return f"## Summary\n{payload.paragraph}"
+
+
+def _anchor_for_job(
+    *,
+    job: ExperienceJobContent,
+    anchors: list[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    if job.source_role_index < 0 or job.source_role_index >= len(anchors):
+        return None
+    return anchors[job.source_role_index]
+
+
+def _render_professional_experience(
+    content: dict[str, Any],
+    *,
+    anchors: list[dict[str, Any]],
+    aggressiveness: str,
+) -> str:
+    payload = ProfessionalExperienceContent.model_validate(content)
+    lines = ["## Professional Experience"]
+    for index, job in enumerate(payload.jobs):
+        if index > 0:
+            lines.append("")
+        anchor = _anchor_for_job(job=job, anchors=anchors)
+        company = _clean_line(anchor.get("source_company") if anchor else job.company)
+        location = _clean_line(anchor.get("source_location") if anchor else job.location)
+        date_range = _clean_line(anchor.get("source_date_range") if anchor else job.date_range)
+        title = _clean_line(anchor.get("source_title") if anchor and aggressiveness == "low" else job.title)
+        lines.append(f"{company} | {location}" if location else company)
+        lines.append(f"{title} | {date_range}" if date_range else title)
+        _append_bullets(lines, job.bullets)
+    return "\n".join(lines)
+
+
+def _render_education(content: dict[str, Any]) -> str:
+    payload = EducationContent.model_validate(content)
+    lines = ["## Education"]
+    for index, entry in enumerate(payload.entries):
+        if index > 0:
+            lines.append("")
+        school = _clean_line(entry.school)
+        location = _clean_line(entry.location)
+        degree = _clean_line(entry.degree_or_program)
+        date = _clean_line(entry.graduation_date)
+        lines.append(f"{school} | {location}" if location else school)
+        lines.append(f"{degree} | {date}" if date else degree)
+        _append_bullets(lines, entry.bullets)
+    return "\n".join(lines)
+
+
+def _render_skills(content: dict[str, Any]) -> str:
+    payload = SkillsContent.model_validate(content)
+    lines = ["## Skills"]
+    for category in payload.categories:
+        items = ", ".join(_clean_line(item) for item in category.items if _clean_line(item))
+        if items:
+            lines.append(f"- {_clean_line(category.name)}: {items}")
+    return "\n".join(lines)
+
+
+def _render_projects(content: dict[str, Any]) -> str:
+    payload = ProjectsContent.model_validate(content)
+    lines = ["## Projects"]
+    for index, project in enumerate(payload.projects):
+        if index > 0:
+            lines.append("")
+        name = _clean_line(project.name)
+        context = _clean_line(project.context)
+        date = _clean_line(project.date_range)
+        suffix = date or context
+        lines.append(f"{name} | {suffix}" if suffix else name)
+        if context and date:
+            lines.append(context)
+        _append_bullets(lines, project.bullets)
+    return "\n".join(lines)
+
+
+def _render_certifications(content: dict[str, Any]) -> str:
+    payload = CertificationsContent.model_validate(content)
+    lines = ["## Certifications"]
+    for certification in payload.certifications:
+        parts = [
+            _clean_line(certification.name),
+            _clean_line(certification.issuer),
+            _clean_line(certification.date),
+        ]
+        lines.append("- " + " | ".join(part for part in parts if part))
+    return "\n".join(lines)
+
+
+def render_semantic_section(
+    section: GeneratedSectionPayload,
+    *,
+    professional_experience_anchors: list[dict[str, Any]],
+    aggressiveness: str,
+) -> dict[str, Any]:
+    renderers = {
+        "summary": lambda content: _render_summary(content),
+        "professional_experience": lambda content: _render_professional_experience(
+            content,
+            anchors=professional_experience_anchors,
+            aggressiveness=aggressiveness,
+        ),
+        "education": lambda content: _render_education(content),
+        "skills": lambda content: _render_skills(content),
+        "projects": lambda content: _render_projects(content),
+        "certifications": lambda content: _render_certifications(content),
+    }
+    renderer = renderers.get(section.id)
+    if renderer is None:
+        raise ValueError(f"Unsupported section id: {section.id}")
+    content = renderer(section.content).strip()
+    return {
+        "name": section.id,
+        "heading": section.heading,
+        "content": content,
+        "semantic_content": section.content,
+        "supporting_snippets": section.supporting_snippets,
+    }
 
 
 def _build_generation_prompt(
@@ -928,6 +1475,9 @@ async def _attempt_transport(
     attempts: list[dict[str, Any]],
     aggressiveness: str,
 ) -> BaseModel:
+    if transport_mode not in ("structured", "json", "repair_json"):
+        raise ValueError(f"Unsupported transport mode: {transport_mode}")
+
     invoke = _invoke_structured_output if transport_mode == "structured" else _invoke_prompt_json
     invoke_kwargs = {
         "prompt": prompt,
@@ -1342,14 +1892,6 @@ async def generate_sections(
     reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
     fallback_reasoning_effort: Optional[str] = None,
 ) -> dict[str, Any]:
-    enabled = sorted(
-        [section for section in section_preferences if section.get("enabled") and section.get("name") in SUPPORTED_SECTIONS],
-        key=lambda section: section.get("order", 0),
-    )
-    if not enabled:
-        raise ValueError("No enabled sections to generate.")
-
-    section_ids = [section["name"] for section in enabled]
     operation = generation_settings.get("_operation", "generation")
     aggressiveness = generation_settings.get("aggressiveness", "medium")
     target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
@@ -1359,6 +1901,14 @@ async def generate_sections(
     if not sanitized_base_resume.strip():
         raise ValueError("Sanitized base resume content is empty.")
 
+    enabled = _eligible_sections(
+        section_preferences=section_preferences,
+        sanitized_base_resume=sanitized_base_resume,
+    )
+    if not enabled:
+        raise ValueError("No enabled source-supported sections to generate.")
+
+    section_ids = [section["name"] for section in enabled]
     professional_experience_anchors = extract_professional_experience_anchors(sanitized_base_resume)
     section_labels = _section_label_list(section_ids)
 
@@ -1406,12 +1956,11 @@ async def generate_sections(
     )
     await on_progress(70, "Parsing structured resume output")
     sections = [
-        {
-            "name": section.id,
-            "heading": section.heading,
-            "content": section.markdown.strip(),
-            "supporting_snippets": section.supporting_snippets,
-        }
+        render_semantic_section(
+            section,
+            professional_experience_anchors=professional_experience_anchors,
+            aggressiveness=str(aggressiveness).lower(),
+        )
         for section in payload.sections
     ]
     _normalize_structured_sections_if_present(
@@ -1428,6 +1977,7 @@ async def generate_sections(
         "operation": operation if operation in OPERATION_PROMPTS else "generation",
         "sanitized_base_resume": sanitized_base_resume,
         "professional_experience_anchors": professional_experience_anchors,
+        "eligible_section_preferences": enabled,
     }
 
 
@@ -1474,6 +2024,9 @@ async def regenerate_single_section(
     sanitized_base_resume = sanitize_resume_markdown(base_resume_content).sanitized_markdown
     if not sanitized_base_resume.strip():
         raise ValueError("Sanitized base resume content is empty.")
+    source_sections = detect_source_sections(sanitized_base_resume)
+    if section_name not in SUPPORTED_SECTIONS or section_name not in source_sections:
+        raise ValueError(f"Section is not supported by the source resume: {section_name}")
     professional_experience_anchors = extract_professional_experience_anchors(sanitized_base_resume)
 
     display_name = _display_name(section_name)
@@ -1531,7 +2084,12 @@ async def regenerate_single_section(
             fallback_reasoning_effort=fallback_reasoning_effort,
         )
 
-    section_content = payload.section.markdown.strip()
+    rendered_section = render_semantic_section(
+        payload.section,
+        professional_experience_anchors=professional_experience_anchors,
+        aggressiveness=str(aggressiveness).lower(),
+    )
+    section_content = rendered_section["content"]
     if section_name == "professional_experience" and professional_experience_anchors:
         section_content, _issues = normalize_professional_experience_section(
             section_markdown=section_content,
@@ -1554,6 +2112,7 @@ async def regenerate_single_section(
         "name": payload.section.id,
         "heading": payload.section.heading,
         "content": section_content,
+        "semantic_content": payload.section.content,
         "supporting_snippets": payload.section.supporting_snippets,
         "model_used": model_used,
         "attempt_diagnostics": attempt_diagnostics,

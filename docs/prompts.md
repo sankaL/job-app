@@ -1,8 +1,8 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-05-24
-**Sources:** `agents/generation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
+**Last updated:** 2026-05-26
+**Sources:** `agents/generation.py`, `agents/validation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
 
@@ -88,8 +88,9 @@ The system prompt defines Resume Judge as an evaluator only, never a writer, and
 - concise evidence-based notes
 - no local arithmetic in the model output
 - no `final_score`, `display_score`, or `verdict` computed by the LLM
+- `regeneration_instructions` as a section-keyed object whose keys are current draft section ids and whose values are concise instruction arrays
 - regeneration guidance preserved for borderline passing drafts that still have meaningful refinement opportunities, with omission reserved for clearly strong drafts that do not need follow-up guidance
-- exactly one JSON object with no prose outside JSON
+- exactly one JSON object with no prose or extra keys outside JSON
 
 ### Model response contract
 
@@ -106,7 +107,7 @@ The model returns:
     "ats_safety_and_formatting": { "score": 0, "notes": "..." },
     "length_and_density": { "score": 0, "notes": "..." }
   },
-  "regeneration_instructions": "..." ,
+  "regeneration_instructions": { "summary": ["specific section-scoped instruction"] },
   "regeneration_priority_dimensions": ["dimension_id"],
   "evaluator_notes": "short evaluator note"
 }
@@ -135,7 +136,7 @@ The application computes the final persisted result locally after parsing the mo
 
 ## Resume Generation Prompts
 
-This section is organized by what stays constant across all resume-writing operations and what changes by aggressiveness mode. It documents current backend truth only. The live prompt/validation pipeline supports `summary`, `professional_experience`, `education`, and `skills` only, even though the current section-regeneration UI still exposes extra section names.
+This section is organized by what stays constant across all resume-writing operations and what changes by aggressiveness mode. It documents current backend truth only. The live prompt/validation pipeline supports `summary`, `professional_experience`, `education`, `skills`, `projects`, and `certifications`.
 
 ### Shared logic for all modes
 
@@ -178,7 +179,9 @@ This section is organized by what stays constant across all resume-writing opera
 
 #### Shared source and privacy rules
 
-- The model sees the job description, sanitized base resume Markdown, enabled section list, section order, target length, aggressiveness, and user instructions where applicable.
+- The model sees the job description, sanitized base resume Markdown, eligible section list, section order, target length, aggressiveness, and user instructions where applicable.
+- Eligible sections are the intersection of user-enabled sections and sections detected in the sanitized base resume. Summary may remain eligible when the sanitized base resume has substantive non-contact content even without a Summary heading.
+- Source-section detection accepts canonical headings and common aliases, including compound headings such as `Technical Skills & Proficiencies` and `Certificates & Licenses`.
 - Personal and contact data are stripped before the LLM call. Name, email, phone, address/location, and LinkedIn never enter the model prompt payload.
 - After successful validation, local assembly reattaches a profile-driven header with `name`, `email`, `phone`, `address`, and optional `linkedin_url`.
 - Additional instructions and section-regeneration instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only.
@@ -194,12 +197,15 @@ Supported section ids and headings:
 | `professional_experience` | `Professional Experience` |
 | `education` | `Education` |
 | `skills` | `Skills` |
+| `projects` | `Projects` |
+| `certifications` | `Certifications` |
 
 - Full-draft prompts are runtime-driven by the enabled section subset and saved section order.
-- The system prompt line `Return only these sections and in exactly this order: {{section_spec}}.` is built from the enabled sections for that run.
+- The system prompt line `Return only these sections and in exactly this order: {{section_spec}}.` is built from the eligible sections for that run.
 - The human payload includes both `enabled_sections` and `section_order`.
-- Each returned markdown value must begin with the exact `## Heading` line for that section.
-- Output must be standard Markdown only. No HTML, tables, images, columns, code fences, commentary, or em dashes.
+- Each returned section must have exactly `id`, `heading`, `content`, and `supporting_snippets`.
+- `content` must be a section-specific semantic JSON object. Markdown body strings, HTML, XML, tables, images, columns, code fences, commentary, extra keys, and em dashes are invalid.
+- The backend renders Markdown locally from semantic JSON after schema validation.
 - Model-authored content must avoid first-person narration.
 - The response contract always requires supporting snippets copied from the sanitized base resume.
 
@@ -211,6 +217,8 @@ Supporting snippet counts:
 | `professional_experience` | `2-4` |
 | `education` | `1-2` |
 | `skills` | `1-3` |
+| `projects` | `1-3` |
+| `certifications` | `1-2` |
 
 #### Shared deterministic Professional Experience and Education rules
 
@@ -263,10 +271,17 @@ Master of Science in Mechanical Engineering with Honors | Apr 2021
 
 Validation is local, deterministic, and fail-closed. The validator either approves or fails.
 
+Implementation notes (2026-05-26):
+- `SECTION_DISPLAY_NAMES` and `SUPPORTING_SNIPPET_LIMITS` are defined in `generation.py` only; `validation.py` imports them.
+- Semantic content contract validation uses narrow exception types (`ValueError`, `TypeError`, `ValidationError`) instead of broad `except Exception`.
+- `StrictModel` is defined in `generation.py` only; `resume_judge.py` imports it.
+- `_attempt_transport` raises `ValueError` for unknown transport modes.
+- `_normalize_regenerated_section_payload` rejects raw string payloads.
+
 Validation checks:
 
 - unknown, unexpected, or duplicate sections
-- missing enabled sections
+- missing eligible sections
 - wrong section order
 - exact heading contract in both metadata and markdown body
 - supporting snippet count bounds and source grounding
@@ -357,7 +372,48 @@ Used for both initial generation and full regeneration.
       {
         "id": "{{section_id}}",
         "heading": "{{display_heading}}",
-        "markdown": "## {{display_heading}}\\n...",
+        "content": {
+          "summary": { "paragraph": "..." },
+          "professional_experience": {
+            "jobs": [
+              {
+                "source_role_index": 0,
+                "company": "exact source company",
+                "location": "exact source location or null",
+                "title": "source or allowed rewritten title",
+                "date_range": "exact source date range",
+                "bullets": ["grounded generated bullet"]
+              }
+            ]
+          },
+          "education": {
+            "entries": [
+              {
+                "school": "exact source school",
+                "location": "exact source location or null",
+                "degree_or_program": "exact source degree or program",
+                "graduation_date": "exact source date or null",
+                "bullets": []
+              }
+            ]
+          },
+          "skills": { "categories": [{ "name": "category", "items": ["source-supported skill"] }] },
+          "projects": {
+            "projects": [
+              {
+                "name": "exact source project name",
+                "context": "source-supported context or null",
+                "date_range": "source-supported date range or null",
+                "bullets": ["grounded project bullet"]
+              }
+            ]
+          },
+          "certifications": {
+            "certifications": [
+              { "name": "exact source certification", "issuer": "issuer or null", "date": "date or null" }
+            ]
+          }
+        },
         "supporting_snippets": ["exact snippet copied from sanitized base resume"]
       }
     ]
@@ -425,7 +481,7 @@ Used for both initial generation and full regeneration.
     "section": {
       "id": "{{section_id}}",
       "heading": "{{display_heading}}",
-      "markdown": "## {{display_heading}}\\n...",
+      "content": "{{same section-specific semantic content object as full generation}}",
       "supporting_snippets": ["exact snippet copied from sanitized base resume"]
     }
   }
@@ -447,7 +503,7 @@ Used only after a successful generation or regeneration response fails determini
       {
         "id": "{{section_id}}",
         "heading": "{{display_heading}}",
-        "markdown": "## {{display_heading}}\\n...",
+        "content": "{{same section-specific semantic content object as full generation}}",
         "supporting_snippets": ["exact snippet copied from sanitized base resume"]
       }
     ]
@@ -495,9 +551,9 @@ Non-negotiables:
 - Professional Experience structure contract: each role must render as two header rows in this exact order: `Company | Location` then `Role Title | Date Range`. Preserve source company and date range for every role so duration stays consistent. Use the source location when available and never invent one. Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; high may retitle more freely only when the rewrite still matches demonstrated work. Company and dates must stay unchanged in every mode.
 - User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.
 - If the source does not support a stronger claim, keep the weaker truthful version.
-- Use only standard Markdown inside markdown fields. No HTML, tables, images, columns, code fences, commentary, or em dashes.
+- Return semantic JSON content only. No Markdown body strings, HTML, XML, tables, images, columns, code fences, commentary, or em dashes.
 - Return only these sections and in exactly this order: {{section_spec}}.
-- Each markdown value must begin with the exact `## Heading` line for that section.
+- Each section object must contain exactly `id`, `heading`, `content`, and `supporting_snippets`; `content` must match the section-specific semantic schema in the human payload.
 {{response_contract_instruction}}
 
 Section rules:
@@ -582,9 +638,9 @@ Non-negotiables:
 - When Professional Experience is enabled in medium or high mode, do not leave the first up to 2 roles with bullets effectively source-identical while spending nearly all tailoring effort on Summary or Skills.
 - User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.
 - If the source does not support a stronger claim, keep the weaker truthful version.
-- Use only standard Markdown inside markdown fields. No HTML, tables, images, columns, code fences, commentary, or em dashes.
+- Return semantic JSON content only. No Markdown body strings, HTML, XML, tables, images, columns, code fences, commentary, or em dashes.
 - Return only these sections and in exactly this order: {{section_spec}}.
-- Each markdown value must begin with the exact `## Heading` line for that section.
+- Each section object must contain exactly `id`, `heading`, `content`, and `supporting_snippets`; `content` must match the section-specific semantic schema in the human payload.
 {{response_contract_instruction}}
 
 Section rules:
@@ -680,9 +736,9 @@ Non-negotiables:
 - When Professional Experience is enabled in medium or high mode, do not leave the first up to 2 roles with bullets effectively source-identical while spending nearly all tailoring effort on Summary or Skills.
 - User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.
 - If the source does not support a stronger claim, keep the weaker truthful version.
-- Use only standard Markdown inside markdown fields. No HTML, tables, images, columns, code fences, commentary, or em dashes.
+- Return semantic JSON content only. No Markdown body strings, HTML, XML, tables, images, columns, code fences, commentary, or em dashes.
 - Return only these sections and in exactly this order: {{section_spec}}.
-- Each markdown value must begin with the exact `## Heading` line for that section.
+- Each section object must contain exactly `id`, `heading`, `content`, and `supporting_snippets`; `content` must match the section-specific semantic schema in the human payload.
 {{response_contract_instruction}}
 
 Section rules:

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Clock3, TriangleAlert, X } from "lucide-react";
 import type { ApplicationActivityEvent } from "@/lib/api";
 import { useApplicationActivityQuery } from "@/lib/queries";
+import { formatJudgeInstructions } from "@/lib/judge-helpers";
 
 type ApplicationActivityPanelProps = {
   applicationId: string | null;
@@ -445,7 +446,7 @@ export function ApplicationActivityPanel({ applicationId, open, onClose }: Appli
                                     <div className="mt-1 pl-2 border-l-2" style={{ borderColor: "var(--color-ember-30, var(--color-ember))" }}>
                                       <span style={{ color: "var(--color-ember)" }}>Judge Feedback: </span>
                                       <p className="mt-0.5 italic whitespace-pre-line font-normal" style={{ color: "var(--color-ink-65)" }}>
-                                        "{details.regeneration_instructions}"
+                                        "{formatJudgeInstructions(details.regeneration_instructions)}"
                                       </p>
                                     </div>
                                   )}
@@ -491,7 +492,7 @@ export function ApplicationActivityPanel({ applicationId, open, onClose }: Appli
                                     <div className="mt-1.5 pl-2 border-l-2" style={{ borderColor: "var(--color-ember-30, var(--color-ember))" }}>
                                       <span style={{ color: "var(--color-ember)" }}>Judge Recommendations: </span>
                                       <p className="mt-0.5 italic whitespace-pre-line font-normal" style={{ color: "var(--color-ink-65)" }}>
-                                        "{details.regeneration_instructions}"
+                                        "{formatJudgeInstructions(details.regeneration_instructions)}"
                                       </p>
                                     </div>
                                   )}

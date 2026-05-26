@@ -142,7 +142,7 @@ export type ResumeJudgeResult = {
   pass_threshold?: number | null;
   score_summary?: string | null;
   dimension_scores?: Record<string, ResumeJudgeDimensionScore> | null;
-  regeneration_instructions?: string | null;
+  regeneration_instructions?: Record<string, string[]> | string | null;
   regeneration_priority_dimensions?: string[];
   evaluator_notes?: string | null;
   evaluated_draft_updated_at?: string | null;

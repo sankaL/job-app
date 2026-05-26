@@ -13,7 +13,7 @@ from app.db.profiles import ProfileRecord, ProfileRepository, get_profile_reposi
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 logger = logging.getLogger(__name__)
 
-VALID_SECTIONS = {"summary", "professional_experience", "education", "skills"}
+VALID_SECTIONS = {"summary", "professional_experience", "education", "skills", "projects", "certifications"}
 
 
 class UpdateProfileRequest(BaseModel):

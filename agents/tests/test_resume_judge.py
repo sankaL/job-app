@@ -15,7 +15,7 @@ from resume_judge import JudgeDimensionResponse, JudgeModelResponse
 def build_response(
     *,
     regeneration_priority_dimensions: list[str] | None = None,
-    regeneration_instructions: str | None = "Tighten weak sections.",
+    regeneration_instructions: dict[str, list[str]] | None = None,
     evaluator_notes: str = "Needs cleanup.",
 ) -> JudgeModelResponse:
     return JudgeModelResponse(
@@ -28,7 +28,7 @@ def build_response(
             "ats_safety_and_formatting": JudgeDimensionResponse(score=8, notes="ATS-safe."),
             "length_and_density": JudgeDimensionResponse(score=3, notes="Too padded."),
         },
-        regeneration_instructions=regeneration_instructions,
+        regeneration_instructions=regeneration_instructions or {"summary": ["Tighten weak sections."]},
         regeneration_priority_dimensions=regeneration_priority_dimensions or [],
         evaluator_notes=evaluator_notes,
     )
@@ -58,6 +58,12 @@ def test_system_prompt_preserves_recommendations_for_borderline_passes():
 
     assert "below a local final score of 90.0" in prompt
     assert "set regeneration_instructions to null" not in prompt
+    assert "section-keyed JSON object" in prompt
+
+
+def test_judge_response_rejects_malformed_regeneration_guidance():
+    with pytest.raises(Exception, match="Unsupported regeneration instruction section"):
+        build_response(regeneration_instructions={"unsupported": ["Rewrite everything."]})
 
 
 def test_finalize_response_computes_weighted_score_and_priority_order():
@@ -90,7 +96,7 @@ def test_finalize_response_clears_regeneration_fields_for_pass():
             "ats_safety_and_formatting": JudgeDimensionResponse(score=9, notes="ATS-safe."),
             "length_and_density": JudgeDimensionResponse(score=9, notes="Right length."),
         },
-        regeneration_instructions="This should be dropped.",
+        regeneration_instructions={"summary": ["This should be dropped."]},
         regeneration_priority_dimensions=["voice_and_human_quality"],
         evaluator_notes="Looks strong.",
     )
@@ -118,7 +124,7 @@ def test_finalize_response_keeps_regeneration_fields_for_borderline_pass():
             "ats_safety_and_formatting": JudgeDimensionResponse(score=9, notes="ATS-safe."),
             "length_and_density": JudgeDimensionResponse(score=8, notes="Right length."),
         },
-        regeneration_instructions="Keep and show these recommendations.",
+        regeneration_instructions={"summary": ["Keep and show these recommendations."]},
         regeneration_priority_dimensions=["voice_and_human_quality", "specificity_and_concreteness"],
         evaluator_notes="Looks strong but has refine options.",
     )
@@ -131,7 +137,7 @@ def test_finalize_response_keeps_regeneration_fields_for_borderline_pass():
 
     assert result["verdict"] == "pass"
     assert result["final_score"] == 85.5
-    assert result["regeneration_instructions"] == "Keep and show these recommendations."
+    assert result["regeneration_instructions"] == {"summary": ["Keep and show these recommendations."]}
     assert result["regeneration_priority_dimensions"] == [
         "specificity_and_concreteness",
         "voice_and_human_quality",
@@ -169,7 +175,7 @@ def test_finalize_response_caps_under_target_length_score_and_prioritizes_length
     assert result["verdict"] == "warn"
     assert result["dimension_scores"]["length_and_density"]["score"] == 4
     assert result["regeneration_priority_dimensions"][0] == "length_and_density"
-    assert "Expand the resume toward the selected target length" in result["regeneration_instructions"]
+    assert "Expand toward the selected target length" in result["regeneration_instructions"]["summary"][0]
 
 
 def test_finalize_response_force_length_priority_keeps_recommendations_above_90():
@@ -204,7 +210,7 @@ def test_finalize_response_force_length_priority_keeps_recommendations_above_90(
     assert result["verdict"] == "warn"
     assert result["regeneration_priority_dimensions"][0] == "length_and_density"
     assert result["regeneration_instructions"] is not None
-    assert "Expand the resume toward the selected target length" in result["regeneration_instructions"]
+    assert "Expand toward the selected target length" in result["regeneration_instructions"]["summary"][0]
 
 
 @pytest.mark.asyncio

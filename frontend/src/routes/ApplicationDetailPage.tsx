@@ -22,6 +22,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { AppliedToggleButton } from "@/components/AppliedToggleButton";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { ResumeRenderPreview } from "@/components/ResumeRenderPreview";
+import { formatJudgeInstructions } from "@/lib/judge-helpers";
 import { GenerationProgress, ResumeSkeleton } from "@/components/ui/generation-progress";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
@@ -126,18 +127,6 @@ function getDefaultExpandedResumeJudgeDimension(result: ApplicationDetail["resum
     }
   }
   return entries.reduce((lowest, current) => (current[1].score < lowest[1].score ? current : lowest))[0];
-}
-
-function appendResumeJudgeFeedback(
-  baseInstructions: string,
-  judgeInstructions: string | null | undefined,
-) {
-  const feedback = judgeInstructions?.trim();
-  if (!feedback) return baseInstructions.trim();
-  const header = "Resume Judge Feedback:";
-  const trimmedBase = baseInstructions.trim();
-  if (!trimmedBase) return `${header}\n${feedback}`;
-  return `${trimmedBase}\n\n${header}\n${feedback}`;
 }
 
 function isResumeJudgePending(detail: ApplicationDetail | null) {
@@ -1371,7 +1360,7 @@ export function ApplicationDetailPage() {
     Boolean(
       resumeJudge &&
         resumeJudge.status === "succeeded" &&
-        resumeJudge.regeneration_instructions &&
+        formatJudgeInstructions(resumeJudge.regeneration_instructions) &&
         !resumeJudgeStale,
     ) && !generationActive;
   const resumeJudgeCanRun =
@@ -2527,8 +2516,8 @@ export function ApplicationDetailPage() {
                       <option value="professional_experience">Professional Experience</option>
                       <option value="education">Education</option>
                       <option value="skills">Skills</option>
-                      <option value="certifications">Certifications</option>
                       <option value="projects">Projects</option>
+                      <option value="certifications">Certifications</option>
                     </Select>
                   </div>
                   <div>
@@ -2807,7 +2796,7 @@ export function ApplicationDetailPage() {
                           Regeneration Instructions
                         </p>
                         <p className="mt-3 text-xs leading-5" style={{ color: "var(--color-ink)" }}>
-                          {resumeJudge.regeneration_instructions}
+                          {formatJudgeInstructions(resumeJudge.regeneration_instructions)}
                         </p>
                         {resumeJudgeCanRegenerateWithFeedback ? (
                           <>
@@ -2820,10 +2809,7 @@ export function ApplicationDetailPage() {
                               className="ai-button mt-4 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
                               onClick={() => {
                                 setShowResumeJudgeDialog(false);
-                                void handleFullRegeneration(
-                                  appendResumeJudgeFeedback(additionalInstructions, resumeJudge.regeneration_instructions),
-                                  true,
-                                );
+                                void handleFullRegeneration(additionalInstructions, true);
                               }}
                             >
                               <Sparkles size={14} />

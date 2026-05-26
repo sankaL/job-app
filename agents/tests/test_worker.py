@@ -489,11 +489,18 @@ async def test_validate_generated_sections_with_repair_passes_through_insufficie
             {
                 "id": "professional_experience",
                 "heading": "Professional Experience",
-                "markdown": (
-                    "## Professional Experience\n"
-                    "Platform Engineer | Acme | 2022 - Present\n"
-                    "- Built backend systems and maintained deployment tooling."
-                ),
+                "content": {
+                    "jobs": [
+                        {
+                            "source_role_index": 0,
+                            "company": "Acme",
+                            "location": None,
+                            "title": "Platform Engineer",
+                            "date_range": "2022 - Present",
+                            "bullets": ["Built backend systems and maintained deployment tooling."],
+                        }
+                    ]
+                },
                 "supporting_snippets": ["Built backend systems.", "Maintained deployment tooling."],
             },
         )()

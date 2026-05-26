@@ -58,6 +58,7 @@ FULL_GENERATION_MAX_TIMEOUT_SECONDS = 240
 SECTION_REGENERATION_IDLE_TIMEOUT_SECONDS = 120
 SECTION_REGENERATION_MAX_TIMEOUT_SECONDS = 120
 RESUME_JUDGE_RUN_LIMIT_PER_DRAFT = 3
+DEFAULT_SECTION_ORDER = ["summary", "professional_experience", "education", "skills", "projects", "certifications"]
 ACTIVE_GENERATION_STATES = {"generating", "regenerating_full", "regenerating_section"}
 ACTIVE_GENERATION_PROGRESS_STATES = {
     "generation_pending",
@@ -239,7 +240,7 @@ class ResumeJudgeResultPayload(BaseModel):
     pass_threshold: Optional[float] = None
     score_summary: Optional[str] = None
     dimension_scores: Optional[dict[str, ResumeJudgeDimensionPayload]] = None
-    regeneration_instructions: Optional[str] = None
+    regeneration_instructions: Optional[dict[str, list[str]] | str] = None
     regeneration_priority_dimensions: list[str] = Field(default_factory=list)
     evaluator_notes: Optional[str] = None
     evaluated_draft_updated_at: Optional[str] = None
@@ -1934,10 +1935,18 @@ class ApplicationService:
 
         section_prefs = self._build_section_preferences(profile)
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
+        judge_instructions = self._get_judge_instructions(record.resume_judge_result)
+        effective_additional_instructions = additional_instructions
+        if use_judge_feedback and judge_instructions:
+            trimmed_base = (additional_instructions or "").strip()
+            feedback_block = f"Resume Judge Feedback:\n{judge_instructions}"
+            effective_additional_instructions = (
+                f"{trimmed_base}\n\n{feedback_block}" if trimmed_base else feedback_block
+            )
         generation_settings = {
             "page_length": target_length,
             "aggressiveness": aggressiveness,
-            "additional_instructions": additional_instructions,
+            "additional_instructions": effective_additional_instructions,
             "use_judge_feedback": use_judge_feedback,
             "base_resume_id": base_resume_id,
             "_base_resume_snapshot_content": base_resume.content_md,
@@ -1984,7 +1993,7 @@ class ApplicationService:
                 section_preferences=section_prefs,
                 generation_settings=generation_settings,
                 regeneration_target="full",
-                regeneration_instructions=additional_instructions,
+                regeneration_instructions=effective_additional_instructions,
             )
             job_queued = True
             logger.info(
@@ -2011,7 +2020,6 @@ class ApplicationService:
             )
             title = "Regeneration with Judge Feedback started" if use_judge_feedback else None
             summary = "Full resume regeneration with Resume Judge feedback started." if use_judge_feedback else None
-            judge_instructions = self._get_judge_instructions(record.resume_judge_result)
             self._record_activity_event(
                 user_id=user_id,
                 application_id=application_id,
@@ -3147,7 +3155,7 @@ class ApplicationService:
     @staticmethod
     def _build_section_preferences(profile) -> list[dict[str, Any]]:
         prefs = profile.section_preferences or {}
-        order = profile.section_order or []
+        order = profile.section_order or DEFAULT_SECTION_ORDER
         result = []
         for idx, section_name in enumerate(order):
             result.append({
@@ -4157,7 +4165,20 @@ class ApplicationService:
     @staticmethod
     def _get_judge_instructions(resume_judge_result: Optional[dict[str, Any]]) -> Optional[str]:
         if isinstance(resume_judge_result, dict):
-            return resume_judge_result.get("regeneration_instructions")
+            value = resume_judge_result.get("regeneration_instructions")
+            if isinstance(value, str):
+                return value.strip() or None
+            if isinstance(value, dict):
+                lines: list[str] = []
+                for section_id, instructions in value.items():
+                    if not isinstance(instructions, list):
+                        continue
+                    cleaned = [str(item).strip() for item in instructions if str(item).strip()]
+                    if cleaned:
+                        label = str(section_id).replace("_", " ").title()
+                        lines.append(f"{label}:")
+                        lines.extend(f"- {item}" for item in cleaned)
+                return "\n".join(lines).strip() or None
         return None
 
     @staticmethod

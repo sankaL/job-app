@@ -25,6 +25,59 @@ class FakeResponse:
         self.content = content
 
 
+def summary_section(paragraph: str = "Built backend systems.") -> dict[str, Any]:
+    return {
+        "id": "summary",
+        "heading": "Summary",
+        "content": {"paragraph": paragraph},
+        "supporting_snippets": ["Built backend systems.", "APIs"],
+    }
+
+
+def skills_section(items: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "id": "skills",
+        "heading": "Skills",
+        "content": {"categories": [{"name": "Skills", "items": items or ["Python", "FastAPI"]}]},
+        "supporting_snippets": items or ["Python", "FastAPI"],
+    }
+
+
+def projects_section() -> dict[str, Any]:
+    return {
+        "id": "projects",
+        "heading": "Projects",
+        "content": {
+            "projects": [
+                {
+                    "name": "Deployment Dashboard",
+                    "context": None,
+                    "date_range": None,
+                    "bullets": ["Built a deployment dashboard for backend services."],
+                }
+            ]
+        },
+        "supporting_snippets": ["Deployment Dashboard"],
+    }
+
+
+def certifications_section() -> dict[str, Any]:
+    return {
+        "id": "certifications",
+        "heading": "Certifications",
+        "content": {
+            "certifications": [
+                {
+                    "name": "AWS Certified Developer",
+                    "issuer": "Amazon Web Services",
+                    "date": "2024",
+                }
+            ]
+        },
+        "supporting_snippets": ["AWS Certified Developer"],
+    }
+
+
 def build_fake_chat(
     callback: Callable[[dict[str, Any], Any, bool, Any], Any],
     calls: list[dict[str, Any]],
@@ -76,6 +129,121 @@ def test_reasoning_error_detection_includes_mandatory_reasoning_rejections():
     )
 
 
+def test_generated_payload_rejects_markdown_section_contract():
+    with pytest.raises(Exception, match="content"):
+        generation.GeneratedResumePayload.model_validate(
+            {
+                "sections": [
+                    {
+                        "id": "summary",
+                        "heading": "Summary",
+                        "markdown": "## Summary\nBuilt backend systems.",
+                        "supporting_snippets": ["Built backend systems.", "APIs"],
+                    }
+                ]
+            }
+        )
+
+
+def test_normalize_resume_payload_accepts_raw_semantic_section_map():
+    payload = generation._normalize_response_payload(
+        payload={"summary": {"paragraph": "Built backend systems.", "supporting_snippets": ["Built backend systems."]}},
+        response_model=generation.GeneratedResumePayload,
+        expected_section_ids=["summary"],
+    )
+
+    parsed = generation.GeneratedResumePayload.model_validate(payload)
+
+    assert parsed.sections[0].id == "summary"
+    assert parsed.sections[0].content == {"paragraph": "Built backend systems."}
+
+
+def test_detect_source_sections_supports_compound_heading_aliases():
+    detected = generation.detect_source_sections(
+        "## Technical Skills & Proficiencies\nPython, FastAPI\n\n"
+        "## Certificates & Licenses\nAWS Certified Developer\n"
+    )
+
+    assert "skills" in detected
+    assert "certifications" in detected
+
+
+def test_render_semantic_section_renders_all_supported_sections_deterministically():
+    source = (
+        "## Professional Experience\n"
+        "Acme Corp | Remote\n"
+        "Backend Engineer | 2022 - Present\n"
+        "- Built APIs.\n"
+    )
+    anchors = extract_professional_experience_anchors(source)
+    cases = [
+        (
+            summary_section("Built backend systems for API platforms."),
+            "## Summary\nBuilt backend systems for API platforms.",
+        ),
+        (
+            {
+                "id": "professional_experience",
+                "heading": "Professional Experience",
+                "content": {
+                    "jobs": [
+                        {
+                            "source_role_index": 0,
+                            "company": "Acme Corp",
+                            "location": "Remote",
+                            "title": "Platform Engineer",
+                            "date_range": "2022 - Present",
+                            "bullets": ["Built APIs for internal platforms."],
+                        }
+                    ]
+                },
+                "supporting_snippets": ["Built APIs.", "Acme Corp"],
+            },
+            "## Professional Experience\nAcme Corp | Remote\nPlatform Engineer | 2022 - Present\n- Built APIs for internal platforms.",
+        ),
+        (
+            {
+                "id": "education",
+                "heading": "Education",
+                "content": {
+                    "entries": [
+                        {
+                            "school": "State University",
+                            "location": "Toronto, ON",
+                            "degree_or_program": "BSc Computer Science",
+                            "graduation_date": "2021",
+                            "bullets": ["Graduated with honors."],
+                        }
+                    ]
+                },
+                "supporting_snippets": ["State University"],
+            },
+            "## Education\nState University | Toronto, ON\nBSc Computer Science | 2021\n- Graduated with honors.",
+        ),
+        (
+            skills_section(["Python", "FastAPI"]),
+            "## Skills\n- Skills: Python, FastAPI",
+        ),
+        (
+            projects_section(),
+            "## Projects\nDeployment Dashboard\n- Built a deployment dashboard for backend services.",
+        ),
+        (
+            certifications_section(),
+            "## Certifications\n- AWS Certified Developer | Amazon Web Services | 2024",
+        ),
+    ]
+
+    for section_payload, expected_markdown in cases:
+        rendered = generation.render_semantic_section(
+            generation.GeneratedSectionPayload.model_validate(section_payload),
+            professional_experience_anchors=anchors,
+            aggressiveness="medium",
+        )
+        assert rendered["content"] == expected_markdown
+        assert rendered["semantic_content"] == section_payload["content"]
+
+
 @pytest.mark.asyncio
 async def test_generate_sections_uses_structured_output_sanitized_prompt_and_reasoning(monkeypatch):
     calls: list[dict[str, Any]] = []
@@ -92,18 +260,8 @@ async def test_generate_sections_uses_structured_output_sanitized_prompt_and_rea
         return response_model.model_validate(
             {
                 "sections": [
-                    {
-                        "id": "summary",
-                        "heading": "Summary",
-                        "markdown": "## Summary\nBuilt backend systems.",
-                        "supporting_snippets": ["Built backend systems.", "APIs"],
-                    },
-                    {
-                        "id": "skills",
-                        "heading": "Skills",
-                        "markdown": "## Skills\n- Python\n- FastAPI",
-                        "supporting_snippets": ["Python", "FastAPI"],
-                    },
+                    summary_section(),
+                    skills_section(),
                 ]
             }
         )
@@ -140,6 +298,71 @@ async def test_generate_sections_uses_structured_output_sanitized_prompt_and_rea
 
 
 @pytest.mark.asyncio
+async def test_generate_sections_uses_enabled_source_supported_intersection(monkeypatch):
+    calls: list[dict[str, Any]] = []
+
+    def callback(kwargs, prompt, structured, response_model):
+        human_payload = json.loads(prompt[1][1])
+        assert human_payload["enabled_sections"] == ["summary", "projects"]
+        assert structured is True
+        return response_model.model_validate({"sections": [summary_section(), projects_section()]})
+
+    monkeypatch.setattr(generation, "ChatOpenAI", build_fake_chat(callback, calls))
+
+    async def on_progress(_percent: int, _message: str) -> None:
+        return None
+
+    result = await generation.generate_sections(
+        base_resume_content=(
+            "## Summary\nBuilt backend systems.\n\n"
+            "## Projects\nDeployment Dashboard\n- Built a deployment dashboard for backend services.\n"
+        ),
+        job_title="Backend Engineer",
+        company_name="Acme",
+        job_description="Build APIs.",
+        section_preferences=[
+            {"name": "summary", "enabled": True, "order": 0},
+            {"name": "skills", "enabled": True, "order": 1},
+            {"name": "projects", "enabled": True, "order": 2},
+        ],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+        model="primary-model",
+        fallback_model="fallback-model",
+        api_key="test-key",
+        base_url="https://example.com",
+        on_progress=on_progress,
+    )
+
+    assert [section["name"] for section in result["sections"]] == ["summary", "projects"]
+
+
+@pytest.mark.asyncio
+async def test_generate_sections_fails_closed_when_no_enabled_source_supported_sections_remain(monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(generation, "ChatOpenAI", build_fake_chat(lambda *args: None, calls))
+
+    async def on_progress(_percent: int, _message: str) -> None:
+        return None
+
+    with pytest.raises(ValueError, match="No enabled source-supported sections"):
+        await generation.generate_sections(
+            base_resume_content="## Hobbies\nWoodworking\n",
+            job_title="Backend Engineer",
+            company_name="Acme",
+            job_description="Build APIs.",
+            section_preferences=[{"name": "skills", "enabled": True, "order": 0}],
+            generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+            model="primary-model",
+            fallback_model="fallback-model",
+            api_key="test-key",
+            base_url="https://example.com",
+            on_progress=on_progress,
+        )
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_generate_sections_uses_medium_reasoning_for_full_regeneration(monkeypatch):
     calls: list[dict[str, Any]] = []
 
@@ -150,12 +373,7 @@ async def test_generate_sections_uses_medium_reasoning_for_full_regeneration(mon
         return response_model.model_validate(
             {
                 "sections": [
-                    {
-                        "id": "summary",
-                        "heading": "Summary",
-                        "markdown": "## Summary\nReframed for target role fit.",
-                        "supporting_snippets": ["Built backend systems.", "APIs"],
-                    }
+                    summary_section("Reframed for target role fit.")
                 ]
             }
         )
@@ -197,12 +415,7 @@ async def test_generate_sections_uses_fallback_model_json_when_primary_structure
             json.dumps(
                 {
                     "sections": [
-                        {
-                            "id": "summary",
-                            "heading": "Summary",
-                            "markdown": "## Summary\nBuilt backend systems.",
-                            "supporting_snippets": ["Built backend systems.", "Backend systems"],
-                        }
+                        summary_section()
                     ]
                 }
             )
@@ -249,12 +462,7 @@ async def test_generate_sections_falls_back_only_after_invalid_primary_response(
                 json.dumps(
                     {
                     "sections": [
-                        {
-                            "id": "summary",
-                            "heading": "Summary",
-                            "markdown": "## Summary\nBuilt backend systems.",
-                            "supporting_snippets": ["Built backend systems.", "Build APIs."],
-                        }
+                        summary_section()
                     ]
                     }
                 )
@@ -295,12 +503,7 @@ async def test_generate_sections_uses_configured_reasoning_for_generation(monkey
         return response_model.model_validate(
             {
                 "sections": [
-                    {
-                        "id": "summary",
-                        "heading": "Summary",
-                        "markdown": "## Summary\nBuilt backend systems.",
-                        "supporting_snippets": ["Built backend systems.", "Build APIs."],
-                    }
+                    summary_section()
                 ]
             }
         )
@@ -339,12 +542,7 @@ async def test_generate_sections_explicitly_disables_reasoning_when_effort_is_no
         return response_model.model_validate(
             {
                 "sections": [
-                    {
-                        "id": "summary",
-                        "heading": "Summary",
-                        "markdown": "## Summary\nBuilt backend systems.",
-                        "supporting_snippets": ["Built backend systems.", "Build APIs."],
-                    }
+                    summary_section()
                 ]
             }
         )
@@ -384,12 +582,7 @@ async def test_attempt_transport_retries_same_model_without_reasoning_when_provi
         return kwargs["response_model"].model_validate(
             {
                 "sections": [
-                    {
-                        "id": "summary",
-                        "heading": "Summary",
-                        "markdown": "## Summary\nBuilt backend systems.",
-                        "supporting_snippets": ["Built backend systems.", "Build APIs."],
-                    }
+                    summary_section()
                 ]
             }
         )
@@ -432,12 +625,7 @@ async def test_regenerate_single_section_includes_other_sections_context(monkeyp
         assert human_payload["other_sections_context"][0]["id"] == "skills"
         return response_model.model_validate(
             {
-                "section": {
-                    "id": "summary",
-                    "heading": "Summary",
-                    "markdown": "## Summary\nBuilt backend systems for high-scale APIs.",
-                    "supporting_snippets": ["Built backend systems", "APIs"],
-                }
+                "section": summary_section("Built backend systems for high-scale APIs.")
             }
         )
 
@@ -465,6 +653,30 @@ async def test_regenerate_single_section_includes_other_sections_context(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_regenerate_single_section_rejects_section_absent_from_source(monkeypatch):
+    calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(generation, "ChatOpenAI", build_fake_chat(lambda *args: None, calls))
+
+    with pytest.raises(ValueError, match="Section is not supported by the source resume: skills"):
+        await generation.regenerate_single_section(
+            current_draft_content="## Summary\nBuilt backend systems.\n",
+            section_name="skills",
+            instructions="Refresh skills.",
+            base_resume_content="## Summary\nBuilt backend systems.\n",
+            job_title="Backend Engineer",
+            company_name="Acme",
+            job_description="Build APIs.",
+            generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+            model="primary-model",
+            fallback_model="fallback-model",
+            api_key="test-key",
+            base_url="https://example.com",
+        )
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_generate_sections_caps_supporting_snippets_by_section(monkeypatch):
     calls: list[dict[str, Any]] = []
 
@@ -476,7 +688,7 @@ async def test_generate_sections_caps_supporting_snippets_by_section(monkeypatch
                     {
                         "id": "summary",
                         "heading": "Summary",
-                        "markdown": "## Summary\nBuilt backend systems.",
+                        "content": {"paragraph": "Built backend systems."},
                         "supporting_snippets": [f"snippet {index}" for index in range(6)],
                     }
                 ]
@@ -515,12 +727,7 @@ async def test_generate_sections_emits_progress_heartbeat_while_waiting_for_mode
             generation.GeneratedResumePayload.model_validate(
                 {
                     "sections": [
-                        {
-                            "id": "summary",
-                            "heading": "Summary",
-                            "markdown": "## Summary\nBuilt backend systems.",
-                            "supporting_snippets": ["Built backend systems.", "Build APIs."],
-                        }
+                        summary_section()
                     ]
                 }
             ),
@@ -569,12 +776,7 @@ async def test_generate_sections_uses_full_draft_timeout(monkeypatch):
             generation.GeneratedResumePayload.model_validate(
                 {
                     "sections": [
-                        {
-                            "id": "summary",
-                            "heading": "Summary",
-                            "markdown": "## Summary\nBuilt backend systems.",
-                            "supporting_snippets": ["Built backend systems.", "Build APIs."],
-                        }
+                        summary_section()
                     ]
                 }
             ),
@@ -613,12 +815,7 @@ async def test_regenerate_single_section_uses_section_timeout(monkeypatch):
         return (
             generation.RegeneratedSectionPayload.model_validate(
                 {
-                    "section": {
-                        "id": "summary",
-                        "heading": "Summary",
-                        "markdown": "## Summary\nBuilt backend systems for APIs.",
-                        "supporting_snippets": ["Built backend systems", "APIs"],
-                    }
+                    "section": summary_section("Built backend systems for APIs.")
                 }
             ),
             "primary-model",
@@ -659,12 +856,7 @@ async def test_repair_generated_response_prefers_unused_fallback_model(monkeypat
             json.dumps(
                 {
                     "sections": [
-                        {
-                            "id": "summary",
-                            "heading": "Summary",
-                            "markdown": "## Summary\nBuilt backend systems.",
-                            "supporting_snippets": ["Built backend systems.", "APIs"],
-                        }
+                        summary_section()
                     ]
                 }
             )
@@ -683,7 +875,7 @@ async def test_repair_generated_response_prefers_unused_fallback_model(monkeypat
                 {
                     "id": "summary",
                     "heading": "Summary",
-                    "markdown": "## Summary\nDraft",
+                    "content": {"paragraph": "Draft"},
                     "supporting_snippets": ["Built backend systems."],
                 }
             ]
@@ -1072,6 +1264,55 @@ async def test_validate_resume_allows_high_aggressiveness_experience_role_title_
     error_types = {error["type"] for error in result["errors"]}
     assert "unsupported_claim" not in error_types
     assert result["valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_rejects_semantic_professional_experience_anchor_mismatch():
+    source = (
+        "## Professional Experience\n"
+        "Backend Engineer | Acme | 2022 - Present\n"
+        "- Built backend systems.\n"
+    )
+    anchors = extract_professional_experience_anchors(source)
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "professional_experience",
+                "heading": "Professional Experience",
+                "content": (
+                    "## Professional Experience\n"
+                    "Backend Engineer | OtherCo | 2020 - 2021\n"
+                    "- Built backend systems.\n"
+                ),
+                "semantic_content": {
+                    "jobs": [
+                        {
+                            "source_role_index": 0,
+                            "company": "OtherCo",
+                            "location": None,
+                            "title": "Backend Engineer",
+                            "date_range": "2020 - 2021",
+                            "bullets": ["Built backend systems."],
+                        }
+                    ]
+                },
+                "supporting_snippets": ["Built backend systems.", "Acme"],
+            }
+        ],
+        base_resume_content=source,
+        section_preferences=[{"name": "professional_experience", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+        professional_experience_anchors=anchors,
+    )
+
+    semantic_errors = [
+        error["detail"]
+        for error in result["errors"]
+        if error["type"] == "semantic_contract_violation"
+    ]
+    assert any("company must match source company" in detail for detail in semantic_errors)
+    assert any("date_range must match source date range" in detail for detail in semantic_errors)
+    assert result["valid"] is False
 
 
 @pytest.mark.asyncio

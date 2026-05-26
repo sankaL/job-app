@@ -15,9 +15,11 @@ const SECTION_LABELS: Record<string, string> = {
   professional_experience: "Professional Experience",
   education: "Education",
   skills: "Skills",
+  projects: "Projects",
+  certifications: "Certifications",
 };
 
-const DEFAULT_SECTIONS = ["summary", "professional_experience", "education", "skills"];
+const DEFAULT_SECTIONS = ["summary", "professional_experience", "education", "skills", "projects", "certifications"];
 
 export function ProfilePage() {
   const queryClient = useQueryClient();

@@ -86,7 +86,7 @@ This is an **invite-only** application.
 The LLM must not invent or generate: name, phone number, address or location text, email, city or location, LinkedIn URLs, or other contact links. Personal and contact information must be removed from resume content before any external LLM call that touches resume text, then reattached locally during assembly or formatting.
 
 ### 5.3 Resume generation is single-call and structured
-Initial generation and full regeneration use one LLM call that returns a strict JSON payload containing the enabled sections in order. The application then splits, validates, and assembles the output deterministically. Single-section regeneration remains supported as a separate one-call action scoped to the selected section only.
+Initial generation and full regeneration use one LLM call that returns a strict semantic JSON payload containing the eligible sections in order. The application validates the semantic object, renders Markdown locally, and assembles the final draft deterministically. Single-section regeneration remains supported as a separate one-call action scoped to the selected eligible section only.
 
 ### 5.4 Generation must stay grounded in source material
 The system should tailor, prioritize, rewrite, and reorganize content from the user's base resume, but must not invent credentials, employers, titles, dates, or work history. This is a hard product rule, not just a quality guideline.
@@ -372,15 +372,17 @@ For medium and high runs, the application detail workspace must preserve an expl
 
 ### 10.7 Resume Generation Pipeline
 
-Generation runs through LangChain calling OpenRouter, but each initial-generation or full-regeneration action must use a single model request that returns structured JSON for all enabled sections.
+Generation runs through LangChain calling OpenRouter, but each initial-generation or full-regeneration action must use a single model request that returns semantic structured JSON for all eligible sections.
 
 **Default supported sections (MVP):**
 - Summary
 - Professional Experience
 - Education
 - Skills
+- Projects
+- Certifications
 
-**The system should be architected to support additional user-defined sections in future iterations**, but MVP may initially support the four defaults.
+**The system should be architected to support additional user-defined sections in future iterations**, but unsupported section identifiers must be ignored until explicitly implemented.
 
 **Inputs to generation:**
 - Selected base resume Markdown, sanitized to remove personal and contact information before the LLM call
@@ -392,13 +394,13 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - Any additional user instructions
 
 **Generation requirements:**
-- Generate only sections that are enabled in user preferences
+- Generate only sections that are both enabled in user preferences and supported by the sanitized base resume. Summary may be generated when the source resume has substantive non-contact content even without an explicit Summary heading.
 - Do not generate personal information
 - Use one LLM request for initial generation and one LLM request for full regeneration
 - Use one LLM request for single-section regeneration of the selected section
 - Professional Experience must use deterministic source anchors (`title`, `company`, `date_range`, source order) extracted from the sanitized base resume
 - Professional Experience role order must stay fixed to the source anchors; reprioritization happens by changing bullet emphasis inside each anchored role
-- Professional Experience and Education must normalize to deterministic two-row entry blocks before preview, validation, or export
+- Professional Experience and Education must be returned as semantic JSON entries and rendered locally to deterministic two-row entry blocks before preview, validation, or export
 - Professional Experience row 1 = `company | location`, row 2 = `role title | date range`
 - Education row 1 = `school | location`, row 2 = `degree/program | graduation date`
 - In both sections, the left fields are left-aligned and the right fields are right-aligned in preview, PDF, and DOCX
@@ -409,12 +411,12 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - When Professional Experience is enabled, medium and high must visibly tailor it instead of leaving the first up to 2 roles with bullets effectively source-identical while spending nearly all rewrite effort on Summary or Skills
 - Company and date range for every Professional Experience role are deterministic invariants and must remain source-exact for all aggressiveness levels
 - Education bullets are optional and allowed only for grounded details already present in the source material
-- Apply a deterministic post-LLM normalization pass that rehydrates Professional Experience company, optional location, and date values from anchors before validation or assembly; low also rehydrates source-exact titles while medium and high preserve the generated title for validation
+- Apply a deterministic post-LLM rendering pass that rehydrates Professional Experience company, optional location, and date values from anchors before validation or assembly; low also rehydrates source-exact titles while medium and high preserve the generated title for validation
 - Generated-draft preview, PDF export, and DOCX export must consume the same semantic render model derived from normalized Markdown, rather than separate format-specific line guessing
-- The model must return a strict JSON envelope that includes ordered sections and per-section grounding snippets copied from the sanitized base resume
+- The model must return a strict JSON envelope with ordered section objects. Each section has `id`, `heading`, semantic `content`, and `supporting_snippets`; Markdown body strings, HTML, XML, tables, images, code fences, and extra keys are invalid.
 - Prompt variants must explicitly reflect the selected page target and aggressiveness level
 - A second model request is allowed only when the first request fails at the provider or transport level, or returns invalid structured output
-- Output must be Markdown
+- Final persisted draft output remains Markdown, but Markdown is rendered locally from the semantic JSON object rather than authored directly by the LLM
 - Model called via OpenRouter; model names come from the user's subscription tier, with environment settings retained only as worker fallback for legacy or incomplete queued jobs (see §3.1)
 
 **ATS guidance for generation prompts:**
@@ -437,6 +439,7 @@ After generation returns structured JSON, the application validates it locally b
 
 **Validation must check for:**
 - Strict JSON parsing and schema compliance
+- Section-specific semantic content schemas, including nested jobs, education entries, skill categories, projects, certifications, and bullet arrays
 - ATS-safe structure (no tables, no columns, no special characters)
 - Valid Markdown formatting
 - Hallucinated factual content not present in the base resume — specifically: invented employers, dates, credentials, educational institutions, awards, or outcomes, plus invented job titles outside the medium and high professional-experience title-rewrite allowances
@@ -444,7 +447,7 @@ After generation returns structured JSON, the application validates it locally b
 - A medium/high-only heuristic for insufficient Professional Experience tailoring: when that section is enabled, the first up to 2 source-ordered roles with bullets must show visible bullet or title rewrites according to the aggressiveness rules, or validation fails closed
 - Document where validation is heuristic rather than semantic proof; medium title grounding is only approximated deterministically and ultimately depends on the prompt contract plus model behavior
 - Consistency across sections (no conflicting dates, duplicate entries)
-- All enabled sections are present and in the correct order
+- All eligible sections are present and in the correct order, and sections absent from the source resume are not expected even if enabled in user preferences
 - Personal or contact information leakage in generated sections
 - Grounding snippets copied from the sanitized base resume
 - Content is appropriate for the target page length
@@ -455,9 +458,10 @@ After generation returns structured JSON, the application validates it locally b
 
 **Minimum failure conditions (not left to engineer judgment):**
 - Hallucinated credentials not found anywhere in the base resume
-- Missing one or more enabled sections
+- Missing one or more eligible sections
 - Sections in the wrong order
 - Invalid JSON or schema output
+- Markdown-string generation payloads where semantic JSON content is required
 - Any generated personal or contact information
 
 **On validation failure:**
@@ -474,7 +478,7 @@ After successful validation, the system assembles the final resume draft in Mark
 
 **Assembly order:**
 1. Inject user personal information header (name, email, phone, location text, and LinkedIn URL — from user profile, not LLM)
-2. Insert enabled sections in the user's preferred order
+2. Insert eligible generated sections in the user's preferred order
 3. Save the assembled Markdown to `resume_drafts`
 4. Set visible status to **In Progress**
 5. Send email notification: "Your resume for [Job Title] at [Company] has been generated"

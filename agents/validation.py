@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
+from pydantic import ValidationError
+
 from experience_contract import (
     extract_generated_experience_blocks,
     is_title_rewrite_allowed,
@@ -12,15 +14,9 @@ from experience_contract import (
     validate_education_contract,
     validate_professional_experience_contract,
 )
+from generation import SECTION_CONTENT_MODELS, SECTION_DISPLAY_NAMES, SUPPORTING_SNIPPET_LIMITS
 from length_policy import TARGET_LENGTH_CONFIGS, assess_resume_length
 from privacy import EMAIL_RE, PHONE_RE, URL_RE, sanitize_resume_markdown
-
-SECTION_DISPLAY_NAMES: dict[str, str] = {
-    "summary": "Summary",
-    "professional_experience": "Professional Experience",
-    "education": "Education",
-    "skills": "Skills",
-}
 
 DATE_TOKEN_RE = re.compile(
     r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|"
@@ -38,12 +34,6 @@ EM_DASH_RE = re.compile(r"—")
 TARGET_WORD_LIMITS = {
     target_length: int(config["hard_cap"])
     for target_length, config in TARGET_LENGTH_CONFIGS.items()
-}
-SUPPORTING_SNIPPET_LIMITS = {
-    "summary": (2, 4),
-    "professional_experience": (2, 4),
-    "education": (1, 2),
-    "skills": (1, 3),
 }
 ROLE_AT_CLAIM_RE = re.compile(
     r"\b([A-Z][A-Za-z0-9&/+.-]*(?:\s+[A-Z][A-Za-z0-9&/+.-]*){0,4})\s+at\s+([A-Z][A-Za-z0-9&/+.-]*(?:\s+[A-Z][A-Za-z0-9&/+.-]*){0,4})"
@@ -346,6 +336,86 @@ def _check_supporting_snippets(
                     }
                 )
 
+    return errors
+
+
+def _check_semantic_content_contract(
+    *,
+    generated_sections: list[dict[str, Any]],
+    professional_experience_anchors: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
+    errors: list[dict[str, Any]] = []
+    for section in generated_sections:
+        if "semantic_content" not in section:
+            continue
+        name = str(section.get("name") or "")
+        content_model = SECTION_CONTENT_MODELS.get(name)
+        if content_model is None:
+            errors.append(
+                {
+                    "type": "semantic_contract_violation",
+                    "section": name,
+                    "detail": f"Unsupported semantic section: {name}",
+                }
+            )
+            continue
+        try:
+            payload = content_model.model_validate(section.get("semantic_content"))
+        except (ValueError, TypeError, ValidationError) as error:
+            errors.append(
+                {
+                    "type": "semantic_contract_violation",
+                    "section": name,
+                    "detail": str(error),
+                }
+            )
+            continue
+
+        if name == "professional_experience":
+            jobs = getattr(payload, "jobs", [])
+            indexes = [job.source_role_index for job in jobs]
+            if len(indexes) != len(set(indexes)):
+                errors.append(
+                    {
+                        "type": "semantic_contract_violation",
+                        "section": name,
+                        "detail": "Professional Experience source_role_index values must be unique.",
+                    }
+                )
+            anchors = professional_experience_anchors or []
+            if anchors:
+                expected_indexes = set(range(len(anchors)))
+                actual_indexes = set(indexes)
+                if actual_indexes != expected_indexes:
+                    errors.append(
+                        {
+                            "type": "semantic_contract_violation",
+                            "section": name,
+                            "detail": f"Professional Experience must return one job for each source role index: {sorted(expected_indexes)}.",
+                        }
+                    )
+                for job in jobs:
+                    if job.source_role_index < 0 or job.source_role_index >= len(anchors):
+                        continue
+                    anchor = anchors[job.source_role_index]
+                    source_company = str(anchor.get("source_company") or "").strip()
+                    source_date = str(anchor.get("source_date_range") or "").strip()
+                    if source_company and normalize_text(job.company) != normalize_text(source_company):
+                        errors.append(
+                            {
+                                "type": "semantic_contract_violation",
+                                "section": name,
+                                "detail": f"Job {job.source_role_index} company must match source company.",
+                            }
+                        )
+                    if source_date and normalize_text(job.date_range) != normalize_text(source_date):
+                        errors.append(
+                            {
+                                "type": "semantic_contract_violation",
+                                "section": name,
+                                "detail": f"Job {job.source_role_index} date_range must match source date range.",
+                            }
+                        )
     return errors
 
 
@@ -746,6 +816,12 @@ async def validate_resume(
         )
     )
     all_errors.extend(_check_heading_contract(generated_sections=generated_sections))
+    all_errors.extend(
+        _check_semantic_content_contract(
+            generated_sections=generated_sections,
+            professional_experience_anchors=professional_experience_anchors,
+        )
+    )
     all_errors.extend(
         _check_supporting_snippets(
             generated_sections=generated_sections,

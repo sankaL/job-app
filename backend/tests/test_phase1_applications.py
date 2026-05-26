@@ -3375,6 +3375,66 @@ async def test_full_regeneration_routes_blocked_placeholder_back_to_manual_entry
 
 
 @pytest.mark.asyncio
+async def test_full_regeneration_appends_structured_judge_feedback_server_side():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+            "resume_judge_result": {
+                "status": "succeeded",
+                "regeneration_instructions": {
+                    "summary": ["Make the summary more candidate-specific."],
+                    "professional_experience": ["Vary bullet openings."],
+                },
+            },
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Draft\n\n## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    await service.trigger_full_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        target_length="2_page",
+        aggressiveness="high",
+        additional_instructions="Keep metrics prominent.",
+        use_judge_feedback=True,
+    )
+
+    settings = service.generation_job_queue.regenerations[-1]["generation_settings"]
+    assert settings["use_judge_feedback"] is True
+    assert settings["additional_instructions"] == (
+        "Keep metrics prominent.\n\n"
+        "Resume Judge Feedback:\n"
+        "Summary:\n"
+        "- Make the summary more candidate-specific.\n"
+        "Professional Experience:\n"
+        "- Vary bullet openings."
+    )
+
+
+@pytest.mark.asyncio
 async def test_trigger_generation_requires_profile_name():
     service, repository, _, _, _, _, _ = build_service()
     service.base_resume_repository.add_resume(

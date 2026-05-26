@@ -13,6 +13,7 @@ from typing import Any, Optional
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from generation import StrictModel
 from length_policy import TARGET_LENGTH_CONFIGS, assess_resume_length
 from privacy import CONTACT_URL_RE, EMAIL_RE, PHONE_RE, sanitize_resume_markdown
 
@@ -44,6 +45,14 @@ DIMENSION_SPECS: list[tuple[str, Decimal]] = [
     ("length_and_density", Decimal("0.05")),
 ]
 DIMENSION_WEIGHT_MAP = dict(DIMENSION_SPECS)
+SUPPORTED_REGENERATION_SECTIONS = {
+    "summary",
+    "professional_experience",
+    "education",
+    "skills",
+    "projects",
+    "certifications",
+}
 
 DIMENSION_NOTES = {
     "role_alignment": (
@@ -75,7 +84,8 @@ FIRST_PERSON_RE = re.compile(r"\b(?:i|me|my|mine|myself)\b", re.I)
 WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9+#/-]*")
 
 
-class JudgeDimensionResponse(BaseModel):
+
+class JudgeDimensionResponse(StrictModel):
     score: int
     notes: str
 
@@ -95,10 +105,10 @@ class JudgeDimensionResponse(BaseModel):
         return stripped
 
 
-class JudgeModelResponse(BaseModel):
+class JudgeModelResponse(StrictModel):
     score_summary: str
     dimension_scores: dict[str, JudgeDimensionResponse]
-    regeneration_instructions: Optional[str] = None
+    regeneration_instructions: Optional[dict[str, list[str]]] = None
     regeneration_priority_dimensions: list[str] = Field(default_factory=list)
     evaluator_notes: str
 
@@ -112,11 +122,18 @@ class JudgeModelResponse(BaseModel):
 
     @field_validator("regeneration_instructions")
     @classmethod
-    def normalize_regeneration_instructions(cls, value: Optional[str]) -> Optional[str]:
+    def normalize_regeneration_instructions(cls, value: Optional[dict[str, list[str]]]) -> Optional[dict[str, list[str]]]:
         if value is None:
             return None
-        stripped = value.strip()
-        return stripped or None
+        normalized: dict[str, list[str]] = {}
+        for section_id, instructions in value.items():
+            key = str(section_id).strip()
+            if key not in SUPPORTED_REGENERATION_SECTIONS:
+                raise ValueError(f"Unsupported regeneration instruction section: {key}")
+            cleaned = [str(item).strip() for item in instructions if str(item).strip()]
+            if cleaned:
+                normalized[key] = cleaned[:4]
+        return normalized or None
 
     @field_validator("regeneration_priority_dimensions")
     @classmethod
@@ -266,6 +283,12 @@ def _deterministic_observations(
     if CONTACT_URL_RE.search(sanitized_generated_resume_markdown):
         contact_leaks.append("contact_url")
 
+    section_ids = []
+    for match in re.finditer(r"^##\s+(.+?)\s*$", sanitized_generated_resume_markdown, re.MULTILINE):
+        section_id = re.sub(r"[^a-z0-9]+", "_", match.group(1).strip().lower()).strip("_")
+        if section_id in SUPPORTED_REGENERATION_SECTIONS:
+            section_ids.append(section_id)
+
     return {
         "word_count": word_count,
         "target_length": target_length,
@@ -281,6 +304,7 @@ def _deterministic_observations(
         "first_person_found": bool(FIRST_PERSON_RE.search(sanitized_generated_resume_markdown)),
         "contact_leak_found": bool(contact_leaks),
         "contact_leak_types": contact_leaks,
+        "current_sections": section_ids,
     }
 
 
@@ -306,10 +330,11 @@ def _build_system_prompt() -> str:
         "- Score every dimension from 0 to 10.\n"
         "- Do not compute weighted arithmetic, final_score, display_score, verdict, or pass/fail thresholds. The application computes those locally.\n"
         "- Keep notes concise, evidence-based, and tied to concrete sections or patterns.\n"
-        "- regeneration_instructions must be direct instructions for the resume generation agent. Preserve regeneration_instructions and regeneration_priority_dimensions when the draft still has meaningful refinement opportunities, including borderline passing drafts below a local final score of "
+        "- regeneration_instructions must be a section-keyed JSON object of direct instructions for the resume generation agent. Preserve regeneration_instructions and regeneration_priority_dimensions when the draft still has meaningful refinement opportunities, including borderline passing drafts below a local final score of "
         f"{recommendation_threshold_text}. Only omit them when the draft is clearly strong enough that no refinement guidance is needed.\n"
+        "- regeneration_instructions keys must be current section ids from deterministic_observations.current_sections only. Each value must be an array of concise instruction strings.\n"
         "- regeneration_priority_dimensions must contain at most two dimension ids from the allowed list.\n"
-        "- Return exactly one JSON object and no surrounding prose.\n\n"
+        "- Return exactly one JSON object and no surrounding prose. No extra keys are allowed at any level.\n\n"
         "Dimension weights for local scoring:\n"
         f"{dimension_lines}\n\n"
         "Dimension guidance:\n"
@@ -325,7 +350,7 @@ def _build_system_prompt() -> str:
         '    "ats_safety_and_formatting": {"score": 0, "notes": "..."},\n'
         '    "length_and_density": {"score": 0, "notes": "..."}\n'
         "  },\n"
-        '  "regeneration_instructions": "..." | null,\n'
+        '  "regeneration_instructions": {"summary": ["specific instruction"]} | null,\n'
         '  "regeneration_priority_dimensions": ["dimension_id"],\n'
         '  "evaluator_notes": "short overall evaluator note"\n'
         "}"
@@ -507,6 +532,12 @@ def _finalize_response(
     dimension_scores: dict[str, Any] = {}
     final_score = Decimal("0")
     observations = deterministic_observations or {}
+    current_sections = {
+        str(section_id)
+        for section_id in (observations.get("current_sections") or [])
+        if str(section_id) in SUPPORTED_REGENERATION_SECTIONS
+    }
+    allowed_instruction_sections = current_sections or set(SUPPORTED_REGENERATION_SECTIONS)
     outside_target_range = bool(observations.get("outside_target_range"))
     source_limited_length = bool(observations.get("source_limited_length"))
     target_range_words = observations.get("target_range_words") or {}
@@ -548,12 +579,21 @@ def _finalize_response(
     priority_dimensions = _sorted_priority_dimensions(response) if show_recommendations else []
     if force_length_priority and "length_and_density" not in priority_dimensions:
         priority_dimensions = ["length_and_density", *priority_dimensions][:2]
-    regeneration_instructions = response.regeneration_instructions if show_recommendations else None
+    regeneration_instructions = None
+    if show_recommendations and response.regeneration_instructions:
+        regeneration_instructions = {
+            section_id: instructions
+            for section_id, instructions in response.regeneration_instructions.items()
+            if section_id in allowed_instruction_sections and instructions
+        } or None
     if force_length_priority and not regeneration_instructions:
-        regeneration_instructions = (
-            "Expand the resume toward the selected target length using only grounded source-resume details. "
-            "Do not add filler, repeat claims, or invent unsupported facts."
-        )
+        target_section = "professional_experience" if "professional_experience" in current_sections else "summary"
+        regeneration_instructions = {
+            target_section: [
+                "Expand toward the selected target length using only grounded source-resume details.",
+                "Do not add filler, repeat claims, or invent unsupported facts.",
+            ]
+        }
 
     return {
         "status": "succeeded",
