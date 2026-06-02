@@ -1265,10 +1265,67 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByRole("heading", { name: /generation settings/i })).toBeInTheDocument();
     expect(screen.getByDisplayValue("$170,000 - $210,000 base salary")).toBeInTheDocument();
     expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /export/i })).toBeInTheDocument();
+    const actionsButton = screen.getByRole("button", { name: /actions/i });
+    expect(actionsButton).toHaveAttribute("aria-haspopup", "menu");
+    expect(actionsButton).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: /delete application/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /mark applied/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /view posting/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^export$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^regenerate$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^compare$/i })).not.toBeInTheDocument();
+
+    // Open Actions dropdown to view nested options
+    await userEvent.click(actionsButton);
+
+    expect(actionsButton).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("menuitem", { name: /export pdf/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /export docx/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /mark applied/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /view posting/i })).toBeInTheDocument();
+  });
+
+  it("renders applied status without a misleading timestamp and offers unapplied action", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        applied: true,
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+        updated_at: "2026-04-07T12:00:00Z",
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(await screen.findByText(/^applied$/i)).toBeInTheDocument();
+    expect(screen.queryByText(/applied on/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^actions$/i }));
+    expect(screen.getByRole("menuitem", { name: /mark unapplied instead/i })).toBeInTheDocument();
   });
 
   it("downloads DOCX using the server-provided filename", async () => {
@@ -1330,7 +1387,7 @@ describe("phase 1 applications UI", () => {
     );
 
     await screen.findByText(/generated resume/i);
-    await user.click(screen.getByRole("button", { name: /^export$/i }));
+    await user.click(screen.getByRole("button", { name: /^actions$/i }));
     await user.click(screen.getByRole("menuitem", { name: /export docx/i }));
 
     await waitFor(() => expect(api.exportDocx).toHaveBeenCalledWith("app-1"));
@@ -2178,18 +2235,11 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByRole("button", { name: /^compare$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^regenerate$/i })).toBeInTheDocument();
-    expect(screen.queryByText(/review flagged additions/i)).not.toBeInTheDocument();
-    expect(screen.queryByText("## Professional Experience")).not.toBeInTheDocument();
-    expect(container.querySelector("mark.generated-diff-highlight")).toBeNull();
-    expect(container.querySelector(".generated-diff-block")).toBeNull();
-
-    await userEvent.click(screen.getByRole("button", { name: /^regenerate$/i }));
-
-    const regenerateMenu = await screen.findByRole("menu", { name: /regenerate options/i });
-    expect(within(regenerateMenu).getByRole("menuitem", { name: /^regen section$/i })).toBeInTheDocument();
-    expect(within(regenerateMenu).getByRole("menuitem", { name: /^full regen$/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^actions$/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
+    expect(screen.getByRole("menuitem", { name: /^compare$/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^regen section$/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^full regen$/i })).toBeInTheDocument();
   });
 
   it("shows a source-limited length warning on the generated draft", async () => {
@@ -2291,9 +2341,14 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: /^compare$/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^actions$/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
-    expect(await screen.findByRole("button", { name: /close comparison/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
+    expect(screen.getByRole("menuitem", { name: /close comparison/i })).toBeInTheDocument();
+    // Close the dropdown after checking
+    await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
+
     expect(screen.queryByText(/tailored draft shown beside the generation-time base resume/i)).not.toBeInTheDocument();
     const baseHeading = screen.getByRole("heading", { name: /base resume/i });
     const basePane = baseHeading.closest(".compare-pane-card");
@@ -2305,8 +2360,11 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByDisplayValue(/tailored summary/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /base resume/i })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /close comparison/i }));
-    expect(await screen.findByRole("button", { name: /^compare$/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /close comparison/i }));
+
+    await userEvent.click(await screen.findByRole("button", { name: /^actions$/i }));
+    expect(screen.getByRole("menuitem", { name: /^compare$/i })).toBeInTheDocument();
   });
 
   it("renders base-resume headings and bullets cleanly in compare mode", async () => {
@@ -2353,7 +2411,8 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: /^compare$/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^actions$/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
     const baseHeading = await screen.findByRole("heading", { name: "Base Resume" });
     const basePane = baseHeading.closest(".compare-pane-card");
@@ -2415,22 +2474,24 @@ describe("phase 1 applications UI", () => {
       </QueryClientProvider>,
     );
 
-    const compareButton = await screen.findByRole("button", { name: /^compare$/i });
-    const shellRoot = compareButton.closest(".app-shell-root");
-    const shellFrame = compareButton.closest(".app-shell-frame");
+    const actionsButton = await screen.findByRole("button", { name: /^actions$/i });
+    const shellRoot = actionsButton.closest(".app-shell-root");
+    const shellFrame = actionsButton.closest(".app-shell-frame");
 
     expect(shellRoot).not.toBeNull();
     expect(shellFrame).not.toBeNull();
     expect(shellRoot).toHaveAttribute("data-shell-mode", "default");
     expect(screen.getByLabelText(/toggle sidebar/i)).toBeInTheDocument();
 
-    await userEvent.click(compareButton);
+    await userEvent.click(actionsButton);
+    await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
     expect(shellRoot).toHaveAttribute("data-shell-mode", "immersive");
     expect(shellFrame).toHaveStyle({ marginLeft: "0px" });
     expect(screen.queryByLabelText(/toggle sidebar/i)).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /close comparison/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /close comparison/i }));
 
     expect(shellRoot).toHaveAttribute("data-shell-mode", "default");
   });
@@ -2495,10 +2556,12 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await screen.findByRole("button", { name: /^compare$/i });
+    await screen.findByRole("button", { name: /^actions$/i });
+    await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
+    expect(screen.getByRole("menuitem", { name: /^compare$/i })).toBeInTheDocument();
     await waitFor(() => expect(api.fetchBaseResume).toHaveBeenCalledWith("resume-1"));
 
-    await userEvent.click(screen.getByRole("button", { name: /^compare$/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
     expect((await screen.findAllByText(/original baseline/i)).length).toBeGreaterThan(0);
   });
 
@@ -2539,7 +2602,8 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: /^compare$/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /^actions$/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
     expect(await screen.findAllByText(/compare view is unavailable/i)).toHaveLength(2);
     expect(screen.queryByRole("heading", { name: /base resume/i })).not.toBeInTheDocument();
@@ -3013,12 +3077,125 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    const regenerateButton = await screen.findByRole("button", { name: /^regenerate$/i });
-    await user.click(regenerateButton);
+    const actionsButton = await screen.findByRole("button", { name: /^actions$/i });
+    await user.click(actionsButton);
     await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
+
+    const confirmButton = await screen.findByRole("button", { name: /^regenerate$/i });
+    await user.click(confirmButton);
 
     await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/monthly resume generation limit reached/i)).toBeInTheDocument();
+  });
+
+  it("keeps custom Full Regen instructions in the modal when regeneration fails to start", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.triggerFullRegeneration.mockRejectedValue(new Error("Unable to start regeneration right now."));
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await user.click(await screen.findByRole("button", { name: /^actions$/i }));
+    await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
+
+    const instructions = await screen.findByLabelText(/custom instructions/i);
+    await user.type(instructions, "Preserve senior cloud leadership emphasis.");
+    await user.click(screen.getByRole("button", { name: /^regenerate$/i }));
+
+    await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/unable to start regeneration right now/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /fully regenerate resume/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/custom instructions/i)).toHaveValue("Preserve senior cloud leadership emphasis.");
+  });
+
+  it("merges saved settings instructions with Full Regen modal instructions", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: {
+        page_length: "2_page",
+        aggressiveness: "high",
+        additional_instructions: "Keep infrastructure metrics prominent.",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.triggerFullRegeneration.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "draft",
+        internal_state: "regenerating_full",
+        failure_reason: null,
+      }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await user.click(await screen.findByRole("button", { name: /^actions$/i }));
+    await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
+    await user.type(await screen.findByLabelText(/custom instructions/i), "Also emphasize senior leadership scope.");
+    await user.click(screen.getByRole("button", { name: /^regenerate$/i }));
+
+    await waitFor(() =>
+      expect(api.triggerFullRegeneration).toHaveBeenCalledWith("app-1", {
+        target_length: "2_page",
+        aggressiveness: "high",
+        additional_instructions: "Keep infrastructure metrics prominent.\n\nAlso emphasize senior leadership scope.",
+        use_judge_feedback: undefined,
+      }),
+    );
+    expect(screen.queryByRole("heading", { name: /fully regenerate resume/i })).not.toBeInTheDocument();
   });
 
   it("shows the contextual job-details banner when retrying generation without a job title", async () => {
@@ -3461,8 +3638,11 @@ describe("phase 1 applications UI", () => {
       expect(document.querySelector(".markdown-editor-input")).not.toBeNull();
     });
 
-    await user.click(screen.getByRole("button", { name: /regenerate/i }));
+    await user.click(screen.getByRole("button", { name: /^actions$/i }));
     await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
+
+    const confirmButton = await screen.findByRole("button", { name: /^regenerate$/i });
+    await user.click(confirmButton);
 
     await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
     expect(document.querySelector(".markdown-editor-input")).toBeNull();
@@ -3799,7 +3979,7 @@ describe("phase 1 applications UI", () => {
     const judgeCard = await screen.findByTestId("resume-judge-card");
     expect(within(judgeCard).getByText(/78\/100/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^export$/i }));
+    await user.click(screen.getByRole("button", { name: /^actions$/i }));
     await user.click(screen.getByRole("menuitem", { name: /export pdf/i }));
 
     await waitFor(() => expect(api.exportPdf).toHaveBeenCalledWith("app-1"));

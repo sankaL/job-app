@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
-import { ChevronDown, CircleStop, FileText, Gauge, History, MessageSquare, Ruler, Sparkles, Trash2 } from "lucide-react";
+import { ChevronDown, CircleStop, FileText, Gauge, History, MessageSquare, Ruler, Sparkles, Trash2, ExternalLink, FileDown, Columns, RefreshCw, Check, X } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -19,7 +19,6 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { InfoPopover } from "@/components/ui/info-popover";
 import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/StatusBadge";
-import { AppliedToggleButton } from "@/components/AppliedToggleButton";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { ResumeRenderPreview } from "@/components/ResumeRenderPreview";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
@@ -386,8 +385,7 @@ export function ApplicationDetailPage() {
   const [editContent, setEditContent] = useState("");
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const [regenMenuOpen, setRegenMenuOpen] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [showSectionRegen, setShowSectionRegen] = useState(false);
   const [regenSectionName, setRegenSectionName] = useState("");
   const [regenInstructions, setRegenInstructions] = useState("");
@@ -399,6 +397,8 @@ export function ApplicationDetailPage() {
   const [showAppliedConfirm, setShowAppliedConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelExtractionConfirm, setShowCancelExtractionConfirm] = useState(false);
+  const [showFullRegenConfirm, setShowFullRegenConfirm] = useState(false);
+  const [fullRegenInstructions, setFullRegenInstructions] = useState("");
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
   const [showResumeJudgeDialog, setShowResumeJudgeDialog] = useState(false);
   const [expandedResumeJudgeDimension, setExpandedResumeJudgeDimension] = useState<string | null>(null);
@@ -412,8 +412,7 @@ export function ApplicationDetailPage() {
   const lastDraftSyncDetailRef = useRef<string | null>(null);
   const previousDetailRef = useRef<ApplicationDetail | null>(null);
   const leftColumnRef = useRef<HTMLDivElement>(null);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
-  const regenMenuRef = useRef<HTMLDivElement>(null);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
   const [hasUserModifiedSettings, setHasUserModifiedSettings] = useState(false);
@@ -605,30 +604,17 @@ export function ApplicationDetailPage() {
   }, [showResumeJudgeDialog, defaultExpandedResumeJudgeDimension]);
 
   useEffect(() => {
-    if (!exportMenuOpen) return;
+    if (!actionsMenuOpen) return;
 
     function handlePointerDown(event: MouseEvent) {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
-        setExportMenuOpen(false);
+      if (actionsMenuRef.current && !actionsMenuRef.current.contains(event.target as Node)) {
+        setActionsMenuOpen(false);
       }
     }
 
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [exportMenuOpen]);
-
-  useEffect(() => {
-    if (!regenMenuOpen) return;
-
-    function handlePointerDown(event: MouseEvent) {
-      if (regenMenuRef.current && !regenMenuRef.current.contains(event.target as Node)) {
-        setRegenMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [regenMenuOpen]);
+  }, [actionsMenuOpen]);
 
   useEffect(() => {
     if (!detailQuery.data) return;
@@ -1133,7 +1119,7 @@ export function ApplicationDetailPage() {
     dismissDraftEditor();
   }
 
-  async function handleFullRegeneration(overrideInstructions?: string, useJudgeFeedback?: boolean) {
+  async function handleFullRegeneration(overrideInstructions?: string, useJudgeFeedback?: boolean): Promise<boolean> {
     if (fullRegenerationBlocker) {
       console.warn("[generation-ui]", {
         event: "blocked_before_request",
@@ -1142,27 +1128,38 @@ export function ApplicationDetailPage() {
         reason: fullRegenerationBlocker,
       });
       setError(fullRegenerationBlocker);
-      return;
+      return false;
     }
     setIsRegenerating(true);
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
     try {
+      const combined = [];
+      if (additionalInstructions && additionalInstructions.trim()) {
+        combined.push(additionalInstructions.trim());
+      }
+      if (overrideInstructions && overrideInstructions.trim() && overrideInstructions.trim() !== additionalInstructions.trim()) {
+        combined.push(overrideInstructions.trim());
+      }
+      const finalInstructions = combined.join("\n\n") || undefined;
+
       const response = await triggerFullRegeneration(activeApplicationId, {
         target_length: pageLength,
         aggressiveness,
-        additional_instructions: (overrideInstructions ?? additionalInstructions) || undefined,
+        additional_instructions: finalInstructions,
         use_judge_feedback: useJudgeFeedback,
       });
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
       setHasUserModifiedSettings(false);
       refreshActivityTimeline();
+      return true;
     } catch (err) {
       setShowOptimisticProgress(false);
       setIsRegenerating(false);
       setError(err instanceof Error ? err.message : "Unable to start regeneration.");
+      return false;
     }
   }
 
@@ -1233,7 +1230,7 @@ export function ApplicationDetailPage() {
   }
 
   async function handleExport(format: ExportFormat) {
-    setExportMenuOpen(false);
+    setActionsMenuOpen(false);
     setExportingFormat(format);
     setError(null);
     try {
@@ -1647,65 +1644,6 @@ export function ApplicationDetailPage() {
                 Edit
               </button>
             </div>
-
-            {!generationActive && (
-              <div ref={regenMenuRef} className="relative">
-                <button
-                  type="button"
-                  disabled={isRegenerating || exportingFormat !== null}
-                  className="ai-button inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                  aria-haspopup="menu"
-                  aria-expanded={regenMenuOpen}
-                  onClick={() => setRegenMenuOpen((open) => !open)}
-                >
-                  <Sparkles size={12} aria-hidden="true" />
-                  Regenerate
-                  <ChevronDown size={14} aria-hidden="true" />
-                </button>
-                {regenMenuOpen && !isRegenerating && exportingFormat === null && (
-                  <div
-                    className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-xl border py-1 shadow-lg"
-                    style={{
-                      borderColor: "var(--color-border)",
-                      background: "var(--color-white)",
-                      maxHeight: "calc(100vh - 200px)",
-                      overflowY: "auto",
-                    }}
-                    role="menu"
-                    aria-label="Regenerate options"
-                  >
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-black/5"
-                      style={{ color: "var(--color-ink)" }}
-                      onClick={() => {
-                        setRegenMenuOpen(false);
-                        setShowSectionRegen(true);
-                      }}
-                    >
-                      Regen Section
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-black/5"
-                      style={{ color: "var(--color-ink)" }}
-                      onClick={() => {
-                        setRegenMenuOpen(false);
-                        void handleFullRegeneration();
-                      }}
-                    >
-                      {isRegenerating ? "Starting…" : "Full Regen"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <Button size="sm" onClick={handleToggleCompareMode}>
-              {compareMode ? "Close comparison" : "Compare"}
-            </Button>
           </div>
         </div>
 
@@ -1797,68 +1735,179 @@ export function ApplicationDetailPage() {
                     Action Required
                   </span>
                 )}
+                {detail.applied && (
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full border shrink-0"
+                    style={{
+                      background: "var(--color-spruce-05)",
+                      color: "var(--color-spruce)",
+                      borderColor: "rgba(24, 74, 69, 0.18)",
+                    }}
+                  >
+                    <Check size={12} className="shrink-0" style={{ color: "var(--color-spruce)" }} aria-hidden="true" />
+                    Applied
+                  </span>
+                )}
+                {compareMode && (
+                  <Button
+                    size="sm"
+                    onClick={handleToggleCompareMode}
+                    style={{
+                      background: "var(--color-spruce)",
+                      color: "#fff",
+                      borderColor: "var(--color-spruce)",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "#133c38";
+                      e.currentTarget.style.borderColor = "#133c38";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "var(--color-spruce)";
+                      e.currentTarget.style.borderColor = "var(--color-spruce)";
+                    }}
+                  >
+                    Close Comparison
+                  </Button>
+                )}
                 <Button size="sm" variant="secondary" onClick={() => setActivityPanelOpen(true)}>
                   <History size={14} aria-hidden="true" />
                   Activity
                 </Button>
-                {draft && (
-                  <div ref={exportMenuRef} className="relative">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={exportingFormat !== null || isRegenerating || generationActive}
-                      aria-haspopup="menu"
-                      aria-expanded={exportMenuOpen}
-                      onClick={() => setExportMenuOpen((open) => !open)}
+                <div ref={actionsMenuRef} className="relative">
+	                  <Button
+	                    size="sm"
+	                    variant="secondary"
+	                    aria-haspopup="menu"
+	                    aria-expanded={actionsMenuOpen}
+	                    aria-controls="application-actions-menu"
+	                    onClick={() => setActionsMenuOpen((open) => !open)}
+	                  >
+                    Actions
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </Button>
+                  {actionsMenuOpen && (
+	                    <div
+	                      id="application-actions-menu"
+	                      className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border py-1 shadow-lg"
+                      style={{ borderColor: "var(--color-border)", background: "var(--color-white)", maxHeight: "calc(100vh - 200px)", overflowY: "auto" }}
+                      role="menu"
+                      aria-label="Application actions"
                     >
-                      {exportingFormat === "pdf" ? "Exporting PDF…" : exportingFormat === "docx" ? "Exporting DOCX…" : "Export"}
-                      <ChevronDown size={14} aria-hidden="true" />
-                    </Button>
-                    {exportMenuOpen && exportingFormat === null && !isRegenerating && !generationActive && (
-                      <div
-                        className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-40 overflow-hidden rounded-xl border py-1 shadow-lg"
-                        style={{ borderColor: "var(--color-border)", background: "var(--color-white)", maxHeight: "calc(100vh - 200px)", overflowY: "auto" }}
-                        role="menu"
-                        aria-label="Export options"
+                      <a
+                        href={detail.job_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        role="menuitem"
+                        className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                        style={{ color: "var(--color-ink)" }}
+                        onClick={() => setActionsMenuOpen(false)}
                       >
+	                        <ExternalLink size={16} className="shrink-0" style={{ color: "var(--color-spruce)" }} aria-hidden="true" />
+                        <span>View Posting</span>
+                      </a>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                        style={{ color: "var(--color-ink)" }}
+                        onClick={() => {
+                          setActionsMenuOpen(false);
+                          handleAppliedButtonClick();
+                        }}
+                      >
+                        {detail.applied ? (
+                          <>
+	                            <X size={16} className="shrink-0" style={{ color: "var(--color-ember)" }} aria-hidden="true" />
+                            <span>Mark unapplied instead</span>
+                          </>
+                        ) : (
+                          <>
+	                            <Check size={16} className="shrink-0" style={{ color: "var(--color-ink-30)", opacity: 0.3 }} aria-hidden="true" />
+                            <span>Mark Applied</span>
+                          </>
+                        )}
+                      </button>
+                      {draft && (
+                        <div className="my-1 border-t" style={{ borderColor: "var(--color-border)" }} />
+                      )}
+                      {draft && (
                         <button
                           type="button"
                           role="menuitem"
-                          className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
                           style={{ color: "var(--color-ink)" }}
+                          disabled={exportingFormat !== null || isRegenerating || generationActive}
                           onClick={() => void handleExport("pdf")}
                         >
-                          Export PDF
+	                          <FileDown size={16} className="shrink-0" style={{ color: "var(--color-ink-50)" }} aria-hidden="true" />
+                          <span>{exportingFormat === "pdf" ? "Exporting PDF…" : "Export PDF"}</span>
                         </button>
+                      )}
+                      {draft && (
                         <button
                           type="button"
                           role="menuitem"
-                          className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
                           style={{ color: "var(--color-ink)" }}
+                          disabled={exportingFormat !== null || isRegenerating || generationActive}
                           onClick={() => void handleExport("docx")}
                         >
-                          Export DOCX
+	                          <FileDown size={16} className="shrink-0" style={{ color: "var(--color-ink-50)" }} aria-hidden="true" />
+                          <span>{exportingFormat === "docx" ? "Exporting DOCX…" : "Export DOCX"}</span>
                         </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <AppliedToggleButton applied={detail.applied} onClick={() => handleAppliedButtonClick()} />
-                {/* View Posting - icon only on mobile, with text on desktop */}
-                <a
-                  className="inline-flex h-9 items-center justify-center rounded-lg border px-3.5 text-xs font-semibold transition-colors"
-                  style={{ borderColor: "var(--color-border)", color: "var(--color-spruce)", background: "var(--color-white)" }}
-                  href={detail.job_url}
-                  rel="noreferrer"
-                  target="_blank"
-                  title="View Posting"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="sm:hidden">
-                    <path d="M6 3H3v10h10v-3M10 2h4v4M7 9l7-7" />
-                  </svg>
-                  <span className="hidden sm:inline">View Posting ↗</span>
-                </a>
-                {/* Stop Extraction / Delete - icon button */}
+                      )}
+                      {draft && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          style={{ color: "var(--color-ink)" }}
+                          disabled={isRegenerating || exportingFormat !== null || generationActive}
+                          onClick={() => {
+                            setActionsMenuOpen(false);
+                            handleToggleCompareMode();
+                          }}
+                        >
+	                          <Columns size={16} className="shrink-0" style={{ color: "var(--color-ink-50)" }} aria-hidden="true" />
+                          <span>{compareMode ? "Close comparison" : "Compare"}</span>
+                        </button>
+                      )}
+                      {draft && !generationActive && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          style={{ color: "var(--color-ink)" }}
+                          disabled={isRegenerating || exportingFormat !== null}
+                          onClick={() => {
+                            setActionsMenuOpen(false);
+                            setShowSectionRegen(true);
+                          }}
+                        >
+	                          <Sparkles size={16} className="shrink-0" style={{ color: "var(--color-ink-50)" }} aria-hidden="true" />
+                          <span>Regen Section</span>
+                        </button>
+                      )}
+                      {draft && !generationActive && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
+                          style={{ color: "var(--color-ink)" }}
+                          disabled={isRegenerating || exportingFormat !== null}
+                          onClick={() => {
+                            setActionsMenuOpen(false);
+                            setFullRegenInstructions("");
+                            setShowFullRegenConfirm(true);
+                          }}
+                        >
+	                          <RefreshCw size={16} className={`shrink-0 ${isRegenerating ? "animate-spin" : ""}`} style={{ color: "var(--color-ink-50)" }} aria-hidden="true" />
+                          <span>{isRegenerating ? "Starting…" : "Full Regen"}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {extractionActive ? (
                   <IconButton
                     variant="danger"
@@ -2448,6 +2497,45 @@ export function ApplicationDetailPage() {
             onCancel={() => {
               if (!isCancellingExtraction) {
                 setShowCancelExtractionConfirm(false);
+              }
+            }}
+          />
+
+          <ConfirmModal
+            open={showFullRegenConfirm}
+            title="Fully Regenerate Resume?"
+            message={
+              <div className="flex flex-col gap-3">
+                <p style={{ margin: 0 }}>
+                  This will fully regenerate the resume based on your current settings (base resume, page length, and aggressiveness). This may take up to a minute.
+                </p>
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <label htmlFor="full-regen-instr" className="text-xs font-semibold" style={{ color: "var(--color-ink-65)" }}>
+                    Custom Instructions (Optional)
+                  </label>
+                  <Textarea
+                    id="full-regen-instr"
+                    className="text-sm min-h-[80px] w-full"
+                    placeholder="e.g., Highlight my cloud computing skills, or keep the focus on senior leadership experience."
+                    value={fullRegenInstructions}
+                    onChange={(e) => setFullRegenInstructions(e.target.value)}
+                  />
+                </div>
+              </div>
+            }
+            confirmLabel={isRegenerating ? "Regenerating..." : "Regenerate"}
+	            loading={isRegenerating}
+	            onConfirm={async () => {
+	              const started = await handleFullRegeneration(fullRegenInstructions || undefined);
+	              if (started) {
+	                setShowFullRegenConfirm(false);
+	                setFullRegenInstructions("");
+	              }
+	            }}
+            onCancel={() => {
+              if (!isRegenerating) {
+                setShowFullRegenConfirm(false);
+                setFullRegenInstructions("");
               }
             }}
           />

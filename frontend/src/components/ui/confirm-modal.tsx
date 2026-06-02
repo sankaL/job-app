@@ -105,7 +105,7 @@ export function ConfirmModal({
           {title}
         </h3>
         {message && (
-          <p
+          <div
             style={{
               marginTop: "10px",
               fontSize: "14px",
@@ -115,7 +115,7 @@ export function ConfirmModal({
             }}
           >
             {message}
-          </p>
+          </div>
         )}
         <div
           style={{
