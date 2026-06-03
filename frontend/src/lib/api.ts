@@ -385,6 +385,18 @@ export type AcceptInviteResponse = {
   email: string;
 };
 
+export type AccessRequestPayload = {
+  full_name: string;
+  email: string;
+  interested_plan: "standard" | "pro" | "not_sure";
+  note?: string | null;
+};
+
+export type AccessRequestResponse = {
+  status: "submitted";
+  message: string;
+};
+
 export type AdminOperationMetric = {
   total: number;
   success_count: number;
@@ -913,6 +925,13 @@ export async function fetchInvitePreview(token: string): Promise<InvitePreview> 
 
 export async function acceptInvite(payload: AcceptInvitePayload): Promise<AcceptInviteResponse> {
   return unauthenticatedRequest<AcceptInviteResponse>("/api/public/invites/accept", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function submitAccessRequest(payload: AccessRequestPayload): Promise<AccessRequestResponse> {
+  return unauthenticatedRequest<AccessRequestResponse>("/api/public/access-requests", {
     method: "POST",
     body: payload,
   });

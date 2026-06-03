@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Optional, Protocol
@@ -10,6 +11,9 @@ from app.core.config import EmailSettings, Settings, get_settings
 
 logger = logging.getLogger(__name__)
 RESEND_API_URL = "https://api.resend.com/emails"
+RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+MAX_DELIVERY_ATTEMPTS = 2
+RETRY_BACKOFF_SECONDS = 0.25
 
 
 @dataclass
@@ -65,13 +69,29 @@ class ResendEmailSender:
         client: httpx.AsyncClient,
         payload: dict[str, object],
     ) -> Optional[str]:
-        response = await client.post(
-            RESEND_API_URL,
-            headers={"Authorization": f"Bearer {self._settings.resend_api_key}"},
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json().get("id")
+        for attempt in range(1, MAX_DELIVERY_ATTEMPTS + 1):
+            try:
+                response = await client.post(
+                    RESEND_API_URL,
+                    headers={"Authorization": f"Bearer {self._settings.resend_api_key}"},
+                    json=payload,
+                )
+                response.raise_for_status()
+                return response.json().get("id")
+            except httpx.HTTPStatusError as error:
+                if not self._should_retry_response(error.response.status_code, attempt):
+                    raise
+            except httpx.TransportError:
+                if attempt >= MAX_DELIVERY_ATTEMPTS:
+                    raise
+
+            await asyncio.sleep(RETRY_BACKOFF_SECONDS)
+
+        raise RuntimeError("Resend delivery attempts exhausted without a terminal result.")
+
+    @staticmethod
+    def _should_retry_response(status_code: int, attempt: int) -> bool:
+        return attempt < MAX_DELIVERY_ATTEMPTS and status_code in RETRYABLE_STATUS_CODES
 
 
 def build_email_sender(

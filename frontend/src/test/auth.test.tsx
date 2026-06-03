@@ -61,7 +61,7 @@ describe("frontend phase 0 auth shell", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens at the login page without attempting a session refresh", async () => {
+  it("opens at the landing page without attempting a session refresh", async () => {
     const { App, AuthProvider } = await loadAuthFixtures("development", true);
 
     render(
@@ -72,7 +72,13 @@ describe("frontend phase 0 auth shell", () => {
       </AuthProvider>,
     );
 
-    expect(screen.getByRole("heading", { name: /ai-powered resume tailoring/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /ai resume tailoring for serious job searches/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /^login$/i })[0]).toHaveAttribute("href", "/login");
+    expect(screen.getAllByRole("link", { name: /^sign up$/i })[0]).toHaveAttribute("href", "/signup");
+    expect(screen.getByRole("heading", { name: /the workflow after the job post is found/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /simple beta pricing/i })).toBeInTheDocument();
+    expect(screen.getByText(/grounded resume drafts/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /request pro access/i })).toHaveAttribute("href", "/signup");
     expect(fetch).not.toHaveBeenCalled();
   });
 

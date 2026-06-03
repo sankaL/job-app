@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-05-25
+**Last updated:** 2026-06-03
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -118,7 +118,9 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T59 | Harden public beta access requests against abuse and transient email delivery failures | BE/FE/Docs | DONE | 2026-06-03 17:48:26 EDT | Tightened access-request email validation, added non-persistent duplicate suppression plus client-IP rate limiting for the public endpoint, fail-closed delivery-receipt checks, bounded Resend retries, and focused backend/frontend regression coverage while preserving the PRD rule that requester records are not persisted. |
 | B5-T57 | Consolidate workspace actions dropdown, add Full Regen modal with custom instructions, and style status/comparison elements | FE/Docs | DONE | 2026-06-02 11:42:59 EDT | Consolidated export, applied, and viewing actions into PageHeader actions; added confirmation modal with optional custom instructions input for Full Regen (augmenting settings-level instructions); changed mark applied icon to a Check; displayed a timestamp-free Applied badge and a prominent Close Comparison button next to the Activity button; review fixes preserve Full Regen modal input on failed starts, add Actions menu ARIA state, and cover the updated interactions with focused tests. |
+| B5-T58 | Add public landing page and beta access-request flow | FE/BE/Docs | DONE | 2026-06-03 11:03:48 EDT | Root route now shows a public Applix landing page with feature and pricing sections, realistic mock app data, and login/sign-up CTAs; no-token signup submits a public beta access request; backend sends sanitized admin emails through Resend and fails closed when delivery is unavailable; PRD, decision log, and task-output notes are aligned. |
 | B5-T56 | Restore local compose backend connectivity for dev login | Infra | DONE | 2026-05-26 10:38:39 EDT | Local Docker Compose now overrides the backend command to bind Uvicorn to `0.0.0.0`, fixing host-to-container connection resets on `/api/auth/login` while leaving the Dockerfile command untouched for non-compose deployments. |
 | B5-T55 | Replace Markdown-in-section resume agent output with semantic JSON contracts | AI/BE/FE/Docs | DONE | 2026-05-26 10:03:29 EDT | Resume-writing agents now return strict semantic JSON section content rendered to Markdown locally, generation filters to user-enabled source-supported sections including Projects and Certifications, Resume Judge recommendations are section-keyed JSON, extraction/cleanup prompts have explicit JSON contracts, and code-review follow-ups added semantic section-map normalization, compound heading aliases, and focused agent/backend/frontend regression tests. |
 | B5-T54 | Apply code review refactoring fixes across backend and frontend layers | AI/BE/FE/Docs | DONE | 2026-05-25 17:55:00 EDT | Resolved 7 safe_auto findings from interactive review: extracted ISO timestamp parsing, judge instructions retrieval, and duration calculations into shared static helpers in `ApplicationService`; added defensive type guards and warning logs inside bare except blocks; removed ad-hoc console.info/console.warn logging statements from all frontend `api.ts` production paths; verified 100% test integrity. |

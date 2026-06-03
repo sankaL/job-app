@@ -10,6 +10,7 @@ import { BaseResumeEditorPage } from "@/routes/BaseResumeEditorPage";
 import { BaseResumesPage } from "@/routes/BaseResumesPage";
 import { DashboardPage } from "@/routes/DashboardPage";
 import { ExtensionPage } from "@/routes/ExtensionPage";
+import { LandingPage } from "@/routes/LandingPage";
 import { LoginPage } from "@/routes/LoginPage";
 import { ProfilePage } from "@/routes/ProfilePage";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
@@ -18,7 +19,7 @@ import { SignupPage } from "@/routes/SignupPage";
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route
