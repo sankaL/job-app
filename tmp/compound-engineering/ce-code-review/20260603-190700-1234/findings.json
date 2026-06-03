@@ -1,0 +1,45 @@
+{
+  "run_id": "20260603-190700-1234",
+  "findings": [
+    {
+      "id": 1,
+      "title": "Class `backdrop-blur-xs` is used but not configured in `tailwind.config.ts`, nor is it a default Tailwind CSS v3 utility.",
+      "severity": "P2",
+      "file": "frontend/src/routes/LandingPage.tsx",
+      "line": 393,
+      "confidence": 100,
+      "autofix_class": "safe_auto",
+      "owner": "review-fixer",
+      "requires_verification": true,
+      "pre_existing": false,
+      "suggested_fix": "Replace backdrop-blur-xs with backdrop-blur-sm"
+    },
+    {
+      "id": 2,
+      "title": "Headline copy \"Tailor Your Resume for Dream Role in Seconds\" is missing an article (\"your\" or \"a\").",
+      "severity": "P2",
+      "file": "frontend/src/routes/LandingPage.tsx",
+      "line": 356,
+      "confidence": 75,
+      "autofix_class": "safe_auto",
+      "owner": "review-fixer",
+      "requires_verification": true,
+      "pre_existing": false,
+      "suggested_fix": "Change headline to \"Tailor Your Resume for Your Dream Role in Seconds\""
+    }
+  ],
+  "applied_fixes": [
+    {
+      "finding_id": 1,
+      "autofix_class": "safe_auto",
+      "status": "applied"
+    },
+    {
+      "finding_id": 2,
+      "autofix_class": "safe_auto",
+      "status": "applied"
+    }
+  ],
+  "residual_actionable_work": [],
+  "advisory_outputs": []
+}

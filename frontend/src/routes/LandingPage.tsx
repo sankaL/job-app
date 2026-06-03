@@ -353,7 +353,7 @@ export function LandingPage() {
             </Link>
 
             <h1 className="mx-auto mt-10 max-w-5xl text-balance text-6xl font-normal leading-[1.02] tracking-normal text-ink md:text-7xl xl:text-[5.25rem]">
-              Tailor Your Resume for Dream Role in Seconds
+              Tailor Your Resume for Your Dream Role in Seconds
             </h1>
             <p className="mx-auto mt-8 max-w-2xl text-balance text-lg leading-8 text-[var(--color-ink-65)]">
               Applix instantly aligns your experience with any job posting to generate grounded, interview-ready drafts while keeping your work history private.
@@ -390,7 +390,7 @@ export function LandingPage() {
               return (
                 <article
                   key={feature.title}
-                  className="group relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-white/82 p-8 shadow-xs backdrop-blur-xs transition-all duration-500 ease-out hover:-translate-y-1.5 hover:border-spruce/20 hover:bg-white hover:shadow-md"
+                  className="group relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-white/82 p-8 shadow-xs backdrop-blur-sm transition-all duration-500 ease-out hover:-translate-y-1.5 hover:border-spruce/20 hover:bg-white hover:shadow-md"
                 >
                   <div
                     className={`absolute -right-20 -top-20 -z-10 h-40 w-40 rounded-full bg-gradient-to-br ${feature.hoverGlow} to-transparent opacity-0 blur-2xl transition-all duration-500 group-hover:opacity-100 group-hover:scale-150`}
