@@ -1,0 +1,30 @@
+{
+  "short_name": "Applix",
+  "name": "Applix",
+  "description": "AI resume tailoring for serious job searches. Grounded drafts kept private and ATS-safe.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#f5f3ee",
+  "theme_color": "#0e4b4c",
+  "display": "standalone",
+  "orientation": "portrait"
+}

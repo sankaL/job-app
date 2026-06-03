@@ -1,32 +1,167 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f5f3ee"/>
-      <stop offset="1" stop-color="#e6dccd"/>
+    <!-- Background Gradient -->
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#061513" />
+      <stop offset="100%" stop-color="#0e2422" />
     </linearGradient>
+
+    <!-- Radial Glows for Modern AI Aesthetics -->
+    <radialGradient id="teal-glow" cx="250" cy="315" r="450" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1f5f59" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#1f5f59" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="ember-glow" cx="950" cy="450" r="500" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9f3a16" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#9f3a16" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Glassmorphic Card Fill & Border -->
+    <linearGradient id="glass-card-grad" x1="660" y1="90" x2="1100" y2="540" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.04" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.01" />
+    </linearGradient>
+    <linearGradient id="card-border-grad" x1="660" y1="90" x2="1100" y2="540" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.03" />
+    </linearGradient>
+
+    <!-- Highlight gradients -->
+    <linearGradient id="highlight-bg" x1="692" y1="356" x2="1068" y2="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9f3a16" stop-opacity="0.15" />
+      <stop offset="100%" stop-color="#f47721" stop-opacity="0.04" />
+    </linearGradient>
+    <linearGradient id="highlight-border" x1="692" y1="356" x2="1068" y2="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9f3a16" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#f47721" stop-opacity="0.15" />
+    </linearGradient>
+
+    <!-- Brand Logo Gradients -->
     <linearGradient id="darkTeal" x1="39" y1="313" x2="253" y2="42" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#155b58"/>
-      <stop offset="1" stop-color="#0e4b4c"/>
+      <stop offset="0%" stop-color="#155b58" />
+      <stop offset="1%" stop-color="#0e4b4c" />
     </linearGradient>
     <linearGradient id="lightTeal" x1="221" y1="313" x2="310" y2="151" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#55a39c"/>
-      <stop offset="1" stop-color="#34827e"/>
+      <stop offset="0%" stop-color="#55a39c" />
+      <stop offset="1%" stop-color="#34827e" />
     </linearGradient>
     <linearGradient id="orange" x1="79" y1="260" x2="276" y2="108" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f47721"/>
-      <stop offset="1" stop-color="#e9601f"/>
+      <stop offset="0%" stop-color="#f47721" />
+      <stop offset="1%" stop-color="#e9601f" />
     </linearGradient>
+
+    <!-- Technical Dotted Grid Pattern -->
+    <pattern id="dot-grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#ffffff" fill-opacity="0.03" />
+    </pattern>
   </defs>
-  <rect width="1200" height="630" fill="url(#bg)"/>
-  <rect x="70" y="70" width="1060" height="490" rx="44" fill="#ffffff" fill-opacity="0.78" stroke="#101828" stroke-opacity="0.08"/>
-  <g transform="translate(110 134) scale(0.92)">
-    <path fill="url(#darkTeal)" d="M64 185L108 72C115 54 130 42 149 42H216C237 42 253 57 258 78L267 119C250 119 240 124 229 137L145 230C141 235 134 235 130 230L100 199C89 188 76 181 64 185Z"/>
-    <path fill="url(#darkTeal)" d="M50 313C35 313 26 299 31 286L64 185C78 181 91 188 101 199L132 296C136 307 126 313 111 313Z"/>
-    <path fill="url(#lightTeal)" d="M250 313C237 313 226 305 222 293L203 235L271 157C280 147 293 150 298 162L337 286C342 301 332 313 316 313Z"/>
-    <path d="M78 197L139 260L273 108" fill="none" stroke="#fbfaf7" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M80 200L140 260L274 108" fill="none" stroke="url(#orange)" stroke-width="28" stroke-linecap="butt" stroke-linejoin="miter"/>
+
+  <!-- 1. Background Layer -->
+  <rect width="1200" height="630" fill="url(#bg-grad)" />
+  <rect width="1200" height="630" fill="url(#teal-glow)" />
+  <rect width="1200" height="630" fill="url(#ember-glow)" />
+  <rect width="1200" height="630" fill="url(#dot-grid)" />
+
+  <!-- 2. Left Section: Branding and Title -->
+  <!-- Logo and Wordmark -->
+  <g transform="translate(100, 96)">
+    <!-- Main Logo Scaled Down -->
+    <g transform="scale(0.38)">
+      <path fill="url(#darkTeal)" d="M64 185L108 72C115 54 130 42 149 42H216C237 42 253 57 258 78L267 119C250 119 240 124 229 137L145 230C141 235 134 235 130 230L100 199C89 188 76 181 64 185Z" />
+      <path fill="url(#darkTeal)" d="M50 313C35 313 26 299 31 286L64 185C78 181 91 188 101 199L132 296C136 307 126 313 111 313Z" />
+      <path fill="url(#lightTeal)" d="M250 313C237 313 226 305 222 293L203 235L271 157C280 147 293 150 298 162L337 286C342 301 332 313 316 313Z" />
+      <path d="M78 197L139 260L273 108" fill="none" stroke="#fbfaf7" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" />
+      <path d="M80 200L140 260L274 108" fill="none" stroke="url(#orange)" stroke-width="28" stroke-linecap="butt" stroke-linejoin="miter" />
+    </g>
+    <!-- Wordmark -->
+    <text x="170" y="94" fill="#ffffff" font-family="Bricolage Grotesque, system-ui, sans-serif" font-size="76" font-weight="700" letter-spacing="-0.03em">Applix</text>
   </g>
-  <text x="430" y="230" fill="#101828" font-family="Source Sans 3, Arial, sans-serif" font-size="82" font-weight="700">Applix</text>
-  <text x="430" y="310" fill="#184a45" font-family="Source Sans 3, Arial, sans-serif" font-size="42" font-weight="600">AI Resume Tailoring</text>
-  <text x="430" y="382" fill="#101828" fill-opacity="0.68" font-family="Source Sans 3, Arial, sans-serif" font-size="34">Grounded drafts for serious job searches.</text>
+
+  <!-- Titles and Descriptions -->
+  <text x="100" y="325" fill="#ffffff" font-family="Bricolage Grotesque, system-ui, sans-serif" font-size="68" font-weight="700" letter-spacing="-0.02em">AI Resume Tailoring</text>
+  <text x="100" y="388" fill="#9eb5b2" font-family="Source Sans 3, system-ui, sans-serif" font-size="28" font-weight="400">Grounded drafts for serious job searches.</text>
+
+  <!-- Badges -->
+  <g transform="translate(100, 446)">
+    <!-- Pill 1 -->
+    <rect x="0" y="0" width="224" height="42" rx="21" fill="#1f5f59" fill-opacity="0.18" stroke="#1f5f59" stroke-opacity="0.35" stroke-width="1.5" />
+    <text x="24" y="26" fill="#76d9cc" font-family="Source Sans 3, system-ui, sans-serif" font-size="16" font-weight="600" letter-spacing="0.02em">✓ Grounded &amp; Private</text>
+
+    <!-- Pill 2 -->
+    <rect x="240" y="0" width="202" height="42" rx="21" fill="#9f3a16" fill-opacity="0.18" stroke="#9f3a16" stroke-opacity="0.35" stroke-width="1.5" />
+    <text x="264" y="26" fill="#f4a781" font-family="Source Sans 3, system-ui, sans-serif" font-size="16" font-weight="600" letter-spacing="0.02em">✦ ATS-Optimized PDF</text>
+  </g>
+
+  <!-- 3. Right Section: Glassmorphic Resume Graphic -->
+  <!-- Background offset card -->
+  <rect x="690" y="116" width="440" height="450" rx="24" fill="#ffffff" fill-opacity="0.01" stroke="#ffffff" stroke-opacity="0.04" stroke-width="1.5" />
+  
+  <!-- Front card (main container) -->
+  <rect x="660" y="86" width="440" height="450" rx="24" fill="url(#glass-card-grad)" stroke="url(#card-border-grad)" stroke-width="1.5" />
+
+  <!-- Avatar Silhouette -->
+  <circle cx="720" cy="146" r="28" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1.5" />
+  <circle cx="720" cy="140" r="9" fill="#ffffff" fill-opacity="0.18" />
+  <path d="M706 160 C706 153 712 152 720 152 C728 152 734 153 734 160" fill="#ffffff" fill-opacity="0.18" />
+
+  <!-- Applicant Information Lines -->
+  <rect x="764" y="128" width="140" height="16" rx="4" fill="#ffffff" fill-opacity="0.85" />
+  <rect x="764" y="152" width="190" height="10" rx="3" fill="#ffffff" fill-opacity="0.4" />
+
+  <!-- Divider Line -->
+  <line x1="692" y1="196" x2="1068" y2="196" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1.5" />
+
+  <!-- Resume content - Summary -->
+  <text x="692" y="228" fill="#76d9cc" font-family="Source Sans 3, system-ui, sans-serif" font-size="11" font-weight="700" letter-spacing="0.12em">SUMMARY</text>
+  <rect x="692" y="242" width="376" height="8" rx="3" fill="#ffffff" fill-opacity="0.22" />
+  <rect x="692" y="258" width="330" height="8" rx="3" fill="#ffffff" fill-opacity="0.22" />
+
+  <!-- Resume content - Experience -->
+  <text x="692" y="298" fill="#76d9cc" font-family="Source Sans 3, system-ui, sans-serif" font-size="11" font-weight="700" letter-spacing="0.12em">EXPERIENCE</text>
+  
+  <rect x="692" y="312" width="110" height="10" rx="3" fill="#ffffff" fill-opacity="0.4" />
+  <rect x="998" y="312" width="70" height="10" rx="3" fill="#ffffff" fill-opacity="0.2" />
+  <rect x="692" y="328" width="150" height="8" rx="3" fill="#ffffff" fill-opacity="0.25" />
+
+  <!-- Tailored Experience Bullet Card -->
+  <g transform="translate(0, 4)">
+    <rect x="692" y="344" width="376" height="42" rx="8" fill="url(#highlight-bg)" stroke="url(#highlight-border)" stroke-width="1" />
+    <path d="M706 365 L711 370 L721 360" fill="none" stroke="#e9601f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    <rect x="730" y="358" width="324" height="6" rx="2" fill="#ffffff" fill-opacity="0.7" />
+    <rect x="730" y="370" width="270" height="6" rx="2" fill="#ffffff" fill-opacity="0.45" />
+  </g>
+
+  <!-- Normal Bullet -->
+  <circle cx="713" cy="414" r="3" fill="#ffffff" fill-opacity="0.3" />
+  <rect x="730" y="411" width="338" height="6" rx="2" fill="#ffffff" fill-opacity="0.22" />
+  <rect x="730" y="423" width="220" height="6" rx="2" fill="#ffffff" fill-opacity="0.22" />
+
+  <!-- Resume content - Skills -->
+  <text x="692" y="462" fill="#76d9cc" font-family="Source Sans 3, system-ui, sans-serif" font-size="11" font-weight="700" letter-spacing="0.12em">KEY SKILLS</text>
+
+  <g transform="translate(692, 474)">
+    <!-- Tag 1 -->
+    <rect x="0" y="0" width="84" height="22" rx="6" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1" />
+    <text x="10" y="14" fill="#ffffff" fill-opacity="0.85" font-family="Source Sans 3, system-ui, sans-serif" font-size="10" font-weight="600">TypeScript</text>
+
+    <!-- Tag 2 -->
+    <rect x="92" y="0" width="60" height="22" rx="6" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1" />
+    <text x="10" y="14" fill="#ffffff" fill-opacity="0.85" font-family="Source Sans 3, system-ui, sans-serif" font-size="10" font-weight="600">React</text>
+
+    <!-- Tailored Tag 3 -->
+    <rect x="160" y="0" width="134" height="22" rx="6" fill="#9f3a16" fill-opacity="0.15" stroke="#9f3a16" stroke-opacity="0.4" stroke-width="1" />
+    <text x="10" y="14" fill="#f4a781" font-family="Source Sans 3, system-ui, sans-serif" font-size="10" font-weight="600">Tailored Content</text>
+
+    <!-- Tag 4 -->
+    <rect x="302" y="0" width="74" height="22" rx="6" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1" stroke-width="1" />
+    <text x="10" y="14" fill="#ffffff" fill-opacity="0.85" font-family="Source Sans 3, system-ui, sans-serif" font-size="10" font-weight="600">GraphQL</text>
+  </g>
+
+  <!-- Floating Sparkles (AI Accent Symbols) -->
+  <!-- Sparkle 1 (Large orange) -->
+  <path d="M1116 80 Q1124 80 1124 72 Q1124 80 1132 80 Q1124 80 1124 88 Q1124 80 1116 80 Z" fill="#e9601f" />
+  <!-- Sparkle 2 (Small white) -->
+  <path d="M622 470 Q627 470 627 465 Q627 470 632 470 Q627 470 627 475 Q627 470 622 470 Z" fill="#ffffff" fill-opacity="0.6" />
+  <!-- Sparkle 3 (Medium light-teal) -->
+  <path d="M620 190 Q627 190 627 183 Q627 190 634 190 Q627 190 627 197 Q627 190 620 190 Z" fill="#76d9cc" />
 </svg>

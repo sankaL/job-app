@@ -1,31 +1,43 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Check, ChevronRight, FileText, Lock, Sparkles, Workflow } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, FileText, Lock, Sparkles, Workflow, Link2, Gauge } from "lucide-react";
 
 const featureCards = [
   {
-    title: "Grounded resume drafts",
+    title: "Instant job capture",
     description:
-      "Tailor from your source resume and the job post while keeping employers, dates, credentials, and education truthful.",
+      "Paste any job link to automatically extract role requirements, responsibilities, and key attributes. Skip the tedious manual copy-paste work.",
+    icon: Link2,
+    iconColor: "text-spruce bg-[var(--color-spruce-05)] group-hover:bg-amber group-hover:text-white",
+    hoverGlow: "from-[var(--color-amber-10)]",
+    iconAnimation: "group-hover:rotate-12",
+  },
+  {
+    title: "Grounded AI agent tailoring",
+    description:
+      "Generate custom drafts that match the job description while staying grounded in your real work history. Refine specific sections using precise instructions.",
     icon: Sparkles,
+    iconColor: "text-spruce bg-[var(--color-spruce-05)] group-hover:bg-spruce group-hover:text-white",
+    hoverGlow: "from-[var(--color-spruce-10)]",
+    iconAnimation: "group-hover:rotate-45 group-hover:scale-110",
   },
   {
-    title: "Application workflow",
+    title: "AI resume judge",
     description:
-      "Track drafts, attention states, completed exports, duplicate checks, and applied flags from one private workspace.",
+      "Critique and score your resume against target roles. Receive actionable recommendations based on industry best practices to maximize impact.",
+    icon: Gauge,
+    iconColor: "text-spruce bg-[var(--color-spruce-05)] group-hover:bg-ember group-hover:text-white",
+    hoverGlow: "from-[var(--color-ember-10)]",
+    iconAnimation: "group-hover:-rotate-12",
+  },
+  {
+    title: "Centralized workspace",
+    description:
+      "Organize applications and tailored drafts in one private system. Track your pipeline status to reduce job hunt fatigue and land offers sooner.",
     icon: Workflow,
-  },
-  {
-    title: "Markdown editing",
-    description:
-      "Keep base resumes and tailored drafts editable as Markdown, then export the latest version on demand.",
-    icon: FileText,
-  },
-  {
-    title: "Invite-only privacy",
-    description:
-      "Access is reviewed during beta, and authenticated app data stays scoped to the signed-in user.",
-    icon: Lock,
+    iconColor: "text-spruce bg-[var(--color-spruce-05)] group-hover:bg-ink group-hover:text-white",
+    hoverGlow: "from-[var(--color-ink-10)]",
+    iconAnimation: "group-hover:translate-x-0.5 group-hover:-translate-y-0.5",
   },
 ];
 
@@ -333,7 +345,7 @@ export function LandingPage() {
               to="/signup"
               className="group mx-auto inline-flex items-center gap-3 rounded-full border border-[var(--color-border)] bg-white/82 py-1 pl-4 pr-1 text-sm font-semibold text-ink shadow-md shadow-black/5 backdrop-blur transition hover:border-[var(--color-border-hover)]"
             >
-              <span>Introducing beta access for AI resume tailoring</span>
+              <span>Private beta now open</span>
               <span className="h-4 w-px bg-[var(--color-border)]" />
               <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--color-spruce-05)] text-spruce transition group-hover:bg-spruce group-hover:text-white">
                 <ArrowRight size={14} />
@@ -341,11 +353,10 @@ export function LandingPage() {
             </Link>
 
             <h1 className="mx-auto mt-10 max-w-5xl text-balance text-6xl font-normal leading-[1.02] tracking-normal text-ink md:text-7xl xl:text-[5.25rem]">
-              AI Resume Tailoring for Serious Job Searches
+              Tailor Your Resume for Dream Role in Seconds
             </h1>
             <p className="mx-auto mt-8 max-w-2xl text-balance text-lg leading-8 text-[var(--color-ink-65)]">
-              Applix turns your real resume and real job posts into polished, editable drafts while keeping your
-              work history grounded and private.
+              Applix instantly aligns your experience with any job posting to generate grounded, interview-ready drafts while keeping your work history private.
             </p>
 
             <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -367,22 +378,32 @@ export function LandingPage() {
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold text-spruce">Features</p>
             <h2 className="mt-3 text-4xl font-normal leading-tight text-ink sm:text-5xl">
-              The workflow after the job post is found
+              Designed for serious job seekers
             </h2>
             <p className="mt-4 text-base leading-7 text-[var(--color-ink-65)]">
-              Capture a role, tailor a draft, review the result, and export only when the latest version is ready.
+              Everything you need to capture roles, tailor drafts, evaluate fit, and manage your pipeline in one private space.
             </p>
           </div>
-          <div className="mt-10 grid gap-4 md:grid-cols-2">
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:gap-8">
             {featureCards.map((feature) => {
               const Icon = feature.icon;
               return (
-                <article key={feature.title} className="rounded-lg border border-[var(--color-border)] bg-white/82 p-6 shadow-sm">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--color-spruce-05)] text-spruce">
-                    <Icon size={20} />
+                <article
+                  key={feature.title}
+                  className="group relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-white/82 p-8 shadow-xs backdrop-blur-xs transition-all duration-500 ease-out hover:-translate-y-1.5 hover:border-spruce/20 hover:bg-white hover:shadow-md"
+                >
+                  <div
+                    className={`absolute -right-20 -top-20 -z-10 h-40 w-40 rounded-full bg-gradient-to-br ${feature.hoverGlow} to-transparent opacity-0 blur-2xl transition-all duration-500 group-hover:opacity-100 group-hover:scale-150`}
+                  />
+                  <div className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all duration-300 ${feature.iconColor}`}>
+                    <Icon size={24} className={`transition-transform duration-500 ${feature.iconAnimation}`} />
                   </div>
-                  <h3 className="mt-5 text-lg font-semibold text-ink">{feature.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-[var(--color-ink-65)]">{feature.description}</p>
+                  <h3 className="mt-6 text-lg font-semibold text-ink transition-colors duration-300 group-hover:text-spruce">
+                    {feature.title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-6 text-[var(--color-ink-65)]">
+                    {feature.description}
+                  </p>
                 </article>
               );
             })}

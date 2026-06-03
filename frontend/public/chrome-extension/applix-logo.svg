@@ -1,29 +1,60 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-labelledby="c3-title c3-desc">
-  <title id="c3-title">Applix Logo</title>
-  <desc id="c3-desc">Overlapping rounded squares forming an abstract connection pattern with an ember accent, symbolizing applications linking to opportunities</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 378 362" role="img" aria-labelledby="title desc">
+  <title id="title">Applix logo mark</title>
+  <desc id="desc">A stylized letter A built from dark and light teal rounded geometric panels with an orange check mark and white spacing.</desc>
   <defs>
-    <linearGradient id="c3-grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1f5f59;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#184a45;stop-opacity:1" />
+    <linearGradient id="darkTeal" x1="39" y1="313" x2="253" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#155b58"/>
+      <stop offset="1" stop-color="#0e4b4c"/>
     </linearGradient>
-    <linearGradient id="c3-grad2" x1="100%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#267a72;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1f5f59;stop-opacity:1" />
+    <linearGradient id="lightTeal" x1="221" y1="313" x2="310" y2="151" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#55a39c"/>
+      <stop offset="1" stop-color="#34827e"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="79" y1="260" x2="276" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f47721"/>
+      <stop offset="1" stop-color="#e9601f"/>
     </linearGradient>
   </defs>
-  <!-- Background -->
-  <rect x="10" y="10" width="100" height="100" rx="24" fill="#0e2f2c" />
-  <!-- Back square (resume) -->
-  <rect x="24" y="28" width="44" height="56" rx="10" fill="url(#c3-grad1)" stroke="rgba(255,255,255,0.12)" stroke-width="1" />
-  <!-- Front square (opportunity) -->
-  <rect x="52" y="36" width="44" height="56" rx="10" fill="url(#c3-grad2)" stroke="rgba(255,255,255,0.15)" stroke-width="1" />
-  <!-- Connection lines on back square -->
-  <line x1="32" y1="44" x2="52" y2="44" stroke="rgba(255,255,255,0.35)" stroke-width="2" stroke-linecap="round" />
-  <line x1="32" y1="52" x2="48" y2="52" stroke="rgba(255,255,255,0.25)" stroke-width="2" stroke-linecap="round" />
-  <line x1="32" y1="60" x2="44" y2="60" stroke="rgba(255,255,255,0.2)" stroke-width="2" stroke-linecap="round" />
-  <!-- Checkmark on front square -->
-  <path d="M66 60 L72 68 L86 52" fill="none" stroke="#c4501e" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
-  <!-- AI sparkle -->
-  <circle cx="88" cy="40" r="3" fill="#c4501e" opacity="0.8" />
-  <circle cx="92" cy="34" r="1.5" fill="#c4501e" opacity="0.5" />
+
+  <!-- Upper-left and crossbar section -->
+  <path fill="url(#darkTeal)" d="
+    M64 185
+    L108 72
+    C115 54 130 42 149 42
+    H216
+    C237 42 253 57 258 78
+    L267 119
+    C250 119 240 124 229 137
+    L145 230
+    C141 235 134 235 130 230
+    L100 199
+    C89 188 76 181 64 185
+    Z"/>
+
+  <!-- Lower-left leg -->
+  <path fill="url(#darkTeal)" d="
+    M50 313
+    C35 313 26 299 31 286
+    L64 185
+    C78 181 91 188 101 199
+    L132 296
+    C136 307 126 313 111 313
+    Z"/>
+
+  <!-- Right leg -->
+  <path fill="url(#lightTeal)" d="
+    M250 313
+    C237 313 226 305 222 293
+    L203 235
+    L271 157
+    C280 147 293 150 298 162
+    L337 286
+    C342 301 332 313 316 313
+    Z"/>
+
+  <!-- White separation around the check -->
+  <path d="M78 197 L139 260 L273 108" fill="none" stroke="#fbfaf7" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Orange check -->
+  <path d="M80 200 L140 260 L274 108" fill="none" stroke="url(#orange)" stroke-width="28" stroke-linecap="butt" stroke-linejoin="miter"/>
 </svg>
