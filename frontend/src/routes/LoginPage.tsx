@@ -122,6 +122,8 @@ export function LoginPage() {
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="invite-only@example.com"
                     required
+                    data-gramm="false"
+                    data-gramm_editor="false"
                   />
                 </div>
                 <div>
@@ -136,6 +138,8 @@ export function LoginPage() {
                     placeholder={isLocalDevMode ? "Not required in dev mode" : "Your assigned password"}
                     required={!isLocalDevMode}
                     disabled={isLocalDevMode}
+                    data-gramm="false"
+                    data-gramm_editor="false"
                   />
                   {isLocalDevMode && (
                     <p className="mt-1.5 text-xs" style={{ color: "var(--color-spruce)" }}>
