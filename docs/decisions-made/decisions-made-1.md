@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-06-03 11:03:48 EDT - Keep beta access requests email-only while preserving invite-only accounts
+
+- Status: Accepted
+- Context: The product needed a public business landing page with Sign up CTAs, but the MVP access model remains private and invite-only.
+- Decision:
+  1. Show a public landing page at `/` with feature and informational pricing copy.
+  2. Treat public `/signup` without an invite token as a beta access-request form, not account creation.
+  3. Send access requests to configured admins through Resend without persisting requester records.
+  4. Keep account creation and approval manual through the existing admin invite flow.
+- Consequences: The app can present a business-facing entry point and collect early-access interest while preserving the hard auth boundary, avoiding a new database contract, and keeping admin acceptance in the existing invite workflow.
+
 ## 2026-05-25 18:49:35 EDT — Use semantic JSON as the resume-writing agent contract
 
 - Status: Accepted

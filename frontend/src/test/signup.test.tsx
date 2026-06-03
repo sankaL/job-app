@@ -7,6 +7,7 @@ import { SignupPage } from "@/routes/SignupPage";
 const api = vi.hoisted(() => ({
   fetchInvitePreview: vi.fn(),
   acceptInvite: vi.fn(),
+  submitAccessRequest: vi.fn(),
 }));
 
 const loginMock = vi.fn();
@@ -33,6 +34,34 @@ function renderSignup(initialPath: string) {
 }
 
 describe("invite signup flow", () => {
+  it("shows a public access request form when no invite token is present", async () => {
+    api.submitAccessRequest.mockResolvedValue({
+      status: "submitted",
+      message: "Access request submitted.",
+    });
+
+    renderSignup("/signup");
+
+    expect(screen.getByRole("heading", { name: /request access to applix/i })).toBeInTheDocument();
+    expect(api.fetchInvitePreview).not.toHaveBeenCalled();
+
+    await userEvent.type(screen.getByLabelText(/full name/i), "Jane Doe");
+    await userEvent.type(screen.getByLabelText(/^email$/i), "jane@example.com");
+    await userEvent.selectOptions(screen.getByLabelText(/plan/i), "pro");
+    await userEvent.type(screen.getByLabelText(/note/i), "I am applying to product roles.");
+    await userEvent.click(screen.getByRole("button", { name: /send access request/i }));
+
+    await waitFor(() => {
+      expect(api.submitAccessRequest).toHaveBeenCalledWith({
+        full_name: "Jane Doe",
+        email: "jane@example.com",
+        interested_plan: "pro",
+        note: "I am applying to product roles.",
+      });
+    });
+    expect(screen.getByText(/request sent/i)).toBeInTheDocument();
+  });
+
   it("blocks weak passwords client-side before invite acceptance", async () => {
     api.fetchInvitePreview.mockResolvedValue({
       invited_email: "invitee@example.com",

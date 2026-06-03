@@ -4,7 +4,15 @@ import businessmanIllustration from "@/assets/business-man-illustration.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { acceptInvite, fetchInvitePreview, type InvitePreview } from "@/lib/api";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  acceptInvite,
+  fetchInvitePreview,
+  submitAccessRequest,
+  type AccessRequestPayload,
+  type InvitePreview,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 const PASSWORD_MIN_LENGTH = 12;
@@ -48,6 +56,14 @@ export function SignupPage() {
   const [searchParams] = useSearchParams();
   const token = (searchParams.get("token") || "").trim();
 
+  const [requestName, setRequestName] = useState("");
+  const [requestEmail, setRequestEmail] = useState("");
+  const [requestPlan, setRequestPlan] = useState<AccessRequestPayload["interested_plan"]>("standard");
+  const [requestNote, setRequestNote] = useState("");
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestSucceeded, setRequestSucceeded] = useState(false);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+
   const [preview, setPreview] = useState<InvitePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(true);
@@ -66,7 +82,8 @@ export function SignupPage() {
 
   useEffect(() => {
     if (!token) {
-      setPreviewError("Invite token is missing.");
+      setPreview(null);
+      setPreviewError(null);
       setIsLoadingPreview(false);
       return;
     }
@@ -140,6 +157,170 @@ export function SignupPage() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function handleAccessRequestSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setRequestError(null);
+    setRequestSucceeded(false);
+    setIsSubmittingRequest(true);
+
+    try {
+      await submitAccessRequest({
+        full_name: requestName,
+        email: requestEmail,
+        interested_plan: requestPlan,
+        note: requestNote || null,
+      });
+      setRequestSucceeded(true);
+      setRequestName("");
+      setRequestEmail("");
+      setRequestPlan("standard");
+      setRequestNote("");
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Access request failed.");
+    } finally {
+      setIsSubmittingRequest(false);
+    }
+  }
+
+  if (!token) {
+    return (
+      <div
+        className="animate-fadeInUp relative min-h-screen overflow-hidden"
+        style={{
+          background: `
+            linear-gradient(135deg, rgba(245, 243, 238, 0.98) 0%, rgba(230, 220, 205, 0.94) 100%)
+          `,
+        }}
+      >
+        <main className="relative grid min-h-screen lg:grid-cols-[minmax(0,1.08fr)_minmax(480px,0.92fr)]">
+          <section className="flex min-h-screen items-center px-6 py-8 sm:px-10 sm:py-10 lg:px-16 lg:py-6 xl:px-20">
+            <div className="mx-auto w-full max-w-xl">
+              <Link to="/" className="inline-flex items-center gap-3 rounded-full border border-black/5 bg-white/60 px-3 py-2 shadow-sm backdrop-blur-sm">
+                <div className="flex h-12 w-12 items-center justify-center overflow-hidden">
+                  <img src="/applix-logo.svg" alt="Applix logo" className="h-10 w-10 object-contain" />
+                </div>
+                <div className="leading-tight">
+                  <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                    Applix
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>
+                    Early access
+                  </p>
+                </div>
+              </Link>
+
+              <div className="mt-8">
+                <p className="text-xs font-semibold" style={{ color: "var(--color-spruce)" }}>
+                  Invite-only beta
+                </p>
+                <h1
+                  className="mt-3 max-w-lg font-display text-3xl leading-[1.08] sm:text-4xl lg:text-[2.75rem]"
+                  style={{ color: "var(--color-ink)" }}
+                >
+                  Request access to Applix
+                </h1>
+                <p className="mt-5 max-w-lg text-base leading-7 sm:text-lg" style={{ color: "var(--color-ink-65)" }}>
+                  Tell us where to reach you. If there is room in the beta, an admin will follow up by email with an invite link.
+                </p>
+              </div>
+
+              <div className="mt-8 max-w-md">
+                <form className="space-y-5" onSubmit={handleAccessRequestSubmit}>
+                  <div>
+                    <Label htmlFor="request_name">Full name</Label>
+                    <Input
+                      id="request_name"
+                      value={requestName}
+                      onChange={(event) => setRequestName(event.target.value)}
+                      autoComplete="name"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="request_email">Email</Label>
+                    <Input
+                      id="request_email"
+                      type="email"
+                      value={requestEmail}
+                      onChange={(event) => setRequestEmail(event.target.value)}
+                      autoComplete="email"
+                      placeholder="you@example.com"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="request_plan">Plan</Label>
+                    <Select
+                      id="request_plan"
+                      value={requestPlan}
+                      onChange={(event) => setRequestPlan(event.target.value as AccessRequestPayload["interested_plan"])}
+                    >
+                      <option value="standard">Standard: 50 generations/month</option>
+                      <option value="pro">Pro: 200 generations/month</option>
+                      <option value="not_sure">Not sure yet</option>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="request_note">Note (optional)</Label>
+                    <Textarea
+                      id="request_note"
+                      value={requestNote}
+                      onChange={(event) => setRequestNote(event.target.value)}
+                      rows={4}
+                      placeholder="Share your job-search timeline or what you want Applix to help with."
+                    />
+                  </div>
+
+                  {requestError ? (
+                    <div className="rounded-lg border border-[var(--color-ember-10)] bg-[var(--color-ember-05)] px-4 py-3 text-sm text-ember">
+                      {requestError}
+                    </div>
+                  ) : null}
+                  {requestSucceeded ? (
+                    <div className="rounded-lg border border-[var(--color-spruce-10)] bg-[var(--color-spruce-05)] px-4 py-3 text-sm text-spruce">
+                      Request sent. Applix is still in beta, and the admin team will reach out by email if early access is available.
+                    </div>
+                  ) : null}
+
+                  <Button type="submit" className="w-full" loading={isSubmittingRequest} disabled={isSubmittingRequest}>
+                    {isSubmittingRequest ? "Sending request…" : "Send access request"}
+                  </Button>
+                </form>
+                <p className="mt-5 text-sm" style={{ color: "var(--color-ink-50)" }}>
+                  Already invited? Open your invite link, or <Link to="/login" className="font-semibold text-spruce">log in</Link>.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="flex items-end justify-center px-6 pb-6 pt-0 sm:px-10 lg:min-h-screen lg:justify-end lg:px-0 lg:py-0">
+            <div className="relative flex h-[360px] w-full max-w-[860px] items-end justify-center overflow-visible sm:h-[430px] lg:h-screen lg:max-w-[980px]">
+              <div
+                className="absolute inset-x-2 bottom-0 top-8 rounded-[40px] sm:inset-x-6 lg:bottom-0 lg:left-[18%] lg:right-0 lg:top-0 lg:rounded-[28px_0_0_28px]"
+                style={{
+                  background: "linear-gradient(180deg, rgba(128, 177, 210, 0.48) 0%, rgba(190, 216, 233, 0.62) 100%)",
+                  border: "1px solid rgba(255, 255, 255, 0.6)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5), 0 30px 60px rgba(16, 24, 40, 0.08)",
+                }}
+              />
+              <div className="relative z-10 max-h-[95%] w-full lg:absolute lg:bottom-0 lg:left-[-10%] lg:h-[100%] lg:w-[100%]">
+                <img
+                  src={businessmanIllustration}
+                  alt="Businessman seated with a laptop, representing the Applix workspace"
+                  className="h-full w-full object-contain drop-shadow-[0_28px_38px_rgba(16,24,40,0.18)]"
+                />
+              </div>
+              <div
+                className="absolute bottom-6 left-[52%] h-10 w-[58%] -translate-x-1/2 rounded-full blur-2xl lg:bottom-2 lg:left-[48%] lg:w-[54%]"
+                style={{ background: "rgba(16, 24, 40, 0.18)" }}
+              />
+            </div>
+          </section>
+        </main>
+      </div>
+    );
   }
 
   return (

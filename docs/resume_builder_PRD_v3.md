@@ -61,7 +61,9 @@ Current admin-selectable generation models are Gemini 3 Flash (`google/gemini-3-
 
 This is an **invite-only** application.
 
-- No open public sign-up in MVP
+- No open public account creation in MVP
+- The unauthenticated root route may show a marketing landing page with product features, informational pricing, login, and beta access-request CTAs
+- Public access requests are email-only leads: they do not create accounts, persist requester records, or approve access automatically
 - Admins invite users by email from an admin users screen
 - Sending an invite pre-provisions the user in Supabase Auth and sends an invite link by email
 - Invite links open a dedicated signup page (not a public signup page) where the invited user completes onboarding
@@ -71,7 +73,7 @@ This is an **invite-only** application.
 - Password reset via Supabase's built-in email flow
 - All application data is private to the authenticated user
 - Supabase Row Level Security (RLS) must enforce per-user data isolation on all tables
-- All application APIs require a valid Supabase JWT. Unauthenticated endpoints are limited to login and invite-link preview/accept endpoints.
+- All application APIs require a valid Supabase JWT. Unauthenticated endpoints are limited to login, invite-link preview/accept endpoints, and the public access-request endpoint.
 
 ---
 
@@ -708,7 +710,22 @@ All emails must include a direct link to the relevant application.
   - marks invite as accepted
   - signs the user in and redirects to the authenticated app shell
 
-### 10.19 Admin Persona and Surfaces
+### 10.19 Public Landing and Access Requests
+
+- Visiting the root domain shows a public Applix landing page before authentication.
+- Top navigation is limited to Features, Pricing, Login, and Sign up.
+- The landing page must make the app's beta and invite-only status clear.
+- Features copy must describe the committed product behavior without promising unsupported automation or public signup.
+- Pricing is informational only during beta:
+  - Standard: $10/month, $96/year, 50 generations per month
+  - Pro: $30/month, $288/year, 200 generations per month
+  - Pro copy may describe better model routing or higher-capability models but must not name exact models
+- Pricing CTAs and public Sign up route submit an early-access request only.
+- Access request submission sends a sanitized email to configured admins through Resend.
+- Access requests fail closed when admin recipients or email delivery are not configured.
+- Admin approval remains manual through the existing admin invite flow.
+
+### 10.20 Admin Persona and Surfaces
 
 Admin has three product responsibilities in MVP:
 

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5f3ee"/>
+      <stop offset="1" stop-color="#e6dccd"/>
+    </linearGradient>
+    <linearGradient id="darkTeal" x1="39" y1="313" x2="253" y2="42" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#155b58"/>
+      <stop offset="1" stop-color="#0e4b4c"/>
+    </linearGradient>
+    <linearGradient id="lightTeal" x1="221" y1="313" x2="310" y2="151" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#55a39c"/>
+      <stop offset="1" stop-color="#34827e"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="79" y1="260" x2="276" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f47721"/>
+      <stop offset="1" stop-color="#e9601f"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect x="70" y="70" width="1060" height="490" rx="44" fill="#ffffff" fill-opacity="0.78" stroke="#101828" stroke-opacity="0.08"/>
+  <g transform="translate(110 134) scale(0.92)">
+    <path fill="url(#darkTeal)" d="M64 185L108 72C115 54 130 42 149 42H216C237 42 253 57 258 78L267 119C250 119 240 124 229 137L145 230C141 235 134 235 130 230L100 199C89 188 76 181 64 185Z"/>
+    <path fill="url(#darkTeal)" d="M50 313C35 313 26 299 31 286L64 185C78 181 91 188 101 199L132 296C136 307 126 313 111 313Z"/>
+    <path fill="url(#lightTeal)" d="M250 313C237 313 226 305 222 293L203 235L271 157C280 147 293 150 298 162L337 286C342 301 332 313 316 313Z"/>
+    <path d="M78 197L139 260L273 108" fill="none" stroke="#fbfaf7" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M80 200L140 260L274 108" fill="none" stroke="url(#orange)" stroke-width="28" stroke-linecap="butt" stroke-linejoin="miter"/>
+  </g>
+  <text x="430" y="230" fill="#101828" font-family="Source Sans 3, Arial, sans-serif" font-size="82" font-weight="700">Applix</text>
+  <text x="430" y="310" fill="#184a45" font-family="Source Sans 3, Arial, sans-serif" font-size="42" font-weight="600">AI Resume Tailoring</text>
+  <text x="430" y="382" fill="#101828" fill-opacity="0.68" font-family="Source Sans 3, Arial, sans-serif" font-size="34">Grounded drafts for serious job searches.</text>
+</svg>

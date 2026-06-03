@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.access_requests import router as access_requests_router
 from app.api.applications import router as applications_router
 from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
@@ -40,4 +41,5 @@ app.include_router(base_resumes_router)
 app.include_router(extension_router)
 app.include_router(admin_router)
 app.include_router(public_invites_router)
+app.include_router(access_requests_router)
 app.include_router(internal_worker_router)

@@ -802,14 +802,9 @@ html, body, #root {
   }
 }
 
-/* ---- Dropdown clipping prevention on mobile ---- */
+/* ---- Dropdown adjustments on mobile ---- */
 @media (max-width: 767px) {
   .page-enter .relative > .animate-scaleIn {
-    position: fixed !important;
-    right: 12px !important;
-    left: 12px !important;
-    top: auto !important;
-    bottom: auto !important;
     z-index: 100 !important;
     max-height: 50vh;
     overflow-y: auto;
