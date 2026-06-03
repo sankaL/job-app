@@ -56,3 +56,38 @@ async def test_email_sender_posts_expected_payload_to_resend(monkeypatch: pytest
         "subject": "Resume ready",
         "text": "Your resume is ready.",
     }
+
+
+@pytest.mark.asyncio
+async def test_email_sender_retries_retryable_resend_failures(monkeypatch: pytest.MonkeyPatch):
+    requests: list[httpx.Request] = []
+    attempts = {"count": 0}
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(503, json={"message": "temporary failure"}, request=request)
+        return httpx.Response(200, json={"id": "email_retry_success"}, request=request)
+
+    async def skip_sleep(_: float) -> None:
+        return None
+
+    transport = httpx.MockTransport(handle)
+    async with httpx.AsyncClient(transport=transport) as client:
+        monkeypatch.setenv("EMAIL_NOTIFICATIONS_ENABLED", "true")
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_123")
+        monkeypatch.setenv("EMAIL_FROM", "noreply@example.com")
+        monkeypatch.setattr("app.services.email.asyncio.sleep", skip_sleep)
+
+        sender = build_email_sender(Settings(), client=client)
+        message_id = await sender.send(
+            EmailMessage(
+                to=["user@example.com"],
+                subject="Retry me",
+                text="First call can fail.",
+            )
+        )
+
+    assert message_id == "email_retry_success"
+    assert len(requests) == 2

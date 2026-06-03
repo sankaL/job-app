@@ -8,15 +8,17 @@
 - Kept tokenized invite onboarding unchanged for `/signup?token=...`.
 - Added no-token `/signup` as a public access-request form.
 - Added `POST /api/public/access-requests`, which validates requester details and sends sanitized Resend email to configured admins.
+- Hardened the public access-request path with stricter email validation, short-window duplicate suppression, client-side rate limiting, and bounded Resend retries.
 - Kept admin approval manual through the existing invite workflow.
 
 ## Validation
 
 - Frontend build passed.
 - Focused frontend tests passed: `npm run test -- src/test/auth.test.tsx src/test/signup.test.tsx`.
-- Focused backend tests passed: `python3 -m pytest backend/tests/test_access_requests_api.py`.
+- Focused backend tests passed: `python3 -m pytest tests/test_access_requests_api.py tests/test_email.py`.
 
 ## Notes
 
 - No schema changes or migrations were added because access requests are email-only and not persisted.
 - Public access requests fail closed when admin recipients or email delivery are unavailable.
+- Duplicate or abusive public access-request submissions are now throttled before extra admin emails are sent.

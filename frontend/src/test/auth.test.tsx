@@ -75,6 +75,10 @@ describe("frontend phase 0 auth shell", () => {
     expect(screen.getByRole("heading", { name: /ai resume tailoring for serious job searches/i })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /^login$/i })[0]).toHaveAttribute("href", "/login");
     expect(screen.getAllByRole("link", { name: /^sign up$/i })[0]).toHaveAttribute("href", "/signup");
+    expect(screen.getByRole("heading", { name: /the workflow after the job post is found/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /simple beta pricing/i })).toBeInTheDocument();
+    expect(screen.getByText(/grounded resume drafts/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /request pro access/i })).toHaveAttribute("href", "/signup");
     expect(fetch).not.toHaveBeenCalled();
   });
 

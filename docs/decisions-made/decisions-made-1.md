@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-06-03 17:48:26 EDT - Protect public beta access requests without persisting requester records
+
+- Status: Accepted
+- Context: The public landing-page follow-on review found that beta access requests could be abused to trigger duplicate or excessive Resend sends, while the PRD still requires those requests to remain email-only and non-persistent.
+- Decision:
+  1. Keep access requests non-persistent to preserve the committed invite-only contract and avoid creating a new requester data store.
+  2. Add backend rate limiting and short-window duplicate suppression in front of the public access-request email path.
+  3. Tighten email validation and fail closed when the provider does not return a delivery receipt.
+  4. Add bounded retry behavior for transient Resend delivery failures instead of silently dropping the request on the first transport error.
+- Consequences: The public beta form is harder to abuse, avoids duplicate admin emails during rapid resubmission, preserves the no-persistence product rule, and keeps email delivery behavior aligned with the app's broader fail-closed reliability guardrails.
+
 ## 2026-06-03 11:03:48 EDT - Keep beta access requests email-only while preserving invite-only accounts
 
 - Status: Accepted

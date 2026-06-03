@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import Depends
 
@@ -20,7 +20,7 @@ class AccessRequestService:
         *,
         full_name: str,
         email: str,
-        interested_plan: str,
+        interested_plan: Literal["standard", "pro", "not_sure"],
         note: Optional[str],
     ) -> None:
         recipients = self.settings.admin_email_list
@@ -29,24 +29,24 @@ class AccessRequestService:
         if not self.settings.email.notifications_enabled:
             raise ValueError("Access request delivery is not configured.")
 
-        clean_name = full_name.strip()
-        clean_email = email.strip().lower()
-        clean_plan = interested_plan.strip()
-        clean_note = (note or "").strip()
+        clean_name = full_name
+        clean_email = email
+        clean_note = note or ""
 
         plan_label = {
             "standard": "Standard",
             "pro": "Pro",
             "not_sure": "Not sure",
-        }.get(clean_plan, clean_plan)
+        }.get(interested_plan, interested_plan)
 
-        subject = f"Applix early access request: {clean_name}"
+        safe_name = clean_name.translate(str.maketrans("", "", "\n\r\t\v\f\x00"))
+        subject = f"Applix early access request: {safe_name}"
         text = (
             "New Applix early access request\n\n"
             f"Name: {clean_name}\n"
             f"Email: {clean_email}\n"
             f"Interested plan: {plan_label}\n"
-            f"Note: {clean_note or 'None provided'}\n\n"
+            f"Note: {(clean_note or 'None provided').replace(chr(10), ' ').replace(chr(13), ' ')}\n\n"
             "Review this request and send an invite from the admin user management screen if approved."
         )
         html_body = f"""
@@ -62,7 +62,7 @@ class AccessRequestService:
         </div>
         """
 
-        await self.email_sender.send(
+        delivery_id = await self.email_sender.send(
             EmailMessage(
                 to=recipients,
                 subject=subject,
@@ -70,6 +70,8 @@ class AccessRequestService:
                 html=html_body,
             )
         )
+        if not delivery_id:
+            raise ValueError("Access request delivery did not return a provider receipt.")
 
 
 def get_access_request_service(

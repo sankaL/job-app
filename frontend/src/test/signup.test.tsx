@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SignupPage } from "@/routes/SignupPage";
 
 const api = vi.hoisted(() => ({
@@ -21,6 +21,10 @@ vi.mock("@/lib/auth", () => ({
     login: loginMock,
   }),
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 function renderSignup(initialPath: string) {
   return render(
@@ -60,6 +64,53 @@ describe("invite signup flow", () => {
       });
     });
     expect(screen.getByText(/request sent/i)).toBeInTheDocument();
+  });
+
+  it("shows loading feedback and prevents repeat submits while an access request is pending", async () => {
+    let resolveRequest:
+      | ((value: { status: string; message: string }) => void)
+      | undefined;
+    api.submitAccessRequest.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+
+    renderSignup("/signup");
+
+    await userEvent.type(screen.getByLabelText(/full name/i), "Jane Doe");
+    await userEvent.type(screen.getByLabelText(/^email$/i), "jane@example.com");
+    const form = screen.getByRole("button", { name: /send access request/i }).closest("form");
+    expect(form).not.toBeNull();
+
+    fireEvent.submit(form!);
+    fireEvent.submit(form!);
+
+    expect(screen.getByRole("button", { name: /sending request/i })).toBeDisabled();
+    expect(api.submitAccessRequest).toHaveBeenCalledTimes(1);
+
+    expect(resolveRequest).toBeDefined();
+    resolveRequest!({
+      status: "submitted",
+      message: "Access request submitted.",
+    });
+
+    await screen.findByText(/request sent/i);
+  });
+
+  it("surfaces public access request server errors", async () => {
+    api.submitAccessRequest.mockRejectedValue(new Error("Access request processing is currently unavailable."));
+
+    renderSignup("/signup");
+
+    await userEvent.type(screen.getByLabelText(/full name/i), "Jane Doe");
+    await userEvent.type(screen.getByLabelText(/^email$/i), "jane@example.com");
+    await userEvent.click(screen.getByRole("button", { name: /send access request/i }));
+
+    expect(
+      await screen.findByText(/access request processing is currently unavailable/i),
+    ).toBeInTheDocument();
   });
 
   it("blocks weak passwords client-side before invite acceptance", async () => {

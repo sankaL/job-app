@@ -64,6 +64,7 @@ This is an **invite-only** application.
 - No open public account creation in MVP
 - The unauthenticated root route may show a marketing landing page with product features, informational pricing, login, and beta access-request CTAs
 - Public access requests are email-only leads: they do not create accounts, persist requester records, or approve access automatically
+- Public access requests must be rate-limited and suppress short-window duplicate submissions before triggering admin email delivery
 - Admins invite users by email from an admin users screen
 - Sending an invite pre-provisions the user in Supabase Auth and sends an invite link by email
 - Invite links open a dedicated signup page (not a public signup page) where the invited user completes onboarding
@@ -722,6 +723,7 @@ All emails must include a direct link to the relevant application.
   - Pro copy may describe better model routing or higher-capability models but must not name exact models
 - Pricing CTAs and public Sign up route submit an early-access request only.
 - Access request submission sends a sanitized email to configured admins through Resend.
+- Access request submission validates deliverable-looking email addresses, rate-limits repeated client submissions, and suppresses short-window duplicate requests for the same email.
 - Access requests fail closed when admin recipients or email delivery are not configured.
 - Admin approval remains manual through the existing admin invite flow.
 

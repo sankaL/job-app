@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import businessmanIllustration from "@/assets/business-man-illustration.png";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,11 @@ import {
 import { useAuth } from "@/lib/auth";
 
 const PASSWORD_MIN_LENGTH = 12;
+const ACCESS_REQUEST_PLANS = ["standard", "pro", "not_sure"] as const;
+
+function isAccessRequestPlan(value: string): value is AccessRequestPayload["interested_plan"] {
+  return (ACCESS_REQUEST_PLANS as readonly string[]).includes(value);
+}
 
 function formatExpiry(value: string) {
   const parsed = new Date(value);
@@ -63,6 +68,7 @@ export function SignupPage() {
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestSucceeded, setRequestSucceeded] = useState(false);
   const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const isSubmittingRequestRef = useRef(false);
 
   const [preview, setPreview] = useState<InvitePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -161,6 +167,11 @@ export function SignupPage() {
 
   async function handleAccessRequestSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
+    if (form.dataset.submitting === "true") return;
+    if (isSubmittingRequestRef.current) return;
+    form.dataset.submitting = "true";
+    isSubmittingRequestRef.current = true;
     setRequestError(null);
     setRequestSucceeded(false);
     setIsSubmittingRequest(true);
@@ -180,6 +191,8 @@ export function SignupPage() {
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Access request failed.");
     } finally {
+      delete form.dataset.submitting;
+      isSubmittingRequestRef.current = false;
       setIsSubmittingRequest(false);
     }
   }
@@ -255,7 +268,12 @@ export function SignupPage() {
                     <Select
                       id="request_plan"
                       value={requestPlan}
-                      onChange={(event) => setRequestPlan(event.target.value as AccessRequestPayload["interested_plan"])}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (isAccessRequestPlan(value)) {
+                          setRequestPlan(value);
+                        }
+                      }}
                     >
                       <option value="standard">Standard: 50 generations/month</option>
                       <option value="pro">Pro: 200 generations/month</option>
@@ -269,6 +287,7 @@ export function SignupPage() {
                       value={requestNote}
                       onChange={(event) => setRequestNote(event.target.value)}
                       rows={4}
+                      maxLength={1000}
                       placeholder="Share your job-search timeline or what you want Applix to help with."
                     />
                   </div>
