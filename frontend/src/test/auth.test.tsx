@@ -13,10 +13,11 @@ async function loadAuthFixtures(appEnv = "development", appDevMode = false) {
     },
   }));
 
-  const [{ default: App }, { LoginPage }, { AuthProvider }, { ProtectedRoute }, { workflowContract }] =
+  const [{ default: App }, { LoginPage }, { LandingPage }, { AuthProvider }, { ProtectedRoute }, { workflowContract }] =
     await Promise.all([
       import("@/App"),
       import("@/routes/LoginPage"),
+      import("@/routes/LandingPage"),
       import("@/lib/auth"),
       import("@/routes/ProtectedRoute"),
       import("@/lib/workflow-contract"),
@@ -29,6 +30,7 @@ async function loadAuthFixtures(appEnv = "development", appDevMode = false) {
   return {
     App,
     LoginPage,
+    LandingPage,
     AuthProvider,
     ProtectedRoute,
     renderWithAuth,
@@ -49,7 +51,9 @@ describe("frontend phase 0 auth shell", () => {
   it("renders the invite-only login surface", async () => {
     const { LoginPage, renderWithAuth } = await loadAuthFixtures("development", true);
 
-    renderWithAuth(<LoginPage />);
+    await act(async () => {
+      renderWithAuth(<LoginPage />);
+    });
 
     expect(screen.getByText("Applix")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /ai-powered resume tailoring/i })).toBeInTheDocument();
@@ -61,16 +65,19 @@ describe("frontend phase 0 auth shell", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens at the landing page without attempting a session refresh", async () => {
+  it("opens at the landing page and attempts a session refresh", async () => {
     const { App, AuthProvider } = await loadAuthFixtures("development", true);
+    const fetchMock = vi.mocked(fetch);
 
-    render(
-      <AuthProvider>
-        <MemoryRouter initialEntries={["/"]}>
-          <App />
-        </MemoryRouter>
-      </AuthProvider>,
-    );
+    await act(async () => {
+      render(
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/"]}>
+            <App />
+          </MemoryRouter>
+        </AuthProvider>,
+      );
+    });
 
     expect(screen.getByRole("heading", { name: /tailor your resume for your dream role in seconds/i })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /^login$/i })[0]).toHaveAttribute("href", "/login");
@@ -79,7 +86,110 @@ describe("frontend phase 0 auth shell", () => {
     expect(screen.getByRole("heading", { name: /simple beta pricing/i })).toBeInTheDocument();
     expect(screen.getByText(/grounded AI agent tailoring/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /request pro access/i })).toHaveAttribute("href", "/signup");
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/auth/refresh",
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("redirects to /app when landing page is loaded with an active session", async () => {
+    const { LandingPage, AuthProvider } = await loadAuthFixtures("development", true);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "token-123",
+            token_type: "bearer",
+            expires_in: 900,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "user-123",
+            email: "session-active@example.com",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    await act(async () => {
+      render(
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/"]}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/app" element={<div>Target workspace</div>} />
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>,
+      );
+    });
+
+    expect(await screen.findByText("Target workspace")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/auth/refresh",
+      expect.any(Object),
+    );
+  });
+
+  it("redirects to /app when login page is loaded with an active session", async () => {
+    const { LoginPage, AuthProvider } = await loadAuthFixtures("development", true);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "token-123",
+            token_type: "bearer",
+            expires_in: 900,
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "user-123",
+            email: "session-active@example.com",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    await act(async () => {
+      render(
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/login"]}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/app" element={<div>Target workspace</div>} />
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>,
+      );
+    });
+
+    expect(await screen.findByText("Target workspace")).toBeInTheDocument();
   });
 
   it("restores an existing session only when a protected route is visited", async () => {
@@ -224,7 +334,9 @@ describe("frontend phase 0 auth shell", () => {
   it("requires a password when local dev mode is off", async () => {
     const { LoginPage, renderWithAuth } = await loadAuthFixtures("development", false);
 
-    renderWithAuth(<LoginPage />);
+    await act(async () => {
+      renderWithAuth(<LoginPage />);
+    });
 
     const passwordInput = screen.getByLabelText("Password");
     expect(passwordInput).toBeEnabled();
@@ -312,5 +424,21 @@ describe("frontend phase 0 auth shell", () => {
       "in_progress",
       "complete",
     ]);
+  });
+
+  it("only attempts to refresh session once and caches failure to prevent API spam", async () => {
+    await loadAuthFixtures("development", true);
+    const { getAccessToken } = await import("@/lib/auth");
+    const fetchMock = vi.mocked(fetch);
+
+    fetchMock.mockResolvedValueOnce(
+      new Response("", { status: 401 }),
+    );
+
+    await expect(getAccessToken()).rejects.toThrow("Missing authenticated session.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await expect(getAccessToken()).rejects.toThrow("Missing authenticated session.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

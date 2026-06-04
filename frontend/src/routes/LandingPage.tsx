@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Check, ChevronRight, FileText, Lock, Sparkles, Workflow, Link2, Gauge } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 const featureCards = [
   {
@@ -279,7 +280,18 @@ function AppPreview() {
 }
 
 export function LandingPage() {
+  const navigate = useNavigate();
+  const { user, ensureSession } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      navigate("/app", { replace: true });
+      return;
+    }
+
+    void ensureSession();
+  }, [user, ensureSession, navigate]);
 
   useEffect(() => {
     function handleScroll() {

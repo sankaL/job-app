@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import businessmanIllustration from "@/assets/business-man-illustration.png";
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,21 @@ import { useAuth } from "@/lib/auth";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user, ensureSession } = useAuth();
   const isLocalDevMode = env.VITE_APP_DEV_MODE;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      navigate("/app", { replace: true });
+      return;
+    }
+
+    void ensureSession();
+  }, [user, ensureSession, navigate]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

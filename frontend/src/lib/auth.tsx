@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 let _accessToken: string | null = null;
 let _accessTokenExpiresAt: number | null = null;
 let _refreshPromise: Promise<string | null> | null = null;
+let _hasFailedRefreshThisSession = false;
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 30_000;
 const AUTH_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -60,7 +61,7 @@ export async function getAccessToken(options: { forceRefresh?: boolean } = {}): 
     return _accessToken!;
   }
 
-  const token = await _attemptRefresh();
+  const token = await _attemptRefresh(options.forceRefresh);
   if (token) {
     return token;
   }
@@ -81,9 +82,14 @@ export function setAccessToken(token: string | null, expiresInSeconds?: number |
   _accessToken = token;
   _accessTokenExpiresAt =
     typeof expiresInSeconds === "number" ? Date.now() + Math.max(expiresInSeconds, 0) * 1000 : null;
+  _hasFailedRefreshThisSession = false;
 }
 
-async function _attemptRefresh(): Promise<string | null> {
+async function _attemptRefresh(force = false): Promise<string | null> {
+  if (force) {
+    _hasFailedRefreshThisSession = false;
+  }
+  if (_hasFailedRefreshThisSession) return null;
   if (_refreshPromise) return _refreshPromise;
   _refreshPromise = (async () => {
     try {
@@ -91,7 +97,10 @@ async function _attemptRefresh(): Promise<string | null> {
         method: "POST",
         credentials: "include",
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        _hasFailedRefreshThisSession = true;
+        return null;
+      }
       const data: RefreshResponse = await response.json();
       if (
         typeof data.access_token !== "string" ||
@@ -100,11 +109,13 @@ async function _attemptRefresh(): Promise<string | null> {
         data.expires_in <= 0
       ) {
         clearAccessToken();
+        _hasFailedRefreshThisSession = true;
         return null;
       }
       setAccessToken(data.access_token, data.expires_in);
       return data.access_token;
     } catch {
+      _hasFailedRefreshThisSession = true;
       return null;
     } finally {
       _refreshPromise = null;
