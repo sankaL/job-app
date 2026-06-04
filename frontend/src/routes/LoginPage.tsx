@@ -62,7 +62,7 @@ export function LoginPage() {
       />
 
       <main className="relative grid min-h-screen lg:grid-cols-[minmax(0,1.08fr)_minmax(480px,0.92fr)]">
-        <section className="flex min-h-screen items-center px-6 py-8 sm:px-10 sm:py-10 lg:px-16 lg:py-6 xl:px-20">
+        <section className="flex min-h-screen items-start justify-center pt-16 pb-12 px-6 sm:px-10 lg:items-center lg:pt-6 lg:pb-6 lg:px-16 xl:px-20">
           <div className="mx-auto w-full max-w-xl">
             <div className="inline-flex items-center gap-3 rounded-full border border-black/5 bg-white/60 px-3 py-2 shadow-sm backdrop-blur-sm">
               <div className="flex h-12 w-12 items-center justify-center overflow-hidden">
@@ -161,7 +161,7 @@ export function LoginPage() {
           </div>
         </section>
 
-        <section className="flex items-end justify-center px-6 pb-6 pt-0 sm:px-10 lg:min-h-screen lg:justify-end lg:px-0 lg:py-0">
+        <section className="hidden lg:flex items-end justify-center px-6 pb-6 pt-0 sm:px-10 lg:min-h-screen lg:justify-end lg:px-0 lg:py-0">
           <div className="relative flex h-[280px] w-full max-w-[860px] items-end justify-center overflow-visible sm:h-[430px] lg:h-screen lg:max-w-[980px]">
             <div
               className="absolute inset-x-2 bottom-0 top-8 rounded-[40px] sm:inset-x-6 lg:bottom-0 lg:left-[18%] lg:right-0 lg:top-0 lg:rounded-[28px_0_0_28px]"

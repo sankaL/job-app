@@ -352,14 +352,14 @@ export function LandingPage() {
               </span>
             </Link>
 
-            <h1 className="mx-auto mt-10 max-w-5xl text-balance text-6xl font-normal leading-[1.02] tracking-normal text-ink md:text-7xl xl:text-[5.25rem]">
+            <h1 className="mx-auto mt-10 max-w-5xl text-balance text-4xl sm:text-6xl md:text-7xl xl:text-[5.25rem] font-normal leading-[1.02] tracking-normal text-ink">
               Tailor Your Resume for Your Dream Role in Seconds
             </h1>
             <p className="mx-auto mt-8 max-w-2xl text-balance text-lg leading-8 text-[var(--color-ink-65)]">
               Applix instantly aligns your experience with any job posting to generate grounded, interview-ready drafts while keeping your work history private.
             </p>
 
-            <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-10 flex flex-row flex-wrap items-center justify-center gap-3">
               <div className="rounded-xl border border-[var(--color-ink-10)] bg-[var(--color-ink-05)] p-1">
                 <MarketingButton to="/login">
                   Login
