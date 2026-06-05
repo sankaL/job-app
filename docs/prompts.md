@@ -233,6 +233,10 @@ Supporting snippet counts:
   - `low_titles_must_match_source_exactly = true`
   - `medium_titles_may_reframe_but_must_preserve_core_role_family_and_seniority = true`
   - `high_titles_may_retitle_when_supported_by_demonstrated_work_but_company_and_dates_must_stay_source_exact = true`
+- The same payload includes `title_rewrite_policy`, which is selected from the active aggressiveness level:
+  - low: set every `jobs[].title` to the exact source title
+  - medium: use the source title unless a light target-aligned reframe preserves core role family and seniority
+  - high: set `jobs[].title` to a target-aligned truthful rewrite when demonstrated responsibilities support adjacent role framing, especially for the most recent eligible role; do not default to the source title when grounded target alignment is clear
 - After the LLM returns, a deterministic normalization pass rebuilds each Professional Experience header from the source anchors:
   - low rehydrates source title, company, optional location, and date
   - medium and high preserve the generated title but still rehydrate source company, optional location, and date
@@ -241,7 +245,7 @@ Supporting snippet counts:
   - source-exact company and date for every role
   - source-exact title in low
   - medium title must stay grounded in the source role family and preserve seniority
-  - high title must preserve seniority even when it is otherwise retitled more freely
+  - high title must preserve seniority even when it is otherwise retitled more freely; managerial, supervisory, director, lead, head, principal, staff, senior, and executive wording is treated as seniority-bearing unless the source title already supports it
 - Experience markdown must normalize to this canonical two-row block per role:
 
 ```md
@@ -357,6 +361,11 @@ Used for both initial generation and full regeneration.
         "source_date_range": "{{source_date_range}}"
       }
     ],
+    "title_rewrite_policy": {
+      "mode": "{{source_exact | light_grounded_reframe | active_grounded_retitle}}",
+      "jobs_title_instruction": "{{mode-specific jobs[].title instruction}}",
+      "fallback": "{{mode-specific fallback title instruction}}"
+    },
     "invariants": {
       "company_and_dates_must_match_source_for_every_role": true,
       "duration_must_stay_consistent_with_source": true,
@@ -459,6 +468,11 @@ Used for both initial generation and full regeneration.
         "source_date_range": "{{source_date_range}}"
       }
     ],
+    "title_rewrite_policy": {
+      "mode": "{{source_exact | light_grounded_reframe | active_grounded_retitle}}",
+      "jobs_title_instruction": "{{mode-specific jobs[].title instruction}}",
+      "fallback": "{{mode-specific fallback title instruction}}"
+    },
     "invariants": {
       "company_and_dates_must_match_source_for_every_role": true,
       "duration_must_stay_consistent_with_source": true,
@@ -548,7 +562,8 @@ Non-negotiables:
 - Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.
 - Do not invent employers, dates, institutions, credentials, awards, metrics, or scope.
 - Outside the explicit Professional Experience title rules, do not invent or alter role titles.
-- Professional Experience structure contract: each role must render as two header rows in this exact order: `Company | Location` then `Role Title | Date Range`. Preserve source company and date range for every role so duration stays consistent. Use the source location when available and never invent one. Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; high may retitle more freely only when the rewrite still matches demonstrated work. Company and dates must stay unchanged in every mode.
+- Professional Experience structure contract: each role must render as two header rows in this exact order: `Company | Location` then `Role Title | Date Range`. Preserve source company and date range for every role so duration stays consistent. Use the source location when available and never invent one. Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; high should actively attempt target-aligned truthful retitles when demonstrated work supports them. Company and dates must stay unchanged in every mode.
+- In high aggressiveness, write `jobs[].title` as a target-aligned truthful title when source responsibilities support it; do not default to the source title when grounded target alignment is clear. Leave it unchanged when no truthful adjacent role framing is supported.
 - User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.
 - If the source does not support a stronger claim, keep the weaker truthful version.
 - Return semantic JSON content only. No Markdown body strings, HTML, XML, tables, images, columns, code fences, commentary, or em dashes.
@@ -633,7 +648,8 @@ Non-negotiables:
 - Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.
 - Do not invent employers, dates, institutions, credentials, awards, metrics, or scope.
 - Outside the explicit Professional Experience title rules, do not invent or alter role titles.
-- Professional Experience structure contract: each role must render as two header rows in this exact order: `Company | Location` then `Role Title | Date Range`. Preserve source company and date range for every role so duration stays consistent. Use the source location when available and never invent one. Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; high may retitle more freely only when the rewrite still matches demonstrated work. Company and dates must stay unchanged in every mode.
+- Professional Experience structure contract: each role must render as two header rows in this exact order: `Company | Location` then `Role Title | Date Range`. Preserve source company and date range for every role so duration stays consistent. Use the source location when available and never invent one. Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; high should actively attempt target-aligned truthful retitles when demonstrated work supports them. Company and dates must stay unchanged in every mode.
+- In high aggressiveness, write `jobs[].title` as a target-aligned truthful title when source responsibilities support it; do not default to the source title when grounded target alignment is clear. Leave it unchanged when no truthful adjacent role framing is supported.
 - Keep Professional Experience role order fixed to the source anchors. Reprioritize by changing bullet emphasis inside each anchored role, not by reordering the roles themselves.
 - When Professional Experience is enabled in medium or high mode, do not leave the first up to 2 roles with bullets effectively source-identical while spending nearly all tailoring effort on Summary or Skills.
 - User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.
@@ -731,7 +747,8 @@ Non-negotiables:
 - Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.
 - Do not invent employers, dates, institutions, credentials, awards, metrics, or scope.
 - Outside the explicit Professional Experience title rules, do not invent or alter role titles.
-- Professional Experience structure contract: preserve source company and date range for every role so duration stays consistent. Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; high may retitle more freely only when the rewrite still matches demonstrated work. Company and dates must stay unchanged in every mode.
+- Professional Experience structure contract: preserve source company and date range for every role so duration stays consistent. Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; high should actively attempt target-aligned truthful retitles when demonstrated work supports them. Company and dates must stay unchanged in every mode.
+- In high aggressiveness, write `jobs[].title` as a target-aligned truthful title when source responsibilities support it; do not default to the source title when grounded target alignment is clear. Leave it unchanged when no truthful adjacent role framing is supported.
 - Keep Professional Experience role order fixed to the source anchors. Reprioritize by changing bullet emphasis inside each anchored role, not by reordering the roles themselves.
 - When Professional Experience is enabled in medium or high mode, do not leave the first up to 2 roles with bullets effectively source-identical while spending nearly all tailoring effort on Summary or Skills.
 - User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.
@@ -749,7 +766,7 @@ Section rules:
 
 Aggressiveness contract (high):
 - Summary: Fully rewrite the Summary for strongest role alignment. You may make bounded professional inferences from demonstrated patterns in the source, and you may introduce JD-driven non-factual keywords for fit, but never invent specific employers, dates, institutions, credentials, or metrics.
-- Professional Experience: Professional Experience is the primary tailoring surface in high mode. Materially rewrite bullet framing in the first up to 2 source-ordered roles that have bullets. Keep the anchored role order fixed, but reprioritize by changing bullet emphasis within each role. Aggressively reframe, consolidate, condense, or expand grounded bullets for fit and impact. Do not spend nearly all tailoring budget on Summary or Skills while leaving Professional Experience bullets source-identical. You should actively retitle the role name for alignment or adjacent role framing when the target role clearly supports it and it still matches the demonstrated responsibilities, especially for the most recent role. Keep company and dates unchanged, keep duration consistent with the source, do not change seniority, and do not invent metrics, employers, institutions, or achievements. JD-driven keyword phrasing is allowed when it does not assert new facts.
+- Professional Experience: Professional Experience is the primary tailoring surface in high mode. Materially rewrite bullet framing in the first up to 2 source-ordered roles that have bullets. Keep the anchored role order fixed, but reprioritize by changing bullet emphasis within each role. Aggressively reframe, consolidate, condense, or expand grounded bullets for fit and impact. Do not spend nearly all tailoring budget on Summary or Skills while leaving Professional Experience bullets source-identical. You should actively retitle the role name for alignment or adjacent role framing when the target role clearly supports it and it still matches the demonstrated responsibilities, especially for the most recent role. Do not default to the source title when grounded target alignment is clear; leave the source title unchanged only when no truthful adjacent title is supported. Keep company and dates unchanged, keep duration consistent with the source, do not change seniority, and do not invent metrics, employers, institutions, or achievements. JD-driven keyword phrasing is allowed when it does not assert new facts.
 - Skills: Aggressively prune, regroup, prioritize, and expand skills for target-role relevance. Lead with the most role-relevant skill cluster and include JD-driven keyword skills when helpful.
 - Education: Do not change Education facts or wording beyond minimal formatting cleanup.
 Worked example of acceptable vs unacceptable fact expansion:

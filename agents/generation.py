@@ -158,6 +158,7 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
             "Aggressively reframe, consolidate, condense, or expand grounded bullets for fit and impact. "
             "Do not spend nearly all tailoring budget on Summary or Skills while leaving Professional Experience bullets source-identical. "
             "You should actively retitle the role name for alignment or adjacent role framing when the target role clearly supports it and it still matches the demonstrated responsibilities, especially for the most recent role. "
+            "Do not default to the source title when grounded target alignment is clear; leave the source title unchanged only when no truthful adjacent title is supported. "
             "Keep company and dates unchanged, keep duration consistent with the source, do not change seniority, "
             "and do not invent metrics, employers, institutions, or achievements. JD-driven keyword phrasing is allowed when it does not assert new facts."
         ),
@@ -168,6 +169,34 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
         "projects": "Strongly tailor grounded project framing and bullet emphasis for the target role without inventing facts.",
         "certifications": "Keep certification facts fixed and include only source-supported certification details.",
+    },
+}
+
+TITLE_REWRITE_POLICIES: dict[str, dict[str, str]] = {
+    "low": {
+        "mode": "source_exact",
+        "jobs_title_instruction": (
+            "Set each Professional Experience jobs[].title to the exact source title. The renderer also rehydrates "
+            "source titles in low mode."
+        ),
+        "fallback": "Use the exact source title.",
+    },
+    "medium": {
+        "mode": "light_grounded_reframe",
+        "jobs_title_instruction": (
+            "Set jobs[].title to the source title unless a light target-aligned reframe clearly preserves the same "
+            "core role family and seniority."
+        ),
+        "fallback": "Use the source title when the reframe would change role family, seniority, or factual scope.",
+    },
+    "high": {
+        "mode": "active_grounded_retitle",
+        "jobs_title_instruction": (
+            "Set jobs[].title to a target-aligned truthful rewrite when the source responsibilities support adjacent "
+            "role framing, especially for the most recent eligible role. Do not default to the source title when "
+            "grounded target alignment is clear."
+        ),
+        "fallback": "Use the source title when no truthful adjacent title is supported by the demonstrated work.",
     },
 }
 
@@ -781,8 +810,9 @@ def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str],
         experience_contract_line = (
             "- Professional Experience structure contract: preserve source company and date range for every role so duration stays consistent. "
             "Low must preserve role titles exactly; medium may lightly reframe titles only when the core role family and seniority stay grounded in the source; "
-            "high may retitle more freely only when the rewrite still matches demonstrated work. Company and dates must stay unchanged in every mode.\n"
+            "high should actively attempt target-aligned truthful retitles when demonstrated work supports them. Company and dates must stay unchanged in every mode.\n"
             "- Professional Experience content must return jobs with source_role_index, company, location, title, date_range, and bullets. The application renders rows locally.\n"
+            "- In high aggressiveness, write jobs[].title as a target-aligned truthful title when source responsibilities support it; do not default to the source title when grounded target alignment is clear. Leave it unchanged when no truthful adjacent role framing is supported.\n"
             "- Keep Professional Experience role order fixed to the source anchors. Reprioritize by changing bullet emphasis inside each anchored role, not by reordering the roles themselves.\n"
             "- When Professional Experience is enabled in medium or high mode, do not leave the first up to 2 roles with bullets effectively source-identical while spending nearly all tailoring effort on Summary or Skills.\n"
         )
@@ -935,6 +965,11 @@ def _section_content_contract(section_id: str) -> dict[str, Any]:
     if section_id == "certifications":
         return {"certifications": [{"name": "exact source certification", "issuer": "issuer or null", "date": "date or null"}]}
     return {}
+
+
+def _title_rewrite_policy(aggressiveness: str) -> dict[str, str]:
+    normalized = str(aggressiveness or "medium").strip().lower()
+    return TITLE_REWRITE_POLICIES.get(normalized, TITLE_REWRITE_POLICIES["medium"])
 
 
 def _response_contract_payload(enabled_sections: list[str]) -> list[dict[str, Any]]:
@@ -1180,6 +1215,7 @@ def _build_generation_prompt(
         "section_rules": {section_id: SECTION_RULES[section_id] for section_id in enabled_sections},
         "professional_experience_structure_contract": {
             "anchors": professional_experience_anchors,
+            "title_rewrite_policy": _title_rewrite_policy(aggressiveness),
             "invariants": {
                 "company_and_dates_must_match_source_for_every_role": True,
                 "duration_must_stay_consistent_with_source": True,
@@ -1250,6 +1286,7 @@ def _build_section_regeneration_prompt(
         },
         "professional_experience_structure_contract": {
             "anchors": professional_experience_anchors,
+            "title_rewrite_policy": _title_rewrite_policy(aggressiveness),
             "invariants": {
                 "company_and_dates_must_match_source_for_every_role": True,
                 "duration_must_stay_consistent_with_source": True,

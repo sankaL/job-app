@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-06-03
+**Last updated:** 2026-06-05
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -118,6 +118,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T64 | Make high-aggressiveness Professional Experience title rewrites active when grounded | AI/Docs | DONE | 2026-06-05 00:16:09 EDT | High-aggressiveness prompts now instruct the resume-writing agent to set `jobs[].title` to a target-aligned truthful rewrite when demonstrated responsibilities support it instead of defaulting to the source title; payloads include a mode-specific title rewrite policy, seniority validation treats manager/supervisor/director wording as seniority-bearing, and focused agent tests plus prompt/PRD docs were updated. |
 | B5-T63 | Auto-redirect authenticated users on landing page and login page mount | FE/Docs | DONE | 2026-06-04 19:05:00 EDT | Added silent session checks and automatic redirection to `/app` for authenticated users on `LandingPage` and `LoginPage` mount, resolving issues where users with active sessions are prompted to log in again after closing the browser. |
 | B5-T62 | Fix mobile layout issues on landing page, login page, and signup pages | FE/Docs | DONE | 2026-06-04 09:38:00 EDT | Adjusted landing page hero heading font size to scale on mobile, aligned landing actions horizontally side-by-side on mobile, hid decorative illustration on mobile view for login and signup pages, and aligned the form content to the top to prevent clipping on small viewports. |
 | B5-T61 | Update branding, modernize Open Graph image, optimize meta tags, and add PWA manifest | FE/Docs | DONE | 2026-06-03 19:00:00 EDT | Overwrote the old extension logo with the main Applix logo, created a new PWA manifest config, optimized Open Graph and iOS-specific web app metadata in index.html, and completely modernized the og-image.svg with a premium dark-themed vector design featuring brand gradients and a glassmorphic tailored resume visualization. |

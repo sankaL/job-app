@@ -244,6 +244,58 @@ def test_render_semantic_section_renders_all_supported_sections_deterministicall
         assert rendered["semantic_content"] == section_payload["content"]
 
 
+def test_render_semantic_professional_experience_applies_title_rules_by_aggressiveness():
+    source = (
+        "## Professional Experience\n"
+        "Acme Corp | Remote\n"
+        "Backend Engineer | 2022 - Present\n"
+        "- Built APIs.\n"
+    )
+    anchors = extract_professional_experience_anchors(source)
+    section_payload = {
+        "id": "professional_experience",
+        "heading": "Professional Experience",
+        "content": {
+            "jobs": [
+                {
+                    "source_role_index": 0,
+                    "company": "OtherCo",
+                    "location": "Onsite",
+                    "title": "Platform Engineer",
+                    "date_range": "2020 - 2021",
+                    "bullets": ["Built APIs for internal platforms."],
+                }
+            ]
+        },
+        "supporting_snippets": ["Built APIs.", "Acme Corp"],
+    }
+    section = generation.GeneratedSectionPayload.model_validate(section_payload)
+
+    low_rendered = generation.render_semantic_section(
+        section,
+        professional_experience_anchors=anchors,
+        aggressiveness="low",
+    )
+    high_rendered = generation.render_semantic_section(
+        section,
+        professional_experience_anchors=anchors,
+        aggressiveness="high",
+    )
+
+    assert low_rendered["content"] == (
+        "## Professional Experience\n"
+        "Acme Corp | Remote\n"
+        "Backend Engineer | 2022 - Present\n"
+        "- Built APIs for internal platforms."
+    )
+    assert high_rendered["content"] == (
+        "## Professional Experience\n"
+        "Acme Corp | Remote\n"
+        "Platform Engineer | 2022 - Present\n"
+        "- Built APIs for internal platforms."
+    )
+
+
 @pytest.mark.asyncio
 async def test_generate_sections_uses_structured_output_sanitized_prompt_and_reasoning(monkeypatch):
     calls: list[dict[str, Any]] = []
@@ -1074,6 +1126,39 @@ def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_expe
     assert "Worked example of material Professional Experience tailoring inside fixed role order" in system_prompt
     assert "Worked example of bounded professional inference in high aggressiveness" in system_prompt
     assert 'Acceptable high-aggressiveness inference: retitle the role as "QA Engineering Lead"' in system_prompt
+    assert "do not default to the source title when grounded target alignment is clear" in system_prompt.lower()
+
+    human_payload = json.loads(prompt[1][1])
+    title_policy = human_payload["professional_experience_structure_contract"]["title_rewrite_policy"]
+    assert title_policy["mode"] == "active_grounded_retitle"
+    assert "jobs[].title" in title_policy["jobs_title_instruction"]
+    assert "Do not default to the source title when grounded target alignment is clear" in title_policy["jobs_title_instruction"]
+
+    section_prompt = generation._build_section_regeneration_prompt(
+        section_name="professional_experience",
+        instructions="Target the platform role.",
+        current_section_content="## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.",
+        other_sections_context=[],
+        base_resume_content="## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n",
+        job_title="Platform Engineer",
+        company_name="Acme",
+        job_description="Build platform APIs.",
+        aggressiveness="high",
+        target_length="1_page",
+        professional_experience_anchors=[
+            {
+                "role_index": 0,
+                "source_title": "Backend Engineer",
+                "source_company": "Acme",
+                "source_date_range": "2022 - Present",
+            }
+        ],
+    )
+    section_human_payload = json.loads(section_prompt[1][1])
+    assert (
+        section_human_payload["professional_experience_structure_contract"]["title_rewrite_policy"]["mode"]
+        == "active_grounded_retitle"
+    )
 
 
 def test_low_generation_prompt_does_not_include_high_inference_example():
@@ -1264,6 +1349,31 @@ async def test_validate_resume_allows_high_aggressiveness_experience_role_title_
     error_types = {error["type"] for error in result["errors"]}
     assert "unsupported_claim" not in error_types
     assert result["valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_rejects_high_aggressiveness_management_title_without_source_scope():
+    anchors = extract_professional_experience_anchors(
+        "## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n"
+    )
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "professional_experience",
+                "heading": "Professional Experience",
+                "content": "## Professional Experience\nEngineering Manager | Acme | 2022 - Present\n- Built backend systems.",
+                "supporting_snippets": ["Built backend systems.", "Acme"],
+            }
+        ],
+        base_resume_content="## Professional Experience\nBackend Engineer | Acme | 2022 - Present\n- Built backend systems.\n",
+        section_preferences=[{"name": "professional_experience", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "high"},
+        professional_experience_anchors=anchors,
+    )
+
+    error_types = {error["type"] for error in result["errors"]}
+    assert "experience_structure_violation" in error_types
+    assert result["valid"] is False
 
 
 @pytest.mark.asyncio

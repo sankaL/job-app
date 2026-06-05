@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-06-05 00:16:09 EDT - Make high-aggressiveness role title rewrites active but bounded
+
+- Status: Accepted
+- Context: High aggressiveness was documented as allowing Professional Experience title rewrites, but generated drafts could still keep source titles because the prompt contract made `jobs[].title` changes optional and the payload did not give a mode-specific title policy.
+- Decision:
+  1. Add a mode-specific `title_rewrite_policy` to the Professional Experience structure contract sent to the resume-writing agent.
+  2. In high aggressiveness, instruct the agent to use a target-aligned truthful `jobs[].title` when demonstrated responsibilities support adjacent role framing, especially for the most recent eligible role.
+  3. Preserve source titles when no truthful adjacent title is supported, and keep low source-exact plus medium lightly grounded.
+  4. Treat manager, supervisor, and director wording as seniority-bearing so high-mode retitles cannot imply unsupported promotion or people-management scope.
+- Consequences: High mode becomes more likely to produce visible title tailoring while company, dates, role order, seniority, and grounding remain fail-closed.
+
 ## 2026-06-03 17:48:26 EDT - Protect public beta access requests without persisting requester records
 
 - Status: Accepted
