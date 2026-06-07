@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "dynamicallyLoaded": [
+    "frontend/public/env-config.js",
+    "frontend/public/chrome-extension/popup.css",
+    "frontend/public/chrome-extension/service-worker.js",
+    "frontend/src/test/setup.ts"
+  ],
+  "ignoreUnresolvedImports": [
+    "/env-config.js"
+  ],
+  "ignoreExports": [
+    {
+      "file": "frontend/public/chrome-extension/popup.js",
+      "exports": ["buildImportRequest", "isTrustedAppUrl", "normalizeAppOrigin"]
+    },
+    {
+      "file": "frontend/src/test/chrome-extension-test-helpers.ts",
+      "exports": ["buildImportRequest", "isTrustedAppUrl", "normalizeAppOrigin"]
+    }
+  ]
+}
