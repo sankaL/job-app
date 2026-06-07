@@ -33,6 +33,7 @@ from app.services.application_manager import (
     WorkerSuccessPayload,
     get_application_service,
 )
+from app.services.duplicates import DuplicateDetector
 from app.services.progress import ApplicationEvent, ProgressRecord
 
 
@@ -54,7 +55,7 @@ class FakeApplicationRepository:
         ]
         return records
 
-    def create_application(self, *, user_id: str, job_url: str, visible_status: str, internal_state: str) -> ApplicationRecord:
+    def create_application(self, *, user_id: str, job_url: Optional[str], visible_status: str, internal_state: str) -> ApplicationRecord:
         self.counter += 1
         record = ApplicationRecord(
             id=f"app-{self.counter}",
@@ -327,14 +328,14 @@ class FakeProgressStore:
 class FakeExtractionJobQueue:
     def __init__(self, should_fail: bool = False) -> None:
         self.should_fail = should_fail
-        self.enqueued: list[dict[str, str]] = []
+        self.enqueued: list[dict[str, Any]] = []
 
     async def enqueue(
         self,
         *,
         application_id: str,
         user_id: str,
-        job_url: str,
+        job_url: Optional[str],
         source_capture: Optional[dict[str, Any]] = None,
     ) -> str:
         if self.should_fail:
@@ -677,6 +678,58 @@ def test_application_repository_prepare_value_strips_nul_bytes_from_jsonb_payloa
     }
 
 
+def test_duplicate_detector_does_not_treat_two_missing_urls_as_exact_match():
+    repository = FakeApplicationRepository()
+    current = repository.create_application(
+        user_id="user-1",
+        job_url=None,
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    current = repository.update_application(
+        application_id=current.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Platform Engineer",
+            "company": "Acme",
+            "job_description": "Build APIs and queues.",
+        },
+    )
+    candidate = repository.create_application(
+        user_id="user-1",
+        job_url=None,
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    candidate = repository.update_application(
+        application_id=candidate.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Product Manager",
+            "company": "Globex",
+            "job_description": "Own roadmap planning.",
+        },
+    )
+
+    decision = DuplicateDetector(threshold=85).evaluate(
+        application=current,
+        candidates=[
+            DuplicateCandidateRecord(
+                id=candidate.id,
+                job_url=candidate.job_url,
+                job_title=candidate.job_title,
+                company=candidate.company,
+                job_description=candidate.job_description,
+                extracted_reference_id=candidate.extracted_reference_id,
+                job_posting_origin=candidate.job_posting_origin,
+                job_posting_origin_other_text=candidate.job_posting_origin_other_text,
+            )
+        ],
+    )
+
+    assert decision is None
+
+
 @pytest.mark.asyncio
 async def test_create_application_queues_extraction_and_seeds_progress():
     service, _, _, progress_store, queue, _, _ = build_service()
@@ -722,6 +775,26 @@ async def test_create_application_from_capture_queues_extraction_with_source_tex
     assert queue.enqueued[0]["source_capture"]["source_text"] == "Senior Platform Engineer. Build APIs and queues."
     assert queue.enqueued[0]["source_capture"]["source_url"] == "https://example.com/jobs/1"
     assert (await progress_store.get(record.id)) is not None
+    assert (await progress_store.get(record.id)).job_id == "job-1"
+
+
+@pytest.mark.asyncio
+async def test_create_application_from_capture_allows_source_text_without_job_url():
+    service, _, _, progress_store, queue, _, _ = build_service()
+
+    record = await service.create_application_from_capture(
+        user_id="user-1",
+        job_url=None,
+        capture=SourceCapturePayload(
+            source_text="Senior Platform Engineer. Build APIs and queues.",
+        ),
+    )
+
+    assert record.job_url is None
+    assert record.internal_state == "extraction_pending"
+    assert queue.enqueued[0]["job_url"] is None
+    assert queue.enqueued[0]["source_capture"]["source_text"] == "Senior Platform Engineer. Build APIs and queues."
+    assert queue.enqueued[0]["source_capture"]["source_url"] is None
     assert (await progress_store.get(record.id)).job_id == "job-1"
 
 
@@ -1825,6 +1898,43 @@ def test_create_application_endpoint_accepts_optional_source_text_and_queues_cap
     assert queue.enqueued[0]["job_url"] == "https://example.com/jobs/1"
     assert queue.enqueued[0]["source_capture"]["source_text"] == "Senior Platform Engineer. Build APIs and queues."
     assert queue.enqueued[0]["source_capture"]["source_url"] == "https://example.com/jobs/1"
+
+
+def test_create_application_endpoint_accepts_source_text_without_job_url():
+    service, _, _, _, queue, _, _ = build_service()
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/applications",
+        headers={"Authorization": "Bearer valid-token"},
+        json={
+            "source_text": "Senior Platform Engineer. Build APIs and queues.",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["job_url"] is None
+    assert response.json()["internal_state"] == "extraction_pending"
+    assert queue.enqueued[0]["job_url"] is None
+    assert queue.enqueued[0]["source_capture"]["source_text"] == "Senior Platform Engineer. Build APIs and queues."
+    assert queue.enqueued[0]["source_capture"]["source_url"] is None
+
+
+def test_create_application_endpoint_rejects_empty_intake_payload():
+    service, _, _, _, _, _, _ = build_service()
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/applications",
+        headers={"Authorization": "Bearer valid-token"},
+        json={},
+    )
+
+    assert response.status_code == 422
 
 
 def test_application_events_endpoint_rejects_invalid_auth():

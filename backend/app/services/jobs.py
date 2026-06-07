@@ -18,9 +18,11 @@ class ExtractionJobQueue:
         *,
         application_id: str,
         user_id: str,
-        job_url: str,
+        job_url: Optional[str],
         source_capture: Optional[dict[str, Any]] = None,
     ) -> str:
+        if job_url is None and source_capture is None:
+            raise ValueError("Job URL is required for URL extraction.")
         job_id = uuid4().hex
         redis = await create_pool(self.redis_settings)
         try:

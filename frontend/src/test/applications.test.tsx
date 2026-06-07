@@ -431,6 +431,7 @@ describe("phase 1 applications UI", () => {
 
     expect(await screen.findByRole("dialog", { name: /new application/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/job url/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /paste description/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/pasted job description/i)).not.toBeInTheDocument();
   });
 
@@ -441,7 +442,7 @@ describe("phase 1 applications UI", () => {
 
     await screen.findByText(/no applications yet/i);
     await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
-    await userEvent.click(screen.getByRole("button", { name: /paste it/i }));
+    await userEvent.click(screen.getByRole("button", { name: /add pasted description/i }));
 
     expect(await screen.findByLabelText(/pasted job description/i)).toBeInTheDocument();
   });
@@ -478,7 +479,7 @@ describe("phase 1 applications UI", () => {
     await screen.findByText(/no applications yet/i);
     await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
     await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/84");
-    await userEvent.click(screen.getByRole("button", { name: /paste it/i }));
+    await userEvent.click(screen.getByRole("button", { name: /add pasted description/i }));
     await userEvent.type(
       await screen.findByLabelText(/pasted job description/i),
       "Senior Platform Engineer. Build APIs, queues, and internal tools.",
@@ -488,6 +489,29 @@ describe("phase 1 applications UI", () => {
     await waitFor(() =>
       expect(api.createApplication).toHaveBeenCalledWith({
         job_url: "https://example.com/jobs/84",
+        source_text: "Senior Platform Engineer. Build APIs, queues, and internal tools.",
+      }),
+    );
+  });
+
+  it("submits pasted job text without requiring a job URL", async () => {
+    api.listApplications.mockResolvedValue([]);
+    api.createApplication.mockResolvedValue(buildApplicationDetail({ id: "app-85", job_url: null }));
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    await screen.findByText(/no applications yet/i);
+    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+    await userEvent.click(screen.getByRole("button", { name: /paste description/i }));
+    await userEvent.type(
+      await screen.findByLabelText(/^job description$/i),
+      "Senior Platform Engineer. Build APIs, queues, and internal tools.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /create from description/i }));
+
+    await waitFor(() =>
+      expect(api.createApplication).toHaveBeenCalledWith({
+        job_url: undefined,
         source_text: "Senior Platform Engineer. Build APIs, queues, and internal tools.",
       }),
     );

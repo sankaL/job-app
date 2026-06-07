@@ -15,7 +15,7 @@ from app.core.config import get_settings
 class ApplicationListRecord(BaseModel):
     id: str
     user_id: str
-    job_url: str
+    job_url: Optional[str]
     job_title: Optional[str]
     company: Optional[str]
     job_posting_origin: Optional[str]
@@ -35,7 +35,7 @@ class ApplicationListRecord(BaseModel):
 class ApplicationRecord(BaseModel):
     id: str
     user_id: str
-    job_url: str
+    job_url: Optional[str]
     job_title: Optional[str]
     company: Optional[str]
     job_description: Optional[str]
@@ -67,7 +67,7 @@ class ApplicationRecord(BaseModel):
 
 class DuplicateCandidateRecord(BaseModel):
     id: str
-    job_url: str
+    job_url: Optional[str]
     job_title: Optional[str]
     company: Optional[str]
     job_description: Optional[str]
@@ -78,7 +78,7 @@ class DuplicateCandidateRecord(BaseModel):
 
 class MatchedApplicationRecord(BaseModel):
     id: str
-    job_url: str
+    job_url: Optional[str]
     job_title: Optional[str]
     company: Optional[str]
     visible_status: str
@@ -215,7 +215,7 @@ class ApplicationRepository:
         self,
         *,
         user_id: str,
-        job_url: str,
+        job_url: Optional[str],
         visible_status: str,
         internal_state: str,
     ) -> ApplicationRecord:

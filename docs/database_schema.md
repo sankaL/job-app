@@ -214,7 +214,7 @@ User-owned job application records and workflow state.
 |---|---|---|---|---|
 | `id` | `uuid` | No | — | Primary key. |
 | `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
-| `job_url` | `text` | No | — | Source URL used for extraction. Must be non-blank. |
+| `job_url` | `text` | Yes | `null` | Source URL used for extraction when provided. Must be non-blank when present. |
 | `job_title` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
 | `company` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. |
 | `job_description` | `text` | Yes | `null` | Nullable until extraction or manual entry succeeds. Stores the full primary job posting body when available, not just a responsibilities excerpt. |
@@ -244,7 +244,7 @@ User-owned job application records and workflow state.
 **Constraints**
 
 - `UNIQUE (id, user_id)` to support same-user composite foreign keys.
-- `CHECK (btrim(job_url) <> '')`
+- `CHECK (job_url IS NULL OR btrim(job_url) <> '')`
 - `CHECK (duplicate_similarity_score IS NULL OR (duplicate_similarity_score >= 0 AND duplicate_similarity_score <= 100))`
 - `CHECK (full_regeneration_count >= 0)`
 - `CHECK (job_posting_origin_other_text IS NULL OR btrim(job_posting_origin_other_text) <> '')`

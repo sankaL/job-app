@@ -59,7 +59,7 @@ export type NotificationSummary = {
 
 export type MatchedApplication = {
   id: string;
-  job_url: string;
+  job_url: string | null;
   job_title: string | null;
   company: string | null;
   visible_status: string;
@@ -82,7 +82,7 @@ export type ExtractionFailureDetails = {
 
 export type ApplicationSummary = {
   id: string;
-  job_url: string;
+  job_url: string | null;
   job_title: string | null;
   company: string | null;
   job_posting_origin: string | null;
@@ -234,7 +234,7 @@ export type DownloadResponse = {
 
 export type ApplicationDetail = {
   id: string;
-  job_url: string;
+  job_url: string | null;
   job_title: string | null;
   company: string | null;
   job_description: string | null;
@@ -721,7 +721,7 @@ export async function listApplications(): Promise<ApplicationSummary[]> {
 }
 
 export type CreateApplicationPayload = {
-  job_url: string;
+  job_url?: string;
   source_text?: string;
 };
 

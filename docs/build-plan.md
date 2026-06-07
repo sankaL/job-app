@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-06-05
+**Last updated:** 2026-06-07
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -118,6 +118,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T66 | Allow pasted-description-only application intake without a job URL | BE/FE/AI/Docs | DONE | 2026-06-07 16:12:05 EDT | New Application intake now supports a paste-description mode that requires only job text, stores nullable `applications.job_url`, queues capture-backed extraction without inventing source URLs, hides source-link UI when absent, and keeps URL-only plus URL-with-pasted-text flows intact. |
 | B5-T65 | Triage Fallow output and create prioritized remediation plan | Docs | DONE | 2026-06-07 14:23:00 EDT | Added `docs/engineering/fallow-remediation-plan-jun7-2026.md`, calibrated Fallow with `.fallowrc.json`, and saved `docs/engineering/fallow-output-2-after-config-jun7-2026.json`; static check findings dropped from 22 to 14 after verified runtime/test false positives were removed. |
 | B5-T64 | Make high-aggressiveness Professional Experience title rewrites active when grounded | AI/Docs | DONE | 2026-06-05 00:16:09 EDT | High-aggressiveness prompts now instruct the resume-writing agent to set `jobs[].title` to a target-aligned truthful rewrite when demonstrated responsibilities support it instead of defaulting to the source title; payloads include a mode-specific title rewrite policy, seniority validation treats manager/supervisor/director wording as seniority-bearing, and focused agent tests plus prompt/PRD docs were updated. |
 | B5-T63 | Auto-redirect authenticated users on landing page and login page mount | FE/Docs | DONE | 2026-06-04 19:05:00 EDT | Added silent session checks and automatic redirection to `/app` for authenticated users on `LandingPage` and `LoginPage` mount, resolving issues where users with active sessions are prompted to log in again after closing the browser. |

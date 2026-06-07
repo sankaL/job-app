@@ -837,7 +837,7 @@ Rules:
 - Also set compensation_text to the raw salary or compensation snippet when it is clearly stated. If compensation is absent or ambiguous, leave compensation_text null.
 - Use page_title, meta, final_url, detected_origin, and extracted_reference_id only to disambiguate or fill structured fields already supported by the page.
 - Ignore navigation, sign-in prompts, cookie banners, related-job cards, footers, and other page chrome.
-- If multiple jobs are present, extract the primary posting that best matches the page title, URL, and reference id.
+- If multiple jobs are present, extract the primary posting that best matches the page title, URL when present, and reference id.
 - Use only these normalized origins when known: linkedin, indeed, google_jobs, glassdoor, ziprecruiter, monster, dice, company_website, other.
 - If origin is unknown, leave it null.
 - If a field is uncertain, leave it null rather than guessing.
@@ -847,8 +847,8 @@ Rules:
 
 ```json
 {
-  "source_url": "{{source_url}}",
-  "final_url": "{{final_url}}",
+  "source_url": "{{source_url_or_null}}",
+  "final_url": "{{final_url_or_null}}",
   "page_title": "{{page_title}}",
   "meta": "{{meta_object}}",
   "json_ld": ["{{json_ld_item}}"],
@@ -862,6 +862,7 @@ Rules:
 
 - Extraction uses LangChain structured output against the `ExtractedJobPosting` schema.
 - Extraction callbacks use bounded retry/backoff and fail closed through Redis-backed progress reconciliation. The `started` callback is best-effort, terminal callback delivery failures no longer abort extraction after terminal progress is written, and successful extraction payloads are cached in Redis so backend progress polling can recover callback-missed success states.
+- Pasted-description-only extraction may pass `null` for `source_url`, `final_url`, `detected_origin`, and `extracted_reference_id`; the extraction agent must use visible text and available metadata without inventing source identifiers.
 - `job_title` and `job_description` are required fields.
 - `job_location_text` is optional and is left null unless the posting clearly states where the role is located or hireable.
 - `compensation_text` is optional and is left null unless the posting states compensation clearly.

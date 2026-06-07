@@ -74,7 +74,7 @@ def _validate_generation_instruction_text(value: Optional[str], *, required: boo
 
 
 class CreateApplicationRequest(BaseModel):
-    job_url: HttpUrl
+    job_url: Optional[HttpUrl] = None
     source_text: Optional[str] = None
 
     @field_validator("source_text")
@@ -84,6 +84,12 @@ class CreateApplicationRequest(BaseModel):
             return None
         stripped = value.strip()
         return stripped or None
+
+    @model_validator(mode="after")
+    def require_url_or_source_text(self) -> "CreateApplicationRequest":
+        if self.job_url is None and not self.source_text:
+            raise ValueError("Job URL or pasted job description is required.")
+        return self
 
 
 class UpdateApplicationRequest(BaseModel):
@@ -155,7 +161,7 @@ class DuplicateResolutionRequest(BaseModel):
 
 class MatchedApplicationResponse(BaseModel):
     id: str
-    job_url: str
+    job_url: Optional[str]
     job_title: Optional[str]
     company: Optional[str]
     visible_status: str
@@ -178,7 +184,7 @@ class ExtractionFailureDetails(BaseModel):
 
 class ApplicationSummary(BaseModel):
     id: str
-    job_url: str
+    job_url: Optional[str]
     job_title: Optional[str]
     company: Optional[str]
     job_posting_origin: Optional[str]
@@ -203,7 +209,7 @@ class GenerationFailureDetails(BaseModel):
 
 class ApplicationDetail(BaseModel):
     id: str
-    job_url: str
+    job_url: Optional[str]
     job_title: Optional[str]
     company: Optional[str]
     job_description: Optional[str]
@@ -529,19 +535,22 @@ async def create_application(
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ApplicationDetail:
     try:
+        job_url = str(request.job_url) if request.job_url else None
         if request.source_text:
             record = await service.create_application_from_capture(
                 user_id=current_user.id,
-                job_url=str(request.job_url),
+                job_url=job_url,
                 capture=SourceCapturePayload(
                     source_text=request.source_text,
-                    source_url=str(request.job_url),
+                    source_url=job_url,
                 ),
             )
         else:
+            if job_url is None:
+                raise ValueError("Job URL is required when no pasted job description is provided.")
             record = await service.create_application(
                 user_id=current_user.id,
-                job_url=str(request.job_url),
+                job_url=job_url,
             )
         return to_application_detail(
             await service.get_application_detail(

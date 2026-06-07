@@ -305,6 +305,21 @@ def test_build_page_context_from_capture_uses_source_text_and_origin():
     assert context.extracted_reference_id == "req-42"
 
 
+def test_build_page_context_from_capture_allows_missing_job_url():
+    capture = SourceCapture(
+        source_text="Backend Engineer at Acme. Build APIs and queues.",
+        page_title="Backend Engineer",
+    )
+
+    context = build_page_context_from_capture(None, capture)
+
+    assert context.source_url is None
+    assert context.final_url is None
+    assert context.detected_origin is None
+    assert context.extracted_reference_id is None
+    assert context.visible_text == "Backend Engineer at Acme. Build APIs and queues."
+
+
 def test_build_page_context_from_capture_preserves_longer_source_text_up_to_new_limit():
     long_text = "Qualifications\n" + ("Python APIs and distributed systems.\n" * 4000)
     capture = SourceCapture(source_text=long_text)

@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-05-24
+**Last updated:** 2026-06-07
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -68,6 +68,17 @@ This runbook applies whenever backend or database work changes schema, compatibi
 - The current plan assumes a single current `resume_drafts` row per application.
 - Persistent PDF storage is out of scope for MVP.
 - Dedicated async job/progress tables are deferred until implementation chooses the worker strategy.
+
+### 2026-06-07 nullable application source URLs
+
+- Migration `20260607_000016_allow_nullable_application_job_url.sql` makes `applications.job_url` nullable and preserves the non-blank constraint only when a URL is present.
+- No backfill is required. Existing applications keep their current source URLs; new pasted-description-only applications may store `NULL`.
+- Rollback requires either deleting URL-less application rows or backfilling valid source URLs before restoring `job_url NOT NULL` and `CHECK (btrim(job_url) <> '')`.
+- Post-deploy verification:
+  - URL-only application creation still queues URL extraction.
+  - URL plus pasted-description creation still queues capture-backed extraction with the URL attached.
+  - Pasted-description-only creation stores `job_url = NULL`, queues capture-backed extraction, and does not render broken source links.
+  - Duplicate detection does not treat two missing URLs as an exact URL match.
 
 ## Current Additive Change Note: Job Posting Origin
 

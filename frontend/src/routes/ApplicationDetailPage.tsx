@@ -244,7 +244,7 @@ function inferExtractionFailureDetails(
     kind: isBlockedSource ? "blocked_source" : "callback_delivery_failed",
     provider: isBlockedSource ? current.job_posting_origin : null,
     reference_id: null,
-    blocked_url: current.job_url,
+    blocked_url: current.job_url ?? null,
     detected_at: progress.updated_at,
   };
 }
@@ -1004,7 +1004,7 @@ export function ApplicationDetailPage() {
     try {
       const response = await recoverApplicationFromSource(activeApplicationId, {
         source_text: sourceTextDraft,
-        source_url: detail?.extraction_failure_details?.blocked_url ?? detail?.job_url,
+        source_url: detail?.extraction_failure_details?.blocked_url ?? detail?.job_url ?? undefined,
         page_title: detail?.job_title ?? undefined,
       });
       applyDetailState(response, { refreshShell: true });
@@ -1793,18 +1793,20 @@ export function ApplicationDetailPage() {
                       role="menu"
                       aria-label="Application actions"
                     >
-                      <a
-                        href={detail.job_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        role="menuitem"
-                        className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5"
-                        style={{ color: "var(--color-ink)" }}
-                        onClick={() => setActionsMenuOpen(false)}
-                      >
-	                        <ExternalLink size={16} className="shrink-0" style={{ color: "var(--color-spruce)" }} aria-hidden="true" />
-                        <span>View Posting</span>
-                      </a>
+                      {detail.job_url && (
+                        <a
+                          href={detail.job_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          role="menuitem"
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5"
+                          style={{ color: "var(--color-ink)" }}
+                          onClick={() => setActionsMenuOpen(false)}
+                        >
+	                          <ExternalLink size={16} className="shrink-0" style={{ color: "var(--color-spruce)" }} aria-hidden="true" />
+                          <span>View Posting</span>
+                        </a>
+                      )}
                       <button
                         type="button"
                         role="menuitem"
@@ -1956,7 +1958,7 @@ export function ApplicationDetailPage() {
               <div className="mt-3 grid gap-2 rounded-lg border p-3 text-xs sm:grid-cols-2" style={{ borderColor: "var(--color-border)", color: "var(--color-ink-50)" }}>
                 <div><span className="font-semibold" style={{ color: "var(--color-ink)" }}>Provider:</span> {detail.extraction_failure_details.provider ?? "Unknown"}</div>
                 <div><span className="font-semibold" style={{ color: "var(--color-ink)" }}>Ref ID:</span> {detail.extraction_failure_details.reference_id ?? "N/A"}</div>
-                <div className="sm:col-span-2 break-all"><span className="font-semibold" style={{ color: "var(--color-ink)" }}>URL:</span> {detail.extraction_failure_details.blocked_url ?? detail.job_url}</div>
+                <div className="sm:col-span-2 break-all"><span className="font-semibold" style={{ color: "var(--color-ink)" }}>URL:</span> {detail.extraction_failure_details.blocked_url ?? detail.job_url ?? "Not provided"}</div>
               </div>
             </Card>
           )}
@@ -2109,7 +2111,9 @@ export function ApplicationDetailPage() {
                     <Button loading={isSavingJobInfo} disabled={isSavingJobInfo} type="submit">
                       {isSavingJobInfo ? "Saving…" : "Save"}
                     </Button>
-                    <Button type="button" variant="secondary" onClick={() => void handleRetryExtraction()}>Retry Extraction</Button>
+                    {detail.job_url && (
+                      <Button type="button" variant="secondary" onClick={() => void handleRetryExtraction()}>Retry Extraction</Button>
+                    )}
                   </div>
                 </form>
               </Card>
