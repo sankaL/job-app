@@ -1174,6 +1174,44 @@ describe("phase 1 applications UI", () => {
     expect(await screen.findByPlaceholderText(/other source label/i)).toBeInTheDocument();
   });
 
+  it("hides URL retry on URL-less manual entry applications", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        job_url: null,
+        job_title: null,
+        company: null,
+        job_description: null,
+        visible_status: "needs_action",
+        internal_state: "manual_entry_required",
+        failure_reason: "extraction_failed",
+        has_action_required_notification: true,
+      }),
+    );
+    api.fetchApplicationProgress.mockResolvedValue({
+      job_id: "job-1",
+      workflow_kind: "extraction",
+      state: "manual_entry_required",
+      message: "Manual entry required.",
+      percent_complete: 100,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:00:00Z",
+      completed_at: "2026-04-07T12:00:00Z",
+      terminal_error_code: "extraction_failed",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(await screen.findByText(/manual entry required/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /retry url/i })).not.toBeInTheDocument();
+  });
+
   it("renders duplicate review actions on the detail page", async () => {
     api.fetchApplicationDetail.mockResolvedValue({
       id: "app-1",

@@ -933,7 +933,7 @@ def build_page_context_from_capture(job_url: Optional[str], capture: SourceCaptu
         meta=dict(list(capture.meta.items())[:50]),
         json_ld=capture.json_ld[:10],
         visible_text=capture.source_text[:EXTRACTION_TEXT_LIMIT],
-        detected_origin=normalize_origin_from_url(final_url),
+        detected_origin=normalize_origin_from_url(final_url) if final_url else None,
         extracted_reference_id=reference_id,
     )
 

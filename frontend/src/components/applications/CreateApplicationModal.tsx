@@ -87,6 +87,10 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (isSubmitting) {
+      return;
+    }
+
     const trimmedJobUrl = jobUrl.trim();
     const trimmedSourceText = sourceText.trim();
     if (sourceMode === "link" && !trimmedJobUrl) {

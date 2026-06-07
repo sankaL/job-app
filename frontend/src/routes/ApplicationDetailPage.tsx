@@ -393,6 +393,7 @@ export function ApplicationDetailPage() {
   const [showOptimisticProgress, setShowOptimisticProgress] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isCancellingExtraction, setIsCancellingExtraction] = useState(false);
+  const [isRetryingExtraction, setIsRetryingExtraction] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showAppliedConfirm, setShowAppliedConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -952,6 +953,9 @@ export function ApplicationDetailPage() {
   }
 
   async function handleRetryExtraction() {
+    if (isRetryingExtraction) return;
+    setIsRetryingExtraction(true);
+    setError(null);
     try {
       const response = await retryExtraction(activeApplicationId);
       applyDetailState(response, { refreshShell: true });
@@ -959,6 +963,8 @@ export function ApplicationDetailPage() {
       refreshActivityTimeline();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to retry extraction.");
+    } finally {
+      setIsRetryingExtraction(false);
     }
   }
 
@@ -2112,7 +2118,7 @@ export function ApplicationDetailPage() {
                       {isSavingJobInfo ? "Saving…" : "Save"}
                     </Button>
                     {detail.job_url && (
-                      <Button type="button" variant="secondary" onClick={() => void handleRetryExtraction()}>Retry Extraction</Button>
+                      <Button type="button" variant="secondary" loading={isRetryingExtraction} disabled={isRetryingExtraction} onClick={() => void handleRetryExtraction()}>Retry Extraction</Button>
                     )}
                   </div>
                 </form>
@@ -2141,7 +2147,9 @@ export function ApplicationDetailPage() {
                     <Textarea className="min-h-24" placeholder="Paste job posting text to retry extraction…" value={sourceTextDraft} onChange={(e) => setSourceTextDraft(e.target.value)} />
                     <div className="flex gap-2">
                       <Button loading={isRecoveringFromSource} disabled={isRecoveringFromSource || !sourceTextDraft.trim()} type="submit">Retry with Text</Button>
-                      <Button type="button" variant="secondary" onClick={() => void handleRetryExtraction()}>Retry URL</Button>
+                      {detail.job_url && (
+                        <Button type="button" variant="secondary" loading={isRetryingExtraction} disabled={isRetryingExtraction} onClick={() => void handleRetryExtraction()}>Retry URL</Button>
+                      )}
                     </div>
                   </form>
                   <form className="mt-4 space-y-3 border-t pt-4" style={{ borderColor: "var(--color-border)" }} onSubmit={handleManualEntrySubmit}>
