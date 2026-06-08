@@ -220,12 +220,12 @@ The landing page shows a list of job applications for the logged-in user.
 
 **Default input:** Job application URL.
 
-**Optional inline assist:** The modal may reveal a pasted job-description text field only after the user explicitly chooses that path. The URL remains required even when pasted text is provided.
+**Alternate input:** The modal may switch to a pasted job-description path. In that mode, the pasted description is required and the source URL is optional.
 
 **On submit:**
 1. Create the application record
 2. Set visible status to **Draft**
-3. Start async extraction job from the URL by default, or from the pasted source text plus URL when the user provides both
+3. Start async extraction job from the URL by default, from pasted source text plus URL when both are provided, or from pasted source text alone when no source link exists
 4. Redirect the user to the new application's detail page immediately after creation
 5. Show meaningful loading feedback there (progress messages, skeleton state, and retry or manual-entry recovery when needed)
 6. User can still navigate away while the job continues in the background
@@ -236,7 +236,7 @@ The landing page shows a list of job applications for the logged-in user.
 - Full job description
 - Compensation text when present
 - Job posting origin
-- Source URL
+- Source URL when provided
 
 **Normalized job posting origin options (MVP):**
 - LinkedIn
@@ -805,7 +805,7 @@ Admin has three product responsibilities in MVP:
 |---|---|---|
 | id | UUID | |
 | user_id | UUID FK | |
-| job_url | string | |
+| job_url | string | nullable; source URL when provided |
 | job_title | string | Extracted or manually entered |
 | company | string | Extracted or manually entered |
 | job_description | text | Extracted or manually entered full primary posting body, including qualifications and other role sections when available |

@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-06-07 16:12:05 EDT - Allow pasted-description application intake without source URLs
+
+- Status: Accepted
+- Context: Users can receive a job description without a job application link, so requiring `job_url` during application creation blocked a valid intake path and forced unnecessary placeholder links or manual detours.
+- Decision:
+  1. Make `applications.job_url` nullable while preserving a non-blank constraint when a URL is present.
+  2. Extend `POST /api/applications` to accept `{ source_text }`, `{ job_url }`, or `{ job_url, source_text }`, rejecting only payloads missing both usable inputs.
+  3. Reuse capture-backed extraction for pasted-description-only intake so the worker can infer job title, company, location, compensation, origin, and full job description from visible text.
+  4. Keep Chrome extension import URL-required because it captures from an active tab with a real page URL.
+- Consequences: New application intake supports JD-only creation without inventing source URLs, source-link UI must be nullable-safe, duplicate detection cannot treat two missing URLs as an exact match, and extraction prompt documentation now treats URL context as optional for pasted-description payloads.
+
 ## 2026-06-05 00:16:09 EDT - Make high-aggressiveness role title rewrites active but bounded
 
 - Status: Accepted

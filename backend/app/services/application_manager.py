@@ -444,7 +444,7 @@ class ApplicationService:
         self,
         *,
         user_id: str,
-        job_url: str,
+        job_url: Optional[str],
         capture: SourceCapturePayload,
     ) -> ApplicationRecord:
         record = self.repository.create_application(
@@ -742,6 +742,8 @@ class ApplicationService:
         application_id: str,
     ) -> ApplicationDetailPayload:
         current = self._require_application(user_id=user_id, application_id=application_id)
+        if not current.job_url:
+            raise PermissionError("Add a source URL or retry with pasted job text before rerunning extraction.")
         updated = self.repository.update_application(
             application_id=application_id,
             user_id=user_id,
@@ -4286,7 +4288,7 @@ class ApplicationService:
         self,
         *,
         record: ApplicationRecord,
-        job_url: str,
+        job_url: Optional[str],
         capture: SourceCapturePayload,
         queued_message: str,
         failure_message: str,

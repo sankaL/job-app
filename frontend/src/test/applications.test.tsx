@@ -431,6 +431,7 @@ describe("phase 1 applications UI", () => {
 
     expect(await screen.findByRole("dialog", { name: /new application/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/job url/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /paste description/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/pasted job description/i)).not.toBeInTheDocument();
   });
 
@@ -441,7 +442,7 @@ describe("phase 1 applications UI", () => {
 
     await screen.findByText(/no applications yet/i);
     await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
-    await userEvent.click(screen.getByRole("button", { name: /paste it/i }));
+    await userEvent.click(screen.getByRole("button", { name: /add pasted description/i }));
 
     expect(await screen.findByLabelText(/pasted job description/i)).toBeInTheDocument();
   });
@@ -478,7 +479,7 @@ describe("phase 1 applications UI", () => {
     await screen.findByText(/no applications yet/i);
     await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
     await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/84");
-    await userEvent.click(screen.getByRole("button", { name: /paste it/i }));
+    await userEvent.click(screen.getByRole("button", { name: /add pasted description/i }));
     await userEvent.type(
       await screen.findByLabelText(/pasted job description/i),
       "Senior Platform Engineer. Build APIs, queues, and internal tools.",
@@ -491,6 +492,52 @@ describe("phase 1 applications UI", () => {
         source_text: "Senior Platform Engineer. Build APIs, queues, and internal tools.",
       }),
     );
+  });
+
+  it("submits pasted job text without requiring a job URL", async () => {
+    api.listApplications.mockResolvedValue([]);
+    api.createApplication.mockResolvedValue(buildApplicationDetail({ id: "app-85", job_url: null }));
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    await screen.findByText(/no applications yet/i);
+    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+    await userEvent.click(screen.getByRole("button", { name: /paste description/i }));
+    await userEvent.type(
+      await screen.findByLabelText(/^job description$/i),
+      "Senior Platform Engineer. Build APIs, queues, and internal tools.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /create from description/i }));
+
+    await waitFor(() =>
+      expect(api.createApplication).toHaveBeenCalledWith({
+        job_url: undefined,
+        source_text: "Senior Platform Engineer. Build APIs, queues, and internal tools.",
+      }),
+    );
+  });
+
+  it("ignores duplicate create submissions while the first request is pending", async () => {
+    api.listApplications.mockResolvedValue([]);
+    api.createApplication.mockImplementation(
+      () =>
+        new Promise(() => {
+          // Keep submission pending so a duplicate submit attempts the in-flight path.
+        }),
+    );
+
+    renderWithAppProvider(<ApplicationsListPage />);
+
+    await screen.findByText(/no applications yet/i);
+    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+    await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/42");
+
+    const submitButton = screen.getByRole("button", { name: /create application/i });
+    const form = submitButton.closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(api.createApplication).toHaveBeenCalledTimes(1));
   });
 
   it("keeps create failures inside the modal instead of promoting them to the page error card", async () => {
@@ -1148,6 +1195,140 @@ describe("phase 1 applications UI", () => {
     await userEvent.selectOptions(screen.getByLabelText(/posting source/i), "other");
 
     expect(await screen.findByPlaceholderText(/other source label/i)).toBeInTheDocument();
+  });
+
+  it("hides URL retry on URL-less manual entry applications", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        job_url: null,
+        job_title: null,
+        company: null,
+        job_description: null,
+        visible_status: "needs_action",
+        internal_state: "manual_entry_required",
+        failure_reason: "extraction_failed",
+        has_action_required_notification: true,
+      }),
+    );
+    api.fetchApplicationProgress.mockResolvedValue({
+      job_id: "job-1",
+      workflow_kind: "extraction",
+      state: "manual_entry_required",
+      message: "Manual entry required.",
+      percent_complete: 100,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:00:00Z",
+      completed_at: "2026-04-07T12:00:00Z",
+      terminal_error_code: "extraction_failed",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(await screen.findByText(/manual entry required/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /retry extraction/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /retry url/i })).not.toBeInTheDocument();
+  });
+
+  it("ignores duplicate extraction retry clicks while the first retry is pending", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "needs_action",
+        internal_state: "manual_entry_required",
+        failure_reason: "extraction_failed",
+      }),
+    );
+    api.retryExtraction.mockImplementation(
+      () =>
+        new Promise(() => {
+          // Keep retry pending so the second click exercises the in-flight guard.
+        }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const retryButton = await screen.findByRole("button", { name: /retry url/i });
+    fireEvent.click(retryButton);
+    fireEvent.click(retryButton);
+
+    await waitFor(() => expect(api.retryExtraction).toHaveBeenCalledTimes(1));
+  });
+
+  it("ignores duplicate recover-from-source submissions while the first retry is pending", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "needs_action",
+        internal_state: "manual_entry_required",
+        failure_reason: "extraction_failed",
+      }),
+    );
+    api.recoverApplicationFromSource.mockImplementation(
+      () =>
+        new Promise(() => {
+          // Keep recovery pending so the second submit exercises the in-flight guard.
+        }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const sourceText = await screen.findByPlaceholderText(/paste job posting text/i);
+    await userEvent.type(sourceText, "Senior Platform Engineer. Build APIs and queues.");
+
+    const retryButton = screen.getByRole("button", { name: /retry with text/i });
+    const form = retryButton.closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(api.recoverApplicationFromSource).toHaveBeenCalledTimes(1));
+  });
+
+  it("ignores duplicate manual-entry submissions while the first save is pending", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "needs_action",
+        internal_state: "manual_entry_required",
+        failure_reason: "extraction_failed",
+      }),
+    );
+    api.submitManualEntry.mockImplementation(
+      () =>
+        new Promise(() => {
+          // Keep manual entry pending so the second submit exercises the in-flight guard.
+        }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const submitButton = await screen.findByRole("button", { name: /submit manual entry/i });
+    const form = submitButton.closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(api.submitManualEntry).toHaveBeenCalledTimes(1));
   });
 
   it("renders duplicate review actions on the detail page", async () => {

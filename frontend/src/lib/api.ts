@@ -59,7 +59,7 @@ export type NotificationSummary = {
 
 export type MatchedApplication = {
   id: string;
-  job_url: string;
+  job_url: string | null;
   job_title: string | null;
   company: string | null;
   visible_status: string;
@@ -82,7 +82,7 @@ export type ExtractionFailureDetails = {
 
 export type ApplicationSummary = {
   id: string;
-  job_url: string;
+  job_url: string | null;
   job_title: string | null;
   company: string | null;
   job_posting_origin: string | null;
@@ -234,7 +234,7 @@ export type DownloadResponse = {
 
 export type ApplicationDetail = {
   id: string;
-  job_url: string;
+  job_url: string | null;
   job_title: string | null;
   company: string | null;
   job_description: string | null;
@@ -487,6 +487,42 @@ type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
 };
 
+const API_REQUEST_TIMEOUT_MS = 60_000;
+
+function buildRequestSignal(externalSignal?: AbortSignal | null): {
+  signal: AbortSignal;
+  cleanup: () => void;
+  didTimeout: () => boolean;
+} {
+  const controller = new AbortController();
+  let timedOut = false;
+  let externalAbortHandler: (() => void) | null = null;
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, API_REQUEST_TIMEOUT_MS);
+
+  if (externalSignal) {
+    externalAbortHandler = () => controller.abort(externalSignal.reason);
+    if (externalSignal.aborted) {
+      externalAbortHandler();
+    } else {
+      externalSignal.addEventListener("abort", externalAbortHandler, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      window.clearTimeout(timeoutId);
+      if (externalSignal && externalAbortHandler) {
+        externalSignal.removeEventListener("abort", externalAbortHandler);
+      }
+    },
+    didTimeout: () => timedOut,
+  };
+}
+
 async function fetchWithAuthentication(
   path: string,
   options: RequestInit = {},
@@ -494,27 +530,39 @@ async function fetchWithAuthentication(
 ): Promise<Response> {
   const headers = new Headers(options.headers);
   headers.set("Authorization", `Bearer ${await getAccessToken()}`);
-
-  let response = await fetch(`${env.VITE_API_URL}${path}`, {
-    ...options,
-    headers,
-  });
-
-  if (response.status !== 401 || !retryOnUnauthorized) {
-    return response;
-  }
+  const requestSignal = buildRequestSignal(options.signal);
 
   try {
-    headers.set("Authorization", `Bearer ${await getAccessToken({ forceRefresh: true })}`);
-  } catch {
-    return response;
-  }
+    let response = await fetch(`${env.VITE_API_URL}${path}`, {
+      ...options,
+      headers,
+      signal: requestSignal.signal,
+    });
 
-  response = await fetch(`${env.VITE_API_URL}${path}`, {
-    ...options,
-    headers,
-  });
-  return response;
+    if (response.status !== 401 || !retryOnUnauthorized) {
+      return response;
+    }
+
+    try {
+      headers.set("Authorization", `Bearer ${await getAccessToken({ forceRefresh: true })}`);
+    } catch {
+      return response;
+    }
+
+    response = await fetch(`${env.VITE_API_URL}${path}`, {
+      ...options,
+      headers,
+      signal: requestSignal.signal,
+    });
+    return response;
+  } catch (error) {
+    if (requestSignal.didTimeout()) {
+      throw new Error("Request timed out. Please try again.");
+    }
+    throw error;
+  } finally {
+    requestSignal.cleanup();
+  }
 }
 
 function parseSseChunk(
@@ -721,7 +769,7 @@ export async function listApplications(): Promise<ApplicationSummary[]> {
 }
 
 export type CreateApplicationPayload = {
-  job_url: string;
+  job_url?: string;
   source_text?: string;
 };
 

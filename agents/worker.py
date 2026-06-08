@@ -261,8 +261,8 @@ class JobProgress(BaseModel):
 
 
 class PageContext(BaseModel):
-    source_url: str
-    final_url: str
+    source_url: Optional[str]
+    final_url: Optional[str]
     page_title: str
     meta: dict[str, str]
     json_ld: list[str]
@@ -590,10 +590,10 @@ def extract_reference_id(*values: Optional[str]) -> Optional[str]:
 def detect_blocked_page(context: PageContext) -> Optional[ExtractionFailureDetails]:
     combined = " ".join(
         [
-            context.page_title,
-            context.final_url,
+            context.page_title or "",
+            context.final_url or "",
             " ".join(f"{key} {value}" for key, value in context.meta.items()),
-            context.visible_text[:EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT],
+            (context.visible_text or "")[:EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT],
         ]
     ).lower()
 
@@ -923,7 +923,7 @@ async def scrape_page_context(job_url: str) -> PageContext:
     )
 
 
-def build_page_context_from_capture(job_url: str, capture: SourceCapture) -> PageContext:
+def build_page_context_from_capture(job_url: Optional[str], capture: SourceCapture) -> PageContext:
     final_url = capture.source_url or job_url
     reference_id = extract_reference_id(final_url, capture.source_text)
     return PageContext(
@@ -933,7 +933,7 @@ def build_page_context_from_capture(job_url: str, capture: SourceCapture) -> Pag
         meta=dict(list(capture.meta.items())[:50]),
         json_ld=capture.json_ld[:10],
         visible_text=capture.source_text[:EXTRACTION_TEXT_LIMIT],
-        detected_origin=normalize_origin_from_url(final_url),
+        detected_origin=normalize_origin_from_url(final_url) if final_url else None,
         extracted_reference_id=reference_id,
     )
 
@@ -1157,7 +1157,7 @@ async def run_extraction_job(
     *,
     application_id: str,
     user_id: str,
-    job_url: str,
+    job_url: Optional[str],
     job_id: str,
     source_capture: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
@@ -1204,6 +1204,8 @@ async def run_extraction_job(
                 percent_complete=35,
             )
         else:
+            if job_url is None:
+                raise ValueError("Job URL is required when no source capture is provided.")
             context = await scrape_page_context(job_url)
             await set_progress(
                 writer,

@@ -147,7 +147,7 @@ export function ApplicationsListPage() {
     });
   }, [filteredApplications]);
 
-  async function handleCreateApplication(payload: { job_url: string; source_text?: string }) {
+  async function handleCreateApplication(payload: { job_url?: string; source_text?: string }) {
     const detail = await createApplication(payload);
     queryClient.setQueryData(queryKeys.application(detail.id), detail);
     await invalidateApplicationQueries(queryClient, detail.id);
