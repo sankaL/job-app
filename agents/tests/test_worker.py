@@ -290,6 +290,29 @@ def test_detect_blocked_page_extracts_provider_and_ray_id():
     assert blocked.reference_id == "9e8afb060bd31117"
 
 
+def test_detect_blocked_page_handles_none_final_url():
+    context = PageContext(
+        source_url=None,
+        final_url=None,
+        page_title="You have been blocked",
+        meta={},
+        json_ld=[],
+        visible_text=(
+            "You have been blocked. If you believe this in error, go to support.indeed.com. "
+            "Your Ray ID for this request is 9e8afb060bd31117."
+        ),
+        detected_origin=None,
+        extracted_reference_id="abc123",
+    )
+
+    blocked = detect_blocked_page(context)
+    assert blocked is not None
+    assert blocked.kind == "blocked_source"
+    assert blocked.provider == "indeed"
+    assert blocked.reference_id == "9e8afb060bd31117"
+    assert blocked.blocked_url is None
+
+
 def test_build_page_context_from_capture_uses_source_text_and_origin():
     capture = SourceCapture(
         source_text="Backend Engineer at Acme. Requisition ID REQ-42.",

@@ -18,6 +18,10 @@ type CreateApplicationModalProps = {
 };
 
 const DIALOG_WIDTH = "min(520px, calc(100vw - 32px))";
+const SOURCE_MODE_OPTIONS = [
+  { value: "link", label: "Job link", icon: Link2 },
+  { value: "paste", label: "Paste description", icon: FileText },
+] as const;
 
 export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplicationModalProps) {
   const titleId = useId();
@@ -29,6 +33,7 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
   const [showSourceText, setShowSourceText] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   function resetState() {
     setSourceMode("link");
@@ -36,11 +41,12 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
     setSourceText("");
     setShowSourceText(false);
     setError(null);
+    isSubmittingRef.current = false;
     setIsSubmitting(false);
   }
 
   function handleClose() {
-    if (isSubmitting) {
+    if (isSubmittingRef.current) {
       return;
     }
     resetState();
@@ -103,6 +109,7 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
     }
 
     setError(null);
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       await onSubmit({
@@ -113,6 +120,7 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
       onClose();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Unable to create application.");
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   }
@@ -215,10 +223,7 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
               className="grid grid-cols-2 gap-1 rounded-xl border p-1"
               style={{ borderColor: "var(--color-border)", background: "var(--color-ink-05)" }}
             >
-              {[
-                { value: "link", label: "Job link", icon: Link2 },
-                { value: "paste", label: "Paste description", icon: FileText },
-              ].map((option) => {
+              {SOURCE_MODE_OPTIONS.map((option) => {
                 const Icon = option.icon;
                 const active = sourceMode === option.value;
                 return (
@@ -226,7 +231,7 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
                     key={option.value}
                     type="button"
                     onClick={() => {
-                      setSourceMode(option.value as "link" | "paste");
+                      setSourceMode(option.value);
                       setShowSourceText(option.value === "paste");
                       setError(null);
                     }}

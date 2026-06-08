@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import secrets
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
-from app.api.applications import ApplicationDetail, to_application_detail
+from app.api.applications import (
+    ApplicationDetail,
+    CAPTURE_JSON_LD_ENTRY_MAX_LENGTH,
+    CAPTURE_JSON_LD_MAX_ENTRIES,
+    CAPTURE_META_KEY_MAX_LENGTH,
+    CAPTURE_META_MAX_ENTRIES,
+    CAPTURE_META_VALUE_MAX_LENGTH,
+    SOURCE_TEXT_MAX_LENGTH,
+    to_application_detail,
+)
 from app.core.access import get_current_active_user
 from app.core.auth import AuthenticatedUser
 from app.core.security import (
@@ -41,20 +50,47 @@ class ExtensionTokenResponse(BaseModel):
 
 class ExtensionCapturedApplicationRequest(BaseModel):
     job_url: HttpUrl
-    source_text: str
+    source_text: str = Field(max_length=SOURCE_TEXT_MAX_LENGTH)
     page_title: Optional[str] = None
     source_url: Optional[HttpUrl] = None
-    meta: dict[str, str] = Field(default_factory=dict)
-    json_ld: list[str] = Field(default_factory=list)
+    meta: dict[str, str] = Field(default_factory=dict, max_length=CAPTURE_META_MAX_ENTRIES)
+    json_ld: list[str] = Field(default_factory=list, max_length=CAPTURE_JSON_LD_MAX_ENTRIES)
     captured_at: Optional[str] = None
 
-    @field_validator("source_text")
+    @field_validator("source_url", mode="before")
     @classmethod
-    def require_source_text(cls, value: str) -> str:
+    def normalize_source_url(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+    @field_validator("source_text", mode="before")
+    @classmethod
+    def require_source_text(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
         stripped = value.strip()
         if not stripped:
             raise ValueError("Source text cannot be blank.")
         return stripped
+
+    @field_validator("meta")
+    @classmethod
+    def validate_meta_size(cls, value: dict[str, str]) -> dict[str, str]:
+        for key, item in value.items():
+            if len(key) > CAPTURE_META_KEY_MAX_LENGTH:
+                raise ValueError("Meta keys are too large.")
+            if len(item) > CAPTURE_META_VALUE_MAX_LENGTH:
+                raise ValueError("Meta values are too large.")
+        return value
+
+    @field_validator("json_ld")
+    @classmethod
+    def validate_json_ld_size(cls, value: list[str]) -> list[str]:
+        if any(len(item) > CAPTURE_JSON_LD_ENTRY_MAX_LENGTH for item in value):
+            raise ValueError("JSON-LD entries are too large.")
+        return value
 
     @field_validator("page_title", "captured_at")
     @classmethod

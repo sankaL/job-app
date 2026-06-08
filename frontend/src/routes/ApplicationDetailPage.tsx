@@ -395,6 +395,12 @@ export function ApplicationDetailPage() {
   const [isCancellingExtraction, setIsCancellingExtraction] = useState(false);
   const [isRetryingExtraction, setIsRetryingExtraction] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const isSavingJobInfoRef = useRef(false);
+  const isSubmittingManualEntryRef = useRef(false);
+  const isRecoveringFromSourceRef = useRef(false);
+  const isCancellingExtractionRef = useRef(false);
+  const isRetryingExtractionRef = useRef(false);
+  const isDeletingRef = useRef(false);
   const [showAppliedConfirm, setShowAppliedConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelExtractionConfirm, setShowCancelExtractionConfirm] = useState(false);
@@ -908,6 +914,8 @@ export function ApplicationDetailPage() {
 
   async function handleSaveJobInfo(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSavingJobInfoRef.current) return;
+    isSavingJobInfoRef.current = true;
     setIsSavingJobInfo(true);
     setError(null);
     try {
@@ -926,12 +934,15 @@ export function ApplicationDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save job information.");
     } finally {
+      isSavingJobInfoRef.current = false;
       setIsSavingJobInfo(false);
     }
   }
 
   async function handleManualEntrySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmittingManualEntryRef.current) return;
+    isSubmittingManualEntryRef.current = true;
     setIsSubmittingManualEntry(true);
     setError(null);
     try {
@@ -948,12 +959,14 @@ export function ApplicationDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to submit manual entry.");
     } finally {
+      isSubmittingManualEntryRef.current = false;
       setIsSubmittingManualEntry(false);
     }
   }
 
   async function handleRetryExtraction() {
-    if (isRetryingExtraction) return;
+    if (isRetryingExtractionRef.current) return;
+    isRetryingExtractionRef.current = true;
     setIsRetryingExtraction(true);
     setError(null);
     try {
@@ -964,11 +977,14 @@ export function ApplicationDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to retry extraction.");
     } finally {
+      isRetryingExtractionRef.current = false;
       setIsRetryingExtraction(false);
     }
   }
 
   async function handleCancelExtraction() {
+    if (isCancellingExtractionRef.current) return;
+    isCancellingExtractionRef.current = true;
     setIsCancellingExtraction(true);
     setError(null);
     try {
@@ -982,11 +998,14 @@ export function ApplicationDetailPage() {
       setError(err instanceof Error ? err.message : "Unable to stop extraction.");
       toast("Failed to stop extraction", "error");
     } finally {
+      isCancellingExtractionRef.current = false;
       setIsCancellingExtraction(false);
     }
   }
 
   async function handleDeleteApplication() {
+    if (isDeletingRef.current) return;
+    isDeletingRef.current = true;
     setIsDeleting(true);
     setError(null);
     try {
@@ -999,12 +1018,15 @@ export function ApplicationDetailPage() {
       setError(err instanceof Error ? err.message : "Unable to delete application.");
       toast("Failed to delete application", "error");
     } finally {
+      isDeletingRef.current = false;
       setIsDeleting(false);
     }
   }
 
   async function handleRecoverFromSource(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isRecoveringFromSourceRef.current) return;
+    isRecoveringFromSourceRef.current = true;
     setIsRecoveringFromSource(true);
     setError(null);
     try {
@@ -1020,6 +1042,7 @@ export function ApplicationDetailPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to recover from pasted source text.");
     } finally {
+      isRecoveringFromSourceRef.current = false;
       setIsRecoveringFromSource(false);
     }
   }

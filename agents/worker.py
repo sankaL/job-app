@@ -590,10 +590,10 @@ def extract_reference_id(*values: Optional[str]) -> Optional[str]:
 def detect_blocked_page(context: PageContext) -> Optional[ExtractionFailureDetails]:
     combined = " ".join(
         [
-            context.page_title,
-            context.final_url,
+            context.page_title or "",
+            context.final_url or "",
             " ".join(f"{key} {value}" for key, value in context.meta.items()),
-            context.visible_text[:EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT],
+            (context.visible_text or "")[:EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT],
         ]
     ).lower()
 

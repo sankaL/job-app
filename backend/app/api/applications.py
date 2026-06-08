@@ -29,6 +29,12 @@ from app.services.progress import ProgressRecord, now_iso
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 logger = logging.getLogger(__name__)
 STREAM_HEARTBEAT_SECONDS = 15.0
+SOURCE_TEXT_MAX_LENGTH = 40_000
+CAPTURE_META_MAX_ENTRIES = 50
+CAPTURE_META_KEY_MAX_LENGTH = 200
+CAPTURE_META_VALUE_MAX_LENGTH = 2_000
+CAPTURE_JSON_LD_MAX_ENTRIES = 10
+CAPTURE_JSON_LD_ENTRY_MAX_LENGTH = 20_000
 
 INSTRUCTION_WHITESPACE_RE = re.compile(r"\s+")
 UNSAFE_INSTRUCTION_PATTERNS = (
@@ -75,13 +81,23 @@ def _validate_generation_instruction_text(value: Optional[str], *, required: boo
 
 class CreateApplicationRequest(BaseModel):
     job_url: Optional[HttpUrl] = None
-    source_text: Optional[str] = None
+    source_text: Optional[str] = Field(default=None, max_length=SOURCE_TEXT_MAX_LENGTH)
 
-    @field_validator("source_text")
+    @field_validator("job_url", mode="before")
     @classmethod
-    def normalize_source_text(cls, value: Optional[str]) -> Optional[str]:
+    def normalize_job_url(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+    @field_validator("source_text", mode="before")
+    @classmethod
+    def normalize_source_text(cls, value: Any) -> Any:
         if value is None:
             return None
+        if not isinstance(value, str):
+            return value
         stripped = value.strip()
         return stripped or None
 
@@ -250,20 +266,47 @@ class ExtractionProgress(BaseModel):
 
 
 class RecoverFromSourceRequest(BaseModel):
-    source_text: str
+    source_text: str = Field(max_length=SOURCE_TEXT_MAX_LENGTH)
     source_url: Optional[HttpUrl] = None
     page_title: Optional[str] = None
-    meta: dict[str, str] = Field(default_factory=dict)
-    json_ld: list[str] = Field(default_factory=list)
+    meta: dict[str, str] = Field(default_factory=dict, max_length=CAPTURE_META_MAX_ENTRIES)
+    json_ld: list[str] = Field(default_factory=list, max_length=CAPTURE_JSON_LD_MAX_ENTRIES)
     captured_at: Optional[str] = None
 
-    @field_validator("source_text")
+    @field_validator("source_url", mode="before")
     @classmethod
-    def require_non_blank_source_text(cls, value: str) -> str:
+    def normalize_source_url(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
+    @field_validator("source_text", mode="before")
+    @classmethod
+    def require_non_blank_source_text(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
         stripped = value.strip()
         if not stripped:
             raise ValueError("Source text cannot be blank.")
         return stripped
+
+    @field_validator("meta")
+    @classmethod
+    def validate_meta_size(cls, value: dict[str, str]) -> dict[str, str]:
+        for key, item in value.items():
+            if len(key) > CAPTURE_META_KEY_MAX_LENGTH:
+                raise ValueError("Meta keys are too large.")
+            if len(item) > CAPTURE_META_VALUE_MAX_LENGTH:
+                raise ValueError("Meta values are too large.")
+        return value
+
+    @field_validator("json_ld")
+    @classmethod
+    def validate_json_ld_size(cls, value: list[str]) -> list[str]:
+        if any(len(item) > CAPTURE_JSON_LD_ENTRY_MAX_LENGTH for item in value):
+            raise ValueError("JSON-LD entries are too large.")
+        return value
 
     @field_validator("page_title", "captured_at")
     @classmethod

@@ -1573,6 +1573,25 @@ async def test_retry_extraction_restores_manual_entry_when_queue_fails():
 
 
 @pytest.mark.asyncio
+async def test_retry_extraction_rejects_url_less_application():
+    service, repository, _, _, queue, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url=None,
+        visible_status="needs_action",
+        internal_state="manual_entry_required",
+    )
+
+    with pytest.raises(PermissionError, match="Add a source URL"):
+        await service.retry_extraction(
+            user_id="user-1",
+            application_id=created.id,
+        )
+
+    assert queue.enqueued == []
+
+
+@pytest.mark.asyncio
 async def test_duplicate_resolution_requires_pending_duplicate_review_state():
     service, repository, _, _, _, _, _ = build_service()
     created = repository.create_application(
