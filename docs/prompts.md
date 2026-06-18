@@ -850,11 +850,12 @@ Section-regeneration coherence rules:
 
 ## ATS Keyword Extraction Prompt
 
-Keyword extraction runs after job-description capture from URL extraction, pasted-description extraction, manual entry, recovery extraction, and later job-description edits.
+Keyword extraction runs as a separate queued worker flow after the backend persists a job description from URL extraction, pasted-description extraction, manual entry, recovery extraction, or later job-description edits.
 
 ### Runtime behavior
 
 - The worker uses OpenRouter via LangChain `ChatOpenAI` structured output.
+- Primary job-posting extraction does not wait for the keyword model before completing; extraction success persists the job description first, then queues keyword extraction from that persisted source.
 - The keyword extractor uses the dedicated keyword model settings when configured, otherwise it falls back to the existing extraction model/fallback pair.
 - Each model attempt is bounded by a `30s` request timeout. A primary timeout moves to the fallback model; exhaustion of both models posts a failed callback.
 - The model response schema is a single JSON object with `keywords`, an ordered array of strings.

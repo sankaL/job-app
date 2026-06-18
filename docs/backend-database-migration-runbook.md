@@ -323,13 +323,13 @@ This runbook applies whenever backend or database work changes schema, compatibi
 - Keyword entries may include `source: "extracted"` or `source: "manual"`, and manual entries may include `added_at`. Extraction reruns replace extracted entries and preserve manual entries.
 - Rollout order for this change:
   1. Apply the additive migration.
-  2. Deploy backend and worker code that queues keyword extraction after job-description capture or edits, persists queued/running/succeeded/failed payloads, bounds worker model attempts, and rejects stale callbacks by `user_id`, `job_id`, `source_hash`, and the current job-description hash.
+  2. Deploy backend and worker code that queues keyword extraction after job-description capture or edits are persisted, persists queued/running/succeeded/failed payloads, bounds worker model attempts, and rejects stale callbacks by `user_id`, `job_id`, `source_hash`, and the current job-description hash.
   3. Deploy frontend keyword-panel UI and draft response handling that reads backend-computed coverage metrics.
 - No backfill is required. Existing applications may keep `NULL` `job_keywords` until their job description is extracted, saved, recovered, or edited.
 - Read paths must stay compatible with mixed rows where keyword extraction is unavailable, queued, running, failed, or succeeded against an older job-description hash.
-- Stale `queued` or `running` keyword payloads are recovered to warn-only `failed` payloads during application detail and draft reads; this recovery must not change the primary application workflow status.
+- Stale `queued` or `running` keyword payloads are recovered to warn-only `failed` payloads during application detail and draft reads; this recovery must not change the primary application workflow status. There is no background sweep for keyword extraction state in the MVP, so rows are reconciled the next time the user or client reads the application or draft.
 - Post-deploy verification should confirm:
-  - URL extraction, pasted-description extraction, recovery extraction, manual entry, and later `job_description` edits enqueue keyword extraction
+  - URL extraction, pasted-description extraction, recovery extraction, manual entry, and later `job_description` edits enqueue standalone keyword extraction after the primary job description is persisted
   - stale keyword callbacks do not overwrite keywords for a newer job description, different keyword job id, or different user
   - hung keyword model calls time out, fall back when possible, and otherwise persist a warn-only failed keyword payload
   - keyword extraction failure leaves visible application status unchanged and does not block generation, editing, regeneration, judge, or export

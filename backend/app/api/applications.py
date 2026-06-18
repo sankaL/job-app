@@ -1114,7 +1114,7 @@ async def optimize_keywords(
             "request_id": raw_request.headers.get("x-request-id"),
             "user_id": current_user.id,
             "application_id": application_id,
-            "workflow_kind": "regeneration_full",
+            "workflow_kind": "keyword_optimization",
             "regeneration_target": "keyword_optimization",
         },
     )
@@ -1133,7 +1133,7 @@ async def optimize_keywords(
                 "request_id": raw_request.headers.get("x-request-id"),
                 "user_id": current_user.id,
                 "application_id": application_id,
-                "workflow_kind": "regeneration_full",
+                "workflow_kind": "keyword_optimization",
                 "regeneration_target": "keyword_optimization",
                 "error_type": type(error).__name__,
                 "message": str(error),

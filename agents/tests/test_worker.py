@@ -973,6 +973,10 @@ async def test_run_extraction_job_continues_when_started_callback_fails(monkeypa
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
     monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: fake_callback)
     monkeypatch.setattr("worker.OpenRouterExtractionAgent", lambda _settings: FakeExtractor())
+    monkeypatch.setattr(
+        "worker.OpenRouterKeywordExtractionAgent",
+        lambda _settings: pytest.fail("keyword extraction must not run inline during extraction"),
+    )
 
     async def fake_scrape(job_url: str) -> PageContext:
         del job_url
@@ -989,6 +993,7 @@ async def test_run_extraction_job_continues_when_started_callback_fails(monkeypa
     )
 
     assert result["job_title"] == "Senior Backend Engineer"
+    assert result["job_keywords"] is None
     assert fake_callback.events == ["started", "succeeded"]
     final_progress = await fake_writer.get("app-1")
     assert final_progress is not None

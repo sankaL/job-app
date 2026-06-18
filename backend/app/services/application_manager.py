@@ -389,6 +389,7 @@ class ApplicationService:
         generation_job_queue: GenerationJobQueue,
         email_sender: EmailSender,
         settings: Settings,
+        # Optional for tests and legacy construction paths; the DI factory always supplies it.
         keyword_extraction_job_queue: Optional[KeywordExtractionJobQueue] = None,
         usage_event_repository: Optional[UsageEventRepository] = None,
         subscription_repository: Optional[SubscriptionRepository] = None,
@@ -1378,7 +1379,8 @@ class ApplicationService:
                 "details": details or None,
             },
         )
-        return await self._run_duplicate_resolution_flow(updated)
+        updated = await self._run_duplicate_resolution_flow(updated)
+        return await self._enqueue_keyword_extraction_for_record(updated, force=True)
 
     async def _reconcile_generation_success_from_progress_cache(
         self,
@@ -1407,6 +1409,10 @@ class ApplicationService:
         except Exception:
             logger.exception("Failed validating cached generation payload for %s", record.id)
             return None
+
+        latest_record = self.repository.fetch_application(record.user_id, record.id)
+        if latest_record is not None:
+            record = latest_record
 
         keyword_optimization_failure = self._keyword_optimization_failure_details(
             record=record,
@@ -1650,7 +1656,8 @@ class ApplicationService:
                     "details": details or None,
                 },
             )
-            return await self._run_duplicate_resolution_flow(updated)
+            updated = await self._run_duplicate_resolution_flow(updated)
+            return await self._enqueue_keyword_extraction_for_record(updated, force=True)
 
         raise ValueError("Unsupported worker event.")
 
@@ -2189,6 +2196,7 @@ class ApplicationService:
             draft=draft,
             fallback=self._build_section_preferences(profile),
         )
+        # Keyword optimization uses monthly resume_generation_usage quota; full_regeneration_count is legacy.
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
         aggressiveness = str(draft.generation_params.get("aggressiveness") or "medium").strip().lower()
         if aggressiveness not in KEYWORD_COVERAGE_TARGETS:
@@ -3035,6 +3043,16 @@ class ApplicationService:
         if not isinstance(optimization, dict) or not optimization.get("enabled"):
             return None
         starting_match = optimization.get("starting_match") if isinstance(optimization.get("starting_match"), dict) else {}
+        raw_preserve_keywords = optimization.get("preserve_keywords")
+        if not isinstance(raw_preserve_keywords, list):
+            raw_preserve_keywords = starting_match.get("matched_keywords", [])
+        if not isinstance(raw_preserve_keywords, list):
+            raw_preserve_keywords = []
+        preserve_keywords = {
+            str(keyword).strip().lower()
+            for keyword in raw_preserve_keywords
+            if str(keyword).strip()
+        }
         try:
             starting_matched_count = int(starting_match.get("matched_count") or 0)
         except Exception:
@@ -3044,14 +3062,24 @@ class ApplicationService:
             content_md=generated.content_md,
             aggressiveness=str(generated.generation_params.get("aggressiveness") or "medium"),
         )
+        raw_candidate_matched_keywords = (candidate_match or {}).get("matched_keywords", [])
+        if not isinstance(raw_candidate_matched_keywords, list):
+            raw_candidate_matched_keywords = []
+        candidate_matched_keywords = {
+            str(keyword).strip().lower()
+            for keyword in raw_candidate_matched_keywords
+            if str(keyword).strip()
+        }
+        missing_preserved_keywords = sorted(preserve_keywords - candidate_matched_keywords)
         candidate_matched_count = int((candidate_match or {}).get("matched_count") or 0)
-        if candidate_matched_count >= starting_matched_count:
+        if candidate_matched_count >= starting_matched_count and not missing_preserved_keywords:
             return None
         return {
             "failure_stage": "keyword_optimization",
             "terminal_error_code": "keyword_coverage_regressed",
             "starting_matched_count": starting_matched_count,
             "candidate_matched_count": candidate_matched_count,
+            "missing_preserved_keywords": missing_preserved_keywords,
             "starting_percentage": starting_match.get("percentage"),
             "candidate_percentage": (candidate_match or {}).get("percentage"),
         }
@@ -4198,6 +4226,7 @@ class ApplicationService:
 
     @staticmethod
     def _keyword_source_hash(job_description: Optional[str]) -> str:
+        # Keep in sync with keyword_source_hash in the worker process.
         normalized = re.sub(r"\s+", " ", str(job_description or "")).strip().lower()
         return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
@@ -4389,6 +4418,7 @@ class ApplicationService:
     @staticmethod
     @lru_cache(maxsize=512)
     def _keyword_regex(keyword: str) -> re.Pattern[str]:
+        # Process-local cache sized for several active application keyword sets.
         normalized = re.sub(r"\s+", " ", keyword).strip().lower()
         escaped = re.escape(normalized)
         escaped = escaped.replace(r"\ ", r"\s+")
@@ -4402,6 +4432,7 @@ class ApplicationService:
         keywords: list[Any],
         job_description: Optional[str],
     ) -> list[str]:
+        # Keep exact-phrase boundary behavior in sync with filter_keywords_to_job_description in the worker.
         searchable = re.sub(r"\s+", " ", str(job_description or "")).strip().lower()
         if not searchable:
             return []
@@ -4732,10 +4763,30 @@ class ApplicationService:
         if not failure_details:
             return normalized
 
-        for key in ("failure_stage", "attempt_count", "terminal_error_code", "repair_model", "section_name"):
+        for key in (
+            "failure_stage",
+            "attempt_count",
+            "terminal_error_code",
+            "repair_model",
+            "section_name",
+            "starting_matched_count",
+            "candidate_matched_count",
+            "starting_percentage",
+            "candidate_percentage",
+        ):
             value = failure_details.get(key)
             if value not in (None, ""):
                 normalized[key] = value
+
+        missing_preserved_keywords = failure_details.get("missing_preserved_keywords")
+        if isinstance(missing_preserved_keywords, list):
+            normalized_keywords = [
+                str(keyword).strip()[:KEYWORD_TEXT_MAX_CHARS]
+                for keyword in missing_preserved_keywords
+                if str(keyword).strip()
+            ]
+            if normalized_keywords:
+                normalized["missing_preserved_keywords"] = normalized_keywords[:KEYWORD_MANUAL_MAX_COUNT]
 
         attempts = failure_details.get("attempts")
         if isinstance(attempts, list):
@@ -4874,7 +4925,7 @@ class ApplicationService:
         if payload is None or payload.get("status") not in {"queued", "running"}:
             return record
 
-        updated_at = self._parse_timestamp(str(payload.get("updated_at") or record.updated_at))
+        updated_at = self._parse_timestamp(str(payload.get("updated_at") or record.created_at))
         if updated_at is None:
             return record
 

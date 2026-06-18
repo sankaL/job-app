@@ -84,6 +84,7 @@ FULL_GENERATION_MAX_TIMEOUT_SECONDS = 240.0
 SECTION_REGENERATION_TIMEOUT_SECONDS = 120.0
 RESUME_JUDGE_TIMEOUT_SECONDS = 60.0
 KEYWORD_EXTRACTION_MODEL_TIMEOUT_SECONDS = 30.0
+KEYWORD_EXTRACTION_MAX_KEYWORDS = 30
 EXTRACTION_TEXT_LIMIT = 40_000
 EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT = 8_000
 
@@ -371,7 +372,7 @@ class ExtractedKeywordPayload(BaseModel):
                 continue
             seen.add(key)
             normalized.append(text)
-        return normalized[:30]
+        return normalized[:KEYWORD_EXTRACTION_MAX_KEYWORDS]
 
 
 def now_iso() -> str:
@@ -986,10 +987,7 @@ class OpenRouterKeywordExtractionAgent:
                 json.dumps({"job_description": job_description[:EXTRACTION_TEXT_LIMIT]}),
             ),
         ]
-        return await asyncio.wait_for(
-            llm.ainvoke(prompt),
-            timeout=KEYWORD_EXTRACTION_MODEL_TIMEOUT_SECONDS,
-        )
+        return await llm.ainvoke(prompt)
 
 
 async def scrape_page_context(job_url: str) -> PageContext:
@@ -1072,6 +1070,7 @@ def finalize_extracted_posting(
 
 
 def keyword_source_hash(job_description: str) -> str:
+    # Keep in sync with ApplicationService._keyword_source_hash in the API process.
     normalized = re.sub(r"\s+", " ", str(job_description or "")).strip().lower()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
@@ -1092,6 +1091,7 @@ def keyword_occurs_exact_case_insensitive(keyword: str, job_description: str) ->
 
 
 def filter_keywords_to_job_description(keywords: list[str], job_description: str) -> list[str]:
+    # Keep exact-phrase boundary behavior in sync with ApplicationService._filter_keywords_to_job_description.
     filtered: list[str] = []
     seen: set[str] = set()
     for keyword in keywords:
@@ -1105,7 +1105,7 @@ def filter_keywords_to_job_description(keywords: list[str], job_description: str
             continue
         seen.add(dedupe_key)
         filtered.append(normalized)
-        if len(filtered) >= 30:
+        if len(filtered) >= KEYWORD_EXTRACTION_MAX_KEYWORDS:
             break
     return filtered
 
@@ -1340,7 +1340,6 @@ async def run_extraction_job(
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
     extractor = OpenRouterExtractionAgent(settings)
-    keyword_extractor = OpenRouterKeywordExtractionAgent(settings)
 
     await set_progress(
         writer,
@@ -1428,22 +1427,6 @@ async def run_extraction_job(
         )
         extracted, model_used = await extractor.extract(context)
         finalized = finalize_extracted_posting(extracted, context)
-        try:
-            keyword_payload, _keyword_model = await keyword_extractor.extract_keywords(finalized.job_description)
-            finalized.job_keywords = keyword_payload
-        except Exception as keyword_error:
-            _log_generation_event(
-                "keyword_extraction_failed",
-                workflow_kind="extraction",
-                application_id=application_id,
-                job_id=job_id,
-                error=_sanitize_error(keyword_error),
-            )
-            finalized.job_keywords = build_job_keywords_payload(
-                status="failed",
-                job_description=finalized.job_description,
-                message="Keyword extraction failed.",
-            )
         await set_progress(
             writer,
             application_id,

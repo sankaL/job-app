@@ -949,6 +949,174 @@ async def test_keyword_optimization_callback_keeps_old_draft_when_coverage_regre
 
 
 @pytest.mark.asyncio
+async def test_keyword_optimization_callback_keeps_old_draft_when_preserved_keyword_is_removed():
+    service, repository, _, progress_store, _, _, drafts = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/keyword-preserve",
+        visible_status="in_progress",
+        internal_state="regenerating_full",
+    )
+    repository.records[record.id] = record.model_copy(
+        update={
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": "hash-1",
+                "keywords": [
+                    {"text": "React Native", "source": "extracted"},
+                    {"text": "Kubernetes", "source": "extracted"},
+                ],
+            }
+        }
+    )
+    drafts.upsert_draft(
+        application_id=record.id,
+        user_id="user-1",
+        content_md="# Resume\n\nBuilt React Native apps.",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    await progress_store.set(
+        record.id,
+        ProgressRecord(
+            job_id="regen-keyword-preserve-1",
+            workflow_kind="regeneration_full",
+            state="regenerating_full",
+            message="Keyword optimization is running.",
+            percent_complete=50,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:00:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    updated = await service.handle_regeneration_callback(
+        application_manager_service.RegenerationCallbackPayload.model_validate(
+            {
+                "application_id": record.id,
+                "user_id": "user-1",
+                "job_id": "regen-keyword-preserve-1",
+                "event": "succeeded",
+                "regeneration_target": "keyword_optimization",
+                "quota_period_start": "2026-04-01",
+                "generated": {
+                    "content_md": "# Resume\n\nBuilt Kubernetes systems.",
+                    "generation_params": {
+                        "page_length": "1_page",
+                        "aggressiveness": "medium",
+                        "keyword_optimization": {
+                            "enabled": True,
+                            "target_keywords": ["Kubernetes"],
+                            "preserve_keywords": ["React Native"],
+                            "starting_match": {
+                                "matched_count": 1,
+                                "total_count": 2,
+                                "percentage": 50,
+                                "target_percentage": 65,
+                                "target_met": False,
+                                "matched_keywords": ["React Native"],
+                                "missing_keywords": ["Kubernetes"],
+                            },
+                        },
+                    },
+                    "sections_snapshot": {"enabled_sections": ["summary"], "section_order": ["summary"]},
+                },
+            }
+        )
+    )
+
+    assert updated.failure_reason == "regeneration_failed"
+    assert updated.generation_failure_details["failure_stage"] == "keyword_optimization"
+    assert updated.generation_failure_details["missing_preserved_keywords"] == ["react native"]
+    assert drafts.fetch_draft("user-1", record.id).content_md == "# Resume\n\nBuilt React Native apps."
+
+
+@pytest.mark.asyncio
+async def test_keyword_optimization_cached_success_refetches_latest_keywords_before_regression_guard():
+    service, repository, _, progress_store, _, _, drafts = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/keyword-cache",
+        visible_status="in_progress",
+        internal_state="regenerating_full",
+    )
+    latest_record = record.model_copy(
+        update={
+            "job_title": "Mobile Platform Engineer",
+            "company": "Acme",
+            "job_description": "Build React Native apps with Kubernetes.",
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": "hash-1",
+                "keywords": [
+                    {"text": "React Native", "source": "extracted"},
+                    {"text": "Kubernetes", "source": "extracted"},
+                ],
+            },
+        }
+    )
+    repository.records[record.id] = latest_record
+    stale_record = latest_record.model_copy(
+        update={
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": "old-hash",
+                "keywords": [],
+            }
+        }
+    )
+    progress = ProgressRecord(
+        job_id="regen-keyword-cache-1",
+        workflow_kind="regeneration_full",
+        state="resume_ready",
+        message="Regeneration completed.",
+        percent_complete=100,
+        created_at="2026-04-07T12:00:00+00:00",
+        updated_at="2026-04-07T12:01:00+00:00",
+        completed_at="2026-04-07T12:01:00+00:00",
+        terminal_error_code=None,
+    )
+    progress_store.generation_results[record.id] = {
+        "job_id": "regen-keyword-cache-1",
+        "workflow_kind": "regeneration_full",
+        "generated": {
+            "content_md": "# Resume\n\nBuilt React Native apps.",
+            "generation_params": {
+                "page_length": "1_page",
+                "aggressiveness": "medium",
+                "keyword_optimization": {
+                    "enabled": True,
+                    "target_keywords": ["Kubernetes"],
+                    "preserve_keywords": ["React Native"],
+                    "starting_match": {
+                        "matched_count": 1,
+                        "total_count": 2,
+                        "percentage": 50,
+                        "target_percentage": 65,
+                        "target_met": False,
+                        "matched_keywords": ["React Native"],
+                        "missing_keywords": ["Kubernetes"],
+                    },
+                },
+            },
+            "sections_snapshot": {"enabled_sections": ["summary"], "section_order": ["summary"]},
+        },
+    }
+
+    updated = await service._reconcile_generation_success_from_progress_cache(  # type: ignore[attr-defined]
+        record=stale_record,
+        progress=progress,
+    )
+
+    assert updated is not None
+    assert updated.internal_state == "resume_ready"
+    assert updated.failure_reason is None
+    assert drafts.fetch_draft("user-1", record.id).content_md == "# Resume\nBuilt React Native apps.\n"
+    assert record.id not in progress_store.generation_results
+
+
+@pytest.mark.asyncio
 async def test_manual_entry_queues_keyword_extraction_from_job_description():
     service, repository, *_ = build_service()
     record = repository.create_application(
@@ -971,6 +1139,81 @@ async def test_manual_entry_queues_keyword_extraction_from_job_description():
     assert detail.application.job_keywords is not None
     assert detail.application.job_keywords["status"] == "queued"
     assert detail.application.job_keywords["source_hash"]
+
+
+@pytest.mark.asyncio
+async def test_extraction_success_callback_queues_keyword_extraction_after_persisting_job_description():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/extracted-keywords",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+
+    updated = await service.handle_worker_callback(
+        WorkerCallbackPayload(
+            application_id=record.id,
+            user_id="user-1",
+            job_id="job-1",
+            event="succeeded",
+            extracted=WorkerSuccessPayload(
+                job_title="Platform Engineer",
+                job_description="Build React Native apps with CI/CD pipelines and Kubernetes.",
+                company="Acme",
+            ),
+        )
+    )
+
+    keyword_queue = service.keyword_extraction_job_queue  # type: ignore[attr-defined]
+    assert len(keyword_queue.enqueued) == 1
+    assert keyword_queue.enqueued[0]["application_id"] == record.id
+    assert keyword_queue.enqueued[0]["job_description"] == "Build React Native apps with CI/CD pipelines and Kubernetes."
+    assert updated.job_keywords is not None
+    assert updated.job_keywords["status"] == "queued"
+    assert updated.internal_state == "generation_pending"
+
+
+@pytest.mark.asyncio
+async def test_cached_extraction_success_queues_keyword_extraction_after_recovery():
+    service, repository, _, progress_store, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/cached-keywords",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    await progress_store.set(
+        record.id,
+        ProgressRecord(
+            job_id="job-1",
+            workflow_kind="extraction",
+            state="generation_pending",
+            message="Extraction completed.",
+            percent_complete=100,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:00:30+00:00",
+            completed_at="2026-04-07T12:00:30+00:00",
+            terminal_error_code=None,
+        ),
+    )
+    progress_store.extraction_results[record.id] = {
+        "job_id": "job-1",
+        "extracted": {
+            "job_title": "Platform Engineer",
+            "job_description": "Build React Native apps with CI/CD pipelines and Kubernetes.",
+            "company": "Acme",
+        },
+    }
+
+    detail = await service.get_application_detail(user_id="user-1", application_id=record.id)
+
+    keyword_queue = service.keyword_extraction_job_queue  # type: ignore[attr-defined]
+    assert len(keyword_queue.enqueued) == 1
+    assert keyword_queue.enqueued[0]["application_id"] == record.id
+    assert detail.application.job_keywords is not None
+    assert detail.application.job_keywords["status"] == "queued"
+    assert detail.application.internal_state == "generation_pending"
 
 
 @pytest.mark.asyncio
@@ -997,14 +1240,17 @@ async def test_job_description_edit_reruns_keyword_extraction():
         },
     )
 
+    new_description = "Build React Native apps with CI/CD pipelines."
+    new_hash = service._keyword_source_hash(new_description)  # type: ignore[attr-defined]
     detail = await service.patch_application(
         user_id="user-1",
         application_id=record.id,
-        updates={"job_description": "Build React Native apps with CI/CD pipelines."},
+        updates={"job_description": new_description},
     )
 
     keyword_queue = service.keyword_extraction_job_queue  # type: ignore[attr-defined]
     assert len(keyword_queue.enqueued) == 1
+    assert keyword_queue.enqueued[0]["source_hash"] == new_hash
     assert detail.application.job_keywords is not None
     assert detail.application.job_keywords["status"] == "queued"
     assert detail.application.job_keywords["source_hash"] != old_hash
@@ -1237,6 +1483,39 @@ async def test_get_application_detail_recovers_stale_keyword_extraction_without_
     detail = await service.get_application_detail(user_id="user-1", application_id=record.id)
 
     assert detail.application.internal_state == "resume_ready"
+    assert detail.application.job_keywords is not None
+    assert detail.application.job_keywords["status"] == "failed"
+    assert "timed out" in detail.application.job_keywords["message"]
+
+
+@pytest.mark.asyncio
+async def test_stale_keyword_extraction_without_payload_timestamp_uses_record_created_at():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    now = datetime.now(timezone.utc)
+    description = "Build React Native apps."
+    source_hash = service._keyword_source_hash(description)  # type: ignore[attr-defined]
+    repository.records[record.id] = record.model_copy(
+        update={
+            "created_at": (now - timedelta(seconds=240)).isoformat(),
+            "updated_at": now.isoformat(),
+            "job_description": description,
+            "job_keywords": {
+                "status": "running",
+                "source_hash": source_hash,
+                "job_id": "keyword-job-1",
+                "keywords": [],
+            },
+        }
+    )
+
+    detail = await service.get_application_detail(user_id="user-1", application_id=record.id)
+
     assert detail.application.job_keywords is not None
     assert detail.application.job_keywords["status"] == "failed"
     assert "timed out" in detail.application.job_keywords["message"]
