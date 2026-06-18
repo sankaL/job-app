@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-17
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -315,7 +315,29 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - queue failures do not consume a full-regeneration slot
   - stalled-job recovery and worker timeouts match the `240s` full-generation/full-regeneration and `120s` section-regeneration contract
 
-## Current Additive Change Note: Resume Judge Result Persistence
+## Current Additive Change Note: Application Job Keywords
+
+- Add the additive migration `supabase/migrations/20260615_000017_application_job_keywords.sql`.
+- This migration adds nullable `applications.job_keywords jsonb` to store the latest ATS keyword extraction lifecycle state and ordered exact job-description phrases.
+- The 2026-06-17 manual keyword and targeted keyword optimization update extends this JSON contract only. No additional migration is required because `applications.job_keywords` is already JSONB.
+- Keyword entries may include `source: "extracted"` or `source: "manual"`, and manual entries may include `added_at`. Extraction reruns replace extracted entries and preserve manual entries.
+- Rollout order for this change:
+  1. Apply the additive migration.
+  2. Deploy backend and worker code that queues keyword extraction after job-description capture or edits, persists queued/running/succeeded/failed payloads, bounds worker model attempts, and rejects stale callbacks by `user_id`, `job_id`, `source_hash`, and the current job-description hash.
+  3. Deploy frontend keyword-panel UI and draft response handling that reads backend-computed coverage metrics.
+- No backfill is required. Existing applications may keep `NULL` `job_keywords` until their job description is extracted, saved, recovered, or edited.
+- Read paths must stay compatible with mixed rows where keyword extraction is unavailable, queued, running, failed, or succeeded against an older job-description hash.
+- Stale `queued` or `running` keyword payloads are recovered to warn-only `failed` payloads during application detail and draft reads; this recovery must not change the primary application workflow status.
+- Post-deploy verification should confirm:
+  - URL extraction, pasted-description extraction, recovery extraction, manual entry, and later `job_description` edits enqueue keyword extraction
+  - stale keyword callbacks do not overwrite keywords for a newer job description, different keyword job id, or different user
+  - hung keyword model calls time out, fall back when possible, and otherwise persist a warn-only failed keyword payload
+  - keyword extraction failure leaves visible application status unchanged and does not block generation, editing, regeneration, judge, or export
+  - draft responses compute case-insensitive exact phrase coverage without synonyms, fuzzy matching, stemming, punctuation variants, plural variants, or reordered words
+  - backend callback persistence re-filters worker keywords against the current job description before storing them
+  - generated and edited drafts refresh coverage metrics against the latest stored keyword list
+
+## Historical Additive Change Note: Resume Judge Result Persistence
 
 - Add the additive migration `supabase/migrations/20260417_000012_phase_5_resume_judge_result.sql`.
 - This migration adds `applications.resume_judge_result jsonb` to store the latest Resume Judge lifecycle state and score for the current draft.

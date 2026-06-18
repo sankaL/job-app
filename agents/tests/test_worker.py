@@ -13,6 +13,7 @@ from worker import (
     BackendCallbackClient,
     EXTRACTION_TEXT_LIMIT,
     ExtractedJobPosting,
+    ExtractedKeywordPayload,
     FULL_GENERATION_MAX_TIMEOUT_SECONDS,
     JobProgress,
     OpenRouterExtractionAgent,
@@ -22,14 +23,18 @@ from worker import (
     WorkerSettingsEnv,
     build_generation_failure_payload,
     build_generation_success_payload,
+    build_job_keywords_payload,
     build_page_context_from_capture,
     detect_blocked_page,
     extract_reference_id,
+    filter_keywords_to_job_description,
     finalize_extracted_posting,
+    keyword_occurs_exact_case_insensitive,
     is_current_job,
     normalize_origin_from_url,
     run_extraction_job,
     run_generation_job,
+    run_keyword_extraction_job,
     run_resume_judge_job,
     set_progress,
 )
@@ -73,6 +78,107 @@ def build_context() -> PageContext:
         detected_origin="linkedin",
         extracted_reference_id="1234567890",
     )
+
+
+def test_filter_keywords_keeps_only_exact_job_description_phrases():
+    job_description = "We need React Native, CI/CD, and Kubernetes experience. React Native appears twice."
+
+    keywords = filter_keywords_to_job_description(
+        ["react native", "CI CD", "Kubernetes", "container orchestration", "React Native"],
+        job_description,
+    )
+
+    assert keywords == ["react native", "Kubernetes"]
+
+
+def test_keyword_occurs_exact_case_insensitive_rejects_variants():
+    assert keyword_occurs_exact_case_insensitive("React Native", "react native experience")
+    assert not keyword_occurs_exact_case_insensitive("React Native", "React-Native experience")
+    assert not keyword_occurs_exact_case_insensitive("Kubernetes", "Kubernetess")
+    assert keyword_occurs_exact_case_insensitive("C++", "C++ experience")
+    assert not keyword_occurs_exact_case_insensitive("C++", "C++17 experience")
+    assert not keyword_occurs_exact_case_insensitive("C#", "C#Developer role")
+
+
+def test_build_job_keywords_payload_uses_ordered_keyword_objects():
+    payload = build_job_keywords_payload(
+        status="succeeded",
+        job_description="Build APIs.",
+        keywords=["Build APIs"],
+        model_used="cheap-model",
+        job_id="job-1",
+    )
+
+    assert payload["status"] == "succeeded"
+    assert payload["keywords"] == [{"text": "Build APIs", "source": "extracted"}]
+    assert payload["model_used"] == "cheap-model"
+    assert payload["job_id"] == "job-1"
+
+
+@pytest.mark.asyncio
+async def test_keyword_extraction_falls_back_after_primary_timeout(monkeypatch):
+    settings = WorkerSettingsEnv(
+        openrouter_api_key="test-key",
+        keyword_extraction_agent_model="primary-keyword-model",
+        keyword_extraction_agent_fallback_model="fallback-keyword-model",
+    )
+    agent = worker.OpenRouterKeywordExtractionAgent(settings)
+    attempts: list[str] = []
+
+    async def fake_extract_with_model(model_name: str, job_description: str) -> ExtractedKeywordPayload:
+        del job_description
+        attempts.append(model_name)
+        if model_name == "primary-keyword-model":
+            raise asyncio.TimeoutError()
+        return ExtractedKeywordPayload(keywords=["React Native"])
+
+    monkeypatch.setattr(agent, "_extract_with_model", fake_extract_with_model)
+
+    payload, model_used = await agent.extract_keywords("Build React Native applications.")
+
+    assert attempts == ["primary-keyword-model", "fallback-keyword-model"]
+    assert model_used == "fallback-keyword-model"
+    assert payload["keywords"] == [{"text": "React Native", "source": "extracted"}]
+
+
+@pytest.mark.asyncio
+async def test_run_keyword_extraction_job_posts_failed_callback_on_timeout(monkeypatch):
+    class FakeCallback:
+        def __init__(self, _settings: WorkerSettingsEnv) -> None:
+            self.payloads: list[dict[str, object]] = []
+
+        async def post(self, payload: dict[str, object], *, path: str = "/api/internal/worker/extraction-callback"):
+            self.payloads.append({"path": path, **payload})
+
+    class FakeKeywordExtractor:
+        def __init__(self, _settings: WorkerSettingsEnv) -> None:
+            pass
+
+        async def extract_keywords(self, job_description: str):
+            del job_description
+            raise asyncio.TimeoutError()
+
+    fake_callback = FakeCallback(WorkerSettingsEnv())
+    monkeypatch.setattr(
+        "worker.WorkerSettingsEnv",
+        lambda: WorkerSettingsEnv(redis_url="redis://unused", openrouter_api_key="test-key"),
+    )
+    monkeypatch.setattr("worker.BackendCallbackClient", lambda settings: fake_callback)
+    monkeypatch.setattr("worker.OpenRouterKeywordExtractionAgent", FakeKeywordExtractor)
+
+    job_description = "Build React Native applications."
+    result = await run_keyword_extraction_job(
+        {},
+        application_id="app-1",
+        user_id="user-1",
+        job_id="keyword-job-1",
+        job_description=job_description,
+        source_hash=worker.keyword_source_hash(job_description),
+    )
+
+    assert result["event"] == "failed"
+    assert [payload["event"] for payload in fake_callback.payloads] == ["started", "failed"]
+    assert fake_callback.payloads[-1]["path"] == worker.KEYWORD_EXTRACTION_CALLBACK_PATH
 
 
 def test_normalize_origin_from_url_maps_common_sources():
@@ -478,6 +584,7 @@ def test_stored_generation_settings_strips_private_model_fields():
             "_generation_fallback_model": "openai/gpt-5.4-mini",
             "_generation_fallback_reasoning_effort": "high",
             "_base_resume_snapshot_content": "# Resume\n\nOld content",
+            "_current_draft_snapshot_content": "# Resume\n\nCurrent content",
         },
         model_used="google/gemini-3-flash-preview",
     )
@@ -490,6 +597,7 @@ def test_stored_generation_settings_strips_private_model_fields():
     assert "_generation_fallback_model" not in stored
     assert "_generation_fallback_reasoning_effort" not in stored
     assert "_base_resume_snapshot_content" not in stored
+    assert "_current_draft_snapshot_content" not in stored
 
 
 def test_quota_period_start_normalizes_blank_values():

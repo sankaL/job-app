@@ -22,6 +22,7 @@ The product should enable a user to:
 - Manage multiple job applications
 - Maintain one or more base resumes
 - Generate a tailored resume for a specific job posting
+- Inspect exact ATS keyword phrases extracted from each job description and see deterministic draft coverage
 - Edit the generated resume directly in Markdown
 - Regenerate sections or the full resume with instructions
 - Export the final resume as a PDF
@@ -106,11 +107,11 @@ The app must provide meaningful loading, progress, success, error, and attention
 3. User clicks **New Application**
 4. User pastes a job link
 5. System creates a draft application and starts async extraction
-6. If extraction succeeds, the system runs duplicate detection automatically, considering job posting origin when available
+6. If extraction succeeds, the system runs duplicate detection automatically, considering job posting origin when available, and extracts exact ATS keyword phrases from the job description
 7. User resolves any duplicate warning
 8. User selects a base resume and generation settings
 9. System generates a tailored Markdown resume
-10. System runs Resume Judge in the background and attaches a score once evaluation completes
+10. System computes exact ATS keyword coverage for the draft and runs Resume Judge in the background
 11. User reviews, edits, regenerates sections or the full resume as needed
 12. User exports the resume as a PDF
 13. User may continue editing after export — doing so returns the status to **In Progress**
@@ -303,6 +304,8 @@ When the posting clearly states a role location, extraction should also capture 
 
 **After manual entry:** Duplicate detection runs automatically.
 
+**ATS keyword extraction and manual keywords:** Whenever a job description is captured, pasted, manually entered, recovered, or later edited, the system should run a cheap structured LLM keyword extraction flow. The extraction should return 8-30 purposeful, high-value exact phrases that already appear in the job description. It should prefer repeated terms, required or preferred qualifications, tools, technologies, credentials, role-title phrases, and core responsibilities. It should exclude generic filler, benefits, legal/EEO language, company boilerplate, and vague soft skills unless clearly role-critical. The backend must deterministically deduplicate and post-filter extracted results so every extracted stored phrase appears in the current job description. Users may add up to 30 manual keyword phrases, capped at 80 characters each; manual keywords persist on the application, do not need to appear in the job description, and participate in deterministic draft coverage and keyword optimization. Existing applications do not require a backfill, and keyword extraction failure must not change visible application status or block resume work.
+
 ---
 
 ### 10.4 Duplicate Detection
@@ -390,6 +393,7 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 **Inputs to generation:**
 - Selected base resume Markdown, sanitized to remove personal and contact information before the LLM call
 - Job description
+- Extracted exact job-description keyword phrases when available, plus the selected aggressiveness coverage target
 - Enabled sections (from user preferences)
 - Section order (from user preferences)
 - Page target
@@ -411,6 +415,7 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - Medium may lightly reframe Professional Experience titles only when the new title stays grounded in the same core role family and seniority as the source title
 - High should actively attempt target-aligned Professional Experience retitles when the new title still matches the demonstrated work and preserves seniority; leave the source title unchanged when no truthful adjacent title is supported
 - Medium and High may add non-factual job-description keyword/skill phrasing for role fit, but must still fail closed on invented employers, dates, institutions, credentials, awards, scope, or outcomes
+- When ATS keywords are available, generation should prefer exact keyword phrasing where truthful and natural. Coverage targets are minimum goals only: Low 45%, Medium 65%, High 80%. There is no upper limit, and missing the target is a warn-only visibility metric, not a validation failure or repair trigger. Targeted keyword optimization uses the user's tier-selected generation model to minimally edit the current draft for missing keywords while preserving already matched phrases and grounding rules. It must keep the previous draft if the optimized candidate lowers the matched keyword count.
 - When Professional Experience is enabled, medium and high must visibly tailor it instead of leaving the first up to 2 roles with bullets effectively source-identical while spending nearly all rewrite effort on Summary or Skills
 - Company and date range for every Professional Experience role are deterministic invariants and must remain source-exact for all aggressiveness levels
 - Education bullets are optional and allowed only for grounded details already present in the source material
@@ -510,6 +515,7 @@ The main working page for a single application.
 - **Resume Judge card:** A dedicated left-rail review card sits above the job description once a draft exists. It owns all judge states, including pending, queued, stale, failed, and scored results, and opens the full breakdown when review details are available.
 - **Resume Judge breakdown:** Shows exact score, verdict, weighted dimension notes, evaluator notes, and regeneration instructions. Judge failure or stale score must not block editing or export.
 - **Stale judge behavior:** If the user edits the draft after scoring, the previous score may stay visible but must be marked stale and offer manual re-evaluation instead of pretending it still matches the latest draft.
+- **ATS Keywords panel and modal:** A compact left-rail panel near Resume Judge and Job Description opens an ATS keyword breakdown modal. The card shows total keywords, extraction state, and, once a draft exists, matched count, total count, percentage, target percentage, and target-met state. The modal shows extracted/manual keyword phrases with matched or missing state, supports adding and removing manual keywords, and offers `Optimize for missing keywords` when a ready draft has missing keywords. Matching is deterministic, case-insensitive, and exact against the stored phrase only; synonyms, fuzzy matches, plural variants, punctuation variants, stemming, and reordered words must not count.
 
 **Action buttons:**
 - Delete Application
@@ -809,6 +815,7 @@ Admin has three product responsibilities in MVP:
 | job_title | string | Extracted or manually entered |
 | company | string | Extracted or manually entered |
 | job_description | text | Extracted or manually entered full primary posting body, including qualifications and other role sections when available |
+| job_keywords | JSONB | nullable; latest ATS keyword extraction lifecycle state, source hash, model, timestamps, and ordered exact keyword phrases with `source` set to `extracted` or `manual` |
 | job_location_text | text | nullable; raw location or hiring-region snippet copied from the posting or manual entry when available |
 | compensation_text | text | nullable; raw salary or compensation snippet copied from the posting or manual entry when available |
 | extracted_reference_id | string | nullable; persisted extracted requisition or reference ID when available |

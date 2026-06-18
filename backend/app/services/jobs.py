@@ -173,9 +173,48 @@ class GenerationJobQueue:
         return job_id
 
 
+class KeywordExtractionJobQueue:
+    def __init__(self, redis_url: str) -> None:
+        self.redis_settings = RedisSettings.from_dsn(redis_url)
+
+    async def enqueue(
+        self,
+        *,
+        application_id: str,
+        user_id: str,
+        job_description: str,
+        source_hash: str,
+    ) -> str:
+        if not job_description.strip():
+            raise ValueError("Job description is required for keyword extraction.")
+        job_id = uuid4().hex
+        redis = await create_pool(self.redis_settings)
+        try:
+            result = await redis.enqueue_job(
+                "run_keyword_extraction_job",
+                application_id=application_id,
+                user_id=user_id,
+                job_id=job_id,
+                job_description=job_description,
+                source_hash=source_hash,
+                _job_id=job_id,
+            )
+        finally:
+            await redis.aclose()
+
+        if result is None:
+            raise RuntimeError("Failed to enqueue keyword extraction job.")
+
+        return job_id
+
+
 def get_extraction_job_queue() -> ExtractionJobQueue:
     return ExtractionJobQueue(get_settings().redis_url)
 
 
 def get_generation_job_queue() -> GenerationJobQueue:
     return GenerationJobQueue(get_settings().redis_url)
+
+
+def get_keyword_extraction_job_queue() -> KeywordExtractionJobQueue:
+    return KeywordExtractionJobQueue(get_settings().redis_url)

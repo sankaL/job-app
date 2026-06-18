@@ -1,7 +1,7 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-05-26
+**Last updated:** 2026-06-17
 **Sources:** `agents/generation.py`, `agents/validation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
@@ -11,7 +11,8 @@ This document records the latest live prompt definitions in the repository. The 
 | Prompt family | Source | Variants documented here | Intended purpose |
 |---|---|---|---|
 | Job posting extraction | `agents/worker.py` | One live prompt shape | Extract structured job-posting fields from captured webpage context without inventing facts and with explicit noise filtering. |
-| Resume generation / full regeneration | `agents/generation.py` | `operation x aggressiveness x target_length`, plus dynamic section permutations | Produce ordered ATS-safe JSON resume sections grounded in the sanitized base resume and job description. |
+| ATS keyword extraction | `agents/worker.py` | One cheap structured prompt shape plus deterministic post-filtering | Extract ordered high-value exact job-description phrases for deterministic draft coverage. |
+| Resume generation / full regeneration / keyword optimization | `agents/generation.py` | `operation x aggressiveness x target_length`, plus dynamic section permutations | Produce ordered ATS-safe JSON resume sections grounded in the sanitized base resume and job description; keyword optimization anchors on the current draft for minimal edits. |
 | Single-section regeneration | `agents/generation.py` | `aggressiveness x target_length`, scoped to one section | Rewrite only the selected section while keeping it coherent with the rest of the draft. |
 | Resume Judge | `agents/resume_judge.py` | One live prompt shape with deterministic observations | Score a generated draft against the job description and sanitized base resume without rewriting it. |
 | Validation-aware repair | `agents/generation.py` | `full-draft or single-section`, repair-only | Repair a previously returned JSON payload using sanitized deterministic validation errors without relaxing the response contract. |
@@ -146,9 +147,10 @@ This section is organized by what stays constant across all resume-writing opera
 |---|---|---|
 | `generation` | Initial draft generation | `Generate a fresh tailored resume draft from the sanitized base resume.` |
 | `regeneration_full` | Full regeneration | `Regenerate the full tailored resume draft from the sanitized base resume.` |
+| `keyword_optimization` | Targeted ATS keyword optimization | `Optimize the existing tailored resume draft for missing ATS keywords with the smallest truthful changes possible.` |
 | `regeneration_section` | Single-section regeneration | `Regenerate only the requested section while keeping it compatible with the rest of the draft.` |
 
-- Initial generation and full regeneration use one full-draft LLM call and differ only by the operation line above and when the workflow allows them to run.
+- Initial generation, full regeneration, and keyword optimization use one full-draft LLM call and differ by the operation line above, allowed workflow state, and whether current-draft context is included.
 - Single-section regeneration uses one LLM call scoped to the requested section only.
 - Full regeneration overwrites the current draft. Section regeneration validates one section, then merges that section back into the current draft.
 - Section regeneration requires non-blank user instructions. Full generation and full regeneration accept optional `additional_instructions`.
@@ -176,6 +178,8 @@ This section is organized by what stays constant across all resume-writing opera
 - If every attempt times out, timeout classification is preserved so the worker can surface `generation_timeout` or `regeneration_timeout`.
 - Successful generation/regeneration payloads are cached in Redis before callback delivery so backend reconciliation can recover a completed draft if callback delivery misses.
 - Callback delivery for `succeeded` and terminal `failed` events is best-effort and no longer crashes completed jobs.
+- When `job_keywords` are available, initial generation, full regeneration, section regeneration, and keyword optimization receive a `keyword_coverage_contract` with the exact phrases and the selected aggressiveness target percentage. The contract is warn-only; it guides wording but never relaxes grounding or validation.
+- Keyword optimization also receives a `keyword_optimization_contract` with `target_keywords`, `preserve_keywords`, `starting_match`, minimal-edit rules, and `sanitized_current_draft_markdown`. Private current-draft snapshot content is stripped before persisted draft generation params are stored.
 
 #### Shared source and privacy rules
 
@@ -185,6 +189,7 @@ This section is organized by what stays constant across all resume-writing opera
 - Personal and contact data are stripped before the LLM call. Name, email, phone, address/location, and LinkedIn never enter the model prompt payload.
 - After successful validation, local assembly reattaches a profile-driven header with `name`, `email`, `phone`, `address`, and optional `linkedin_url`.
 - Additional instructions and section-regeneration instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only.
+- Extracted ATS keywords may be used only as exact phrasing hints where truthful and natural. They must not cause invented employers, dates, credentials, institutions, metrics, work history, or unsupported role scope.
 - API-side instruction screening rejects override or fact-injection attempts such as ignoring prior instructions or adding degrees, employers, dates, certifications, contact data, or named institutions like Harvard, Stanford, or MIT.
 
 #### Shared section and response rules
@@ -349,6 +354,24 @@ Used for both initial generation and full regeneration.
     "max_experience_bullets_per_role": "{{bullet_cap}}",
     "max_skills_categories": "{{skills_cap}}"
   },
+  "keyword_coverage_contract": {
+    "keywords": ["{{exact_job_description_phrase}}"],
+    "target_percentage": "{{45 | 65 | 80 | null}}",
+    "matching_policy": "case-insensitive exact phrase match; no synonyms, fuzzy matches, variants, stemming, or reordered words",
+    "enforcement": "warn_only"
+  },
+  "keyword_optimization_contract": {
+    "enabled": true,
+    "target_keywords": ["{{currently_missing_keyword}}"],
+    "preserve_keywords": ["{{currently_matched_keyword}}"],
+    "starting_match": {"matched_count": "{{count}}", "total_count": "{{count}}"},
+    "edit_policy": [
+      "Preserve existing draft structure and wording wherever possible.",
+      "Prefer exact substitutions, small phrase insertions, and grounded skills-list additions.",
+      "Do not remove already matched keyword phrases unless impossible while staying truthful."
+    ]
+  },
+  "sanitized_current_draft_markdown": "{{present only for keyword_optimization}}",
   "section_rules": {
     "{{section_id}}": "{{section_rule}}"
   },
@@ -458,6 +481,12 @@ Used for both initial generation and full regeneration.
     "target_length": "{{target_length}}",
     "target_range": "{{target_range}}",
     "hard_cap_words": "{{hard_cap_words}}"
+  },
+  "keyword_coverage_contract": {
+    "keywords": ["{{exact_job_description_phrase}}"],
+    "target_percentage": "{{45 | 65 | 80 | null}}",
+    "matching_policy": "case-insensitive exact phrase match; no synonyms, fuzzy matches, variants, stemming, or reordered words",
+    "enforcement": "warn_only"
   },
   "professional_experience_structure_contract": {
     "anchors": [
@@ -818,6 +847,34 @@ Section-regeneration coherence rules:
 - Read other_sections_context and do not repeat a claim that already appears there verbatim or as the dominant selling point.
 - Do not contradict the rest of the draft unless the source resume requires correction.
 ```
+
+## ATS Keyword Extraction Prompt
+
+Keyword extraction runs after job-description capture from URL extraction, pasted-description extraction, manual entry, recovery extraction, and later job-description edits.
+
+### Runtime behavior
+
+- The worker uses OpenRouter via LangChain `ChatOpenAI` structured output.
+- The keyword extractor uses the dedicated keyword model settings when configured, otherwise it falls back to the existing extraction model/fallback pair.
+- Each model attempt is bounded by a `30s` request timeout. A primary timeout moves to the fallback model; exhaustion of both models posts a failed callback.
+- The model response schema is a single JSON object with `keywords`, an ordered array of strings.
+- The prompt asks for 8-30 high-value exact phrases copied from the job description.
+- Preferred phrases include repeated terms, required or preferred qualifications, tools, technologies, credentials, role-title phrases, and core responsibilities.
+- Excluded phrases include generic filler, benefits, legal/EEO text, company boilerplate, and vague soft skills unless clearly role-critical.
+- The prompt forbids synonyms, inferred terms, plural variants, punctuation variants, reordered words, and phrases not present in the job description.
+- Worker and backend post-filtering deduplicate case-insensitively and keep only phrases that occur in the current job description under the same exact phrase policy used by coverage matching. The phrase boundary rejects adjacent alphanumeric variants even when the keyword ends in punctuation, so `C++` does not match `C++17` and `C#` does not match `C#Developer`.
+- Backend callback acceptance rejects stale keyword payloads by `user_id`, `job_id`, `source_hash`, and the current job-description hash, and read paths recover stale queued/running keyword state to a warn-only failed payload.
+- Stored failures are warn-only. They do not block extraction success, generation, regeneration, editing, judge, or export.
+
+### Keyword response contract
+
+```json
+{
+  "keywords": ["{{exact phrase from the job description}}"]
+}
+```
+
+The persisted application payload stores lifecycle metadata separately from the model response: `status`, `source_hash`, `job_id`, `model_used`, timestamps, optional failure `message`, and ordered `keywords` objects.
 
 ## Job Posting Extraction Prompt
 

@@ -31,6 +31,9 @@ logger.setLevel(logging.INFO)
 OPERATION_PROMPTS: dict[str, str] = {
     "generation": "Generate a fresh tailored resume draft from the sanitized base resume.",
     "regeneration_full": "Regenerate the full tailored resume draft from the sanitized base resume.",
+    "keyword_optimization": (
+        "Optimize the existing tailored resume draft for missing ATS keywords with the smallest truthful changes possible."
+    ),
     "regeneration_section": "Regenerate only the requested section while keeping it compatible with the rest of the draft.",
 }
 
@@ -92,6 +95,7 @@ SECTION_HEADING_ALIASES: dict[str, set[str]] = {
 PROMPT_TRUNCATION_LIMITS = {
     "job_description": 16_000,
     "base_resume": 16_000,
+    "current_draft": 16_000,
     "current_section": 6_000,
     "other_sections": 8_000,
 }
@@ -802,6 +806,16 @@ def _build_voice_rules_block() -> str:
     )
 
 
+def _build_keyword_rules_block() -> str:
+    return (
+        "ATS keyword rules:\n"
+        "- When job_keywords are provided in the human payload, prefer those exact phrases where they are truthful, natural, and compatible with the selected aggressiveness.\n"
+        "- Match the provided keyword wording exactly when using a keyword. Do not substitute synonyms or reordered wording when the exact phrase can fit naturally.\n"
+        "- Treat keyword_coverage_target as a minimum goal, not a reason to invent facts or violate grounding rules.\n"
+        "- Do not stuff keywords unnaturally or repeat a keyword only to increase coverage.\n"
+    )
+
+
 def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str], section_wrapper: bool) -> str:
     section_spec = ", ".join(f"{section_id}:{_display_name(section_id)}" for section_id in enabled_sections)
     experience_contract_line = ""
@@ -906,6 +920,8 @@ def _build_shared_system_prompt(
         _build_role_block()
         + "\n"
         + _build_voice_rules_block()
+        + "\n"
+        + _build_keyword_rules_block()
         + "\n"
         + _build_non_negotiables_block(
             operation=operation,
@@ -1181,6 +1197,7 @@ def _build_generation_prompt(
     target_length: str,
     additional_instructions: Optional[str],
     professional_experience_anchors: list[dict[str, Any]],
+    generation_settings: Optional[dict[str, Any]] = None,
 ) -> list[tuple[str, str]]:
     system_msg = _build_shared_system_prompt(
         operation=operation,
@@ -1189,6 +1206,19 @@ def _build_generation_prompt(
         target_length=target_length,
     )
     target_length_config = TARGET_LENGTH_GUIDANCE.get(target_length, TARGET_LENGTH_GUIDANCE["1_page"])
+    generation_settings = generation_settings or {}
+    job_keywords = [
+        str(keyword).strip()
+        for keyword in generation_settings.get("job_keywords", [])
+        if str(keyword).strip()
+    ]
+    keyword_target = generation_settings.get("keyword_coverage_target")
+    keyword_optimization = (
+        generation_settings.get("keyword_optimization")
+        if isinstance(generation_settings.get("keyword_optimization"), dict)
+        else {}
+    )
+    current_draft_snapshot = str(generation_settings.get("_current_draft_snapshot_content") or "").strip()
     human_payload = {
         "target_role": {
             "job_title": job_title,
@@ -1212,6 +1242,12 @@ def _build_generation_prompt(
             "max_experience_bullets_per_role": target_length_config["experience_bullets"],
             "max_skills_categories": target_length_config["skills_categories"],
         },
+        "keyword_coverage_contract": {
+            "keywords": job_keywords,
+            "target_percentage": keyword_target,
+            "matching_policy": "case-insensitive exact phrase match; no synonyms, fuzzy matches, variants, stemming, or reordered words",
+            "enforcement": "warn_only",
+        },
         "section_rules": {section_id: SECTION_RULES[section_id] for section_id in enabled_sections},
         "professional_experience_structure_contract": {
             "anchors": professional_experience_anchors,
@@ -1232,6 +1268,33 @@ def _build_generation_prompt(
             "sections": _response_contract_payload(enabled_sections),
         },
     }
+    if operation == "keyword_optimization":
+        human_payload["keyword_optimization_contract"] = {
+            "enabled": True,
+            "target_keywords": [
+                str(keyword).strip()
+                for keyword in keyword_optimization.get("target_keywords", [])
+                if str(keyword).strip()
+            ],
+            "preserve_keywords": [
+                str(keyword).strip()
+                for keyword in keyword_optimization.get("preserve_keywords", [])
+                if str(keyword).strip()
+            ],
+            "starting_match": keyword_optimization.get("starting_match") or {},
+            "edit_policy": [
+                "Preserve the existing draft structure, section order, role ordering, and overall wording wherever possible.",
+                "Prefer exact keyword substitutions, small phrase insertions, and grounded skills-list additions over rewriting sentences.",
+                "Do not remove or alter already matched keyword phrases unless preserving them is impossible while staying truthful.",
+                "Only add target keywords when the sanitized base resume supports the underlying claim.",
+                "Do not invent employers, dates, credentials, institutions, metrics, tools, or responsibilities.",
+                "Missing the target percentage is acceptable; truthful minimal edits are more important than forced coverage.",
+            ],
+        }
+        human_payload["sanitized_current_draft_markdown"] = _normalize_prompt_text(
+            current_draft_snapshot,
+            PROMPT_TRUNCATION_LIMITS["current_draft"],
+        )
     return [("system", system_msg), ("human", json.dumps(human_payload, ensure_ascii=True))]
 
 
@@ -1248,6 +1311,7 @@ def _build_section_regeneration_prompt(
     aggressiveness: str,
     target_length: str,
     professional_experience_anchors: list[dict[str, Any]],
+    generation_settings: Optional[dict[str, Any]] = None,
 ) -> list[tuple[str, str]]:
     system_msg = (
         _build_shared_system_prompt(
@@ -1263,6 +1327,13 @@ def _build_section_regeneration_prompt(
         + "- Do not contradict the rest of the draft unless the source resume requires correction.\n"
     )
     target_length_config = TARGET_LENGTH_GUIDANCE.get(target_length, TARGET_LENGTH_GUIDANCE["1_page"])
+    generation_settings = generation_settings or {}
+    job_keywords = [
+        str(keyword).strip()
+        for keyword in generation_settings.get("job_keywords", [])
+        if str(keyword).strip()
+    ]
+    keyword_target = generation_settings.get("keyword_coverage_target")
     human_payload = {
         "target_role": {
             "job_title": job_title,
@@ -1283,6 +1354,12 @@ def _build_section_regeneration_prompt(
             "target_length": target_length,
             "target_range": target_length_config["target_range"],
             "hard_cap_words": target_length_config["hard_cap"],
+        },
+        "keyword_coverage_contract": {
+            "keywords": job_keywords,
+            "target_percentage": keyword_target,
+            "matching_policy": "case-insensitive exact phrase match; no synonyms, fuzzy matches, variants, stemming, or reordered words",
+            "enforcement": "warn_only",
         },
         "professional_experience_structure_contract": {
             "anchors": professional_experience_anchors,
@@ -1325,7 +1402,7 @@ def _reasoning_config_for_operation(
     is_fallback: bool = False,
 ) -> Optional[dict[str, Any]]:
     normalized_effort = _normalize_reasoning_effort(reasoning_effort)
-    if operation in {"generation", "regeneration_full", "regeneration_section"}:
+    if operation in {"generation", "regeneration_full", "keyword_optimization", "regeneration_section"}:
         payload: dict[str, Any] = {"effort": normalized_effort}
         if normalized_effort != "none":
             payload["exclude"] = True
@@ -1341,7 +1418,7 @@ def _reasoning_effort(reasoning_config: Optional[dict[str, Any]]) -> Optional[st
 
 
 def _attempt_timeout_for_operation(operation: str, *, is_fallback: bool) -> float:
-    if operation in {"generation", "regeneration_full"}:
+    if operation in {"generation", "regeneration_full", "keyword_optimization"}:
         return FULL_DRAFT_FALLBACK_ATTEMPT_TIMEOUT_SECONDS if is_fallback else FULL_DRAFT_PRIMARY_ATTEMPT_TIMEOUT_SECONDS
     if operation == "regeneration_section":
         return (
@@ -1962,6 +2039,7 @@ async def generate_sections(
         target_length=target_length,
         additional_instructions=additional_instructions,
         professional_experience_anchors=professional_experience_anchors,
+        generation_settings=generation_settings,
     )
     payload, model_used, attempt_diagnostics = await _await_with_progress_heartbeat(
         operation=_call_json_with_fallback(
@@ -2082,6 +2160,7 @@ async def regenerate_single_section(
         job_description=job_description,
         aggressiveness=aggressiveness,
         target_length=target_length,
+        generation_settings=generation_settings,
         professional_experience_anchors=professional_experience_anchors,
     )
     if on_progress is not None:

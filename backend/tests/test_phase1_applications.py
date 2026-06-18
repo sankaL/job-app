@@ -13,6 +13,7 @@ from psycopg.types.json import Jsonb
 
 from app.api.applications import stream_application_events
 from app.core.auth import AuthVerifier, AuthenticatedUser, get_auth_verifier
+from app.core.config import get_settings
 from app.db.applications import (
     ApplicationRepository,
     ApplicationListRecord,
@@ -27,6 +28,7 @@ from app.services import application_manager as application_manager_service
 from app.services.application_manager import (
     ApplicationService,
     GenerationCallbackPayload,
+    KeywordExtractionCallbackPayload,
     ResumeJudgeCallbackPayload,
     SourceCapturePayload,
     WorkerCallbackPayload,
@@ -468,6 +470,16 @@ class FakeGenerationJobQueue:
         return f"judge-job-{len(self.judge_jobs)}"
 
 
+class FakeKeywordExtractionJobQueue:
+    def __init__(self) -> None:
+        self.enqueued: list[dict[str, Any]] = []
+
+    async def enqueue(self, **kwargs) -> str:
+        job_id = f"keyword-job-{len(self.enqueued) + 1}"
+        self.enqueued.append({**kwargs, "job_id": job_id})
+        return job_id
+
+
 class FakeUsageEventRepository:
     def __init__(self) -> None:
         self.events: list[dict[str, Any]] = []
@@ -597,6 +609,7 @@ def build_service(
     drafts = draft_repository or FakeDraftRepository()
     base_resumes = FakeBaseResumeRepository()
     generation_queue = FakeGenerationJobQueue()
+    keyword_queue = FakeKeywordExtractionJobQueue()
     usage_events = FakeUsageEventRepository()
     subscriptions = FakeSubscriptionRepository()
     service = ApplicationService(
@@ -608,6 +621,7 @@ def build_service(
         progress_store=progress,
         extraction_job_queue=queue,
         generation_job_queue=generation_queue,
+        keyword_extraction_job_queue=keyword_queue,  # type: ignore[arg-type]
         email_sender=email,
         settings=type(
             "Settings",
@@ -676,6 +690,603 @@ def test_application_repository_prepare_value_strips_nul_bytes_from_jsonb_payloa
         ],
         "meta": "value",
     }
+
+
+def test_keyword_match_uses_case_insensitive_exact_phrases_without_variants():
+    match = ApplicationService.build_keyword_match_payload(
+        job_keywords={
+            "status": "succeeded",
+            "keywords": [
+                {"text": "React Native"},
+                {"text": "CI/CD"},
+                {"text": "Kubernetes"},
+                {"text": "C++"},
+                {"text": "C#"},
+                {"text": "GraphQL", "source": "manual"},
+            ],
+        },
+        content_md="Built react native apps, GraphQL APIs, and CI/CD pipelines. Used C++17 and C#Developer tooling.",
+        aggressiveness="high",
+    )
+
+    assert match is not None
+    assert match["matched_count"] == 3
+    assert match["total_count"] == 6
+    assert match["target_percentage"] == 80
+    assert match["matched_keywords"] == ["React Native", "CI/CD", "GraphQL"]
+    assert match["missing_keywords"] == ["Kubernetes", "C++", "C#"]
+
+
+@pytest.mark.asyncio
+async def test_manual_keywords_are_user_scoped_persisted_and_included_in_match():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/manual-keywords",
+        visible_status="needs_action",
+        internal_state="resume_ready",
+    )
+    repository.records[record.id] = record.model_copy(
+        update={
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": "hash-1",
+                "keywords": [{"text": "React Native", "source": "extracted"}],
+                "extracted_at": "2026-04-07T12:00:00+00:00",
+            }
+        }
+    )
+    service.draft_repository.upsert_draft(
+        application_id=record.id,
+        user_id="user-1",
+        content_md="# Resume\n\nBuilt GraphQL services.",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+
+    detail = await service.update_manual_keywords(
+        user_id="user-1",
+        application_id=record.id,
+        keywords=[" GraphQL ", "graphql"],
+    )
+
+    keyword_entries = detail.application.job_keywords["keywords"]
+    assert keyword_entries == [
+        {"text": "React Native", "source": "extracted"},
+        {
+            "text": "GraphQL",
+            "source": "manual",
+            "added_at": keyword_entries[1]["added_at"],
+        },
+    ]
+    draft, _flags, match = await service.get_draft_with_review_flags(user_id="user-1", application_id=record.id)
+    assert draft is not None
+    assert match is not None
+    assert match["matched_keywords"] == ["GraphQL"]
+    with pytest.raises(LookupError):
+        await service.update_manual_keywords(user_id="user-2", application_id=record.id, keywords=["Kubernetes"])
+
+
+@pytest.mark.asyncio
+async def test_keyword_extraction_callback_preserves_manual_keywords():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/preserve-manual",
+        visible_status="needs_action",
+        internal_state="resume_ready",
+    )
+    repository.records[record.id] = record.model_copy(
+        update={
+            "job_description": "Build React Native apps with Kubernetes.",
+            "job_keywords": {
+                "status": "running",
+                "source_hash": ApplicationService._keyword_source_hash("Build React Native apps with Kubernetes."),
+                "job_id": "keyword-job-1",
+                "keywords": [{"text": "GraphQL", "source": "manual", "added_at": "2026-04-07T12:01:00+00:00"}],
+            },
+        }
+    )
+
+    updated = await service.handle_keyword_extraction_callback(
+        KeywordExtractionCallbackPayload.model_validate(
+            {
+                "application_id": record.id,
+                "user_id": "user-1",
+                "job_id": "keyword-job-1",
+                "event": "succeeded",
+                "source_hash": ApplicationService._keyword_source_hash("Build React Native apps with Kubernetes."),
+                "keywords": ["React Native", "Kubernetes"],
+                "model_used": "keyword-model",
+            }
+        )
+    )
+
+    assert updated.job_keywords["keywords"] == [
+        {"text": "React Native", "source": "extracted"},
+        {"text": "Kubernetes", "source": "extracted"},
+        {"text": "GraphQL", "source": "manual", "added_at": "2026-04-07T12:01:00+00:00"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_keyword_optimization_queues_missing_and_preserved_keywords():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/keyword-optimize",
+        visible_status="needs_action",
+        internal_state="resume_ready",
+    )
+    repository.records[record.id] = record.model_copy(
+        update={
+            "job_title": "Mobile Platform Engineer",
+            "company": "Acme",
+            "job_description": "Build React Native apps with Kubernetes and CI/CD.",
+            "base_resume_id": "resume-1",
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": "hash-1",
+                "keywords": [
+                    {"text": "React Native", "source": "extracted"},
+                    {"text": "Kubernetes", "source": "extracted"},
+                    {"text": "CI/CD", "source": "manual", "added_at": "2026-04-07T12:01:00+00:00"},
+                ],
+            },
+        }
+    )
+    service.base_resume_repository.add_resume(  # type: ignore[attr-defined]
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="# Base\n\nBuilt React Native apps and deployment systems.",
+    )
+    service.draft_repository.upsert_draft(
+        application_id=record.id,
+        user_id="user-1",
+        content_md="# Resume\n\nBuilt React Native apps.",
+        generation_params={"page_length": "2_page", "aggressiveness": "high", "base_resume_id": "resume-1"},
+        sections_snapshot={"enabled_sections": ["summary", "skills"], "section_order": ["summary", "skills"]},
+    )
+
+    detail = await service.trigger_keyword_optimization(user_id="user-1", application_id=record.id)
+
+    assert detail.application.internal_state == "regenerating_full"
+    queued = service.generation_job_queue.regenerations[-1]  # type: ignore[attr-defined]
+    assert queued["regeneration_target"] == "keyword_optimization"
+    assert queued["section_preferences"] == [
+        {"name": "summary", "enabled": True, "order": 0},
+        {"name": "skills", "enabled": True, "order": 1},
+    ]
+    settings = queued["generation_settings"]
+    assert settings["keyword_optimization"]["target_keywords"] == ["Kubernetes", "CI/CD"]
+    assert settings["keyword_optimization"]["preserve_keywords"] == ["React Native"]
+    assert settings["keyword_optimization"]["starting_match"]["matched_count"] == 1
+    assert settings["_generation_model"] == "basic-primary-model"
+    assert "_current_draft_snapshot_content" in settings
+
+
+@pytest.mark.asyncio
+async def test_keyword_optimization_callback_keeps_old_draft_when_coverage_regresses():
+    service, repository, _, progress_store, _, _, drafts = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/keyword-regression",
+        visible_status="in_progress",
+        internal_state="regenerating_full",
+    )
+    repository.records[record.id] = record.model_copy(
+        update={
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": "hash-1",
+                "keywords": [
+                    {"text": "React Native", "source": "extracted"},
+                    {"text": "Kubernetes", "source": "extracted"},
+                ],
+            }
+        }
+    )
+    drafts.upsert_draft(
+        application_id=record.id,
+        user_id="user-1",
+        content_md="# Resume\n\nBuilt React Native apps.",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    await progress_store.set(
+        record.id,
+        ProgressRecord(
+            job_id="regen-keyword-1",
+            workflow_kind="regeneration_full",
+            state="regenerating_full",
+            message="Keyword optimization is running.",
+            percent_complete=50,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:00:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    updated = await service.handle_regeneration_callback(
+        application_manager_service.RegenerationCallbackPayload.model_validate(
+            {
+                "application_id": record.id,
+                "user_id": "user-1",
+                "job_id": "regen-keyword-1",
+                "event": "succeeded",
+                "regeneration_target": "keyword_optimization",
+                "quota_period_start": "2026-04-01",
+                "generated": {
+                    "content_md": "# Resume\n\nBuilt mobile apps.",
+                    "generation_params": {
+                        "page_length": "1_page",
+                        "aggressiveness": "medium",
+                        "keyword_optimization": {
+                            "enabled": True,
+                            "target_keywords": ["Kubernetes"],
+                            "preserve_keywords": ["React Native"],
+                            "starting_match": {
+                                "matched_count": 1,
+                                "total_count": 2,
+                                "percentage": 50,
+                                "target_percentage": 65,
+                                "target_met": False,
+                                "matched_keywords": ["React Native"],
+                                "missing_keywords": ["Kubernetes"],
+                            },
+                        },
+                    },
+                    "sections_snapshot": {"enabled_sections": ["summary"], "section_order": ["summary"]},
+                },
+            }
+        )
+    )
+
+    assert updated.failure_reason == "regeneration_failed"
+    assert updated.generation_failure_details["failure_stage"] == "keyword_optimization"
+    assert drafts.fetch_draft("user-1", record.id).content_md == "# Resume\n\nBuilt React Native apps."
+
+
+@pytest.mark.asyncio
+async def test_manual_entry_queues_keyword_extraction_from_job_description():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url=None,
+        visible_status="needs_action",
+        internal_state="manual_entry_required",
+    )
+
+    detail = await service.complete_manual_entry(
+        user_id="user-1",
+        application_id=record.id,
+        updates={
+            "job_title": "Platform Engineer",
+            "company": "Acme",
+            "job_description": "Build React Native apps with CI/CD pipelines and Kubernetes.",
+        },
+    )
+
+    assert detail.application.job_keywords is not None
+    assert detail.application.job_keywords["status"] == "queued"
+    assert detail.application.job_keywords["source_hash"]
+
+
+@pytest.mark.asyncio
+async def test_job_description_edit_reruns_keyword_extraction():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    old_description = "Build APIs with Python."
+    old_hash = service._keyword_source_hash(old_description)  # type: ignore[attr-defined]
+    repository.update_application(
+        application_id=record.id,
+        user_id="user-1",
+        updates={
+            "job_description": old_description,
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": old_hash,
+                "keywords": [{"text": "Python"}],
+            },
+        },
+    )
+
+    detail = await service.patch_application(
+        user_id="user-1",
+        application_id=record.id,
+        updates={"job_description": "Build React Native apps with CI/CD pipelines."},
+    )
+
+    keyword_queue = service.keyword_extraction_job_queue  # type: ignore[attr-defined]
+    assert len(keyword_queue.enqueued) == 1
+    assert detail.application.job_keywords is not None
+    assert detail.application.job_keywords["status"] == "queued"
+    assert detail.application.job_keywords["source_hash"] != old_hash
+
+
+@pytest.mark.asyncio
+async def test_keyword_extraction_callback_is_user_scoped():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    description = "Build React Native apps with CI/CD pipelines."
+    source_hash = service._keyword_source_hash(description)  # type: ignore[attr-defined]
+    repository.update_application(
+        application_id=record.id,
+        user_id="user-1",
+        updates={
+            "job_description": description,
+            "job_keywords": {
+                "status": "queued",
+                "source_hash": source_hash,
+                "job_id": "keyword-job-1",
+                "keywords": [],
+            },
+        },
+    )
+
+    with pytest.raises(PermissionError):
+        await service.handle_keyword_extraction_callback(
+            KeywordExtractionCallbackPayload(
+                application_id=record.id,
+                user_id="other-user",
+                job_id="keyword-job-1",
+                event="succeeded",
+                source_hash=source_hash,
+                keywords=["React Native", "CI/CD"],
+                model_used="cheap-keyword-model",
+            )
+        )
+
+    unchanged = repository.fetch_application(user_id="user-1", application_id=record.id)
+    assert unchanged is not None
+    assert unchanged.job_keywords is not None
+    assert unchanged.job_keywords["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_keyword_extraction_callback_handles_lifecycle_events_and_filters_keywords():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    description = "Build React Native apps with CI/CD pipelines."
+    source_hash = service._keyword_source_hash(description)  # type: ignore[attr-defined]
+    repository.update_application(
+        application_id=record.id,
+        user_id="user-1",
+        updates={
+            "job_description": description,
+            "job_keywords": {
+                "status": "queued",
+                "source_hash": source_hash,
+                "job_id": "keyword-job-1",
+                "keywords": [],
+                "updated_at": "2026-04-07T12:00:00+00:00",
+            },
+        },
+    )
+
+    started = await service.handle_keyword_extraction_callback(
+        KeywordExtractionCallbackPayload(
+            application_id=record.id,
+            user_id="user-1",
+            job_id="keyword-job-1",
+            event="started",
+            source_hash=source_hash,
+        )
+    )
+    assert started.job_keywords is not None
+    assert started.job_keywords["status"] == "running"
+
+    succeeded = await service.handle_keyword_extraction_callback(
+        KeywordExtractionCallbackPayload(
+            application_id=record.id,
+            user_id="user-1",
+            job_id="keyword-job-1",
+            event="succeeded",
+            source_hash=source_hash,
+            keywords=["React Native", "Kubernetes", "CI/CD", "C++"],
+            model_used="cheap-keyword-model",
+        )
+    )
+    assert succeeded.job_keywords is not None
+    assert succeeded.job_keywords["status"] == "succeeded"
+    assert succeeded.job_keywords["keywords"] == [
+        {"text": "React Native", "source": "extracted"},
+        {"text": "CI/CD", "source": "extracted"},
+    ]
+
+    repository.update_application(
+        application_id=record.id,
+        user_id="user-1",
+        updates={
+            "job_keywords": {
+                "status": "running",
+                "source_hash": source_hash,
+                "job_id": "keyword-job-1",
+                "keywords": [],
+                "updated_at": "2026-04-07T12:01:00+00:00",
+            },
+        },
+    )
+    failed = await service.handle_keyword_extraction_callback(
+        KeywordExtractionCallbackPayload(
+            application_id=record.id,
+            user_id="user-1",
+            job_id="keyword-job-1",
+            event="failed",
+            source_hash=source_hash,
+            failure={"message": "Provider timed out."},
+        )
+    )
+    assert failed.job_keywords is not None
+    assert failed.job_keywords["status"] == "failed"
+    assert failed.job_keywords["message"] == "Provider timed out."
+
+
+@pytest.mark.asyncio
+async def test_keyword_extraction_callback_ignores_stale_job_id_source_hash_and_description_hash():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    description = "Build React Native apps."
+    source_hash = service._keyword_source_hash(description)  # type: ignore[attr-defined]
+    repository.update_application(
+        application_id=record.id,
+        user_id="user-1",
+        updates={
+            "job_description": description,
+            "job_keywords": {
+                "status": "queued",
+                "source_hash": source_hash,
+                "job_id": "keyword-job-1",
+                "keywords": [],
+                "updated_at": "2026-04-07T12:00:00+00:00",
+            },
+        },
+    )
+
+    stale_payloads = [
+        KeywordExtractionCallbackPayload(
+            application_id=record.id,
+            user_id="user-1",
+            job_id="different-job",
+            event="succeeded",
+            source_hash=source_hash,
+            keywords=["React Native"],
+        ),
+        KeywordExtractionCallbackPayload(
+            application_id=record.id,
+            user_id="user-1",
+            job_id="keyword-job-1",
+            event="succeeded",
+            source_hash="different-source",
+            keywords=["React Native"],
+        ),
+    ]
+    for payload in stale_payloads:
+        returned = await service.handle_keyword_extraction_callback(payload)
+        assert returned.job_keywords is not None
+        assert returned.job_keywords["status"] == "queued"
+        assert returned.job_keywords["keywords"] == []
+
+    repository.update_application(
+        application_id=record.id,
+        user_id="user-1",
+        updates={"job_description": "Build Python services."},
+    )
+    returned = await service.handle_keyword_extraction_callback(
+        KeywordExtractionCallbackPayload(
+            application_id=record.id,
+            user_id="user-1",
+            job_id="keyword-job-1",
+            event="succeeded",
+            source_hash=source_hash,
+            keywords=["React Native"],
+        )
+    )
+    assert returned.job_keywords is not None
+    assert returned.job_keywords["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_get_application_detail_recovers_stale_keyword_extraction_without_status_change():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    description = "Build React Native apps."
+    source_hash = service._keyword_source_hash(description)  # type: ignore[attr-defined]
+    stale_time = (datetime.now(timezone.utc) - timedelta(seconds=240)).isoformat()
+    repository.update_application(
+        application_id=record.id,
+        user_id="user-1",
+        updates={
+            "job_description": description,
+            "job_keywords": {
+                "status": "running",
+                "source_hash": source_hash,
+                "job_id": "keyword-job-1",
+                "keywords": [],
+                "updated_at": stale_time,
+            },
+        },
+    )
+
+    detail = await service.get_application_detail(user_id="user-1", application_id=record.id)
+
+    assert detail.application.internal_state == "resume_ready"
+    assert detail.application.job_keywords is not None
+    assert detail.application.job_keywords["status"] == "failed"
+    assert "timed out" in detail.application.job_keywords["message"]
+
+
+def test_keyword_extraction_callback_route_returns_conflict_for_user_mismatch():
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    description = "Build React Native apps."
+    source_hash = service._keyword_source_hash(description)  # type: ignore[attr-defined]
+    repository.update_application(
+        application_id=record.id,
+        user_id="user-1",
+        updates={
+            "job_description": description,
+            "job_keywords": {
+                "status": "queued",
+                "source_hash": source_hash,
+                "job_id": "keyword-job-1",
+                "keywords": [],
+            },
+        },
+    )
+    app.dependency_overrides[get_settings] = lambda: type(
+        "Settings",
+        (),
+        {"worker_callback_secret": "worker-secret"},
+    )()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/internal/worker/keyword-extraction-callback",
+        headers={"X-Worker-Secret": "worker-secret"},
+        json={
+            "application_id": record.id,
+            "user_id": "other-user",
+            "job_id": "keyword-job-1",
+            "event": "succeeded",
+            "source_hash": source_hash,
+            "keywords": ["React Native"],
+        },
+    )
+
+    assert response.status_code == 409
 
 
 def test_duplicate_detector_does_not_treat_two_missing_urls_as_exact_match():
@@ -839,7 +1450,7 @@ async def test_get_draft_with_review_flags_marks_medium_jd_only_additions():
         },
     )
 
-    _draft, review_flags = await service.get_draft_with_review_flags(
+    _draft, review_flags, _keyword_match = await service.get_draft_with_review_flags(
         user_id="user-1",
         application_id=created.id,
     )
@@ -892,7 +1503,7 @@ async def test_get_draft_with_review_flags_marks_professional_experience_title_r
         },
     )
 
-    _draft, review_flags = await service.get_draft_with_review_flags(
+    _draft, review_flags, _keyword_match = await service.get_draft_with_review_flags(
         user_id="user-1",
         application_id=created.id,
     )
@@ -945,7 +1556,7 @@ async def test_get_draft_with_review_flags_returns_empty_for_low_aggressiveness(
         },
     )
 
-    _draft, review_flags = await service.get_draft_with_review_flags(
+    _draft, review_flags, _keyword_match = await service.get_draft_with_review_flags(
         user_id="user-1",
         application_id=created.id,
     )
@@ -997,7 +1608,7 @@ async def test_get_draft_with_review_flags_uses_generation_base_resume_id_when_s
         },
     )
 
-    _draft, review_flags = await service.get_draft_with_review_flags(
+    _draft, review_flags, _keyword_match = await service.get_draft_with_review_flags(
         user_id="user-1",
         application_id=created.id,
     )
@@ -1045,7 +1656,7 @@ async def test_get_draft_with_review_flags_marks_source_limited_length():
         },
     )
 
-    _draft, review_flags = await service.get_draft_with_review_flags(
+    _draft, review_flags, _keyword_match = await service.get_draft_with_review_flags(
         user_id="user-1",
         application_id=created.id,
     )
