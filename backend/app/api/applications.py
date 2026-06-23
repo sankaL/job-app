@@ -242,6 +242,7 @@ class ApplicationDetail(BaseModel):
     extraction_failure_details: Optional[ExtractionFailureDetails]
     generation_failure_details: Optional[dict[str, Any]]
     resume_judge_result: Optional[ResumeJudgeResultPayload]
+    job_keywords: Optional[dict[str, Any]]
     applied: bool
     duplicate_similarity_score: Optional[float]
     duplicate_resolution_status: Optional[str]
@@ -413,6 +414,38 @@ class SaveDraftRequest(BaseModel):
         return value
 
 
+class ManualKeywordsRequest(BaseModel):
+    keywords: list[str] = Field(default_factory=list, max_length=30)
+
+    @field_validator("keywords")
+    @classmethod
+    def validate_keywords(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = INSTRUCTION_WHITESPACE_RE.sub(" ", str(item or "")).strip()
+            if not text:
+                raise ValueError("Manual keywords cannot be blank.")
+            if len(text) > 80:
+                raise ValueError("Manual keywords must be 80 characters or fewer.")
+            dedupe_key = text.lower()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            normalized.append(text)
+        return normalized
+
+
+class KeywordMatchResponse(BaseModel):
+    matched_count: int
+    total_count: int
+    percentage: float
+    target_percentage: int
+    target_met: bool
+    matched_keywords: list[str]
+    missing_keywords: list[str]
+
+
 class ResumeDraftResponse(BaseModel):
     id: str
     application_id: str
@@ -420,6 +453,7 @@ class ResumeDraftResponse(BaseModel):
     generation_params: dict[str, Any]
     sections_snapshot: dict[str, Any]
     review_flags: list[dict[str, str]] = Field(default_factory=list)
+    keyword_match: Optional[KeywordMatchResponse] = None
     render_contract_version: Optional[str] = None
     render_model: Optional[dict[str, Any]] = None
     render_error: Optional[str] = None
@@ -542,11 +576,13 @@ def _build_resume_draft_response_payload(
     draft_payload: dict[str, Any],
     *,
     review_flags: Optional[list[dict[str, str]]] = None,
+    keyword_match: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     render_result = build_render_document(str(draft_payload.get("content_md") or ""))
     payload = {
         **draft_payload,
         "review_flags": review_flags or [],
+        "keyword_match": keyword_match,
         "render_contract_version": (
             render_result.document.render_contract_version if render_result.document is not None else None
         ),
@@ -867,7 +903,7 @@ async def get_draft(
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> Optional[ResumeDraftResponse]:
     try:
-        draft, review_flags = await service.get_draft_with_review_flags(
+        draft, review_flags, keyword_match = await service.get_draft_with_review_flags(
             user_id=current_user.id,
             application_id=application_id,
         )
@@ -876,6 +912,7 @@ async def get_draft(
         payload = _build_resume_draft_response_payload(
             draft.model_dump(exclude={"user_id"}),
             review_flags=[flag.model_dump() for flag in review_flags],
+            keyword_match=keyword_match,
         )
         return ResumeDraftResponse.model_validate(payload)
     except Exception as error:
@@ -1044,6 +1081,67 @@ async def regenerate_section(
         raise _map_service_error(error) from error
 
 
+@router.put("/{application_id}/keywords/manual", response_model=ApplicationDetail)
+async def update_manual_keywords(
+    application_id: str,
+    request: ManualKeywordsRequest,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> ApplicationDetail:
+    try:
+        return to_application_detail(
+            await service.update_manual_keywords(
+                user_id=current_user.id,
+                application_id=application_id,
+                keywords=request.keywords,
+            )
+        )
+    except Exception as error:
+        raise _map_service_error(error) from error
+
+
+@router.post("/{application_id}/optimize-keywords", response_model=ApplicationDetail, status_code=status.HTTP_202_ACCEPTED)
+async def optimize_keywords(
+    application_id: str,
+    raw_request: Request,
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+) -> ApplicationDetail:
+    logger.info(
+        "generation_route %s",
+        {
+            "event": "generation_route_entry",
+            "request_id": raw_request.headers.get("x-request-id"),
+            "user_id": current_user.id,
+            "application_id": application_id,
+            "workflow_kind": "keyword_optimization",
+            "regeneration_target": "keyword_optimization",
+        },
+    )
+    try:
+        return to_application_detail(
+            await service.trigger_keyword_optimization(
+                user_id=current_user.id,
+                application_id=application_id,
+            )
+        )
+    except Exception as error:
+        logger.warning(
+            "generation_route %s",
+            {
+                "event": "generation_route_error",
+                "request_id": raw_request.headers.get("x-request-id"),
+                "user_id": current_user.id,
+                "application_id": application_id,
+                "workflow_kind": "keyword_optimization",
+                "regeneration_target": "keyword_optimization",
+                "error_type": type(error).__name__,
+                "message": str(error),
+            },
+        )
+        raise _map_service_error(error) from error
+
+
 @router.post("/{application_id}/cancel-generation", response_model=ApplicationDetail)
 async def cancel_generation(
     application_id: str,
@@ -1069,13 +1167,16 @@ async def save_draft(
     service: Annotated[ApplicationService, Depends(get_application_service)],
 ) -> ResumeDraftResponse:
     try:
-        draft = await service.save_draft_edit(
+        draft, keyword_match = await service.save_draft_edit_with_keyword_match(
             user_id=current_user.id,
             application_id=application_id,
             content=request.content,
         )
         return ResumeDraftResponse.model_validate(
-            _build_resume_draft_response_payload(draft.model_dump(exclude={"user_id"}))
+            _build_resume_draft_response_payload(
+                draft.model_dump(exclude={"user_id"}),
+                keyword_match=keyword_match,
+            )
         )
     except Exception as error:
         raise _map_service_error(error) from error

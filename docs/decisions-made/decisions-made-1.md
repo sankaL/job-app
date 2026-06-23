@@ -1,5 +1,27 @@
 # Decisions Made
 
+## 2026-06-17 10:45:00 EDT - Add user-controlled ATS keywords and guarded keyword optimization
+
+- Status: Accepted
+- Context: Users need transparent exact-match ATS keyword coverage, but they also need control to add role-specific phrases and improve coverage without broad resume rewrites or losing already matched keywords.
+- Decision:
+  1. Store manual keywords in the existing `applications.job_keywords` JSONB payload using source-aware keyword entries instead of adding a new table or migration.
+  2. Include both extracted and manual keywords in deterministic exact-match coverage and keyword optimization.
+  3. Run keyword optimization as a quota-consuming full-draft generation operation that uses the user's tier-selected generation model, current draft context, missing keywords, and already matched keywords.
+  4. Preserve the previous draft if the optimized candidate reduces the matched keyword count; missing the target percentage remains warn-only.
+- Consequences: Users can tune ATS coverage explicitly, optimization remains grounded and minimal-change, and the backend keeps a deterministic guard against coverage regressions while avoiding additional schema rollout risk.
+
+## 2026-06-15 22:05:00 EDT - Treat ATS keyword coverage as exact-match warn-only guidance
+
+- Status: Accepted
+- Context: Automated resume screeners often reward exact job-description phrase overlap, but broad keyword stuffing or fuzzy synonym expansion would undermine truthful grounded resume generation.
+- Decision:
+  1. Store a job-specific `applications.job_keywords` JSONB payload with lifecycle state, source hash, model metadata, and ordered exact JD phrases.
+  2. Extract 8-30 high-value phrases with a cheap structured LLM flow, then deterministically deduplicate and post-filter so stored keywords appear in the current job description.
+  3. Compute draft coverage deterministically with case-insensitive exact phrase matching only; no synonyms, fuzzy matches, stemming, punctuation variants, plural variants, or reordered words count.
+  4. Use Low 45%, Medium 65%, and High 80% as minimum prompt targets, while keeping coverage warn-only rather than a validation blocker or repair trigger.
+- Consequences: Users get transparent ATS phrase coverage and generation receives better exact-language guidance, while grounding, source-truth validation, and user control remain the hard constraints.
+
 ## 2026-06-07 16:12:05 EDT - Allow pasted-description application intake without source URLs
 
 - Status: Accepted

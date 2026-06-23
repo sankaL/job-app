@@ -6,8 +6,9 @@ import json
 import logging
 import re
 from datetime import datetime, timezone
+from functools import lru_cache
 from time import perf_counter
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import Depends
 from pydantic import BaseModel, Field, field_validator
@@ -35,8 +36,10 @@ from app.services.email import EmailMessage, EmailSender, build_email_sender
 from app.services.jobs import (
     ExtractionJobQueue,
     GenerationJobQueue,
+    KeywordExtractionJobQueue,
     get_extraction_job_queue,
     get_generation_job_queue,
+    get_keyword_extraction_job_queue,
 )
 from app.services.pdf_export import generate_docx, generate_pdf
 from app.services.progress import (
@@ -84,6 +87,9 @@ GENERATION_CALLBACK_SYNC_FAILURE_MESSAGE = (
 REGENERATION_CALLBACK_SYNC_FAILURE_MESSAGE = (
     "Regeneration finished, but the updated draft could not be synchronized. Please retry regeneration."
 )
+KEYWORD_EXTRACTION_STALE_TIMEOUT_SECONDS = 180
+KEYWORD_MANUAL_MAX_COUNT = 30
+KEYWORD_TEXT_MAX_CHARS = 80
 BLOCKED_PLACEHOLDER_TITLE_PREFIXES = ("blocked - ",)
 BLOCKED_PLACEHOLDER_TITLE_VALUES = {"you have been blocked", "access denied", "attention required"}
 BLOCKED_PLACEHOLDER_DESCRIPTION_MARKERS = (
@@ -131,6 +137,9 @@ JD_STOPWORDS = {
     "you",
     "your",
 }
+KEYWORD_COVERAGE_TARGETS = {"low": 45, "medium": 65, "high": 80}
+KEYWORD_STATUS_EMPTY = "unavailable"
+KEYWORD_OPTIMIZATION_TARGET = "keyword_optimization"
 
 
 class DuplicateWarningPayload(BaseModel):
@@ -164,6 +173,7 @@ class WorkerSuccessPayload(BaseModel):
     job_posting_origin_other_text: Optional[str] = None
     extracted_reference_id: Optional[str] = None
     model_used: Optional[str] = None
+    job_keywords: Optional[dict[str, Any]] = None
 
 
 class WorkerFailurePayload(BaseModel):
@@ -272,6 +282,21 @@ class ResumeJudgeCallbackPayload(BaseModel):
     failure: Optional[ResumeJudgeFailurePayload] = None
 
 
+class KeywordExtractionFailurePayload(BaseModel):
+    message: str
+
+
+class KeywordExtractionCallbackPayload(BaseModel):
+    application_id: str
+    user_id: str
+    job_id: str
+    event: Literal["started", "failed", "succeeded"]
+    source_hash: str
+    keywords: Optional[list[str]] = None
+    model_used: Optional[str] = None
+    failure: Optional[KeywordExtractionFailurePayload] = None
+
+
 class GenerationCallbackPayload(BaseModel):
     application_id: str
     user_id: str
@@ -335,6 +360,9 @@ ACTIVITY_CONTENT_MAP: dict[str, tuple[str, str]] = {
     "resume_judge_queued": ("Resume Judge queued", "Resume Judge was queued."),
     "resume_judge_succeeded": ("Resume Judge completed", "Resume Judge completed."),
     "resume_judge_failed": ("Resume Judge failed", "Resume Judge failed."),
+    "keywords_updated": ("ATS keywords updated", "Manual ATS keywords were updated."),
+    "keyword_optimization_started": ("Keyword optimization started", "Resume keyword optimization started."),
+    "keyword_optimization_succeeded": ("Keyword optimization completed", "Resume keyword optimization completed."),
     "draft_saved": ("Draft saved", "Draft edits were saved."),
     "export_succeeded": ("Export completed", "Resume export completed."),
     "export_failed": ("Export failed", "Resume export failed."),
@@ -361,6 +389,8 @@ class ApplicationService:
         generation_job_queue: GenerationJobQueue,
         email_sender: EmailSender,
         settings: Settings,
+        # Optional for tests and legacy construction paths; the DI factory always supplies it.
+        keyword_extraction_job_queue: Optional[KeywordExtractionJobQueue] = None,
         usage_event_repository: Optional[UsageEventRepository] = None,
         subscription_repository: Optional[SubscriptionRepository] = None,
     ) -> None:
@@ -372,6 +402,7 @@ class ApplicationService:
         self.progress_store = progress_store
         self.extraction_job_queue = extraction_job_queue
         self.generation_job_queue = generation_job_queue
+        self.keyword_extraction_job_queue = keyword_extraction_job_queue
         self.email_sender = email_sender
         self.settings = settings
         self.usage_event_repository = usage_event_repository
@@ -480,6 +511,7 @@ class ApplicationService:
         progress = await self.progress_store.get(record.id)
         record = await self._reconcile_terminal_extraction_progress(record, progress)
         record = await self._reconcile_terminal_generation_progress(record, progress)
+        record = await self._recover_stale_keyword_extraction_if_needed(record)
 
         return self._detail_payload(record)
 
@@ -536,6 +568,10 @@ class ApplicationService:
         updates: dict[str, Any],
     ) -> ApplicationDetailPayload:
         current = self._require_application(user_id=user_id, application_id=application_id)
+        job_description_changed = (
+            "job_description" in updates
+            and (updates.get("job_description") or "") != (current.job_description or "")
+        )
         duplicate_relevant_fields = {
             "job_title",
             "company",
@@ -612,6 +648,8 @@ class ApplicationService:
                 activity_type="job_info_updated",
                 details={"fields": sorted(list(duplicate_relevant_fields.intersection(updates.keys())))},
             )
+        if job_description_changed:
+            updated = await self._enqueue_keyword_extraction_for_record(updated, force=True)
 
         return self._detail_payload(updated)
 
@@ -677,6 +715,7 @@ class ApplicationService:
             activity_type="manual_entry_submitted",
         )
         updated = await self._run_duplicate_resolution_flow(updated)
+        updated = await self._enqueue_keyword_extraction_for_record(updated, force=True)
         return self._detail_payload(updated)
 
     async def recover_from_source(
@@ -1307,6 +1346,10 @@ class ApplicationService:
                 "extracted_reference_id": extracted.extracted_reference_id,
                 "job_posting_origin": extracted.job_posting_origin,
                 "job_posting_origin_other_text": extracted.job_posting_origin_other_text,
+                "job_keywords": self._coerce_worker_keyword_payload(
+                    job_keywords=extracted.job_keywords,
+                    job_description=extracted.job_description,
+                ),
                 **self._workflow_updates(
                     internal_state="generation_pending",
                     failure_reason=None,
@@ -1336,7 +1379,8 @@ class ApplicationService:
                 "details": details or None,
             },
         )
-        return await self._run_duplicate_resolution_flow(updated)
+        updated = await self._run_duplicate_resolution_flow(updated)
+        return await self._enqueue_keyword_extraction_for_record(updated, force=True)
 
     async def _reconcile_generation_success_from_progress_cache(
         self,
@@ -1365,6 +1409,22 @@ class ApplicationService:
         except Exception:
             logger.exception("Failed validating cached generation payload for %s", record.id)
             return None
+
+        latest_record = self.repository.fetch_application(record.user_id, record.id)
+        if latest_record is not None:
+            record = latest_record
+
+        keyword_optimization_failure = self._keyword_optimization_failure_details(
+            record=record,
+            generated=generated,
+        )
+        if keyword_optimization_failure is not None:
+            return await self._mark_generation_failure(
+                record=record,
+                message="Keyword optimization did not preserve existing keyword coverage. Your previous draft was kept.",
+                failure_details=keyword_optimization_failure,
+                failure_reason="regeneration_failed",
+            )
 
         draft = self.draft_repository.upsert_draft(
             application_id=record.id,
@@ -1414,17 +1474,27 @@ class ApplicationService:
                     },
                 )
             else:
+                optimization = generated.generation_params.get("keyword_optimization")
+                is_keyword_optimization = isinstance(optimization, dict) and bool(optimization.get("enabled"))
                 self.notification_repository.create_notification(
                     user_id=record.user_id,
                     application_id=record.id,
                     notification_type="success",
-                    message="Resume regeneration completed successfully.",
+                    message=(
+                        "Resume keyword optimization completed successfully."
+                        if is_keyword_optimization
+                        else "Resume regeneration completed successfully."
+                    ),
                     action_required=False,
                 )
                 await self._send_generation_email(
                     record=updated,
-                    subject="Applix: resume regenerated",
-                    body="Your resume has been regenerated and is ready for review.",
+                    subject="Applix: resume optimized" if is_keyword_optimization else "Applix: resume regenerated",
+                    body=(
+                        "Your resume has been optimized for ATS keywords and is ready for review."
+                        if is_keyword_optimization
+                        else "Your resume has been regenerated and is ready for review."
+                    ),
                 )
                 self._record_usage_event(
                     user_id=record.user_id,
@@ -1432,7 +1502,11 @@ class ApplicationService:
                     event_type="regeneration",
                     event_status="success",
                     metadata={
-                        "activity_type": "regeneration_full_succeeded",
+                        "activity_type": (
+                            "keyword_optimization_succeeded"
+                            if is_keyword_optimization
+                            else "regeneration_full_succeeded"
+                        ),
                         "details": {
                             "model_used": generated.generation_params.get("model_used"),
                         },
@@ -1547,6 +1621,10 @@ class ApplicationService:
                     "extracted_reference_id": payload.extracted.extracted_reference_id,
                     "job_posting_origin": payload.extracted.job_posting_origin,
                     "job_posting_origin_other_text": payload.extracted.job_posting_origin_other_text,
+                    "job_keywords": self._coerce_worker_keyword_payload(
+                        job_keywords=payload.extracted.job_keywords,
+                        job_description=payload.extracted.job_description,
+                    ),
                     **self._workflow_updates(
                         internal_state="generation_pending",
                         failure_reason=None,
@@ -1578,7 +1656,8 @@ class ApplicationService:
                     "details": details or None,
                 },
             )
-            return await self._run_duplicate_resolution_flow(updated)
+            updated = await self._run_duplicate_resolution_flow(updated)
+            return await self._enqueue_keyword_extraction_for_record(updated, force=True)
 
         raise ValueError("Unsupported worker event.")
 
@@ -1628,6 +1707,7 @@ class ApplicationService:
             "aggressiveness": aggressiveness,
             "additional_instructions": additional_instructions,
             "base_resume_id": base_resume_id,
+            **self._keyword_generation_settings(record=record, aggressiveness=aggressiveness),
             "_base_resume_snapshot_content": base_resume.content_md,
             **self._quota_generation_settings(quota_reservation),
         }
@@ -1951,6 +2031,7 @@ class ApplicationService:
             "additional_instructions": effective_additional_instructions,
             "use_judge_feedback": use_judge_feedback,
             "base_resume_id": base_resume_id,
+            **self._keyword_generation_settings(record=record, aggressiveness=aggressiveness),
             "_base_resume_snapshot_content": base_resume.content_md,
             **self._quota_generation_settings(quota_reservation),
         }
@@ -2068,6 +2149,191 @@ class ApplicationService:
             )
             return self._detail_payload(failed)
 
+    async def trigger_keyword_optimization(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+    ) -> ApplicationDetailPayload:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+
+        if record.internal_state not in ("resume_ready",):
+            raise PermissionError("Application must have an existing ready draft for keyword optimization.")
+
+        keyword_status = str((record.job_keywords or {}).get("status") or "").strip().lower()
+        if keyword_status in {"queued", "running"}:
+            raise PermissionError("Keyword extraction must finish before keyword optimization.")
+
+        draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
+        if draft is None:
+            raise PermissionError("No existing draft found for keyword optimization.")
+
+        if not record.job_title or not record.job_description:
+            raise ValueError("Job title and description are required for keyword optimization.")
+
+        if self._looks_like_blocked_source_placeholder(record):
+            return await self._route_blocked_job_data_to_manual_entry(record)
+
+        base_resume_id = str(draft.generation_params.get("base_resume_id") or record.base_resume_id or "").strip()
+        if not base_resume_id:
+            raise ValueError("A base resume must be linked to the application for keyword optimization.")
+
+        base_resume = self.base_resume_repository.fetch_resume(user_id, base_resume_id)
+        if base_resume is None:
+            raise LookupError("Linked base resume not found.")
+
+        keyword_match = self._build_keyword_match_for_draft(record=record, draft=draft)
+        if keyword_match is None or keyword_match["total_count"] <= 0:
+            raise ValueError("No ATS keywords are available for optimization.")
+        if not keyword_match["missing_keywords"]:
+            raise ValueError("All available ATS keywords are already matched.")
+
+        profile = self._require_profile(user_id=user_id, action="optimizing keywords")
+        self._require_profile_name(profile, action="optimizing keywords")
+        personal_info = self._build_personal_info(profile)
+
+        section_prefs = self._section_preferences_for_existing_draft(
+            draft=draft,
+            fallback=self._build_section_preferences(profile),
+        )
+        # Keyword optimization uses monthly resume_generation_usage quota; full_regeneration_count is legacy.
+        quota_reservation = self._reserve_generation_quota(user_id=user_id)
+        aggressiveness = str(draft.generation_params.get("aggressiveness") or "medium").strip().lower()
+        if aggressiveness not in KEYWORD_COVERAGE_TARGETS:
+            aggressiveness = "medium"
+        target_length = str(
+            draft.generation_params.get("page_length")
+            or draft.generation_params.get("target_length")
+            or "1_page"
+        ).strip() or "1_page"
+        additional_instructions = draft.generation_params.get("additional_instructions")
+        sanitized_current_draft = sanitize_resume_markdown(draft.content_md).sanitized_markdown or draft.content_md.strip()
+
+        generation_settings = {
+            "page_length": target_length,
+            "aggressiveness": aggressiveness,
+            "additional_instructions": additional_instructions,
+            "base_resume_id": base_resume_id,
+            **self._keyword_generation_settings(record=record, aggressiveness=aggressiveness),
+            "keyword_optimization": {
+                "enabled": True,
+                "target_keywords": keyword_match["missing_keywords"],
+                "preserve_keywords": keyword_match["matched_keywords"],
+                "starting_match": keyword_match,
+            },
+            "_current_draft_snapshot_content": sanitized_current_draft,
+            "_base_resume_snapshot_content": base_resume.content_md,
+            **self._quota_generation_settings(quota_reservation),
+        }
+
+        updated = None
+        job_queued = False
+        try:
+            updated = self.repository.update_application(
+                application_id=application_id,
+                user_id=user_id,
+                updates=self._workflow_updates(
+                    internal_state="regenerating_full",
+                    failure_reason=None,
+                    generation_failure_details=None,
+                ),
+            )
+            self.notification_repository.clear_action_required(
+                user_id=user_id, application_id=application_id,
+            )
+            enqueue_started_at = perf_counter()
+            logger.info(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_start",
+                    "workflow_kind": "regeneration_full",
+                    "regeneration_target": KEYWORD_OPTIMIZATION_TARGET,
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "missing_keyword_count": len(keyword_match["missing_keywords"]),
+                },
+            )
+            job_id = await self.generation_job_queue.enqueue_regeneration(
+                application_id=application_id,
+                user_id=user_id,
+                job_title=record.job_title,
+                company_name=record.company,
+                job_description=record.job_description,
+                base_resume_content=base_resume.content_md,
+                current_draft_content=draft.content_md,
+                personal_info=personal_info,
+                section_preferences=section_prefs,
+                generation_settings=generation_settings,
+                regeneration_target=KEYWORD_OPTIMIZATION_TARGET,
+                regeneration_instructions=None,
+            )
+            job_queued = True
+            logger.info(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_success",
+                    "workflow_kind": "regeneration_full",
+                    "regeneration_target": KEYWORD_OPTIMIZATION_TARGET,
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "job_id": job_id,
+                    "latency_ms": round((perf_counter() - enqueue_started_at) * 1000),
+                },
+            )
+            await self.progress_store.set(
+                application_id,
+                build_progress(
+                    job_id=job_id,
+                    workflow_kind="regeneration_full",
+                    state="regenerating_full",
+                    message="Keyword optimization is queued.",
+                    percent_complete=0,
+                    quota_period_start=quota_reservation.period_start,
+                ),
+            )
+            self._record_activity_event(
+                user_id=user_id,
+                application_id=application_id,
+                activity_type="keyword_optimization_started",
+                details={
+                    "target_keyword_count": len(keyword_match["missing_keywords"]),
+                    "preserve_keyword_count": len(keyword_match["matched_keywords"]),
+                    "starting_percentage": keyword_match["percentage"],
+                },
+            )
+            return self._detail_payload(updated)
+        except Exception as error:
+            if not job_queued:
+                self._release_generation_quota(user_id=user_id, reservation=quota_reservation)
+            logger.warning(
+                "generation_enqueue %s",
+                {
+                    "event": "enqueue_failure",
+                    "workflow_kind": "regeneration_full",
+                    "regeneration_target": KEYWORD_OPTIMIZATION_TARGET,
+                    "user_id": user_id,
+                    "application_id": application_id,
+                    "error_type": type(error).__name__,
+                    "message": str(error),
+                },
+            )
+            if updated is None:
+                raise
+            failed = await self._mark_generation_failure(
+                record=updated,
+                message="Keyword optimization could not be started. Try again.",
+                failure_details={
+                    "failure_stage": "enqueue",
+                    "terminal_error_code": "regeneration_failed",
+                    "error": {
+                        "error_type": type(error).__name__,
+                        "message": str(error),
+                    },
+                },
+                failure_reason="regeneration_failed",
+            )
+            return self._detail_payload(failed)
+
     async def trigger_section_regeneration(
         self,
         *,
@@ -2114,6 +2380,10 @@ class ApplicationService:
             **draft.generation_params,
             "base_resume_id": base_resume_id,
             "instructions": instructions.strip(),
+            **self._keyword_generation_settings(
+                record=record,
+                aggressiveness=str(draft.generation_params.get("aggressiveness") or "medium"),
+            ),
             "_base_resume_snapshot_content": base_resume.content_md,
             **self._quota_generation_settings(quota_reservation),
         }
@@ -2261,7 +2531,8 @@ class ApplicationService:
         if current_progress is not None and current_progress.job_id != payload.job_id:
             return record
 
-        is_section = payload.regeneration_target != "full"
+        is_keyword_optimization = payload.regeneration_target == KEYWORD_OPTIMIZATION_TARGET
+        is_section = payload.regeneration_target not in {"full", KEYWORD_OPTIMIZATION_TARGET}
         workflow_kind = "regeneration_section" if is_section else "regeneration_full"
         generating_state = "regenerating_section" if is_section else "regenerating_full"
         failure_reason = "regeneration_failed"
@@ -2324,6 +2595,30 @@ class ApplicationService:
             if payload.generated is None:
                 raise ValueError("Missing generated payload for regeneration success callback.")
 
+            keyword_optimization_failure = self._keyword_optimization_failure_details(
+                record=record,
+                generated=payload.generated,
+            )
+            if keyword_optimization_failure is not None:
+                completed_progress = build_progress(
+                    job_id=payload.job_id,
+                    workflow_kind=workflow_kind,
+                    state="regeneration_failed",
+                    message="Keyword optimization did not preserve existing keyword coverage. Your previous draft was kept.",
+                    percent_complete=100,
+                    terminal_error_code="regeneration_failed",
+                    quota_period_start=payload.quota_period_start,
+                )
+                completed_progress.completed_at = completed_progress.updated_at
+                await self.progress_store.set(record.id, completed_progress)
+                await self.progress_store.clear_generation_result(record.id)
+                return await self._mark_generation_failure(
+                    record=record,
+                    message="Keyword optimization did not preserve existing keyword coverage. Your previous draft was kept.",
+                    failure_details=keyword_optimization_failure,
+                    failure_reason="regeneration_failed",
+                )
+
             draft = self.draft_repository.upsert_draft(
                 application_id=record.id,
                 user_id=record.user_id,
@@ -2360,13 +2655,21 @@ class ApplicationService:
                 user_id=record.user_id,
                 application_id=record.id,
                 notification_type="success",
-                message="Resume regeneration completed successfully.",
+                message=(
+                    "Resume keyword optimization completed successfully."
+                    if is_keyword_optimization
+                    else "Resume regeneration completed successfully."
+                ),
                 action_required=False,
             )
             await self._send_generation_email(
                 record=updated,
-                subject="Applix: resume regenerated",
-                body="Your resume has been regenerated and is ready for review.",
+                subject="Applix: resume optimized" if is_keyword_optimization else "Applix: resume regenerated",
+                body=(
+                    "Your resume has been optimized for ATS keywords and is ready for review."
+                    if is_keyword_optimization
+                    else "Your resume has been regenerated and is ready for review."
+                ),
             )
             model_used = str(payload.generated.generation_params.get("model_used") or "").strip() or None
             duration_ms = None
@@ -2394,6 +2697,11 @@ class ApplicationService:
                 details["section_name"] = payload.regeneration_target
                 if instructions:
                     details["instructions"] = instructions
+            elif is_keyword_optimization:
+                optimization = payload.generated.generation_params.get("keyword_optimization")
+                if isinstance(optimization, dict):
+                    details["target_keyword_count"] = len(optimization.get("target_keywords") or [])
+                    details["preserve_keyword_count"] = len(optimization.get("preserve_keywords") or [])
             else:
                 if additional_instructions:
                     details["additional_instructions"] = additional_instructions
@@ -2404,7 +2712,12 @@ class ApplicationService:
 
             title = None
             summary = None
-            if not is_section and use_judge_feedback:
+            activity_type = "regeneration_section_succeeded" if is_section else "regeneration_full_succeeded"
+            if is_keyword_optimization:
+                activity_type = "keyword_optimization_succeeded"
+                title = "Keyword optimization completed"
+                summary = "Resume keyword optimization completed."
+            elif not is_section and use_judge_feedback:
                 title = "Regeneration with Judge Feedback completed"
                 summary = "Full resume regeneration with Resume Judge feedback completed."
 
@@ -2412,7 +2725,7 @@ class ApplicationService:
             self._record_activity_event(
                 user_id=record.user_id,
                 application_id=record.id,
-                activity_type="regeneration_section_succeeded" if is_section else "regeneration_full_succeeded",
+                activity_type=activity_type,
                 title=title,
                 summary=summary,
                 status="success",
@@ -2536,6 +2849,78 @@ class ApplicationService:
 
         raise ValueError("Unsupported Resume Judge callback event.")
 
+    async def handle_keyword_extraction_callback(
+        self,
+        payload: KeywordExtractionCallbackPayload,
+    ) -> ApplicationRecord:
+        record = self.repository.fetch_application_unscoped(payload.application_id)
+        if record is None:
+            raise LookupError("Application not found.")
+        if record.user_id != payload.user_id:
+            raise PermissionError("Worker payload user mismatch.")
+
+        current_keywords = record.job_keywords if isinstance(record.job_keywords, dict) else {}
+        current_job_id = str(current_keywords.get("job_id") or "").strip()
+        current_source_hash = str(current_keywords.get("source_hash") or "").strip()
+        if current_job_id and current_job_id != payload.job_id:
+            return record
+        if current_source_hash and current_source_hash != payload.source_hash:
+            return record
+        if self._keyword_source_hash(record.job_description) != payload.source_hash:
+            return record
+
+        if payload.event == "started":
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "job_keywords": self._keyword_payload(
+                        status="running",
+                        source_hash=payload.source_hash,
+                        preserve_manual_from=record.job_keywords,
+                        job_id=payload.job_id,
+                    )
+                },
+            )
+
+        if payload.event == "failed":
+            message = payload.failure.message if payload.failure else "Keyword extraction failed."
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "job_keywords": self._keyword_payload(
+                        status="failed",
+                        source_hash=payload.source_hash,
+                        preserve_manual_from=record.job_keywords,
+                        job_id=payload.job_id,
+                        message=message,
+                    )
+                },
+            )
+
+        if payload.event == "succeeded":
+            keywords = self._filter_keywords_to_job_description(
+                payload.keywords or [],
+                record.job_description,
+            )
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "job_keywords": self._keyword_payload(
+                        status="succeeded",
+                        source_hash=payload.source_hash,
+                        keywords=keywords,
+                        preserve_manual_from=record.job_keywords,
+                        job_id=payload.job_id,
+                        model_used=payload.model_used,
+                    )
+                },
+            )
+
+        raise ValueError("Unsupported keyword extraction callback event.")
+
     async def get_draft(
         self, *, user_id: str, application_id: str,
     ) -> Optional[ResumeDraftRecord]:
@@ -2547,12 +2932,85 @@ class ApplicationService:
         *,
         user_id: str,
         application_id: str,
-    ) -> tuple[Optional[ResumeDraftRecord], list[DraftReviewFlagPayload]]:
+    ) -> tuple[Optional[ResumeDraftRecord], list[DraftReviewFlagPayload], Optional[dict[str, Any]]]:
         record = self._require_application(user_id=user_id, application_id=application_id)
+        record = await self._recover_stale_keyword_extraction_if_needed(record)
         draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
         if draft is None:
-            return None, []
-        return draft, self._build_draft_review_flags(record=record, draft=draft)
+            return None, [], None
+        return (
+            draft,
+            self._build_draft_review_flags(record=record, draft=draft),
+            self._build_keyword_match_for_draft(record=record, draft=draft),
+        )
+
+    def _build_keyword_match_for_draft(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: ResumeDraftRecord,
+    ) -> Optional[dict[str, Any]]:
+        return self.build_keyword_match_payload(
+            job_keywords=record.job_keywords,
+            content_md=draft.content_md,
+            aggressiveness=str(draft.generation_params.get("aggressiveness") or "medium"),
+        )
+
+    def _keyword_generation_settings(
+        self,
+        *,
+        record: ApplicationRecord,
+        aggressiveness: str,
+    ) -> dict[str, Any]:
+        keywords = self._keyword_texts_from_payload(record.job_keywords)
+        target = KEYWORD_COVERAGE_TARGETS.get(
+            str(aggressiveness or "medium").strip().lower(),
+            KEYWORD_COVERAGE_TARGETS["medium"],
+        )
+        return {
+            "job_keywords": keywords,
+            "keyword_coverage_target": target,
+        }
+
+    async def update_manual_keywords(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+        keywords: list[Any],
+    ) -> ApplicationDetailPayload:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        manual_keywords = self._normalize_manual_keywords(keywords)
+        existing = record.job_keywords if isinstance(record.job_keywords, dict) else None
+        status = str((existing or {}).get("status") or KEYWORD_STATUS_EMPTY).strip().lower()
+        if status not in {"queued", "running", "succeeded", "failed", KEYWORD_STATUS_EMPTY}:
+            status = KEYWORD_STATUS_EMPTY
+        source_hash = str((existing or {}).get("source_hash") or self._keyword_source_hash(record.job_description))
+        extracted_keywords = self._extracted_keyword_texts_from_payload(existing)
+        updated = await self._update_application_and_publish_detail(
+            application_id=record.id,
+            user_id=record.user_id,
+            updates={
+                "job_keywords": self._keyword_payload(
+                    status=status,
+                    source_hash=source_hash,
+                    keywords=extracted_keywords,
+                    manual_keywords=manual_keywords,
+                    preserve_manual_from=existing,
+                    extracted_at=str((existing or {}).get("extracted_at") or "").strip() or None,
+                    job_id=str((existing or {}).get("job_id") or "").strip() or None,
+                    model_used=str((existing or {}).get("model_used") or "").strip() or None,
+                    message=str((existing or {}).get("message") or "").strip() or None,
+                )
+            },
+        )
+        self._record_activity_event(
+            user_id=user_id,
+            application_id=application_id,
+            activity_type="keywords_updated",
+            details={"manual_keyword_count": len(manual_keywords)},
+        )
+        return self._detail_payload(updated)
 
     async def save_draft_edit(
         self,
@@ -2562,7 +3020,78 @@ class ApplicationService:
         content: str,
     ) -> ResumeDraftRecord:
         record = self._require_application(user_id=user_id, application_id=application_id)
+        return await self._save_draft_edit_for_record(record=record, content=content)
 
+    async def save_draft_edit_with_keyword_match(
+        self,
+        *,
+        user_id: str,
+        application_id: str,
+        content: str,
+    ) -> tuple[ResumeDraftRecord, Optional[dict[str, Any]]]:
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        updated_draft = await self._save_draft_edit_for_record(record=record, content=content)
+        return updated_draft, self._build_keyword_match_for_draft(record=record, draft=updated_draft)
+
+    def _keyword_optimization_failure_details(
+        self,
+        *,
+        record: ApplicationRecord,
+        generated: GenerationSuccessPayload,
+    ) -> Optional[dict[str, Any]]:
+        optimization = generated.generation_params.get("keyword_optimization")
+        if not isinstance(optimization, dict) or not optimization.get("enabled"):
+            return None
+        starting_match = optimization.get("starting_match") if isinstance(optimization.get("starting_match"), dict) else {}
+        raw_preserve_keywords = optimization.get("preserve_keywords")
+        if not isinstance(raw_preserve_keywords, list):
+            raw_preserve_keywords = starting_match.get("matched_keywords", [])
+        if not isinstance(raw_preserve_keywords, list):
+            raw_preserve_keywords = []
+        preserve_keywords = {
+            str(keyword).strip().lower()
+            for keyword in raw_preserve_keywords
+            if str(keyword).strip()
+        }
+        try:
+            starting_matched_count = int(starting_match.get("matched_count") or 0)
+        except Exception:
+            starting_matched_count = 0
+        candidate_match = self.build_keyword_match_payload(
+            job_keywords=record.job_keywords,
+            content_md=generated.content_md,
+            aggressiveness=str(generated.generation_params.get("aggressiveness") or "medium"),
+        )
+        raw_candidate_matched_keywords = (candidate_match or {}).get("matched_keywords", [])
+        if not isinstance(raw_candidate_matched_keywords, list):
+            raw_candidate_matched_keywords = []
+        candidate_matched_keywords = {
+            str(keyword).strip().lower()
+            for keyword in raw_candidate_matched_keywords
+            if str(keyword).strip()
+        }
+        missing_preserved_keywords = sorted(preserve_keywords - candidate_matched_keywords)
+        candidate_matched_count = int((candidate_match or {}).get("matched_count") or 0)
+        if candidate_matched_count >= starting_matched_count and not missing_preserved_keywords:
+            return None
+        return {
+            "failure_stage": "keyword_optimization",
+            "terminal_error_code": "keyword_coverage_regressed",
+            "starting_matched_count": starting_matched_count,
+            "candidate_matched_count": candidate_matched_count,
+            "missing_preserved_keywords": missing_preserved_keywords,
+            "starting_percentage": starting_match.get("percentage"),
+            "candidate_percentage": (candidate_match or {}).get("percentage"),
+        }
+
+    async def _save_draft_edit_for_record(
+        self,
+        *,
+        record: ApplicationRecord,
+        content: str,
+    ) -> ResumeDraftRecord:
+        user_id = record.user_id
+        application_id = record.id
         draft = self.draft_repository.fetch_draft(user_id=user_id, application_id=application_id)
         if draft is None:
             raise PermissionError("No draft exists. Generation must happen first.")
@@ -3174,6 +3703,30 @@ class ApplicationService:
                 })
         return result
 
+    @staticmethod
+    def _section_preferences_for_existing_draft(
+        *,
+        draft: ResumeDraftRecord,
+        fallback: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        snapshot = draft.sections_snapshot if isinstance(draft.sections_snapshot, dict) else {}
+        raw_order = snapshot.get("section_order") or snapshot.get("enabled_sections") or []
+        section_order: list[str] = []
+        seen: set[str] = set()
+        if isinstance(raw_order, list):
+            for item in raw_order:
+                section = str(item or "").strip()
+                if not section or section in seen:
+                    continue
+                seen.add(section)
+                section_order.append(section)
+        if not section_order:
+            return fallback
+        return [
+            {"name": section, "enabled": True, "order": index}
+            for index, section in enumerate(section_order)
+        ]
+
     def _detail_payload(self, record: ApplicationRecord) -> ApplicationDetailPayload:
         warning = None
         draft = self.draft_repository.fetch_draft(user_id=record.user_id, application_id=record.id)
@@ -3672,6 +4225,362 @@ class ApplicationService:
         return re.sub(r"\s+", " ", lowered).strip()
 
     @staticmethod
+    def _keyword_source_hash(job_description: Optional[str]) -> str:
+        # Keep in sync with keyword_source_hash in the worker process.
+        normalized = re.sub(r"\s+", " ", str(job_description or "")).strip().lower()
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _normalize_keyword_text(value: Any) -> Optional[str]:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        return text or None
+
+    @classmethod
+    def _normalize_keyword_source(cls, value: Any) -> str:
+        source = str(value or "extracted").strip().lower()
+        return "manual" if source == "manual" else "extracted"
+
+    @classmethod
+    def _keyword_entries_from_payload(cls, job_keywords: Optional[dict[str, Any]]) -> list[dict[str, str]]:
+        if not isinstance(job_keywords, dict):
+            return []
+        raw_keywords = job_keywords.get("keywords")
+        if not isinstance(raw_keywords, list):
+            return []
+        entries: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for item in raw_keywords:
+            raw_text = item.get("text") if isinstance(item, dict) else item
+            text = cls._normalize_keyword_text(raw_text)
+            if not text:
+                continue
+            dedupe_key = text.lower()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            entry = {
+                "text": text,
+                "source": cls._normalize_keyword_source(item.get("source") if isinstance(item, dict) else None),
+            }
+            if isinstance(item, dict):
+                added_at = str(item.get("added_at") or "").strip()
+                if added_at:
+                    entry["added_at"] = added_at
+            entries.append(entry)
+        return entries
+
+    @classmethod
+    def _keyword_texts_from_payload(cls, job_keywords: Optional[dict[str, Any]]) -> list[str]:
+        return [entry["text"] for entry in cls._keyword_entries_from_payload(job_keywords)]
+
+    @classmethod
+    def _manual_keyword_texts_from_payload(cls, job_keywords: Optional[dict[str, Any]]) -> list[str]:
+        return [
+            entry["text"]
+            for entry in cls._keyword_entries_from_payload(job_keywords)
+            if entry.get("source") == "manual"
+        ]
+
+    @classmethod
+    def _extracted_keyword_texts_from_payload(cls, job_keywords: Optional[dict[str, Any]]) -> list[str]:
+        return [
+            entry["text"]
+            for entry in cls._keyword_entries_from_payload(job_keywords)
+            if entry.get("source") != "manual"
+        ]
+
+    @classmethod
+    def _keyword_payload_entries(
+        cls,
+        *,
+        extracted_keywords: Optional[list[Any]] = None,
+        manual_keywords: Optional[list[Any]] = None,
+        manual_added_at: Optional[dict[str, str]] = None,
+    ) -> list[dict[str, str]]:
+        entries: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for item in extracted_keywords or []:
+            text = cls._normalize_keyword_text(item)
+            if not text:
+                continue
+            dedupe_key = text.lower()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            entries.append({"text": text, "source": "extracted"})
+        now = datetime.now(timezone.utc).isoformat()
+        added_lookup = manual_added_at or {}
+        for item in manual_keywords or []:
+            text = cls._normalize_keyword_text(item)
+            if not text:
+                continue
+            dedupe_key = text.lower()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            entries.append({
+                "text": text,
+                "source": "manual",
+                "added_at": added_lookup.get(dedupe_key) or now,
+            })
+        return entries
+
+    @classmethod
+    def _manual_keyword_added_at_lookup(cls, job_keywords: Optional[dict[str, Any]]) -> dict[str, str]:
+        lookup: dict[str, str] = {}
+        for entry in cls._keyword_entries_from_payload(job_keywords):
+            if entry.get("source") != "manual":
+                continue
+            added_at = str(entry.get("added_at") or "").strip()
+            if added_at:
+                lookup[entry["text"].lower()] = added_at
+        return lookup
+
+    @classmethod
+    def _normalize_manual_keywords(cls, keywords: list[Any]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in keywords:
+            text = cls._normalize_keyword_text(item)
+            if not text:
+                raise ValueError("Manual keywords cannot be blank.")
+            if len(text) > KEYWORD_TEXT_MAX_CHARS:
+                raise ValueError(f"Manual keywords must be {KEYWORD_TEXT_MAX_CHARS} characters or fewer.")
+            dedupe_key = text.lower()
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            normalized.append(text)
+            if len(normalized) > KEYWORD_MANUAL_MAX_COUNT:
+                raise ValueError(f"Manual keywords are limited to {KEYWORD_MANUAL_MAX_COUNT}.")
+        return normalized
+
+    @classmethod
+    def _keyword_payload(
+        cls,
+        *,
+        status: str,
+        source_hash: str,
+        keywords: Optional[list[str]] = None,
+        manual_keywords: Optional[list[str]] = None,
+        preserve_manual_from: Optional[dict[str, Any]] = None,
+        extracted_at: Optional[str] = None,
+        job_id: Optional[str] = None,
+        model_used: Optional[str] = None,
+        message: Optional[str] = None,
+    ) -> dict[str, Any]:
+        if manual_keywords is None:
+            manual_keywords = cls._manual_keyword_texts_from_payload(preserve_manual_from)
+        payload: dict[str, Any] = {
+            "status": status,
+            "source_hash": source_hash,
+            "keywords": cls._keyword_payload_entries(
+                extracted_keywords=keywords or [],
+                manual_keywords=manual_keywords,
+                manual_added_at=cls._manual_keyword_added_at_lookup(preserve_manual_from),
+            ),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if status == "succeeded":
+            payload["extracted_at"] = extracted_at or payload["updated_at"]
+        if job_id:
+            payload["job_id"] = job_id
+        if model_used:
+            payload["model_used"] = model_used
+        if message:
+            payload["message"] = message[:240]
+        return payload
+
+    @classmethod
+    def _coerce_worker_keyword_payload(
+        cls,
+        *,
+        job_keywords: Optional[dict[str, Any]],
+        job_description: Optional[str],
+    ) -> Optional[dict[str, Any]]:
+        if not isinstance(job_keywords, dict):
+            return None
+        source_hash = str(job_keywords.get("source_hash") or cls._keyword_source_hash(job_description))
+        status = str(job_keywords.get("status") or "succeeded").strip().lower()
+        if status not in {"queued", "running", "succeeded", "failed", KEYWORD_STATUS_EMPTY}:
+            status = "succeeded"
+        keywords = cls._extracted_keyword_texts_from_payload(job_keywords)
+        return cls._keyword_payload(
+            status=status,
+            source_hash=source_hash,
+            keywords=cls._filter_keywords_to_job_description(keywords, job_description),
+            preserve_manual_from=job_keywords,
+            job_id=str(job_keywords.get("job_id") or "").strip() or None,
+            model_used=str(job_keywords.get("model_used") or "").strip() or None,
+            message=str(job_keywords.get("message") or "").strip() or None,
+        )
+
+    @staticmethod
+    @lru_cache(maxsize=512)
+    def _keyword_regex(keyword: str) -> re.Pattern[str]:
+        # Process-local cache sized for several active application keyword sets.
+        normalized = re.sub(r"\s+", " ", keyword).strip().lower()
+        escaped = re.escape(normalized)
+        escaped = escaped.replace(r"\ ", r"\s+")
+        prefix = r"(?<![a-z0-9])" if normalized else ""
+        suffix = r"(?![a-z0-9])" if normalized else ""
+        return re.compile(f"{prefix}{escaped}{suffix}", re.I)
+
+    @classmethod
+    def _filter_keywords_to_job_description(
+        cls,
+        keywords: list[Any],
+        job_description: Optional[str],
+    ) -> list[str]:
+        # Keep exact-phrase boundary behavior in sync with filter_keywords_to_job_description in the worker.
+        searchable = re.sub(r"\s+", " ", str(job_description or "")).strip().lower()
+        if not searchable:
+            return []
+        filtered: list[str] = []
+        seen: set[str] = set()
+        for item in keywords:
+            text = cls._normalize_keyword_text(item)
+            if not text:
+                continue
+            dedupe_key = text.lower()
+            if dedupe_key in seen:
+                continue
+            if not cls._keyword_regex(text).search(searchable):
+                continue
+            seen.add(dedupe_key)
+            filtered.append(text)
+            if len(filtered) >= 30:
+                break
+        return filtered
+
+    @classmethod
+    def build_keyword_match_payload(
+        cls,
+        *,
+        job_keywords: Optional[dict[str, Any]],
+        content_md: str,
+        aggressiveness: str,
+    ) -> Optional[dict[str, Any]]:
+        keywords = cls._keyword_texts_from_payload(job_keywords)
+        if not keywords:
+            return None
+        searchable = re.sub(r"\s+", " ", str(content_md or "")).strip().lower()
+        matched: list[str] = []
+        missing: list[str] = []
+        for keyword in keywords:
+            if cls._keyword_regex(keyword).search(searchable):
+                matched.append(keyword)
+            else:
+                missing.append(keyword)
+        total = len(keywords)
+        matched_count = len(matched)
+        percentage = round((matched_count / total) * 100, 1) if total else 0.0
+        target_percentage = KEYWORD_COVERAGE_TARGETS.get(
+            str(aggressiveness or "medium").strip().lower(),
+            KEYWORD_COVERAGE_TARGETS["medium"],
+        )
+        return {
+            "matched_count": matched_count,
+            "total_count": total,
+            "percentage": percentage,
+            "target_percentage": target_percentage,
+            "target_met": percentage >= target_percentage,
+            "matched_keywords": matched,
+            "missing_keywords": missing,
+        }
+
+    async def _enqueue_keyword_extraction_for_record(
+        self,
+        record: ApplicationRecord,
+        *,
+        force: bool = False,
+    ) -> ApplicationRecord:
+        job_description = record.job_description or ""
+        if not job_description.strip():
+            manual_keywords = self._manual_keyword_texts_from_payload(record.job_keywords)
+            if record.job_keywords is None and not manual_keywords:
+                return record
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "job_keywords": (
+                        self._keyword_payload(
+                            status=KEYWORD_STATUS_EMPTY,
+                            source_hash=self._keyword_source_hash(job_description),
+                            manual_keywords=manual_keywords,
+                            preserve_manual_from=record.job_keywords,
+                            message="Job description is required for extracted keywords.",
+                        )
+                        if manual_keywords
+                        else None
+                    )
+                },
+            )
+
+        source_hash = self._keyword_source_hash(job_description)
+        existing = record.job_keywords if isinstance(record.job_keywords, dict) else None
+        if (
+            not force
+            and existing is not None
+            and existing.get("source_hash") == source_hash
+            and existing.get("status") in {"queued", "running", "succeeded"}
+        ):
+            return record
+
+        if self.keyword_extraction_job_queue is None:
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "job_keywords": self._keyword_payload(
+                        status="failed",
+                        source_hash=source_hash,
+                        preserve_manual_from=record.job_keywords,
+                        message="Keyword extraction is not configured.",
+                    )
+                },
+            )
+
+        try:
+            job_id = await self.keyword_extraction_job_queue.enqueue(
+                application_id=record.id,
+                user_id=record.user_id,
+                job_description=job_description,
+                source_hash=source_hash,
+            )
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "job_keywords": self._keyword_payload(
+                        status="queued",
+                        source_hash=source_hash,
+                        preserve_manual_from=record.job_keywords,
+                        job_id=job_id,
+                    )
+                },
+            )
+        except Exception as error:
+            logger.warning(
+                "keyword_extraction_enqueue_failed app_id=%s error_type=%s",
+                record.id,
+                type(error).__name__,
+            )
+            return await self._update_application_and_publish_detail(
+                application_id=record.id,
+                user_id=record.user_id,
+                updates={
+                    "job_keywords": self._keyword_payload(
+                        status="failed",
+                        source_hash=source_hash,
+                        preserve_manual_from=record.job_keywords,
+                        message="Keyword extraction could not be started.",
+                    )
+                },
+            )
+
+    @staticmethod
     def _extract_job_keyword_tokens(job_description: str) -> set[str]:
         tokens = {
             token.lower()
@@ -3854,10 +4763,30 @@ class ApplicationService:
         if not failure_details:
             return normalized
 
-        for key in ("failure_stage", "attempt_count", "terminal_error_code", "repair_model", "section_name"):
+        for key in (
+            "failure_stage",
+            "attempt_count",
+            "terminal_error_code",
+            "repair_model",
+            "section_name",
+            "starting_matched_count",
+            "candidate_matched_count",
+            "starting_percentage",
+            "candidate_percentage",
+        ):
             value = failure_details.get(key)
             if value not in (None, ""):
                 normalized[key] = value
+
+        missing_preserved_keywords = failure_details.get("missing_preserved_keywords")
+        if isinstance(missing_preserved_keywords, list):
+            normalized_keywords = [
+                str(keyword).strip()[:KEYWORD_TEXT_MAX_CHARS]
+                for keyword in missing_preserved_keywords
+                if str(keyword).strip()
+            ]
+            if normalized_keywords:
+                normalized["missing_preserved_keywords"] = normalized_keywords[:KEYWORD_MANUAL_MAX_COUNT]
 
         attempts = failure_details.get("attempts")
         if isinstance(attempts, list):
@@ -3987,6 +4916,42 @@ class ApplicationService:
         if not recovered:
             return record
         return self._refresh(user_id=record.user_id, application_id=record.id)
+
+    async def _recover_stale_keyword_extraction_if_needed(
+        self,
+        record: ApplicationRecord,
+    ) -> ApplicationRecord:
+        payload = record.job_keywords if isinstance(record.job_keywords, dict) else None
+        if payload is None or payload.get("status") not in {"queued", "running"}:
+            return record
+
+        updated_at = self._parse_timestamp(str(payload.get("updated_at") or record.created_at))
+        if updated_at is None:
+            return record
+
+        elapsed = (datetime.now(timezone.utc) - updated_at).total_seconds()
+        if elapsed < KEYWORD_EXTRACTION_STALE_TIMEOUT_SECONDS:
+            return record
+
+        logger.warning(
+            "Recovering stale keyword extraction for application %s (status=%s, elapsed=%.0fs)",
+            record.id,
+            payload.get("status"),
+            elapsed,
+        )
+        return await self._update_application_and_publish_detail(
+            application_id=record.id,
+            user_id=record.user_id,
+            updates={
+                "job_keywords": self._keyword_payload(
+                    status="failed",
+                    source_hash=str(payload.get("source_hash") or self._keyword_source_hash(record.job_description)),
+                    preserve_manual_from=record.job_keywords,
+                    job_id=str(payload.get("job_id") or "").strip() or None,
+                    message="Keyword extraction timed out. Edit the job description to retry keyword extraction.",
+                )
+            },
+        )
 
     def _is_generation_active(
         self,
@@ -4333,6 +5298,7 @@ def get_application_service(
     progress_store: RedisProgressStore = Depends(get_progress_store),
     extraction_job_queue: ExtractionJobQueue = Depends(get_extraction_job_queue),
     generation_job_queue: GenerationJobQueue = Depends(get_generation_job_queue),
+    keyword_extraction_job_queue: KeywordExtractionJobQueue = Depends(get_keyword_extraction_job_queue),
     usage_event_repository: UsageEventRepository = Depends(get_usage_event_repository),
     subscription_repository: SubscriptionRepository = Depends(get_subscription_repository),
     settings: Settings = Depends(get_settings),
@@ -4346,6 +5312,7 @@ def get_application_service(
         progress_store=progress_store,
         extraction_job_queue=extraction_job_queue,
         generation_job_queue=generation_job_queue,
+        keyword_extraction_job_queue=keyword_extraction_job_queue,
         email_sender=build_email_sender(settings),
         settings=settings,
         usage_event_repository=usage_event_repository,

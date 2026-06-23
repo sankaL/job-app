@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -82,6 +83,8 @@ REFERENCE_PATTERNS = (
 FULL_GENERATION_MAX_TIMEOUT_SECONDS = 240.0
 SECTION_REGENERATION_TIMEOUT_SECONDS = 120.0
 RESUME_JUDGE_TIMEOUT_SECONDS = 60.0
+KEYWORD_EXTRACTION_MODEL_TIMEOUT_SECONDS = 30.0
+KEYWORD_EXTRACTION_MAX_KEYWORDS = 30
 EXTRACTION_TEXT_LIMIT = 40_000
 EXTRACTION_BLOCKED_PAGE_SCAN_LIMIT = 8_000
 
@@ -99,6 +102,8 @@ class WorkerSettingsEnv(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     extraction_agent_model: Optional[str] = None
     extraction_agent_fallback_model: Optional[str] = None
+    keyword_extraction_agent_model: Optional[str] = None
+    keyword_extraction_agent_fallback_model: Optional[str] = None
     generation_agent_model: Optional[str] = None
     generation_agent_fallback_model: Optional[str] = None
     generation_agent_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "none"
@@ -235,6 +240,7 @@ def _stored_generation_settings(
             "_generation_fallback_model",
             "_generation_fallback_reasoning_effort",
             "_base_resume_snapshot_content",
+            "_current_draft_snapshot_content",
         }
     }
     if model_used is not None:
@@ -325,6 +331,10 @@ class ExtractedJobPosting(BaseModel):
         default=None,
         description="Optional reference id or requisition id from the posting.",
     )
+    job_keywords: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Optional high-value ATS keyword extraction payload.",
+    )
 
     @field_validator("job_title", "job_description")
     @classmethod
@@ -341,6 +351,28 @@ class ExtractedJobPosting(BaseModel):
             return None
         stripped = value.strip()
         return stripped or None
+
+
+class ExtractedKeywordPayload(BaseModel):
+    keywords: list[str] = Field(
+        description="High-value exact phrases copied from the job description."
+    )
+
+    @field_validator("keywords")
+    @classmethod
+    def normalize_keywords(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            text = re.sub(r"\s+", " ", str(item or "")).strip()
+            if not text:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(text)
+        return normalized[:KEYWORD_EXTRACTION_MAX_KEYWORDS]
 
 
 def now_iso() -> str:
@@ -883,6 +915,81 @@ class OpenRouterExtractionAgent:
         return await llm.ainvoke(prompt)
 
 
+class OpenRouterKeywordExtractionAgent:
+    def __init__(self, settings: WorkerSettingsEnv) -> None:
+        self._settings = settings
+
+    def _models(self) -> tuple[str, str]:
+        primary = str(self._settings.keyword_extraction_agent_model or self._settings.extraction_agent_model or "").strip()
+        fallback = str(
+            self._settings.keyword_extraction_agent_fallback_model
+            or self._settings.extraction_agent_fallback_model
+            or primary
+        ).strip()
+        if not primary:
+            raise RuntimeError("KEYWORD_EXTRACTION_AGENT_MODEL or EXTRACTION_AGENT_MODEL is not configured.")
+        if not fallback:
+            raise RuntimeError("Keyword extraction fallback model is not configured.")
+        return primary, fallback
+
+    async def extract_keywords(self, job_description: str) -> tuple[dict[str, Any], str]:
+        if not self._settings.openrouter_api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not configured.")
+        primary, fallback = self._models()
+        last_error: Optional[Exception] = None
+        for model_name in (primary, fallback):
+            try:
+                payload = await self._extract_with_model(model_name, job_description)
+                keywords = filter_keywords_to_job_description(payload.keywords, job_description)
+                return build_job_keywords_payload(
+                    status="succeeded",
+                    job_description=job_description,
+                    keywords=keywords,
+                    model_used=model_name,
+                ), model_name
+            except Exception as error:
+                last_error = error
+        raise RuntimeError("Keyword extraction failed on both primary and fallback models.") from last_error
+
+    async def _extract_with_model(
+        self,
+        model_name: str,
+        job_description: str,
+    ) -> ExtractedKeywordPayload:
+        llm = ChatOpenAI(
+            model=model_name,
+            api_key=self._settings.openrouter_api_key,
+            base_url=self._settings.openrouter_base_url,
+            temperature=0,
+            request_timeout=KEYWORD_EXTRACTION_MODEL_TIMEOUT_SECONDS,
+            max_retries=0,
+        ).with_structured_output(ExtractedKeywordPayload)
+
+        prompt = [
+            (
+                "system",
+                (
+                    "Extract purposeful ATS keywords from a job description.\n"
+                    "Return exactly one JSON object matching this schema and no prose or extra keys: "
+                    '{"keywords":["exact phrase from the job description"]}.\n'
+                    "Rules:\n"
+                    "- Return 8 to 30 high-value keywords when the posting contains enough signal.\n"
+                    "- Every keyword must be copied exactly from the job description text, preserving wording.\n"
+                    "- Prefer repeated terms, required qualifications, preferred qualifications, tools, technologies, credentials, role-title phrases, and core responsibilities.\n"
+                    "- Prefer concise phrases of 1 to 5 words over long sentences.\n"
+                    "- Exclude generic filler, benefits, legal/EEO language, company boilerplate, and vague soft skills unless clearly role-critical.\n"
+                    "- Do not include synonyms, inferred terms, normalized variants, plural variants, or reordered wording.\n"
+                    "- Deduplicate case-insensitively."
+                ),
+            ),
+            (
+                "human",
+                json.dumps({"job_description": job_description[:EXTRACTION_TEXT_LIMIT]}),
+            ),
+        ]
+        return await llm.ainvoke(prompt)
+
+
 async def scrape_page_context(job_url: str) -> PageContext:
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
@@ -958,7 +1065,75 @@ def finalize_extracted_posting(
         job_posting_origin=origin,
         job_posting_origin_other_text=other_text,
         extracted_reference_id=extracted.extracted_reference_id or context.extracted_reference_id,
+        job_keywords=extracted.job_keywords,
     )
+
+
+def keyword_source_hash(job_description: str) -> str:
+    # Keep in sync with ApplicationService._keyword_source_hash in the API process.
+    normalized = re.sub(r"\s+", " ", str(job_description or "")).strip().lower()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def normalize_keyword_search_text(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+
+
+def keyword_occurs_exact_case_insensitive(keyword: str, job_description: str) -> bool:
+    normalized_keyword = normalize_keyword_search_text(keyword)
+    normalized_description = normalize_keyword_search_text(job_description)
+    if not normalized_keyword or not normalized_description:
+        return False
+    escaped = re.escape(normalized_keyword).replace(r"\ ", r"\s+")
+    prefix = r"(?<![a-z0-9])"
+    suffix = r"(?![a-z0-9])"
+    return re.search(f"{prefix}{escaped}{suffix}", normalized_description, flags=re.I) is not None
+
+
+def filter_keywords_to_job_description(keywords: list[str], job_description: str) -> list[str]:
+    # Keep exact-phrase boundary behavior in sync with ApplicationService._filter_keywords_to_job_description.
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for keyword in keywords:
+        normalized = re.sub(r"\s+", " ", str(keyword or "")).strip()
+        if not normalized:
+            continue
+        dedupe_key = normalized.lower()
+        if dedupe_key in seen:
+            continue
+        if not keyword_occurs_exact_case_insensitive(normalized, job_description):
+            continue
+        seen.add(dedupe_key)
+        filtered.append(normalized)
+        if len(filtered) >= KEYWORD_EXTRACTION_MAX_KEYWORDS:
+            break
+    return filtered
+
+
+def build_job_keywords_payload(
+    *,
+    status: str,
+    job_description: str,
+    keywords: Optional[list[str]] = None,
+    model_used: Optional[str] = None,
+    job_id: Optional[str] = None,
+    message: Optional[str] = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "status": status,
+        "source_hash": keyword_source_hash(job_description),
+        "keywords": [{"text": keyword, "source": "extracted"} for keyword in (keywords or [])],
+        "updated_at": now_iso(),
+    }
+    if status == "succeeded":
+        payload["extracted_at"] = payload["updated_at"]
+    if model_used:
+        payload["model_used"] = model_used
+    if job_id:
+        payload["job_id"] = job_id
+    if message:
+        payload["message"] = message[:240]
+    return payload
 
 
 async def _extract_primary_visible_text(page) -> str:
@@ -1321,6 +1496,106 @@ async def run_extraction_job(
     raise RuntimeError("Extraction completed without a success payload.")
 
 
+async def run_keyword_extraction_job(
+    ctx: dict[str, Any],
+    *,
+    application_id: str,
+    user_id: str,
+    job_id: str,
+    job_description: str,
+    source_hash: str,
+) -> dict[str, Any]:
+    del ctx
+    settings = WorkerSettingsEnv()
+    callback = BackendCallbackClient(settings)
+    extractor = OpenRouterKeywordExtractionAgent(settings)
+
+    if keyword_source_hash(job_description) != source_hash:
+        payload = {
+            "application_id": application_id,
+            "user_id": user_id,
+            "job_id": job_id,
+            "event": "failed",
+            "source_hash": source_hash,
+            "failure": {"message": "Keyword extraction source changed before the job started."},
+        }
+        await post_callback_best_effort(
+            callback,
+            payload,
+            path=KEYWORD_EXTRACTION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="keyword extraction failed",
+        )
+        return payload
+
+    await post_callback_best_effort(
+        callback,
+        {
+            "application_id": application_id,
+            "user_id": user_id,
+            "job_id": job_id,
+            "event": "started",
+            "source_hash": source_hash,
+        },
+        path=KEYWORD_EXTRACTION_CALLBACK_PATH,
+        app_id=application_id,
+        job_id=job_id,
+        callback_stage="keyword extraction started",
+    )
+
+    try:
+        keyword_payload, model_used = await extractor.extract_keywords(job_description)
+    except Exception as error:
+        failure_payload = {
+            "application_id": application_id,
+            "user_id": user_id,
+            "job_id": job_id,
+            "event": "failed",
+            "source_hash": source_hash,
+            "failure": {"message": "Keyword extraction failed."},
+        }
+        _log_generation_event(
+            "keyword_extraction_failed",
+            application_id=application_id,
+            job_id=job_id,
+            error=_sanitize_error(error),
+        )
+        await post_callback_best_effort(
+            callback,
+            failure_payload,
+            path=KEYWORD_EXTRACTION_CALLBACK_PATH,
+            app_id=application_id,
+            job_id=job_id,
+            callback_stage="keyword extraction failed",
+        )
+        return failure_payload
+
+    keywords = [
+        str(item.get("text") or "").strip()
+        for item in keyword_payload.get("keywords", [])
+        if isinstance(item, dict) and str(item.get("text") or "").strip()
+    ]
+    success_payload = {
+        "application_id": application_id,
+        "user_id": user_id,
+        "job_id": job_id,
+        "event": "succeeded",
+        "source_hash": source_hash,
+        "keywords": keywords,
+        "model_used": model_used,
+    }
+    await post_callback_best_effort(
+        callback,
+        success_payload,
+        path=KEYWORD_EXTRACTION_CALLBACK_PATH,
+        app_id=application_id,
+        job_id=job_id,
+        callback_stage="keyword extraction succeeded",
+    )
+    return success_payload
+
+
 # ---------------------------------------------------------------------------
 # Callback path constants
 # ---------------------------------------------------------------------------
@@ -1328,6 +1603,7 @@ async def run_extraction_job(
 GENERATION_CALLBACK_PATH = "/api/internal/worker/generation-callback"
 REGENERATION_CALLBACK_PATH = "/api/internal/worker/regeneration-callback"
 RESUME_JUDGE_CALLBACK_PATH = "/api/internal/worker/resume-judge-callback"
+KEYWORD_EXTRACTION_CALLBACK_PATH = "/api/internal/worker/keyword-extraction-callback"
 
 
 async def _validate_generated_sections_with_repair(
@@ -1930,7 +2206,8 @@ async def run_regeneration_job(
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
 
-    is_full_regen = regeneration_target == "full"
+    is_keyword_optimization = regeneration_target == "keyword_optimization"
+    is_full_regen = regeneration_target in {"full", "keyword_optimization"}
     workflow_kind = "regeneration_full" if is_full_regen else "regeneration_section"
     workflow_state = "regenerating_full" if is_full_regen else "regenerating_section"
     section_name = None if is_full_regen else regeneration_target
@@ -1984,7 +2261,11 @@ async def run_regeneration_job(
             job_id=job_id,
             workflow_kind=workflow_kind,
             state=workflow_state,
-            message="Preparing regeneration inputs and section plan",
+            message=(
+                "Preparing keyword optimization inputs"
+                if is_keyword_optimization
+                else "Preparing regeneration inputs and section plan"
+            ),
             percent_complete=5,
         )
 
@@ -2007,7 +2288,11 @@ async def run_regeneration_job(
                     company_name=company_name,
                     job_description=job_description,
                     section_preferences=section_preferences,
-                    generation_settings={**public_generation_settings, "_operation": "regeneration_full"},
+                    generation_settings={
+                        **public_generation_settings,
+                        "_operation": "keyword_optimization" if is_keyword_optimization else "regeneration_full",
+                        "_current_draft_snapshot_content": generation_settings.get("_current_draft_snapshot_content"),
+                    },
                     model=generation_model,
                     fallback_model=generation_fallback_model,
                     api_key=settings.openrouter_api_key,
@@ -2609,6 +2894,7 @@ class WorkerSettings:
         report_bootstrap_progress,
         run_extraction_job,
         run_generation_job,
+        run_keyword_extraction_job,
         run_regeneration_job,
         run_resume_judge_job,
     ]

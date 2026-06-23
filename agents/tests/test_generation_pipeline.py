@@ -107,6 +107,10 @@ def build_fake_chat(
 def test_reasoning_config_defaults_by_operation():
     assert generation._reasoning_config_for_operation("generation", "none") == {"effort": "none"}
     assert generation._reasoning_config_for_operation("regeneration_full", "none") == {"effort": "none"}
+    assert generation._reasoning_config_for_operation("keyword_optimization", "low") == {
+        "effort": "low",
+        "exclude": True,
+    }
     assert generation._reasoning_config_for_operation("generation", "medium", is_fallback=True) == {
         "effort": "medium",
         "exclude": True,
@@ -127,6 +131,65 @@ def test_reasoning_error_detection_includes_mandatory_reasoning_rejections():
     assert generation._looks_like_reasoning_error(
         RuntimeError("Reasoning is mandatory for this endpoint and cannot be disabled.")
     )
+
+
+def test_generation_prompt_includes_keyword_coverage_contract():
+    prompt = generation._build_generation_prompt(
+        operation="generation",
+        base_resume_content="## Summary\nBuilt backend APIs.",
+        job_title="Platform Engineer",
+        company_name="Acme",
+        job_description="Build React Native apps and CI/CD pipelines.",
+        enabled_sections=["summary"],
+        aggressiveness="high",
+        target_length="1_page",
+        additional_instructions=None,
+        generation_settings={
+            "job_keywords": ["React Native", "CI/CD"],
+            "keyword_coverage_target": 80,
+        },
+        professional_experience_anchors=[],
+    )
+
+    human_payload = json.loads(prompt[1][1])
+    assert human_payload["keyword_coverage_contract"]["keywords"] == ["React Native", "CI/CD"]
+    assert human_payload["keyword_coverage_contract"]["target_percentage"] == 80
+    assert human_payload["keyword_coverage_contract"]["enforcement"] == "warn_only"
+    assert "case-insensitive exact phrase" in human_payload["keyword_coverage_contract"]["matching_policy"]
+
+
+def test_keyword_optimization_prompt_includes_current_draft_and_minimal_edit_contract():
+    prompt = generation._build_generation_prompt(
+        operation="keyword_optimization",
+        base_resume_content="## Summary\nBuilt backend APIs and deployment tooling.",
+        job_title="Platform Engineer",
+        company_name="Acme",
+        job_description="Build React Native apps with CI/CD and Kubernetes.",
+        enabled_sections=["summary", "skills"],
+        aggressiveness="medium",
+        target_length="1_page",
+        additional_instructions=None,
+        generation_settings={
+            "job_keywords": ["React Native", "CI/CD", "Kubernetes"],
+            "keyword_coverage_target": 65,
+            "keyword_optimization": {
+                "enabled": True,
+                "target_keywords": ["Kubernetes"],
+                "preserve_keywords": ["React Native", "CI/CD"],
+                "starting_match": {"matched_count": 2, "total_count": 3, "percentage": 66.7},
+            },
+            "_current_draft_snapshot_content": "## Summary\nBuilt React Native apps and CI/CD systems.",
+        },
+        professional_experience_anchors=[],
+    )
+
+    assert "smallest truthful changes" in prompt[0][1]
+    human_payload = json.loads(prompt[1][1])
+    assert human_payload["keyword_optimization_contract"]["target_keywords"] == ["Kubernetes"]
+    assert human_payload["keyword_optimization_contract"]["preserve_keywords"] == ["React Native", "CI/CD"]
+    assert human_payload["keyword_optimization_contract"]["starting_match"]["matched_count"] == 2
+    assert "small phrase insertions" in " ".join(human_payload["keyword_optimization_contract"]["edit_policy"])
+    assert human_payload["sanitized_current_draft_markdown"] == "## Summary\nBuilt React Native apps and CI/CD systems."
 
 
 def test_generated_payload_rejects_markdown_section_contract():

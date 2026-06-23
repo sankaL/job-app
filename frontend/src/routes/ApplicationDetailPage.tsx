@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
-import { ChevronDown, CircleStop, FileText, Gauge, History, MessageSquare, Ruler, Sparkles, Trash2, ExternalLink, FileDown, Columns, RefreshCw, Check, X } from "lucide-react";
+import { ChevronDown, CircleStop, FileText, Gauge, History, MessageSquare, Ruler, Sparkles, Trash2, ExternalLink, FileDown, Columns, RefreshCw, Check, X, Target } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -40,8 +40,10 @@ import {
   submitManualEntry,
   saveDraft,
   triggerFullRegeneration,
+  triggerKeywordOptimization,
   triggerResumeJudge,
   triggerSectionRegeneration,
+  updateManualKeywords,
   exportDocx,
   exportPdf,
   triggerGeneration,
@@ -50,6 +52,8 @@ import {
   type BaseResumeDetail,
   type BaseResumeSummary,
   type ExtractionProgress,
+  type JobKeywordsPayload,
+  type KeywordMatch,
   type ResumeDraft,
 } from "@/lib/api";
 import { AGGRESSIVENESS_OPTIONS, jobPostingOriginOptions, PAGE_LENGTH_OPTIONS } from "@/lib/application-options";
@@ -170,6 +174,61 @@ function resumeJudgeVerdictLabel(verdict: string | null | undefined) {
   if (verdict === "warn") return "Review";
   if (verdict === "fail") return "Needs work";
   return "Unavailable";
+}
+
+type KeywordEntry = {
+  text: string;
+  source: "extracted" | "manual";
+  added_at?: string | null;
+};
+
+function getKeywordEntries(payload: JobKeywordsPayload | null | undefined): KeywordEntry[] {
+  const rawKeywords = payload?.keywords;
+  if (!Array.isArray(rawKeywords)) return [];
+  const seen = new Set<string>();
+  const keywords: KeywordEntry[] = [];
+  for (const item of rawKeywords) {
+    const text = typeof item === "string" ? item : item?.text;
+    const cleaned = typeof text === "string" ? text.trim().replace(/\s+/g, " ") : "";
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const source = typeof item === "string" ? "extracted" : item?.source === "manual" ? "manual" : "extracted";
+    keywords.push({ text: cleaned, source, added_at: typeof item === "string" ? null : item?.added_at ?? null });
+  }
+  return keywords;
+}
+
+function getKeywordTexts(payload: JobKeywordsPayload | null | undefined): string[] {
+  return getKeywordEntries(payload).map((entry) => entry.text);
+}
+
+function getManualKeywordTexts(payload: JobKeywordsPayload | null | undefined): string[] {
+  return getKeywordEntries(payload)
+    .filter((entry) => entry.source === "manual")
+    .map((entry) => entry.text);
+}
+
+function keywordStatusLabel(status: string | null | undefined) {
+  if (status === "queued") return "Queued";
+  if (status === "running") return "Running";
+  if (status === "succeeded") return "Ready";
+  if (status === "failed") return "Failed";
+  return "Unavailable";
+}
+
+function keywordTone(match: KeywordMatch | null | undefined, status: string | null | undefined) {
+  if (status === "failed") {
+    return { accent: "var(--color-ember)", bg: "var(--color-ember-05)", border: "var(--color-ember-10)" };
+  }
+  if (!match) {
+    return { accent: "var(--color-ink-50)", bg: "var(--color-ink-05)", border: "var(--color-border)" };
+  }
+  if (match.target_met) {
+    return { accent: "var(--color-spruce)", bg: "var(--color-spruce-05)", border: "var(--color-spruce-10)" };
+  }
+  return { accent: "var(--color-amber)", bg: "var(--color-amber-10)", border: "rgba(180,83,9,0.2)" };
 }
 
 function isGenerationWorkflowActive(detail: ApplicationDetail | null) {
@@ -417,17 +476,26 @@ export function ApplicationDetailPage() {
   const lastHandledExtractionProgressRef = useRef<string | null>(null);
   const lastHandledGenerationProgressRef = useRef<string | null>(null);
   const lastDraftSyncDetailRef = useRef<string | null>(null);
+  const lastKeywordSignatureRef = useRef<string | null>(null);
   const previousDetailRef = useRef<ApplicationDetail | null>(null);
   const leftColumnRef = useRef<HTMLDivElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
+  const [showKeywordDialog, setShowKeywordDialog] = useState(false);
+  const [manualKeywordInput, setManualKeywordInput] = useState("");
+  const [isSavingManualKeywords, setIsSavingManualKeywords] = useState(false);
+  const [isOptimizingKeywords, setIsOptimizingKeywords] = useState(false);
   const [hasUserModifiedSettings, setHasUserModifiedSettings] = useState(false);
   const resumeJudgePending = isResumeJudgePending(detail);
+  const keywordExtractionPending = detail?.job_keywords?.status === "queued" || detail?.job_keywords?.status === "running";
   const shouldWatchApplication = Boolean(
     applicationId &&
       detail &&
-      (EXTRACTION_POLL_STATES.includes(detail.internal_state) || isGenerationWorkflowActive(detail) || resumeJudgePending),
+      (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
+        isGenerationWorkflowActive(detail) ||
+        resumeJudgePending ||
+        keywordExtractionPending),
   );
   const { isStale: isApplicationStreamStale } = useApplicationEventStream(applicationId, shouldWatchApplication);
   const detailQuery = useApplicationDetailQuery(applicationId, {
@@ -804,6 +872,25 @@ export function ApplicationDetailPage() {
     }
     applyDraftState(draftQuery.data ?? null);
   }, [draftQuery.data, shouldLoadDraft]);
+
+  useEffect(() => {
+    if (!applicationId || !draft || !detail?.job_keywords) {
+      lastKeywordSignatureRef.current = null;
+      return;
+    }
+    const keywordSignature = [
+      applicationId,
+      detail.job_keywords.updated_at ?? "",
+      detail.job_keywords.status ?? "",
+    ].join(":");
+    if (lastKeywordSignatureRef.current === null) {
+      lastKeywordSignatureRef.current = keywordSignature;
+      return;
+    }
+    if (lastKeywordSignatureRef.current === keywordSignature) return;
+    lastKeywordSignatureRef.current = keywordSignature;
+    void invalidateApplicationDraftQueries(queryClient, applicationId);
+  }, [applicationId, detail?.job_keywords?.updated_at, detail?.job_keywords?.status, draft?.id, queryClient]);
 
   useEffect(() => {
     if (!draft || !comparisonBaseResumeId) {
@@ -1258,6 +1345,85 @@ export function ApplicationDetailPage() {
     }
   }
 
+  async function persistManualKeywords(nextKeywords: string[]) {
+    setIsSavingManualKeywords(true);
+    setError(null);
+    try {
+      const response = await updateManualKeywords(activeApplicationId, nextKeywords);
+      applyDetailState(response);
+      await invalidateApplicationDraftQueries(queryClient, activeApplicationId);
+      refreshActivityTimeline();
+      toast("ATS keywords updated");
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to update ATS keywords.";
+      setError(message);
+      toast("Failed to update ATS keywords", "error");
+      return false;
+    } finally {
+      setIsSavingManualKeywords(false);
+    }
+  }
+
+  async function handleAddManualKeyword(event?: FormEvent) {
+    event?.preventDefault();
+    const cleaned = manualKeywordInput.trim().replace(/\s+/g, " ");
+    if (!cleaned) {
+      toast("Enter a keyword first", "error");
+      return;
+    }
+    if (cleaned.length > 80) {
+      toast("Manual keywords must be 80 characters or fewer", "error");
+      return;
+    }
+    const manualKeywords = getManualKeywordTexts(detail?.job_keywords);
+    const allKeywords = getKeywordTexts(detail?.job_keywords);
+    if (manualKeywords.length >= 30 && !manualKeywords.some((keyword) => keyword.toLowerCase() === cleaned.toLowerCase())) {
+      toast("Manual keywords are limited to 30", "error");
+      return;
+    }
+    if (allKeywords.some((keyword) => keyword.toLowerCase() === cleaned.toLowerCase())) {
+      setManualKeywordInput("");
+      toast("Keyword already exists");
+      return;
+    }
+    const saved = await persistManualKeywords([...manualKeywords, cleaned]);
+    if (saved) {
+      setManualKeywordInput("");
+    }
+  }
+
+  async function handleRemoveManualKeyword(keyword: string) {
+    const nextKeywords = getManualKeywordTexts(detail?.job_keywords).filter(
+      (item) => item.toLowerCase() !== keyword.toLowerCase(),
+    );
+    await persistManualKeywords(nextKeywords);
+  }
+
+  async function handleKeywordOptimization() {
+    if (!draft || generationActive || isOptimizingKeywords) return;
+    setIsOptimizingKeywords(true);
+    setShowOptimisticProgress(true);
+    dismissDraftEditor();
+    setError(null);
+    try {
+      const response = await triggerKeywordOptimization(activeApplicationId);
+      applyDetailState(response, { refreshShell: true });
+      setGenerationProgress(null);
+      setShowKeywordDialog(false);
+      refreshActivityTimeline();
+      toast("Keyword optimization queued");
+    } catch (err) {
+      setShowOptimisticProgress(false);
+      setIsRegenerating(false);
+      const message = err instanceof Error ? err.message : "Unable to start keyword optimization.";
+      setError(message);
+      toast("Failed to optimize keywords", "error");
+    } finally {
+      setIsOptimizingKeywords(false);
+    }
+  }
+
   async function handleExport(format: ExportFormat) {
     setActionsMenuOpen(false);
     setExportingFormat(format);
@@ -1410,6 +1576,336 @@ export function ApplicationDetailPage() {
     void queryClient.invalidateQueries({
       queryKey: queryKeys.applicationActivity(applicationId),
     });
+  }
+
+  function renderKeywordCard() {
+    const jobKeywords = detail?.job_keywords ?? null;
+    const status = jobKeywords?.status ?? null;
+    const keywordEntries = getKeywordEntries(jobKeywords);
+    const keywords = keywordEntries.map((entry) => entry.text);
+    const manualCount = keywordEntries.filter((entry) => entry.source === "manual").length;
+    const match = draft?.keyword_match ?? null;
+    const tone = keywordTone(match, status);
+    const isUpdating = status === "queued" || status === "running";
+    const coverageLabel = match ? `${match.matched_count}/${match.total_count}` : `${keywords.length}`;
+    const percentage = match?.percentage ?? 0;
+
+    return (
+      <Card
+        density="compact"
+        className="p-0"
+        data-testid="keyword-match-card"
+        style={{
+          borderColor: tone.border,
+          background: `linear-gradient(145deg, ${tone.bg} 0%, white 88%)`,
+        }}
+      >
+        <button
+          type="button"
+          className="w-full p-3 text-left"
+          onClick={() => setShowKeywordDialog(true)}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                  style={{ background: tone.bg, color: tone.accent }}
+                >
+                  <Target size={14} aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em]" style={{ color: "var(--color-ink-50)" }}>
+                    ATS Keywords
+                  </p>
+                  <p className="mt-1 text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+                    {match ? `${percentage.toFixed(1)}% matched` : `${keywords.length} total`}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <span
+                className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                style={{ background: "rgba(255,255,255,0.72)", color: tone.accent }}
+              >
+                {isUpdating ? keywordStatusLabel(status) : coverageLabel}
+              </span>
+              <ExternalLink size={14} aria-hidden="true" style={{ color: "var(--color-ink-50)" }} />
+            </div>
+          </div>
+
+          {match ? (
+            <div className="mt-3">
+              <div className="flex items-center justify-between gap-3 text-[11px]" style={{ color: "var(--color-ink-50)" }}>
+                <span>Target {match.target_percentage}%</span>
+                <span style={{ color: tone.accent }}>{match.target_met ? "Target met" : "Below target"}</span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: "rgba(15,23,42,0.08)" }}>
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${Math.min(100, Math.max(0, percentage))}%`, background: tone.accent }}
+                />
+              </div>
+              <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-50)" }}>
+                {manualCount ? `${manualCount} manual keyword${manualCount === 1 ? "" : "s"}` : "No manual keywords"}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-xs leading-5" style={{ color: "var(--color-ink-65)" }}>
+              {status === "failed"
+                ? jobKeywords?.message ?? "Keyword extraction is unavailable for this job description."
+                : isUpdating
+                  ? "Keyword extraction is updating from the latest job description."
+                  : "Keywords will appear after the job description is extracted, saved, or added manually."}
+            </p>
+          )}
+        </button>
+      </Card>
+    );
+  }
+
+  function renderKeywordDialog() {
+    if (!showKeywordDialog) return null;
+    const jobKeywords = detail?.job_keywords ?? null;
+    const status = jobKeywords?.status ?? null;
+    const keywordEntries = getKeywordEntries(jobKeywords);
+    const extractedEntries = keywordEntries.filter((entry) => entry.source !== "manual");
+    const manualEntries = keywordEntries.filter((entry) => entry.source === "manual");
+    const match = draft?.keyword_match ?? null;
+    const tone = keywordTone(match, status);
+    const isUpdating = status === "queued" || status === "running";
+    const matchedSet = new Set((match?.matched_keywords ?? []).map((keyword) => keyword.toLowerCase()));
+    const missingSet = new Set((match?.missing_keywords ?? []).map((keyword) => keyword.toLowerCase()));
+    const percentage = match?.percentage ?? 0;
+    const optimizeBlocker = generationActive
+      ? "Generation is already running."
+      : isUpdating
+        ? "Keyword extraction is still updating."
+        : !draft
+          ? "Generate a draft before optimizing keywords."
+          : keywordEntries.length === 0
+            ? "Add or extract keywords before optimizing."
+            : !match || match.missing_keywords.length === 0
+              ? "All available keywords are already matched."
+              : null;
+
+    const renderKeywordPill = (entry: KeywordEntry) => {
+      const key = entry.text.toLowerCase();
+      const matched = matchedSet.has(key);
+      const missing = missingSet.has(key);
+      const statusLabel = matched ? "matched keyword" : missing ? "missing keyword" : `${entry.source} keyword`;
+      return (
+        <span
+          key={`${entry.source}-${entry.text}`}
+          className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+          aria-label={`${entry.text}, ${statusLabel}`}
+          style={{
+            borderColor: matched ? "var(--color-spruce-10)" : missing ? "var(--color-ember-10)" : "var(--color-border)",
+            background: matched ? "var(--color-spruce-05)" : missing ? "var(--color-ember-05)" : "var(--color-ink-05)",
+            color: matched ? "var(--color-spruce)" : missing ? "var(--color-ember)" : "var(--color-ink)",
+          }}
+        >
+          <span className="min-w-0 truncate">{entry.text}</span>
+          {entry.source === "manual" ? (
+            <button
+              type="button"
+              className="ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
+              style={{ background: "rgba(15,23,42,0.08)", color: "var(--color-ink-50)" }}
+              aria-label={`Remove ${entry.text}`}
+              disabled={isSavingManualKeywords}
+              onClick={() => void handleRemoveManualKeyword(entry.text)}
+            >
+              <X size={11} aria-hidden="true" />
+            </button>
+          ) : null}
+        </span>
+      );
+    };
+
+    return createPortal(
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 100000,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px",
+        }}
+      >
+        <div
+          onClick={() => setShowKeywordDialog(false)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(16, 24, 40, 0.52)",
+            backdropFilter: "blur(8px)",
+            animation: "fadeIn 200ms var(--ease-out) both",
+          }}
+        />
+        <div
+          className="animate-scaleIn"
+          style={{
+            position: "relative",
+            zIndex: 1,
+            width: "min(920px, 100%)",
+            maxHeight: "calc(100vh - 48px)",
+            overflowY: "auto",
+            borderRadius: "24px",
+            background: "linear-gradient(180deg, color-mix(in srgb, var(--color-ink) 2%, white) 0%, white 24%, white 100%)",
+            boxShadow: "var(--shadow-panel)",
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="ATS keyword breakdown"
+        >
+          <div className="px-6 pt-6 pb-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: "var(--color-ink-50)" }}>
+                  ATS Keywords
+                </p>
+                <h2 className="mt-2 text-xl font-semibold" style={{ color: "var(--color-ink)" }}>
+                  Keyword breakdown
+                </h2>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span
+                  className="inline-flex items-center rounded-full px-3 py-1.5 text-sm font-semibold"
+                  style={{ background: tone.bg, color: tone.accent }}
+                >
+                  {match ? `${percentage.toFixed(1)}%` : keywordStatusLabel(status)}
+                </span>
+                <button
+                  type="button"
+                  className="rounded-full px-3 py-1.5 text-sm font-semibold transition-colors"
+                  style={{ color: "var(--color-ink-50)", background: "var(--color-ink-05)" }}
+                  onClick={() => setShowKeywordDialog(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                  Matched
+                </p>
+                <p className="mt-2 text-2xl font-semibold" style={{ color: tone.accent }}>
+                  {match ? `${match.matched_count}/${match.total_count}` : `${keywordEntries.length}`}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                  Target
+                </p>
+                <p className="mt-2 text-2xl font-semibold" style={{ color: "var(--color-ink)" }}>
+                  {match ? `${match.target_percentage}%` : "-"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                  Status
+                </p>
+                <p className="mt-2 text-sm font-semibold" style={{ color: tone.accent }}>
+                  {isUpdating ? keywordStatusLabel(status) : match?.target_met ? "Target met" : match ? "Below target" : keywordStatusLabel(status)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid border-t lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]" style={{ borderColor: "var(--color-border)" }}>
+            <div className="space-y-6 px-6 py-5">
+              <section>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                    Extracted
+                  </p>
+                  <span className="text-xs font-semibold" style={{ color: "var(--color-ink-50)" }}>
+                    {extractedEntries.length}
+                  </span>
+                </div>
+                <div className="mt-3 flex max-h-52 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                  {extractedEntries.length ? extractedEntries.map(renderKeywordPill) : (
+                    <p className="text-xs leading-5" style={{ color: "var(--color-ink-50)" }}>
+                      No extracted keywords.
+                    </p>
+                  )}
+                </div>
+              </section>
+
+              <section className="border-t pt-5" style={{ borderColor: "var(--color-border)" }}>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                    Manual
+                  </p>
+                  <span className="text-xs font-semibold" style={{ color: "var(--color-ink-50)" }}>
+                    {manualEntries.length}/30
+                  </span>
+                </div>
+                <div className="mt-3 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                  {manualEntries.length ? manualEntries.map(renderKeywordPill) : (
+                    <p className="text-xs leading-5" style={{ color: "var(--color-ink-50)" }}>
+                      No manual keywords.
+                    </p>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <aside className="space-y-6 border-t px-6 py-5 lg:border-l lg:border-t-0" style={{ borderColor: "var(--color-border)", background: "var(--color-ink-05)" }}>
+              <section>
+                <form onSubmit={(event) => void handleAddManualKeyword(event)}>
+                  <Label htmlFor="manual-keyword-input">Add Keyword</Label>
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      id="manual-keyword-input"
+                      value={manualKeywordInput}
+                      maxLength={80}
+                      onChange={(event) => setManualKeywordInput(event.target.value)}
+                      placeholder="Exact keyword phrase"
+                      disabled={isSavingManualKeywords}
+                    />
+                    <Button type="submit" size="sm" disabled={isSavingManualKeywords}>
+                      Add
+                    </Button>
+                  </div>
+                </form>
+              </section>
+
+              <section className="border-t pt-5" style={{ borderColor: "var(--color-border)" }}>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
+                  Optimization
+                </p>
+                <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+                  <span style={{ color: "var(--color-ink-65)" }}>Missing keywords</span>
+                  <span className="font-semibold" style={{ color: "var(--color-ink)" }}>
+                    {match?.missing_keywords.length ?? 0}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={Boolean(optimizeBlocker) || isOptimizingKeywords}
+                  className="ai-button mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void handleKeywordOptimization()}
+                >
+                  <Sparkles size={14} />
+                  {isOptimizingKeywords ? "Starting..." : "Optimize for missing keywords"}
+                </button>
+                {optimizeBlocker ? (
+                  <p className="mt-2 text-xs leading-5" style={{ color: "var(--color-ink-50)" }}>
+                    {optimizeBlocker}
+                  </p>
+                ) : null}
+              </section>
+            </aside>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
   }
 
   function renderResumeJudgeCard() {
@@ -2210,6 +2706,7 @@ export function ApplicationDetailPage() {
                 aria-hidden={compareMode}
               >
                 {renderResumeJudgeCard()}
+                {renderKeywordCard()}
 
                 {/* Job Description Card */}
                 <Card density="compact" className="p-4" data-testid="job-description-card">
@@ -2689,6 +3186,8 @@ export function ApplicationDetailPage() {
             </div>,
             document.body
           )}
+
+          {renderKeywordDialog()}
 
           {showResumeJudgeDialog && resumeJudge && resumeJudgeHasCompletedScore && createPortal(
             <div

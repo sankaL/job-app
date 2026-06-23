@@ -167,6 +167,27 @@ export type ResumeJudgeResult = {
   } | null;
 };
 
+export type JobKeywordsPayload = {
+  status: "queued" | "running" | "succeeded" | "failed" | "unavailable" | string;
+  source_hash?: string | null;
+  keywords?: Array<{ text?: string | null; source?: "extracted" | "manual" | string | null; added_at?: string | null } | string> | null;
+  extracted_at?: string | null;
+  updated_at?: string | null;
+  model_used?: string | null;
+  message?: string | null;
+  job_id?: string | null;
+};
+
+export type KeywordMatch = {
+  matched_count: number;
+  total_count: number;
+  percentage: number;
+  target_percentage: number;
+  target_met: boolean;
+  matched_keywords: string[];
+  missing_keywords: string[];
+};
+
 function messageFromErrorDetail(detail: unknown, fallback: string): string {
   if (typeof detail === "string") {
     return detail;
@@ -222,6 +243,7 @@ export type ResumeDraft = {
     text: string;
     reason: "job_description_only_addition" | "source_limited_length";
   }>;
+  keyword_match?: KeywordMatch | null;
   last_generated_at: string;
   last_exported_at: string | null;
   updated_at: string;
@@ -251,6 +273,7 @@ export type ApplicationDetail = {
   extraction_failure_details: ExtractionFailureDetails | null;
   generation_failure_details: GenerationFailureDetails | null;
   resume_judge_result: ResumeJudgeResult | null;
+  job_keywords: JobKeywordsPayload | null;
   applied: boolean;
   duplicate_similarity_score: number | null;
   duplicate_resolution_status: string | null;
@@ -1112,6 +1135,23 @@ export async function triggerFullRegeneration(
   return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/regenerate`, {
     method: "POST",
     body: settings,
+  });
+}
+
+export async function updateManualKeywords(
+  applicationId: string,
+  keywords: string[],
+): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/keywords/manual`, {
+    method: "PUT",
+    body: { keywords },
+  });
+}
+
+export async function triggerKeywordOptimization(applicationId: string): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/optimize-keywords`, {
+    method: "POST",
+    body: {},
   });
 }
 

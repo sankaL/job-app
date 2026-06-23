@@ -61,8 +61,10 @@ const api = vi.hoisted(() => ({
   submitManualEntry: vi.fn(),
   triggerFullRegeneration: vi.fn(),
   triggerGeneration: vi.fn(),
+  triggerKeywordOptimization: vi.fn(),
   triggerResumeJudge: vi.fn(),
   triggerSectionRegeneration: vi.fn(),
+  updateManualKeywords: vi.fn(),
   updateAdminUser: vi.fn(),
   updateSubscriptionTier: vi.fn(),
   updateBaseResume: vi.fn(),
@@ -165,6 +167,7 @@ function buildApplicationDetail(overrides: Record<string, unknown> = {}) {
     generation_failure_details: null,
     resume_judge_result: null,
     duplicate_warning: null,
+    job_keywords: null,
     ...overrides,
   };
 }
@@ -1421,6 +1424,7 @@ describe("phase 1 applications UI", () => {
       extraction_failure_details: null,
       duplicate_warning: null,
       generation_failure_details: null,
+      job_keywords: null,
     });
     api.fetchDraft.mockResolvedValue({
       application_id: "app-1",
@@ -1462,6 +1466,354 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByRole("menuitem", { name: /export docx/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /mark applied/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /view posting/i })).toBeInTheDocument();
+  });
+
+  it("opens the ATS keyword modal with exact match states", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        base_resume_id: "resume-1",
+        base_resume_name: "Default Resume",
+        job_keywords: {
+          status: "succeeded",
+          source_hash: "hash-1",
+          extracted_at: "2026-04-07T12:08:00Z",
+          updated_at: "2026-04-07T12:08:00Z",
+          model_used: "cheap-keyword-model",
+          keywords: [
+            { text: "React Native", source: "extracted" },
+            { text: "CI/CD", source: "extracted" },
+            { text: "Kubernetes", source: "manual", added_at: "2026-04-07T12:09:00Z" },
+          ],
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nBuilt React Native apps with CI/CD pipelines.",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary", "professional_experience", "education", "skills"],
+        section_order: ["summary", "professional_experience", "education", "skills"],
+      },
+      keyword_match: {
+        matched_count: 2,
+        total_count: 3,
+        percentage: 66.6667,
+        target_percentage: 65,
+        target_met: true,
+        matched_keywords: ["React Native", "CI/CD"],
+        missing_keywords: ["Kubernetes"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const card = await screen.findByTestId("keyword-match-card");
+    expect(within(card).getByText(/66\.7% matched/i)).toBeInTheDocument();
+    expect(within(card).getByText("2/3")).toBeInTheDocument();
+    expect(within(card).queryByText("React Native")).not.toBeInTheDocument();
+
+    await user.click(within(card).getByRole("button", { name: /ats keywords/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: /ats keyword breakdown/i });
+    expect(within(dialog).getByText("React Native")).toBeInTheDocument();
+    expect(within(dialog).getByText("CI/CD")).toBeInTheDocument();
+    expect(within(dialog).getByText("Kubernetes")).toBeInTheDocument();
+    const matchedKeywordPill = dialog.querySelector('[aria-label="React Native, matched keyword"]');
+    const missingKeywordPill = dialog.querySelector('[aria-label="Kubernetes, missing keyword"]');
+    expect(matchedKeywordPill).not.toBeNull();
+    expect(missingKeywordPill).not.toBeNull();
+    expect(matchedKeywordPill as HTMLElement).not.toHaveTextContent(/matched/i);
+    expect(missingKeywordPill as HTMLElement).not.toHaveTextContent(/missing/i);
+    expect(matchedKeywordPill as HTMLElement).toHaveAttribute("style", expect.stringContaining("var(--color-spruce)"));
+    expect(missingKeywordPill as HTMLElement).toHaveAttribute("style", expect.stringContaining("var(--color-ember)"));
+    expect(within(dialog).getByText(/2\/3/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /remove kubernetes/i })).toBeInTheDocument();
+  });
+
+  it("adds and removes manual ATS keywords from the modal", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        job_keywords: {
+          status: "succeeded",
+          source_hash: "hash-1",
+          updated_at: "2026-04-07T12:08:00Z",
+          keywords: [{ text: "React Native", source: "extracted" }],
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nBuilt React Native apps.",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary"],
+        section_order: ["summary"],
+      },
+      keyword_match: {
+        matched_count: 1,
+        total_count: 1,
+        percentage: 100,
+        target_percentage: 65,
+        target_met: true,
+        matched_keywords: ["React Native"],
+        missing_keywords: [],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.updateManualKeywords.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        job_keywords: {
+          status: "succeeded",
+          source_hash: "hash-1",
+          updated_at: "2026-04-07T12:09:00Z",
+          keywords: [
+            { text: "React Native", source: "extracted" },
+            { text: "Kubernetes", source: "manual", added_at: "2026-04-07T12:09:00Z" },
+          ],
+        },
+      }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const card = await screen.findByTestId("keyword-match-card");
+    await user.click(within(card).getByRole("button", { name: /ats keywords/i }));
+    const dialog = await screen.findByRole("dialog", { name: /ats keyword breakdown/i });
+    expect(within(dialog).getByRole("button", { name: /optimize for missing keywords/i })).toBeDisabled();
+    await user.type(within(dialog).getByLabelText(/add keyword/i), " Kubernetes ");
+    await user.click(within(dialog).getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() => expect(api.updateManualKeywords).toHaveBeenCalledWith("app-1", ["Kubernetes"]));
+    expect(api.fetchDraft).toHaveBeenCalled();
+
+    api.updateManualKeywords.mockResolvedValueOnce(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        job_keywords: {
+          status: "succeeded",
+          source_hash: "hash-1",
+          updated_at: "2026-04-07T12:10:00Z",
+          keywords: [{ text: "React Native", source: "extracted" }],
+        },
+      }),
+    );
+    await user.click(await within(dialog).findByRole("button", { name: /remove kubernetes/i }));
+    await waitFor(() => expect(api.updateManualKeywords).toHaveBeenLastCalledWith("app-1", []));
+  });
+
+  it("starts targeted keyword optimization from the modal", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        job_keywords: {
+          status: "succeeded",
+          source_hash: "hash-1",
+          updated_at: "2026-04-07T12:08:00Z",
+          keywords: [{ text: "React Native" }, { text: "Kubernetes" }],
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nBuilt React Native apps.",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary"],
+        section_order: ["summary"],
+      },
+      keyword_match: {
+        matched_count: 1,
+        total_count: 2,
+        percentage: 50,
+        target_percentage: 65,
+        target_met: false,
+        matched_keywords: ["React Native"],
+        missing_keywords: ["Kubernetes"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+    api.triggerKeywordOptimization.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "regenerating_full",
+        failure_reason: null,
+      }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const card = await screen.findByTestId("keyword-match-card");
+    await user.click(within(card).getByRole("button", { name: /ats keywords/i }));
+    const dialog = await screen.findByRole("dialog", { name: /ats keyword breakdown/i });
+    await user.click(within(dialog).getByRole("button", { name: /optimize for missing keywords/i }));
+
+    await waitFor(() => expect(api.triggerKeywordOptimization).toHaveBeenCalledWith("app-1"));
+  });
+
+  it("shows keyword extraction updating state and opens the application stream", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        job_keywords: {
+          status: "queued",
+          source_hash: "hash-1",
+          updated_at: "2026-04-07T12:08:00Z",
+          keywords: [],
+        },
+      }),
+    );
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const card = await screen.findByTestId("keyword-match-card");
+    expect(within(card).getByText(/queued/i)).toBeInTheDocument();
+    expect(within(card).getByText(/keyword extraction is updating/i)).toBeInTheDocument();
+    await waitFor(() => expect(api.openApplicationEventStream).toHaveBeenCalled());
+  });
+
+  it("shows below-target ATS keyword coverage", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        job_keywords: {
+          status: "failed",
+          source_hash: "hash-1",
+          updated_at: "2026-04-07T12:08:00Z",
+          message: "Keyword extraction timed out.",
+          keywords: [{ text: "React Native" }, { text: "Kubernetes" }],
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nBuilt React Native apps.",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "high",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: ["summary"],
+        section_order: ["summary"],
+      },
+      keyword_match: {
+        matched_count: 1,
+        total_count: 2,
+        percentage: 50,
+        target_percentage: 80,
+        target_met: false,
+        matched_keywords: ["React Native"],
+        missing_keywords: ["Kubernetes"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const card = await screen.findByTestId("keyword-match-card");
+    expect(within(card).getByText(/50\.0% matched/i)).toBeInTheDocument();
+    expect(within(card).getByText(/below target/i)).toBeInTheDocument();
+  });
+
+  it("shows ATS keyword extraction failure text", async () => {
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        job_keywords: {
+          status: "failed",
+          source_hash: "hash-1",
+          updated_at: "2026-04-07T12:08:00Z",
+          message: "Keyword extraction timed out.",
+          keywords: [],
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue(null);
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const card = await screen.findByTestId("keyword-match-card");
+    expect(within(card).getByText(/0 total/i)).toBeInTheDocument();
+    expect(within(card).getByText(/keyword extraction timed out/i)).toBeInTheDocument();
   });
 
   it("renders applied status without a misleading timestamp and offers unapplied action", async () => {
