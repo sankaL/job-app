@@ -1694,20 +1694,19 @@ export function ApplicationDetailPage() {
       const key = entry.text.toLowerCase();
       const matched = matchedSet.has(key);
       const missing = missingSet.has(key);
+      const statusLabel = matched ? "matched keyword" : missing ? "missing keyword" : `${entry.source} keyword`;
       return (
         <span
           key={`${entry.source}-${entry.text}`}
           className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+          aria-label={`${entry.text}, ${statusLabel}`}
           style={{
-            borderColor: matched ? "var(--color-spruce-10)" : missing ? "rgba(180,83,9,0.24)" : "var(--color-border)",
-            background: matched ? "var(--color-spruce-05)" : missing ? "var(--color-amber-10)" : "var(--color-ink-05)",
-            color: matched ? "var(--color-spruce)" : "var(--color-ink)",
+            borderColor: matched ? "var(--color-spruce-10)" : missing ? "var(--color-ember-10)" : "var(--color-border)",
+            background: matched ? "var(--color-spruce-05)" : missing ? "var(--color-ember-05)" : "var(--color-ink-05)",
+            color: matched ? "var(--color-spruce)" : missing ? "var(--color-ember)" : "var(--color-ink)",
           }}
         >
           <span className="min-w-0 truncate">{entry.text}</span>
-          <span className="shrink-0 uppercase tracking-wide" style={{ color: matched ? "var(--color-spruce)" : "var(--color-ink-50)" }}>
-            {matched ? "matched" : missing ? "missing" : entry.source}
-          </span>
           {entry.source === "manual" ? (
             <button
               type="button"
@@ -1757,13 +1756,12 @@ export function ApplicationDetailPage() {
             borderRadius: "24px",
             background: "linear-gradient(180deg, color-mix(in srgb, var(--color-ink) 2%, white) 0%, white 24%, white 100%)",
             boxShadow: "var(--shadow-panel)",
-            padding: "24px",
           }}
           role="dialog"
           aria-modal="true"
           aria-label="ATS keyword breakdown"
         >
-          <div className="border-b pb-5" style={{ borderColor: "var(--color-border)" }}>
+          <div className="px-6 pt-6 pb-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em]" style={{ color: "var(--color-ink-50)" }}>
@@ -1790,8 +1788,8 @@ export function ApplicationDetailPage() {
                 </button>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[1.25rem] border p-4" style={{ borderColor: tone.border, background: tone.bg }}>
+            <div className="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-3">
+              <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
                   Matched
                 </p>
@@ -1799,7 +1797,7 @@ export function ApplicationDetailPage() {
                   {match ? `${match.matched_count}/${match.total_count}` : `${keywordEntries.length}`}
                 </p>
               </div>
-              <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "rgba(255,255,255,0.88)" }}>
+              <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
                   Target
                 </p>
@@ -1807,7 +1805,7 @@ export function ApplicationDetailPage() {
                   {match ? `${match.target_percentage}%` : "-"}
                 </p>
               </div>
-              <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "rgba(255,255,255,0.88)" }}>
+              <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
                   Status
                 </p>
@@ -1818,9 +1816,9 @@ export function ApplicationDetailPage() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
-            <div className="space-y-4">
-              <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "rgba(255,255,255,0.92)" }}>
+          <div className="grid border-t lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]" style={{ borderColor: "var(--color-border)" }}>
+            <div className="space-y-6 px-6 py-5">
+              <section>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
                     Extracted
@@ -1836,9 +1834,9 @@ export function ApplicationDetailPage() {
                     </p>
                   )}
                 </div>
-              </div>
+              </section>
 
-              <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "rgba(255,255,255,0.92)" }}>
+              <section className="border-t pt-5" style={{ borderColor: "var(--color-border)" }}>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
                     Manual
@@ -1854,11 +1852,11 @@ export function ApplicationDetailPage() {
                     </p>
                   )}
                 </div>
-              </div>
+              </section>
             </div>
 
-            <div className="space-y-4">
-              <div className="rounded-[1.25rem] border p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-ink-05)" }}>
+            <aside className="space-y-6 border-t px-6 py-5 lg:border-l lg:border-t-0" style={{ borderColor: "var(--color-border)", background: "var(--color-ink-05)" }}>
+              <section>
                 <form onSubmit={(event) => void handleAddManualKeyword(event)}>
                   <Label htmlFor="manual-keyword-input">Add Keyword</Label>
                   <div className="mt-2 flex gap-2">
@@ -1875,9 +1873,9 @@ export function ApplicationDetailPage() {
                     </Button>
                   </div>
                 </form>
-              </div>
+              </section>
 
-              <div className="rounded-[1.25rem] border p-4" style={{ borderColor: tone.border, background: "rgba(255,255,255,0.9)" }}>
+              <section className="border-t pt-5" style={{ borderColor: "var(--color-border)" }}>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-50)" }}>
                   Optimization
                 </p>
@@ -1901,8 +1899,8 @@ export function ApplicationDetailPage() {
                     {optimizeBlocker}
                   </p>
                 ) : null}
-              </div>
-            </div>
+              </section>
+            </aside>
           </div>
         </div>
       </div>,

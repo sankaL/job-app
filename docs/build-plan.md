@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-06-17
+**Last updated:** 2026-06-23
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -120,6 +120,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T71 | Polish ATS keyword modal chip statuses and section layout | FE | DONE | 2026-06-23 18:43 EDT | Removed visible matched/missing text from keyword chips in favor of green/red highlighting, flattened the modal internals from nested card blocks into sectioned content with a side rail, and added focused frontend regression coverage. |
 | B5-T69 | Harden ATS keyword extraction timeout, callback, and exact-match handling | AI/BE/FE/Docs | DONE | 2026-06-17 09:37:56 EDT | Added bounded keyword model attempts with fallback and failed callbacks, backend re-filtering for worker callback keywords, stale queued/running keyword recovery, punctuation-safe exact phrase boundaries, a public draft-save keyword-match service method, first-load draft invalidation suppression, and focused backend/worker/frontend regression coverage. |
 | B5-T70 | Address ATS keyword workflow code review hardening | AI/BE/Docs | DONE | 2026-06-17 20:44:46 EDT | Removed the duplicate keyword LLM timeout wrapper, moved ATS keyword extraction out of the primary extraction success path into the standalone queued worker flow, refreshed application state before cached keyword optimization regression checks, fixed stale keyword recovery timestamp fallback, enforced preservation of already matched keyword phrases during optimization, clarified route logging and keyword contract docs, and added regression coverage for source hashes, stale fallback, cached optimization races, extraction-success keyword queueing, and preserve-keyword swaps. |
 | B5-T68 | Apply nullable application URL migration in Railway production for pasted-description-only intake | Infra | DONE | 2026-06-07 22:54:00 EDT | Applied `20260607_000016_allow_nullable_application_job_url.sql` inside the Railway production backend container, verified `applications.job_url` is nullable, verified the non-blank check remains for populated URLs, and confirmed the migration is recorded in `app_meta.schema_migrations`. |

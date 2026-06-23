@@ -1536,6 +1536,14 @@ describe("phase 1 applications UI", () => {
     expect(within(dialog).getByText("React Native")).toBeInTheDocument();
     expect(within(dialog).getByText("CI/CD")).toBeInTheDocument();
     expect(within(dialog).getByText("Kubernetes")).toBeInTheDocument();
+    const matchedKeywordPill = dialog.querySelector('[aria-label="React Native, matched keyword"]');
+    const missingKeywordPill = dialog.querySelector('[aria-label="Kubernetes, missing keyword"]');
+    expect(matchedKeywordPill).not.toBeNull();
+    expect(missingKeywordPill).not.toBeNull();
+    expect(matchedKeywordPill as HTMLElement).not.toHaveTextContent(/matched/i);
+    expect(missingKeywordPill as HTMLElement).not.toHaveTextContent(/missing/i);
+    expect(matchedKeywordPill as HTMLElement).toHaveAttribute("style", expect.stringContaining("var(--color-spruce)"));
+    expect(missingKeywordPill as HTMLElement).toHaveAttribute("style", expect.stringContaining("var(--color-ember)"));
     expect(within(dialog).getByText(/2\/3/i)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /remove kubernetes/i })).toBeInTheDocument();
   });
