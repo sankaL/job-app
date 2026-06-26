@@ -242,6 +242,7 @@ export type ResumeDraft = {
     section_name: string;
     text: string;
     reason: "job_description_only_addition" | "source_limited_length";
+    metadata?: Record<string, unknown> | null;
   }>;
   keyword_match?: KeywordMatch | null;
   last_generated_at: string;

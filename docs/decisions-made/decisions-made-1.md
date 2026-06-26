@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-06-24 19:21:20 EDT - Enforce stricter source-aware resume length minimums
+
+- Status: Accepted
+- Context: Generated resumes were often shorter than the selected page-length target because the previous policy accepted full drafts below the target minimum when they reached only 80% of source length, skipped 1-page underfill validation, and left length as a relatively soft prompt/Judge signal.
+- Decision:
+  1. For full initial generation and full regeneration, require the selected target minimum whenever the sanitized source resume has enough words to support it.
+  2. When the sanitized source resume is below the selected target minimum, allow source-limited success only if the draft reaches at least `floor(source_words * 0.90)`.
+  3. Apply underfill validation to 1-page, 2-page, and 3-page full drafts, while keeping keyword optimization minimal-edit and single-section regeneration outside full-draft underfill checks.
+  4. Send source word count, minimum acceptable words, and source-limited allowance in the generation prompt and surface safe length diagnostics in warnings and activity metadata.
+- Consequences: Page-length settings behave more like enforceable content targets when source material supports them, repeated short generations should fail/repair instead of silently passing, sparse resumes remain truthful without padding, and users get count-based explanations when a draft is source-limited.
+
 ## 2026-06-17 10:45:00 EDT - Add user-controlled ATS keywords and guarded keyword optimization
 
 - Status: Accepted

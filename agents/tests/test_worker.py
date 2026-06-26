@@ -544,6 +544,12 @@ def test_build_generation_success_payload_nests_generated_fields():
         generation_params={"page_length": "1_page"},
         sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
         attempts=[{"model": "primary", "outcome": "success"}],
+        length_diagnostics={
+            "target_length": "1_page",
+            "generated_word_count": 430,
+            "minimum_acceptable_words": 450,
+            "source_limited_length": False,
+        },
     )
 
     assert payload["event"] == "succeeded"
@@ -551,6 +557,7 @@ def test_build_generation_success_payload_nests_generated_fields():
     assert payload["generated"]["generation_params"]["page_length"] == "1_page"
     assert payload["generated"]["generation_params"].get("attempts") is None
     assert payload["generated"]["attempts"] == [{"model": "primary", "outcome": "success"}]
+    assert payload["generated"]["length_diagnostics"]["minimum_acceptable_words"] == 450
 
 
 def test_build_generation_failure_payload_normalizes_validation_errors():

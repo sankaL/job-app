@@ -221,6 +221,7 @@ class GenerationSuccessPayload(BaseModel):
     generation_params: dict[str, Any]
     sections_snapshot: dict[str, Any]
     attempts: Optional[list[dict[str, Any]]] = None
+    length_diagnostics: Optional[dict[str, Any]] = None
 
 
 class GenerationFailurePayload(BaseModel):
@@ -322,6 +323,7 @@ class DraftReviewFlagPayload(BaseModel):
     section_name: str
     text: str
     reason: str = "job_description_only_addition"
+    metadata: Optional[dict[str, Any]] = None
 
 
 class ApplicationActivityPayload(BaseModel):
@@ -1461,6 +1463,13 @@ class ApplicationService:
                     subject="Applix: resume generated",
                     body="Your tailored resume has been generated and is ready for review.",
                 )
+                details: dict[str, Any] = {}
+                model_used = generated.generation_params.get("model_used")
+                if model_used:
+                    details["model_used"] = model_used
+                length_diagnostics = self._length_diagnostics_for_activity(generated.length_diagnostics)
+                if length_diagnostics:
+                    details["length_diagnostics"] = length_diagnostics
                 self._record_usage_event(
                     user_id=record.user_id,
                     application_id=record.id,
@@ -1468,9 +1477,7 @@ class ApplicationService:
                     event_status="success",
                     metadata={
                         "activity_type": "generation_succeeded",
-                        "details": {
-                            "model_used": generated.generation_params.get("model_used"),
-                        },
+                        "details": details or None,
                     },
                 )
             else:
@@ -1496,6 +1503,13 @@ class ApplicationService:
                         else "Your resume has been regenerated and is ready for review."
                     ),
                 )
+                details: dict[str, Any] = {}
+                model_used = generated.generation_params.get("model_used")
+                if model_used:
+                    details["model_used"] = model_used
+                length_diagnostics = self._length_diagnostics_for_activity(generated.length_diagnostics)
+                if length_diagnostics:
+                    details["length_diagnostics"] = length_diagnostics
                 self._record_usage_event(
                     user_id=record.user_id,
                     application_id=record.id,
@@ -1507,9 +1521,7 @@ class ApplicationService:
                             if is_keyword_optimization
                             else "regeneration_full_succeeded"
                         ),
-                        "details": {
-                            "model_used": generated.generation_params.get("model_used"),
-                        },
+                        "details": details or None,
                     },
                 )
         except Exception:
@@ -1962,6 +1974,9 @@ class ApplicationService:
                 details["model_used"] = model_used
             if duration_ms is not None:
                 details["duration_ms"] = duration_ms
+            length_diagnostics = self._length_diagnostics_for_activity(payload.generated.length_diagnostics)
+            if length_diagnostics:
+                details["length_diagnostics"] = length_diagnostics
             attempts = payload.generated.attempts
             self._record_usage_event(
                 user_id=record.user_id,
@@ -2692,7 +2707,10 @@ class ApplicationService:
                 details["model_used"] = model_used
             if duration_ms is not None:
                 details["duration_ms"] = duration_ms
-            
+            length_diagnostics = self._length_diagnostics_for_activity(payload.generated.length_diagnostics)
+            if length_diagnostics:
+                details["length_diagnostics"] = length_diagnostics
+
             if is_section:
                 details["section_name"] = payload.regeneration_target
                 if instructions:
@@ -3487,7 +3505,14 @@ class ApplicationService:
                 "failure_message": message,
                 "details": {
                     key: normalized_details.get(key)
-                    for key in ("failure_stage", "attempt_count", "terminal_error_code", "repair_model", "section_name")
+                    for key in (
+                        "failure_stage",
+                        "attempt_count",
+                        "terminal_error_code",
+                        "repair_model",
+                        "section_name",
+                        "length_diagnostics",
+                    )
                     if normalized_details.get(key) not in (None, "")
                 }
                 or None,
@@ -4660,6 +4685,29 @@ class ApplicationService:
                 break
         return flags
 
+    @staticmethod
+    def _length_diagnostics_for_activity(diagnostics: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if not isinstance(diagnostics, dict):
+            return None
+        keys = (
+            "target_length",
+            "target_label",
+            "target_min",
+            "target_max",
+            "hard_cap",
+            "generated_word_count",
+            "source_word_count",
+            "minimum_acceptable_words",
+            "source_aware_minimum",
+            "source_limited_allowed",
+            "source_limited_length",
+            "underfilled",
+            "outside_target_range",
+            "above_hard_cap",
+        )
+        sanitized = {key: diagnostics[key] for key in keys if key in diagnostics}
+        return sanitized or None
+
     def _build_source_limited_length_flags(
         self,
         *,
@@ -4667,8 +4715,6 @@ class ApplicationService:
         draft: ResumeDraftRecord,
     ) -> list[DraftReviewFlagPayload]:
         target_length = str(draft.generation_params.get("page_length") or "1_page")
-        if target_length not in {"2_page", "3_page"}:
-            return []
         base_resume_content = self._resolve_resume_judge_base_resume_content(record=record, draft=draft)
         if not base_resume_content:
             return []
@@ -4683,14 +4729,19 @@ class ApplicationService:
         if not assessment["source_limited_length"]:
             return []
 
+        metadata = self._length_diagnostics_for_activity(assessment)
         return [
             DraftReviewFlagPayload(
                 section_name="length",
                 reason="source_limited_length",
                 text=(
-                    f"This resume is shorter than the selected {assessment['target_label']} target because "
-                    "the base resume does not contain enough grounded material to fill it without padding."
+                    f"This resume is {assessment['generated_word_count']} words, below the selected "
+                    f"{assessment['target_label']} target of {assessment['target_min']}-"
+                    f"{assessment['target_max']} words. The source resume has "
+                    f"{assessment['source_word_count']} words, so the minimum acceptable source-aware "
+                    f"length was {assessment['minimum_acceptable_words']} words without padding."
                 ),
+                metadata=metadata,
             )
         ]
 
@@ -4777,6 +4828,10 @@ class ApplicationService:
             value = failure_details.get(key)
             if value not in (None, ""):
                 normalized[key] = value
+
+        length_diagnostics = self._length_diagnostics_for_activity(failure_details.get("length_diagnostics"))
+        if length_diagnostics:
+            normalized["length_diagnostics"] = length_diagnostics
 
         missing_preserved_keywords = failure_details.get("missing_preserved_keywords")
         if isinstance(missing_preserved_keywords, list):

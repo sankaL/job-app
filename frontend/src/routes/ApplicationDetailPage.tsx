@@ -2180,6 +2180,20 @@ export function ApplicationDetailPage() {
           </p>
         ) : null}
 
+        {!compareMode && sourceLimitedLengthFlag && detail?.internal_state === "resume_ready" ? (
+          <div
+            className="mt-3 rounded-md border px-3 py-2 text-xs"
+            style={{
+              borderColor: "var(--color-amber)",
+              background: "var(--color-amber-10)",
+              color: "var(--color-ink-65)",
+            }}
+          >
+            <div className="font-semibold" style={{ color: "var(--color-amber)" }}>Shorter Than Target</div>
+            <p className="mt-1">{sourceLimitedLengthFlag.text}</p>
+          </div>
+        ) : null}
+
         {editMode ? (
           <div className="mt-0.5 flex min-h-0 flex-1 flex-col overflow-hidden" style={{ minHeight: compareMode ? "60vh" : "50vh" }}>
             <MarkdownEditor

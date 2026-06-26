@@ -1735,7 +1735,7 @@ async def test_get_draft_with_review_flags_marks_medium_jd_only_additions():
     )
 
     assert len(review_flags) >= 1
-    assert review_flags[0].reason == "job_description_only_addition"
+    assert any(flag.reason == "job_description_only_addition" for flag in review_flags)
     assert any(flag.section_name in {"summary", "skills"} for flag in review_flags)
 
 
@@ -1795,7 +1795,7 @@ async def test_get_draft_with_review_flags_marks_professional_experience_title_r
 
 
 @pytest.mark.asyncio
-async def test_get_draft_with_review_flags_returns_empty_for_low_aggressiveness():
+async def test_get_draft_with_review_flags_skips_jd_only_additions_for_low_aggressiveness():
     service, repository, _, _, _, _, drafts = build_service()
     created = repository.create_application(
         user_id="user-1",
@@ -1840,7 +1840,8 @@ async def test_get_draft_with_review_flags_returns_empty_for_low_aggressiveness(
         application_id=created.id,
     )
 
-    assert review_flags == []
+    assert all(flag.reason != "job_description_only_addition" for flag in review_flags)
+    assert any(flag.reason == "source_limited_length" for flag in review_flags)
 
 
 @pytest.mark.asyncio
@@ -1892,7 +1893,8 @@ async def test_get_draft_with_review_flags_uses_generation_base_resume_id_when_s
         application_id=created.id,
     )
 
-    assert review_flags == []
+    assert all(flag.reason != "job_description_only_addition" for flag in review_flags)
+    assert any(flag.reason == "source_limited_length" for flag in review_flags)
 
 
 @pytest.mark.asyncio
@@ -1923,7 +1925,7 @@ async def test_get_draft_with_review_flags_marks_source_limited_length():
     drafts.upsert_draft(
         application_id=created.id,
         user_id="user-1",
-        content_md="## Summary\n" + source_sentence * 88,
+        content_md="## Summary\n" + source_sentence * 100,
         generation_params={
             "page_length": "2_page",
             "aggressiveness": "medium",
@@ -1941,7 +1943,11 @@ async def test_get_draft_with_review_flags_marks_source_limited_length():
     )
 
     assert any(flag.reason == "source_limited_length" for flag in review_flags)
-    assert any("shorter than the selected 2-page target" in flag.text for flag in review_flags)
+    flag = next(flag for flag in review_flags if flag.reason == "source_limited_length")
+    assert "below the selected 2-page target of 900-1400 words" in flag.text
+    assert flag.metadata is not None
+    assert flag.metadata["generated_word_count"] >= flag.metadata["minimum_acceptable_words"]
+    assert flag.metadata["source_limited_length"] is True
 
 
 @pytest.mark.asyncio
@@ -3041,6 +3047,14 @@ async def test_generation_failure_activity_sanitizes_attempt_metadata():
         failure_details={
             "failure_stage": "validation",
             "attempt_count": 2,
+            "length_diagnostics": {
+                "target_length": "2_page",
+                "generated_word_count": 800,
+                "source_word_count": 1000,
+                "minimum_acceptable_words": 900,
+                "source_limited_length": False,
+                "raw_resume": "do-not-store",
+            },
             "raw_provider_payload": {"token": "secret"},
             "attempts": [
                 {
@@ -3066,6 +3080,8 @@ async def test_generation_failure_activity_sanitizes_attempt_metadata():
     assert latest_event["metadata"]["activity_type"] == "generation_failed"
     assert latest_event["metadata"]["details"]["failure_stage"] == "validation"
     assert latest_event["metadata"]["details"]["attempt_count"] == 2
+    assert latest_event["metadata"]["details"]["length_diagnostics"]["generated_word_count"] == 800
+    assert "raw_resume" not in latest_event["metadata"]["details"]["length_diagnostics"]
     assert latest_event["metadata"]["attempts"][0]["model"] == "openai/gpt-5-mini"
     assert "raw_debug_output" not in latest_event["metadata"]["attempts"][0]
     assert "raw_provider_payload" not in latest_event["metadata"]
@@ -3577,6 +3593,13 @@ async def test_generation_success_callback_persists_draft_marks_resume_ready_and
                     "attempts": [
                         {"model": "primary", "outcome": "success", "elapsed_ms": 1200},
                     ],
+                    "length_diagnostics": {
+                        "target_length": "1_page",
+                        "generated_word_count": 430,
+                        "source_word_count": 500,
+                        "minimum_acceptable_words": 450,
+                        "source_limited_length": False,
+                    },
                 },
             }
         )
@@ -3599,6 +3622,7 @@ async def test_generation_success_callback_persists_draft_marks_resume_ready_and
         event for event in service.usage_event_repository.events if event["event_type"] == "generation"
     )
     assert generation_event["metadata"]["attempts"][0]["model"] == "primary"
+    assert generation_event["metadata"]["details"]["length_diagnostics"]["generated_word_count"] == 430
 
 
 @pytest.mark.asyncio

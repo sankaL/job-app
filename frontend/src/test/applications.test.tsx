@@ -2802,8 +2802,15 @@ describe("phase 1 applications UI", () => {
       review_flags: [
         {
           section_name: "length",
-          text: "This resume is shorter than the selected 2-page target because the base resume does not contain enough grounded material to fill it without padding.",
+          text: "This resume is 720 words, below the selected 2-page target of 900-1400 words. The source resume has 800 words, so the minimum acceptable source-aware length was 720 words without padding.",
           reason: "source_limited_length",
+          metadata: {
+            target_length: "2_page",
+            generated_word_count: 720,
+            source_word_count: 800,
+            minimum_acceptable_words: 720,
+            source_limited_length: true,
+          },
         },
       ],
       last_generated_at: "2026-04-07T12:10:00Z",
@@ -2826,8 +2833,8 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/shorter than target/i)).toBeInTheDocument();
-    expect(screen.getByText(/shorter than the selected 2-page target/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/shorter than target/i)).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/below the selected 2-page target of 900-1400 words/i).length).toBeGreaterThanOrEqual(1);
   });
 
   it("opens compare mode, keeps generated edit mode available, and closes back to the default layout", async () => {
@@ -5034,6 +5041,15 @@ describe("phase 1 applications UI", () => {
           failure_stage: "validation",
           attempt_count: 2,
           validation_errors: ["summary: content was too generic"],
+          length_diagnostics: {
+            target_length: "2_page",
+            target_min: 900,
+            target_max: 1400,
+            generated_word_count: 760,
+            source_word_count: 1000,
+            minimum_acceptable_words: 900,
+            source_limited_length: false,
+          },
         },
         attempts: [
           {
@@ -5065,6 +5081,15 @@ describe("phase 1 applications UI", () => {
           model_used: "openai/gpt-5-mini",
           attempt_count: 1,
           duration_ms: 3400,
+          length_diagnostics: {
+            target_length: "2_page",
+            target_min: 900,
+            target_max: 1400,
+            generated_word_count: 820,
+            source_word_count: 1000,
+            minimum_acceptable_words: 900,
+            source_limited_length: false,
+          },
         },
       },
       {
@@ -5094,12 +5119,21 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText("Completed")).toBeInTheDocument();
     expect(screen.getByText("Info")).toBeInTheDocument();
 
+    await userEvent.click(screen.getByRole("button", { name: /generation failed/i }));
+
+    expect(await screen.findByText(/length check:/i)).toBeInTheDocument();
+    expect(screen.getByText(/760 words/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /generation failed/i }));
     await userEvent.click(screen.getByRole("button", { name: /resume generated/i }));
 
     expect(await screen.findByText(/model:/i)).toBeInTheDocument();
     expect(screen.getByText("openai/gpt-5-mini")).toBeInTheDocument();
     expect(screen.getByText(/attempts:/i)).toBeInTheDocument();
     expect(screen.getByText(/duration:/i)).toBeInTheDocument();
+    expect(screen.getByText(/length check:/i)).toBeInTheDocument();
+    expect(screen.getByText(/generated:/i)).toBeInTheDocument();
+    expect(screen.getByText(/820 words/i)).toBeInTheDocument();
   });
 
   it("renders a loading state in the activity panel while activity is being fetched", async () => {

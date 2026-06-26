@@ -61,7 +61,10 @@ def word_count(value: str) -> int:
 
 def source_aware_minimum(target_length: str | None, source_word_count: int) -> int:
     config = get_length_config(target_length)
-    return min(int(config["target_min"]), math.floor(max(0, source_word_count) * 0.80))
+    target_min = int(config["target_min"])
+    if source_word_count >= target_min:
+        return target_min
+    return math.floor(max(0, source_word_count) * 0.90)
 
 
 def assess_resume_length(
@@ -75,7 +78,8 @@ def assess_resume_length(
     source_word_count = word_count(source_text)
     source_minimum = source_aware_minimum(target_length, source_word_count)
     below_target_min = generated_word_count < int(config["target_min"])
-    below_source_aware_min = generated_word_count < source_minimum
+    underfilled = generated_word_count < source_minimum
+    source_limited_allowed = source_word_count < int(config["target_min"])
     return {
         "target_length": str(target_length or "1_page"),
         "target_label": config["label"],
@@ -85,9 +89,12 @@ def assess_resume_length(
         "source_word_count": source_word_count,
         "generated_word_count": generated_word_count,
         "source_aware_minimum": source_minimum,
+        "minimum_acceptable_words": source_minimum,
         "above_hard_cap": generated_word_count > int(config["hard_cap"]),
         "below_target_min": below_target_min,
-        "below_source_aware_min": below_source_aware_min,
+        "below_source_aware_min": underfilled,
+        "underfilled": underfilled,
+        "source_limited_allowed": source_limited_allowed,
         "outside_target_range": below_target_min or generated_word_count > int(config["target_max"]),
-        "source_limited_length": below_target_min and not below_source_aware_min,
+        "source_limited_length": below_target_min and source_limited_allowed and not underfilled,
     }

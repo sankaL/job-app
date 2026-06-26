@@ -183,8 +183,13 @@ def test_keyword_optimization_prompt_includes_current_draft_and_minimal_edit_con
         professional_experience_anchors=[],
     )
 
-    assert "smallest truthful changes" in prompt[0][1]
+    system_prompt = prompt[0][1]
+    assert "smallest truthful changes" in system_prompt
+    assert "Do not expand the draft to repair target-length underfill during keyword optimization." in system_prompt
+    assert "minimum_acceptable_words" not in system_prompt
     human_payload = json.loads(prompt[1][1])
+    assert "minimum_acceptable_words" not in human_payload["length_contract"]
+    assert "source_limited_allowed" not in human_payload["length_contract"]
     assert human_payload["keyword_optimization_contract"]["target_keywords"] == ["Kubernetes"]
     assert human_payload["keyword_optimization_contract"]["preserve_keywords"] == ["React Native", "CI/CD"]
     assert human_payload["keyword_optimization_contract"]["starting_match"]["matched_count"] == 2
@@ -1113,13 +1118,18 @@ def test_generation_prompt_includes_expert_role_voice_rules_no_em_dash_and_lengt
     )
 
     system_prompt = prompt[0][1]
+    human_payload = json.loads(prompt[1][1])
     assert "expert ATS resume writer and editor" in system_prompt
     assert "Do not use first-person narration or em dashes" in system_prompt
     assert 'Avoid resume filler such as "proven ability to"' in system_prompt
     assert "even when those phrases appear in the source" in system_prompt
     assert "Do not change skills content or grouping." in system_prompt
     assert "Preferred total length when it fits the source naturally: 450-700 words." in system_prompt
+    assert "minimum_acceptable_words" in system_prompt
     assert "Do not prune or regroup skills to satisfy length guidance in low-aggressiveness mode." in system_prompt
+    assert human_payload["length_contract"]["source_word_count"] > 0
+    assert human_payload["length_contract"]["minimum_acceptable_words"] > 0
+    assert human_payload["length_contract"]["source_limited_allowed"] is True
 
 
 def test_medium_generation_prompt_keeps_length_caps_and_allows_bounded_title_reframing():
@@ -1146,6 +1156,7 @@ def test_medium_generation_prompt_keeps_length_caps_and_allows_bounded_title_ref
     system_prompt = prompt[0][1]
     assert "Target total length: 450-700 words." in system_prompt
     assert "cap bullets at 4 per role" in system_prompt
+    assert "Bullet and skills-category caps are ceilings for focus" in system_prompt
     assert "Two source bullets covering related grounded work may be consolidated into one stronger bullet" in system_prompt
     assert "profession experience is the primary tailoring surface in medium mode".replace("profession", "professional") in system_prompt.lower()
     assert "do not spend nearly all tailoring budget on summary or skills while leaving professional experience bullets source-identical" in system_prompt.lower()
@@ -1217,7 +1228,13 @@ def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_expe
             }
         ],
     )
+    section_system_prompt = section_prompt[0][1]
+    assert "Treat the selected full-draft length as proportion and tone context for this section only." in section_system_prompt
+    assert "Do not expand this section solely to repair whole-resume underfill." in section_system_prompt
+    assert "minimum_acceptable_words" not in section_system_prompt
     section_human_payload = json.loads(section_prompt[1][1])
+    assert "minimum_acceptable_words" not in section_human_payload["length_contract"]
+    assert "source_limited_allowed" not in section_human_payload["length_contract"]
     assert (
         section_human_payload["professional_experience_structure_contract"]["title_rewrite_policy"]["mode"]
         == "active_grounded_retitle"
@@ -1359,6 +1376,7 @@ async def test_validate_resume_accepts_grounded_list_style_skill_snippets():
         ),
         section_preferences=[{"name": "skills", "enabled": True, "order": 0}],
         generation_settings={"page_length": "1_page"},
+        length_validation_mode="section",
     )
 
     error_types = {error["type"] for error in result["errors"]}
@@ -1676,13 +1694,13 @@ def _repeated_summary(word_target: int) -> str:
 
 @pytest.mark.asyncio
 async def test_validate_resume_rejects_two_page_draft_below_source_aware_minimum():
-    source = _repeated_summary(735)
+    source = _repeated_summary(1000)
     result = await validate_resume(
         generated_sections=[
             {
                 "name": "summary",
                 "heading": "Summary",
-                "content": _repeated_summary(440),
+                "content": _repeated_summary(800),
                 "supporting_snippets": [
                     "Built reliable APIs for regulated financial platforms.",
                     "Built reliable APIs for regulated financial platforms.",
@@ -1696,18 +1714,43 @@ async def test_validate_resume_rejects_two_page_draft_below_source_aware_minimum
 
     assert result["valid"] is False
     assert {error["type"] for error in result["errors"]} == {"length_underfilled"}
-    assert result["errors"][0]["metadata"]["source_aware_minimum"] >= 580
+    assert result["errors"][0]["metadata"]["minimum_acceptable_words"] == 900
 
 
 @pytest.mark.asyncio
-async def test_validate_resume_allows_source_limited_two_page_draft_with_warning():
-    source = _repeated_summary(735)
+async def test_validate_resume_rejects_one_page_source_rich_draft_below_target_minimum():
+    source = _repeated_summary(600)
     result = await validate_resume(
         generated_sections=[
             {
                 "name": "summary",
                 "heading": "Summary",
-                "content": _repeated_summary(620),
+                "content": _repeated_summary(400),
+                "supporting_snippets": [
+                    "Built reliable APIs for regulated financial platforms.",
+                    "Built reliable APIs for regulated financial platforms.",
+                ],
+            }
+        ],
+        base_resume_content=source,
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "1_page", "aggressiveness": "medium"},
+    )
+
+    assert result["valid"] is False
+    assert {error["type"] for error in result["errors"]} == {"length_underfilled"}
+    assert result["errors"][0]["metadata"]["minimum_acceptable_words"] == 450
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_allows_source_limited_two_page_draft_with_warning():
+    source = _repeated_summary(800)
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "summary",
+                "heading": "Summary",
+                "content": _repeated_summary(735),
                 "supporting_snippets": [
                     "Built reliable APIs for regulated financial platforms.",
                     "Built reliable APIs for regulated financial platforms.",
@@ -1721,6 +1764,11 @@ async def test_validate_resume_allows_source_limited_two_page_draft_with_warning
 
     assert result["valid"] is True
     assert result["warnings"][0]["type"] == "source_limited_length"
+    assert result["warnings"][0]["metadata"]["source_limited_allowed"] is True
+    assert (
+        result["warnings"][0]["metadata"]["generated_word_count"]
+        >= result["warnings"][0]["metadata"]["minimum_acceptable_words"]
+    )
 
 
 @pytest.mark.asyncio
@@ -1731,7 +1779,7 @@ async def test_validate_resume_allows_very_short_source_limited_draft():
             {
                 "name": "summary",
                 "heading": "Summary",
-                "content": _repeated_summary(91),
+                "content": _repeated_summary(100),
                 "supporting_snippets": [
                     "Built reliable APIs for regulated financial platforms.",
                     "Built reliable APIs for regulated financial platforms.",
@@ -1745,6 +1793,31 @@ async def test_validate_resume_allows_very_short_source_limited_draft():
 
     assert result["valid"] is True
     assert result["warnings"][0]["type"] == "source_limited_length"
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_section_mode_skips_full_draft_underfill_check():
+    source = _repeated_summary(1000)
+    result = await validate_resume(
+        generated_sections=[
+            {
+                "name": "summary",
+                "heading": "Summary",
+                "content": _repeated_summary(100),
+                "supporting_snippets": [
+                    "Built reliable APIs for regulated financial platforms.",
+                    "Built reliable APIs for regulated financial platforms.",
+                ],
+            }
+        ],
+        base_resume_content=source,
+        section_preferences=[{"name": "summary", "enabled": True, "order": 0}],
+        generation_settings={"page_length": "2_page", "aggressiveness": "medium"},
+        length_validation_mode="section",
+    )
+
+    assert result["valid"] is True
+    assert result["warnings"] == []
 
 
 @pytest.mark.asyncio

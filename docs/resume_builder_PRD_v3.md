@@ -372,7 +372,7 @@ Before initial generation, the user configures:
 **Settings UI note:** The Generation Settings card may stay compact as long as the full low, medium, and high behavior breakdown remains available inline through a tooltip or popover. When High is selected, the UI must also show an inline warning that this mode can make substantial changes and should be used only when the user wants a more aggressive rewrite and will review the result carefully.
 For medium and high runs, the application detail workspace must preserve an explicit review path for job-description-driven additions that are not explicit in the source resume. In MVP, that review path is the compare workflow, which lets the user inspect the tailored draft beside the generation-time base resume before applying or exporting.
 
-**Length note:** Page count is a content target, not a visual page-fill guarantee. The system optimizes toward the selected word range, retries underfilled drafts when the source resume can support more grounded detail, and may approve a shorter draft with a clear source-limited warning when filling the selected length would require padding or invented facts. Final pagination may vary based on content and formatting.
+**Length note:** Page count is a content target, not a visual page-fill guarantee. For full initial generation and full regeneration, source-rich resumes must meet the selected target minimum word count before assembly. If the sanitized source resume is shorter than the selected target minimum, the system may approve a shorter draft only when it reaches at least `floor(source_words * 0.90)` and shows a clear source-limited warning with generated, source, target, and minimum-acceptable word counts. Keyword optimization preserves its minimal-edit behavior and single-section regeneration is not judged against a full-draft word minimum. Final pagination may vary based on content and formatting.
 
 ---
 
@@ -458,7 +458,7 @@ After generation returns structured JSON, the application validates it locally b
 - All eligible sections are present and in the correct order, and sections absent from the source resume are not expected even if enabled in user preferences
 - Personal or contact information leakage in generated sections
 - Grounding snippets copied from the sanitized base resume
-- Content is appropriate for the target page length
+- Content is appropriate for the target page length, with full-draft underfill rejected below the source-aware minimum and source-limited warnings shown only when sparse source material reaches the allowed floor
 
 **Validation outputs:**
 - **Approve** — content passes; proceed to assembly

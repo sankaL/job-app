@@ -308,7 +308,7 @@ Deterministic validation note:
 Validator carve-out:
 
 - medium and high aggressiveness allow Professional Experience role-title rewrites only in that section; the general unsupported-claim check skips role-title grounding there and nowhere else
-- When deterministic validation fails after a successful model response, the worker may run one repair-only prompt that preserves the original response contract, feeds the prior response back in, and provides a sanitized summary of validation failures. Length-underfilled repairs must expand only by restoring grounded source-resume material. If the repaired output still fails deterministic validation, the workflow fails closed.
+- When deterministic validation fails after a successful model response, the worker may run one repair-only prompt that preserves the original response contract, feeds the prior response back in, and provides a sanitized summary of validation failures. Length-underfilled repairs must expand only by restoring grounded source-resume material: omitted bullets, quantified outcomes, leadership or process details, older-role accomplishments, richer skills group detail, and concrete context already supported by the source. If the repaired output still fails deterministic validation, the workflow fails closed.
 - Medium and high add one extra heuristic validation check: when Professional Experience is enabled, the first up to 2 source-ordered roles with bullets must show visible tailoring. Medium needs at least 1 rewritten bullet or 1 grounded title rewrite across those checked roles; high needs at least 2 rewritten bullets, or 1 rewritten bullet plus 1 grounded title rewrite, except that sparse source experience with only 1 checked bullet can satisfy the rule with that 1 rewritten bullet.
 
 #### Shared target-length rules
@@ -319,11 +319,34 @@ Validator carve-out:
 | `2_page` | `900-1400 words` | `1600` | `50-90 words` | `5` | `3` |
 | `3_page` | `1500-2100 words` | `2400` | `60-110 words` | `6` | `4` |
 
-Deterministic validation treats the selected length as a content target. Over-hard-cap drafts fail. Under-target drafts fail only when they are also below the source-aware minimum: `min(target_min, floor(sanitized_base_resume_word_count * 0.80))`. Drafts below the target range but at or above that source-aware minimum are valid with a `source_limited_length` warning instead of being padded.
+Deterministic validation treats the selected length as a content target. Over-hard-cap drafts fail. Full initial generation and full regeneration use strict source-aware underfill validation: when the sanitized source resume has at least the selected target minimum, the generated draft must meet `target_min`; when the sanitized source resume is below `target_min`, the minimum acceptable generated length is `floor(sanitized_base_resume_word_count * 0.90)`. Drafts below the target range but at or above that sparse-source minimum are valid with a `source_limited_length` warning instead of being padded. Single-section regeneration uses section validation only, and keyword optimization skips underfill repair so it remains minimal-edit.
+
+Operation-specific length prompt blocks:
+
+- Full initial generation and full regeneration use strict active-target wording: the human `length_contract` includes `source_word_count`, `minimum_acceptable_words`, and `source_limited_allowed`; the system prompt tells the model not to return a full draft below `minimum_acceptable_words`.
+- Single-section regeneration uses section-scoped wording only:
+
+```text
+Length contract ({{target_length_label}}):
+- Treat the selected full-draft length as proportion and tone context for this section only.
+- Selected full-draft target context: {{target_range}}; hard cap: {{hard_cap_words}} words.
+- Do not expand this section solely to repair whole-resume underfill.
+- Keep the regenerated section grounded, concise, and compatible with the surrounding draft.
+```
+
+- Keyword optimization uses minimal-edit wording only:
+
+```text
+Length contract ({{target_length_label}}):
+- Preserve the current draft length and structure as much as possible while making the smallest truthful keyword edits.
+- Selected full-draft target context: {{target_range}}; hard cap: {{hard_cap_words}} words.
+- Do not expand the draft to repair target-length underfill during keyword optimization.
+- Do not add padding, repeated claims, generic resume language, or unsupported job-description-only facts.
+```
 
 #### Shared full-draft human payload
 
-Used for both initial generation and full regeneration.
+Used for initial generation, full regeneration, and keyword optimization. `source_word_count`, `minimum_acceptable_words`, and `source_limited_allowed` are present only for initial generation and full regeneration. Keyword optimization omits those full-draft minimum fields and adds the keyword-optimization fields shown below.
 
 ```json
 {
@@ -350,6 +373,9 @@ Used for both initial generation and full regeneration.
     "target_length": "{{target_length}}",
     "target_range": "{{target_range}}",
     "hard_cap_words": "{{hard_cap_words}}",
+    "source_word_count": 0,
+    "minimum_acceptable_words": 0,
+    "source_limited_allowed": false,
     "summary_range": "{{summary_range}}",
     "max_experience_bullets_per_role": "{{bullet_cap}}",
     "max_skills_categories": "{{skills_cap}}"
@@ -627,16 +653,17 @@ Length contract ({{target_length_label}}):
 - Summary target when light cleanup makes it possible without substantive pruning: {{summary_range}}.
 - Preserve existing Professional Experience bullet counts unless the source already fits the target without removing grounded content.
 - Preserve existing Skills content and grouping. Do not prune or regroup skills to satisfy length guidance in low-aggressiveness mode.
-- For 2-page and 3-page targets, treat this as a content target. Before returning a shorter draft, restore relevant grounded source material first.
-- For 2-page and 3-page targets, expand by preserving omitted source bullets, quantified outcomes, leadership/process details, older-role accomplishments, and richer skills grouping when they support the target role.
+- Treat the target range as an active drafting requirement. The human length_contract provides minimum_acceptable_words; do not return a full draft below that floor.
+- Before returning a source-limited draft, restore relevant grounded source material first: omitted source bullets, quantified outcomes, leadership or process details, older-role accomplishments, richer skills grouping, and concrete source-supported context.
+- Bullet and skills-category caps are ceilings for focus, not permission to omit relevant grounded detail or underfill the selected target.
 - Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.
 - Education should remain concise.
-- If the source resume is already longer than the target, prefer minimal truthful cleanup over aggressive shortening.
+- If the source resume is already longer than the target, prefer minimal truthful cleanup over aggressive shortening, but keep grounded detail needed to satisfy minimum_acceptable_words.
 ```
 
 #### Single-section system prompt
 
-Low mode section regeneration reuses the same prompt above with `{{operation_prompt}} = Regenerate only the requested section while keeping it compatible with the rest of the draft.`, one enabled section only, the single-section response contract, and this extra block appended:
+Low mode section regeneration reuses the same prompt family with `{{operation_prompt}} = Regenerate only the requested section while keeping it compatible with the rest of the draft.`, one enabled section only, the section-scoped length block, the single-section response contract, and this extra block appended:
 
 ```text
 Section-regeneration coherence rules:
@@ -726,16 +753,17 @@ Length contract ({{target_length_label}}):
 - Summary target: {{summary_range}}.
 - Professional Experience: cap bullets at {{max_experience_bullets_per_role}} per role. Reduce older or less relevant content first.
 - Skills: cap category groups at {{max_skills_categories}} and prioritize relevance over completeness.
-- For 2-page and 3-page targets, treat this as a content target. Before returning a shorter draft, restore relevant grounded source material first.
-- For 2-page and 3-page targets, expand by preserving omitted source bullets, quantified outcomes, leadership/process details, older-role accomplishments, and richer skills grouping when they support the target role.
+- Treat the target range as an active drafting requirement. The human length_contract provides minimum_acceptable_words; do not return a full draft below that floor.
+- Before returning a source-limited draft, restore relevant grounded source material first: omitted source bullets, quantified outcomes, leadership or process details, older-role accomplishments, richer skills grouping, and concrete source-supported context.
+- Bullet and skills-category caps are ceilings for focus, not permission to omit relevant grounded detail or underfill the selected target.
 - Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.
 - Education should remain concise.
-- If the source resume does not contain enough grounded material to fill the target range, produce a shorter truthful output instead of padding or repeating content.
+- If length_contract.source_limited_allowed is true and the source genuinely cannot fill the target range, produce a shorter truthful output at or above minimum_acceptable_words instead of padding or repeating content.
 ```
 
 #### Single-section system prompt
 
-Medium mode section regeneration reuses the same prompt above with `{{operation_prompt}} = Regenerate only the requested section while keeping it compatible with the rest of the draft.`, one enabled section only, the single-section response contract, and this extra block appended:
+Medium mode section regeneration reuses the same prompt family with `{{operation_prompt}} = Regenerate only the requested section while keeping it compatible with the rest of the draft.`, one enabled section only, the section-scoped length block, the single-section response contract, and this extra block appended:
 
 ```text
 Section-regeneration coherence rules:
@@ -830,16 +858,17 @@ Length contract ({{target_length_label}}):
 - Summary target: {{summary_range}}.
 - Professional Experience: cap bullets at {{max_experience_bullets_per_role}} per role. Reduce older or less relevant content first.
 - Skills: cap category groups at {{max_skills_categories}} and prioritize relevance over completeness.
-- For 2-page and 3-page targets, treat this as a content target. Before returning a shorter draft, restore relevant grounded source material first.
-- For 2-page and 3-page targets, expand by preserving omitted source bullets, quantified outcomes, leadership/process details, older-role accomplishments, and richer skills grouping when they support the target role.
+- Treat the target range as an active drafting requirement. The human length_contract provides minimum_acceptable_words; do not return a full draft below that floor.
+- Before returning a source-limited draft, restore relevant grounded source material first: omitted source bullets, quantified outcomes, leadership or process details, older-role accomplishments, richer skills grouping, and concrete source-supported context.
+- Bullet and skills-category caps are ceilings for focus, not permission to omit relevant grounded detail or underfill the selected target.
 - Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.
 - Education should remain concise.
-- If the source resume does not contain enough grounded material to fill the target range, produce a shorter truthful output instead of padding or repeating content.
+- If length_contract.source_limited_allowed is true and the source genuinely cannot fill the target range, produce a shorter truthful output at or above minimum_acceptable_words instead of padding or repeating content.
 ```
 
 #### Single-section system prompt
 
-High mode section regeneration reuses the same prompt above with `{{operation_prompt}} = Regenerate only the requested section while keeping it compatible with the rest of the draft.`, one enabled section only, the single-section response contract, and this extra block appended:
+High mode section regeneration reuses the same prompt family with `{{operation_prompt}} = Regenerate only the requested section while keeping it compatible with the rest of the draft.`, one enabled section only, the section-scoped length block, the single-section response contract, and this extra block appended:
 
 ```text
 Section-regeneration coherence rules:

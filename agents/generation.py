@@ -22,7 +22,7 @@ from experience_contract import (
     normalize_education_section,
     normalize_professional_experience_section,
 )
-from length_policy import TARGET_LENGTH_CONFIGS, prompt_config
+from length_policy import TARGET_LENGTH_CONFIGS, prompt_config, source_aware_minimum, word_count
 from privacy import sanitize_resume_markdown
 
 logger = logging.getLogger(__name__)
@@ -874,15 +874,30 @@ def _build_aggressiveness_block(*, aggressiveness: str) -> str:
     )
 
 
-def _build_length_block(*, target_length: str, aggressiveness: str) -> str:
+def _build_length_block(*, target_length: str, aggressiveness: str, operation: str) -> str:
     config = TARGET_LENGTH_GUIDANCE.get(target_length, TARGET_LENGTH_GUIDANCE["1_page"])
-    source_expansion_rules = ""
-    if target_length in {"2_page", "3_page"}:
-        source_expansion_rules = (
-            "- Treat this as a content target. Before returning a shorter draft, restore relevant grounded source material first.\n"
-            "- Expand by preserving omitted source bullets, quantified outcomes, leadership/process details, older-role accomplishments, and richer skills grouping when they support the target role.\n"
-            "- Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.\n"
+    if operation == "keyword_optimization":
+        return (
+            f"Length contract ({config['label']}):\n"
+            f"- Preserve the current draft length and structure as much as possible while making the smallest truthful keyword edits.\n"
+            f"- Selected full-draft target context: {config['target_range']}; hard cap: {config['hard_cap']} words.\n"
+            "- Do not expand the draft to repair target-length underfill during keyword optimization.\n"
+            "- Do not add padding, repeated claims, generic resume language, or unsupported job-description-only facts.\n"
         )
+    if operation == "regeneration_section":
+        return (
+            f"Length contract ({config['label']}):\n"
+            "- Treat the selected full-draft length as proportion and tone context for this section only.\n"
+            f"- Selected full-draft target context: {config['target_range']}; hard cap: {config['hard_cap']} words.\n"
+            "- Do not expand this section solely to repair whole-resume underfill.\n"
+            "- Keep the regenerated section grounded, concise, and compatible with the surrounding draft.\n"
+        )
+    source_expansion_rules = (
+        "- Treat the target range as an active drafting requirement. The human length_contract provides minimum_acceptable_words; do not return a full draft below that floor.\n"
+        "- Before returning a source-limited draft, restore relevant grounded source material first: omitted source bullets, quantified outcomes, leadership or process details, older-role accomplishments, richer skills grouping, and concrete source-supported context.\n"
+        "- Bullet and skills-category caps are ceilings for focus, not permission to omit relevant grounded detail or underfill the selected target.\n"
+        "- Do not expand with filler, repeated claims, generic resume language, or unsupported job-description-only facts.\n"
+    )
     if aggressiveness == "low":
         return (
             f"Length contract ({config['label']}):\n"
@@ -893,7 +908,7 @@ def _build_length_block(*, target_length: str, aggressiveness: str) -> str:
             "- Preserve existing Skills content and grouping. Do not prune or regroup skills to satisfy length guidance in low-aggressiveness mode.\n"
             f"{source_expansion_rules}"
             "- Education should remain concise.\n"
-            "- If the source resume is already longer than the target, prefer minimal truthful cleanup over aggressive shortening.\n"
+            "- If the source resume is already longer than the target, prefer minimal truthful cleanup over aggressive shortening, but keep grounded detail needed to satisfy minimum_acceptable_words.\n"
         )
     return (
         f"Length contract ({config['label']}):\n"
@@ -904,7 +919,7 @@ def _build_length_block(*, target_length: str, aggressiveness: str) -> str:
         f"- Skills: cap category groups at {config['skills_categories']} and prioritize relevance over completeness.\n"
         f"{source_expansion_rules}"
         "- Education should remain concise.\n"
-        "- If the source resume does not contain enough grounded material to fill the target range, produce a shorter truthful output instead of padding or repeating content.\n"
+        "- If length_contract.source_limited_allowed is true and the source genuinely cannot fill the target range, produce a shorter truthful output at or above minimum_acceptable_words instead of padding or repeating content.\n"
     )
 
 
@@ -933,8 +948,33 @@ def _build_shared_system_prompt(
         + "\n"
         + _build_aggressiveness_block(aggressiveness=aggressiveness)
         + "\n"
-        + _build_length_block(target_length=target_length, aggressiveness=aggressiveness)
+        + _build_length_block(target_length=target_length, aggressiveness=aggressiveness, operation=operation)
     )
+
+
+def _length_contract_payload(
+    *,
+    target_length: str,
+    source_text: str,
+    include_full_draft_minimum: bool,
+) -> dict[str, Any]:
+    target_length_config = TARGET_LENGTH_GUIDANCE.get(target_length, TARGET_LENGTH_GUIDANCE["1_page"])
+    source_words = word_count(source_text)
+    minimum_acceptable_words = source_aware_minimum(target_length, source_words)
+    payload: dict[str, Any] = {
+        "target_length": target_length,
+        "target_range": target_length_config["target_range"],
+        "hard_cap_words": target_length_config["hard_cap"],
+    }
+    if include_full_draft_minimum:
+        payload.update(
+            {
+                "source_word_count": source_words,
+                "minimum_acceptable_words": minimum_acceptable_words,
+                "source_limited_allowed": source_words < int(target_length_config["target_min"]),
+            }
+        )
+    return payload
 
 
 def _section_content_contract(section_id: str) -> dict[str, Any]:
@@ -1235,9 +1275,11 @@ def _build_generation_prompt(
         },
         "aggressiveness_contract": AGGRESSIVENESS_CONTRACTS.get(aggressiveness, AGGRESSIVENESS_CONTRACTS["medium"]),
         "length_contract": {
-            "target_length": target_length,
-            "target_range": target_length_config["target_range"],
-            "hard_cap_words": target_length_config["hard_cap"],
+            **_length_contract_payload(
+                target_length=target_length,
+                source_text=base_resume_content,
+                include_full_draft_minimum=operation != "keyword_optimization",
+            ),
             "summary_range": target_length_config["summary_range"],
             "max_experience_bullets_per_role": target_length_config["experience_bullets"],
             "max_skills_categories": target_length_config["skills_categories"],
@@ -1326,7 +1368,6 @@ def _build_section_regeneration_prompt(
         + "- Read other_sections_context and do not repeat a claim that already appears there verbatim or as the dominant selling point.\n"
         + "- Do not contradict the rest of the draft unless the source resume requires correction.\n"
     )
-    target_length_config = TARGET_LENGTH_GUIDANCE.get(target_length, TARGET_LENGTH_GUIDANCE["1_page"])
     generation_settings = generation_settings or {}
     job_keywords = [
         str(keyword).strip()
@@ -1350,11 +1391,11 @@ def _build_section_regeneration_prompt(
             "no_em_dashes_in_model_authored_content": True,
         },
         "aggressiveness_contract": AGGRESSIVENESS_CONTRACTS.get(aggressiveness, AGGRESSIVENESS_CONTRACTS["medium"]),
-        "length_contract": {
-            "target_length": target_length,
-            "target_range": target_length_config["target_range"],
-            "hard_cap_words": target_length_config["hard_cap"],
-        },
+        "length_contract": _length_contract_payload(
+            target_length=target_length,
+            source_text=base_resume_content,
+            include_full_draft_minimum=False,
+        ),
         "keyword_coverage_contract": {
             "keywords": job_keywords,
             "target_percentage": keyword_target,
@@ -1824,7 +1865,8 @@ def _build_validation_repair_prompt(
     if requires_length_repair:
         repair_task += (
             " The repair must expand the draft only by restoring grounded source-resume material: omitted relevant bullets, "
-            "quantified outcomes, leadership or process details, older-role accomplishments, and skills already supported by the source. "
+            "quantified outcomes, leadership or process details, older-role accomplishments, richer skills group detail, "
+            "and concrete context already supported by the source. "
             "Do not add padding, repeated claims, generic filler, or unsupported job-description-only facts."
         )
     repair_payload = {

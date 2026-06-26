@@ -452,7 +452,7 @@ class ResumeDraftResponse(BaseModel):
     content_md: str
     generation_params: dict[str, Any]
     sections_snapshot: dict[str, Any]
-    review_flags: list[dict[str, str]] = Field(default_factory=list)
+    review_flags: list[dict[str, Any]] = Field(default_factory=list)
     keyword_match: Optional[KeywordMatchResponse] = None
     render_contract_version: Optional[str] = None
     render_model: Optional[dict[str, Any]] = None
@@ -575,7 +575,7 @@ def _format_sse_event(event: str, payload: dict[str, Any]) -> str:
 def _build_resume_draft_response_payload(
     draft_payload: dict[str, Any],
     *,
-    review_flags: Optional[list[dict[str, str]]] = None,
+    review_flags: Optional[list[dict[str, Any]]] = None,
     keyword_match: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     render_result = build_render_document(str(draft_payload.get("content_md") or ""))

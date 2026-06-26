@@ -33,6 +33,8 @@ from generation import (
     regenerate_single_section,
     repair_generated_response,
 )
+from length_policy import assess_resume_length
+from privacy import sanitize_resume_markdown
 from resume_judge import judge_resume
 from validation import validate_resume
 
@@ -405,6 +407,7 @@ def build_generation_success_payload(
     sections_snapshot: dict[str, Any],
     regeneration_target: Optional[str] = None,
     attempts: Optional[list[dict[str, Any]]] = None,
+    length_diagnostics: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     generated: dict[str, Any] = {
         "content_md": content_md,
@@ -413,6 +416,8 @@ def build_generation_success_payload(
     }
     if attempts is not None:
         generated["attempts"] = attempts
+    if length_diagnostics is not None:
+        generated["length_diagnostics"] = length_diagnostics
     payload: dict[str, Any] = {
         "application_id": application_id,
         "user_id": user_id,
@@ -1606,6 +1611,50 @@ RESUME_JUDGE_CALLBACK_PATH = "/api/internal/worker/resume-judge-callback"
 KEYWORD_EXTRACTION_CALLBACK_PATH = "/api/internal/worker/keyword-extraction-callback"
 
 
+def _length_validation_mode_for_operation(operation: str) -> str:
+    if operation == "keyword_optimization":
+        return "preserve"
+    return "full_draft"
+
+
+def _sanitize_length_diagnostics(assessment: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "target_length",
+        "target_label",
+        "target_min",
+        "target_max",
+        "hard_cap",
+        "generated_word_count",
+        "source_word_count",
+        "minimum_acceptable_words",
+        "source_aware_minimum",
+        "source_limited_allowed",
+        "source_limited_length",
+        "underfilled",
+        "outside_target_range",
+        "above_hard_cap",
+    )
+    return {key: assessment[key] for key in keys if key in assessment}
+
+
+def _build_length_diagnostics(
+    *,
+    generated_sections: list[dict[str, Any]],
+    base_resume_content: str,
+    generation_settings: dict[str, Any],
+) -> dict[str, Any]:
+    target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
+    generated_text = "\n\n".join(str(section.get("content") or "") for section in generated_sections)
+    sanitized_base_resume = sanitize_resume_markdown(base_resume_content).sanitized_markdown
+    return _sanitize_length_diagnostics(
+        assess_resume_length(
+            generated_text=generated_text,
+            source_text=sanitized_base_resume,
+            target_length=str(target_length or "1_page"),
+        )
+    )
+
+
 async def _validate_generated_sections_with_repair(
     *,
     generated_sections: list[dict[str, Any]],
@@ -1634,6 +1683,7 @@ async def _validate_generated_sections_with_repair(
         section_preferences=section_preferences,
         generation_settings=generation_settings,
         professional_experience_anchors=professional_experience_anchors,
+        length_validation_mode=_length_validation_mode_for_operation(operation),
     )
     if validation_result["valid"]:
         return generated_sections, validation_result, attempt_diagnostics, None
@@ -1684,6 +1734,7 @@ async def _validate_generated_sections_with_repair(
         section_preferences=section_preferences,
         generation_settings=generation_settings,
         professional_experience_anchors=professional_experience_anchors,
+        length_validation_mode=_length_validation_mode_for_operation(operation),
     )
     if validation_after_repair["valid"]:
         return repaired_sections, validation_after_repair, combined_attempts, None
@@ -1726,6 +1777,7 @@ async def _validate_regenerated_section_with_repair(
         section_preferences=single_section_prefs,
         generation_settings=generation_settings,
         professional_experience_anchors=professional_experience_anchors,
+        length_validation_mode="section",
     )
     if validation_result["valid"]:
         return regenerated_section, validation_result, attempt_diagnostics, None
@@ -1774,6 +1826,7 @@ async def _validate_regenerated_section_with_repair(
         section_preferences=single_section_prefs,
         generation_settings=generation_settings,
         professional_experience_anchors=professional_experience_anchors,
+        length_validation_mode="section",
     )
     if validation_after_repair["valid"]:
         return repaired_section, validation_after_repair, combined_attempts, None
@@ -1819,6 +1872,7 @@ async def run_generation_job(
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
     attempt_diagnostics: list[dict[str, Any]] = []
+    length_diagnostics: Optional[dict[str, Any]] = None
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
@@ -1931,11 +1985,17 @@ async def run_generation_job(
             return
 
         if not validation_result["valid"]:
+            length_diagnostics = _build_length_diagnostics(
+                generated_sections=generated_sections,
+                base_resume_content=base_resume_content,
+                generation_settings=public_generation_settings,
+            )
             failure_details = {
                 "failure_stage": "validation",
                 "attempt_count": len(attempt_diagnostics),
                 "attempts": attempt_diagnostics,
                 "terminal_error_code": "validation_failed",
+                "length_diagnostics": length_diagnostics,
             }
             if repair_failure_details:
                 failure_details.update(repair_failure_details)
@@ -1994,6 +2054,11 @@ async def run_generation_job(
             personal_info=personal_info,
             generated_sections=generated_sections,
         )
+        length_diagnostics = _build_length_diagnostics(
+            generated_sections=generated_sections,
+            base_resume_content=base_resume_content,
+            generation_settings=public_generation_settings,
+        )
         if not await is_current_job(writer, application_id, job_id):
             return
 
@@ -2028,6 +2093,7 @@ async def run_generation_job(
                 "section_order": [s["name"] for s in enabled_ordered],
             },
             attempts=attempt_diagnostics,
+            length_diagnostics=length_diagnostics,
         )
         await set_generation_result_best_effort(
             writer,
@@ -2193,6 +2259,7 @@ async def run_regeneration_job(
         key: value for key, value in generation_settings.items() if not str(key).startswith("_")
     }
     attempt_diagnostics: list[dict[str, Any]] = []
+    length_diagnostics: Optional[dict[str, Any]] = None
 
     enabled_ordered = sorted(
         [s for s in section_preferences if s.get("enabled")],
@@ -2350,11 +2417,17 @@ async def run_regeneration_job(
                 return
 
             if not validation_result["valid"]:
+                length_diagnostics = _build_length_diagnostics(
+                    generated_sections=generated_sections,
+                    base_resume_content=base_resume_content,
+                    generation_settings=public_generation_settings,
+                )
                 failure_details = {
                     "failure_stage": "validation",
                     "attempt_count": len(attempt_diagnostics),
                     "attempts": attempt_diagnostics,
                     "terminal_error_code": "validation_failed",
+                    "length_diagnostics": length_diagnostics,
                 }
                 if repair_failure_details:
                     failure_details.update(repair_failure_details)
@@ -2399,6 +2472,11 @@ async def run_regeneration_job(
             content = assemble_resume(
                 personal_info=personal_info,
                 generated_sections=generated_sections,
+            )
+            length_diagnostics = _build_length_diagnostics(
+                generated_sections=generated_sections,
+                base_resume_content=base_resume_content,
+                generation_settings=public_generation_settings,
             )
             if not await is_current_job(writer, application_id, job_id):
                 return
@@ -2581,6 +2659,7 @@ async def run_regeneration_job(
             sections_snapshot=sections_snapshot,
             regeneration_target=regeneration_target,
             attempts=attempt_diagnostics,
+            length_diagnostics=length_diagnostics,
         )
         await set_generation_result_best_effort(
             writer,

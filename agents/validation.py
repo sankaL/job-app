@@ -707,8 +707,11 @@ def _check_length_guidance(
     generated_sections: list[dict[str, Any]],
     sanitized_base_resume_content: str,
     generation_settings: Optional[dict[str, Any]],
+    length_validation_mode: str,
 ) -> list[dict[str, Any]]:
     if not generation_settings:
+        return []
+    if length_validation_mode == "section":
         return []
 
     target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
@@ -731,19 +734,19 @@ def _check_length_guidance(
             }
         ]
 
-    if target_length not in {"2_page", "3_page"}:
+    if length_validation_mode == "preserve":
         return []
 
-    if assessment["below_target_min"] and assessment["below_source_aware_min"]:
+    if assessment["underfilled"]:
         return [
             {
                 "type": "length_underfilled",
                 "section": None,
                 "detail": (
                     "Generated content is too short for the requested target length and below the "
-                    "source-aware minimum "
+                    "minimum acceptable source-aware length "
                     f"({assessment['generated_word_count']} words < "
-                    f"{assessment['source_aware_minimum']}). Expand using grounded source-resume detail only."
+                    f"{assessment['minimum_acceptable_words']}). Expand using grounded source-resume detail only."
                 ),
                 "metadata": assessment,
             }
@@ -757,12 +760,13 @@ def _check_length_warnings(
     generated_sections: list[dict[str, Any]],
     sanitized_base_resume_content: str,
     generation_settings: Optional[dict[str, Any]],
+    length_validation_mode: str,
 ) -> list[dict[str, Any]]:
     if not generation_settings:
         return []
-    target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
-    if target_length not in {"2_page", "3_page"}:
+    if length_validation_mode != "full_draft":
         return []
+    target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
     generated_text = "\n\n".join(str(section.get("content") or "") for section in generated_sections)
     assessment = assess_resume_length(
         generated_text=generated_text,
@@ -776,8 +780,11 @@ def _check_length_warnings(
             "type": "source_limited_length",
             "section": None,
             "detail": (
-                f"This resume is shorter than the selected {assessment['target_label']} target because "
-                "the base resume does not contain enough grounded material to fill it without padding."
+                f"This resume is {assessment['generated_word_count']} words, below the selected "
+                f"{assessment['target_label']} target of {assessment['target_min']}-"
+                f"{assessment['target_max']} words. The source resume has "
+                f"{assessment['source_word_count']} words, so the minimum acceptable source-aware "
+                f"length was {assessment['minimum_acceptable_words']} words without padding."
             ),
             "metadata": assessment,
         }
@@ -791,6 +798,7 @@ async def validate_resume(
     section_preferences: list[dict[str, Any]],
     generation_settings: Optional[dict[str, Any]] = None,
     professional_experience_anchors: Optional[list[dict[str, Any]]] = None,
+    length_validation_mode: str = "full_draft",
 ) -> dict[str, Any]:
     sanitized_base_resume = sanitize_resume_markdown(base_resume_content).sanitized_markdown
 
@@ -867,12 +875,14 @@ async def validate_resume(
             generated_sections=generated_sections,
             sanitized_base_resume_content=sanitized_base_resume,
             generation_settings=generation_settings,
+            length_validation_mode=length_validation_mode,
         )
     )
     all_warnings = _check_length_warnings(
         generated_sections=generated_sections,
         sanitized_base_resume_content=sanitized_base_resume,
         generation_settings=generation_settings,
+        length_validation_mode=length_validation_mode,
     )
 
     return {

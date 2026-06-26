@@ -83,6 +83,7 @@ function hasExpandableDetails(item: ApplicationActivityEvent) {
     if (typeof details.failure_stage === "string") return true;
     if (typeof details.section_name === "string") return true;
     if (typeof details.attempt_count === "number") return true;
+    if (details.length_diagnostics && typeof details.length_diagnostics === "object") return true;
     if (Array.isArray(details.validation_errors) && details.validation_errors.length > 0) return true;
 
     // Custom events
@@ -110,7 +111,8 @@ function hasExpandableDetails(item: ApplicationActivityEvent) {
         details.aggressiveness ||
         details.additional_instructions ||
         details.instructions ||
-        details.regeneration_instructions
+        details.regeneration_instructions ||
+        details.length_diagnostics
       );
     }
   }
@@ -143,6 +145,10 @@ function pageLengthLabel(value: unknown) {
   if (value === "2_page") return "2 Pages";
   if (value === "3_page") return "3 Pages";
   return String(value);
+}
+
+function formatNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : null;
 }
 
 export function ApplicationActivityPanel({ applicationId, open, onClose }: ApplicationActivityPanelProps) {
@@ -452,6 +458,38 @@ export function ApplicationActivityPanel({ applicationId, open, onClose }: Appli
                                   )}
                                 </div>
                               )}
+
+                              {details?.length_diagnostics && typeof details.length_diagnostics === "object" ? (
+                                <div className="mt-1 space-y-0.5 pl-2 border-l-2" style={{ borderColor: "var(--color-ink-20)" }}>
+                                  <div style={{ color: "var(--color-ink-40)" }}>Length check:</div>
+                                  <div>
+                                    <span style={{ color: "var(--color-ink-40)" }}>Generated: </span>
+                                    <span style={{ color: "var(--color-ink)" }}>
+                                      {formatNumber(details.length_diagnostics.generated_word_count) ?? "Unknown"} words
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span style={{ color: "var(--color-ink-40)" }}>Target: </span>
+                                    <span style={{ color: "var(--color-ink)" }}>
+                                      {formatNumber(details.length_diagnostics.target_min) ?? "?"}
+                                      {"-"}
+                                      {formatNumber(details.length_diagnostics.target_max) ?? "?"} words
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span style={{ color: "var(--color-ink-40)" }}>Source-aware minimum: </span>
+                                    <span style={{ color: "var(--color-ink)" }}>
+                                      {formatNumber(details.length_diagnostics.minimum_acceptable_words) ?? "Unknown"} words
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span style={{ color: "var(--color-ink-40)" }}>Source-limited: </span>
+                                    <span style={{ color: "var(--color-ink)" }}>
+                                      {details.length_diagnostics.source_limited_length ? "Yes" : "No"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
 
                               {item.type === "resume_judge_succeeded" && details && (
                                 <div className="space-y-1">

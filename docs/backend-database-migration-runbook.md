@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-06-17
+**Last updated:** 2026-06-24
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -68,6 +68,15 @@ This runbook applies whenever backend or database work changes schema, compatibi
 - The current plan assumes a single current `resume_drafts` row per application.
 - Persistent PDF storage is out of scope for MVP.
 - Dedicated async job/progress tables are deferred until implementation chooses the worker strategy.
+
+### 2026-06-24 resume length diagnostics metadata
+
+- No database schema migration or backfill is required. The change adds optional count-only `length_diagnostics` objects inside existing JSON metadata surfaces.
+- Existing `usage_events.metadata` rows without `details.length_diagnostics` remain valid and readers must keep treating the field as optional.
+- Post-deploy verification should confirm:
+  - generation and regeneration success activity can include generated word count, source word count, target range, and minimum acceptable words
+  - validation failure activity preserves the same safe count diagnostics without raw resume or job text
+  - older application activity rows still render normally when the diagnostics object is absent
 
 ### 2026-06-07 nullable application source URLs
 
