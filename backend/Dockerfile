@@ -10,8 +10,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-xlib-2.0-0 libffi-dev shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
+COPY pyproject.toml .
+
+# Build a dependency-only layer that remains cached across application source changes.
+RUN mkdir -p app && touch app/__init__.py \
+    && pip install --no-cache-dir . \
+    && rm -rf app
+
 COPY . .
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir --no-deps .
 
-CMD ["sh", "-c", "uvicorn app.main:app --host :: --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -1,7 +1,7 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-06-24
+**Last updated:** 2026-06-30
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
@@ -345,6 +345,12 @@ This runbook applies whenever backend or database work changes schema, compatibi
   - draft responses compute case-insensitive exact phrase coverage without synonyms, fuzzy matching, stemming, punctuation variants, plural variants, or reordered words
   - backend callback persistence re-filters worker keywords against the current job description before storing them
   - generated and edited drafts refresh coverage metrics against the latest stored keyword list
+
+### 2026-06-30 production recovery
+
+- Railway production initially deployed the backend reader before migration `20260615_000017_application_job_keywords.sql`, causing application reads to fail on the missing `applications.job_keywords` column.
+- The additive migration was applied to production and recorded in `app_meta.schema_migrations`; no row backfill was required.
+- Future rollouts of schema-dependent readers must keep the documented migration-first order and verify the migration ledger before backend deployment.
 
 ## Historical Additive Change Note: Resume Judge Result Persistence
 
