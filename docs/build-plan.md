@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-06-30
+**Last updated:** 2026-07-14
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -120,6 +120,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T74 | Audit and harden database, API, extraction, upload, extension, and dependency security | BE/AI/FE/DB/Infra/Docs | DONE | 2026-07-14 15:30:00 EDT | Added forced RLS and explicit repository access contexts for all application tables, shared Redis route limits, SSRF and upload defenses, atomic refresh rotation, production configuration and response-header guards, reduced Chrome extension permissions, upgraded vulnerable dependencies, ran Fallow 3.5.0, and documented rollout plus residual risks. |
 | B5-T73 | Restore Railway backend after migration and network binding drift | BE/Infra/Docs | DONE | 2026-06-30 17:00:00 EDT | Applied and recorded the missing additive `applications.job_keywords` production migration, changed the backend container from IPv6-only to Railway public-edge-compatible IPv4 binding, split dependency and source installation into cacheable Docker layers, and added deployment-contract regression tests. |
 | B5-T72 | Tighten source-aware resume length conformance | AI/BE/FE/Docs | DONE | 2026-06-24 19:21:20 EDT | Full initial generation and full regeneration now enforce a stricter source-aware minimum for every page-length target, prompts include source word count and minimum acceptable words, keyword optimization and section regeneration use non-full-draft length modes, source-limited warnings include safe count metadata, and activity events record sanitized length diagnostics. |
 | B5-T71 | Polish ATS keyword modal chip statuses and section layout | FE | DONE | 2026-06-23 18:43 EDT | Removed visible matched/missing text from keyword chips in favor of green/red highlighting, flattened the modal internals from nested card blocks into sectioned content with a side rail, and added focused frontend regression coverage. |

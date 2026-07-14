@@ -52,6 +52,7 @@ from app.services.progress import (
 from app.services.resume_render import normalize_resume_markdown
 from app.services.resume_length import assess_resume_length
 from app.services.resume_privacy import sanitize_resume_markdown
+from app.services.url_security import validate_public_http_url
 from app.services.workflow import derive_visible_status
 
 logger = logging.getLogger(__name__)
@@ -425,6 +426,7 @@ class ApplicationService:
         )
 
     async def create_application(self, *, user_id: str, job_url: str) -> ApplicationRecord:
+        await validate_public_http_url(job_url)
         record = self.repository.create_application(
             user_id=user_id,
             job_url=job_url,
@@ -785,6 +787,7 @@ class ApplicationService:
         current = self._require_application(user_id=user_id, application_id=application_id)
         if not current.job_url:
             raise PermissionError("Add a source URL or retry with pasted job text before rerunning extraction.")
+        await validate_public_http_url(current.job_url)
         updated = self.repository.update_application(
             application_id=application_id,
             user_id=user_id,

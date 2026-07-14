@@ -65,7 +65,11 @@ def verify_worker_secret(
     settings: Settings = Depends(get_settings),
 ) -> None:
     configured_secret = settings.worker_callback_secret
-    if not configured_secret or worker_secret != configured_secret:
+    if (
+        not configured_secret
+        or not worker_secret
+        or not secrets.compare_digest(worker_secret, configured_secret)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid worker credentials.",

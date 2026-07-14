@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Optional
 
-import psycopg
 from psycopg import sql
-from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.db.connection import rls_connection
 
 
 class BaseResumeListRecord(BaseModel):
@@ -32,10 +30,8 @@ class BaseResumeRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
 
-    @contextmanager
-    def _connection(self):
-        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
-            yield connection
+    def _connection(self, *, user_id: str):
+        return rls_connection(self.database_url, user_id=user_id)
 
     def list_resumes(self, user_id: str) -> list[BaseResumeListRecord]:
         query = """
@@ -50,7 +46,7 @@ class BaseResumeRepository:
         order by updated_at desc
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id,))
             rows = cursor.fetchall()
 
@@ -79,7 +75,7 @@ class BaseResumeRepository:
           updated_at::text
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, name, content_md))
             row = cursor.fetchone()
             connection.commit()
@@ -102,7 +98,7 @@ class BaseResumeRepository:
         where user_id = %s and id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, resume_id))
             row = cursor.fetchone()
 
@@ -140,7 +136,7 @@ class BaseResumeRepository:
             """
         ).format(assignments=sql.SQL(", ").join(assignments))
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(update_query, (*values, resume_id, user_id))
             row = cursor.fetchone()
             connection.commit()
@@ -167,7 +163,7 @@ class BaseResumeRepository:
         returning id::text
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(clear_profile_default_query, (user_id, resume_id))
             cursor.execute(clear_application_references_query, (user_id, resume_id))
             cursor.execute(query, (resume_id, user_id))
@@ -184,7 +180,7 @@ class BaseResumeRepository:
         limit 1
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, resume_id))
             row = cursor.fetchone()
 

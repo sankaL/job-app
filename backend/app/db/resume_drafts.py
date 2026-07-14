@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
 from typing import Any, Optional
 
-import psycopg
-from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.db.connection import rls_connection
 
 
 class ResumeDraftRecord(BaseModel):
@@ -42,10 +40,8 @@ class ResumeDraftRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
 
-    @contextmanager
-    def _connection(self):
-        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
-            yield connection
+    def _connection(self, *, user_id: str):
+        return rls_connection(self.database_url, user_id=user_id)
 
     def fetch_draft(self, user_id: str, application_id: str) -> Optional[ResumeDraftRecord]:
         query = f"""
@@ -53,7 +49,7 @@ class ResumeDraftRepository:
         where user_id = %s and application_id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, application_id))
             row = cursor.fetchone()
 
@@ -97,7 +93,7 @@ class ResumeDraftRepository:
           updated_at::text
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(
                 query,
                 (
@@ -140,7 +136,7 @@ class ResumeDraftRepository:
           updated_at::text
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (content_md, application_id, user_id))
             row = cursor.fetchone()
             connection.commit()
@@ -163,7 +159,7 @@ class ResumeDraftRepository:
         where application_id = %s and user_id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (application_id, user_id))
             connection.commit()
 

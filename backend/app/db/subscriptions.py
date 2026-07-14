@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from typing import Optional
 
 import psycopg
-from psycopg.rows import dict_row
 from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.errors import QuotaExceededError, QuotaReservationBusyError
+from app.db.connection import rls_connection
 
 
 class SubscriptionTierRecord(BaseModel):
@@ -49,10 +48,8 @@ class SubscriptionRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
 
-    @contextmanager
-    def _connection(self):
-        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
-            yield connection
+    def _connection(self, *, user_id: Optional[str] = None, service: bool = False):
+        return rls_connection(self.database_url, user_id=user_id, service=service)
 
     def list_tiers(self) -> list[SubscriptionTierRecord]:
         query = """
@@ -71,7 +68,7 @@ class SubscriptionRepository:
         where key in ('basic', 'pro')
         order by case key when 'basic' then 1 when 'pro' then 2 else 3 end
         """
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(service=True) as connection, connection.cursor() as cursor:
             cursor.execute(query)
             rows = cursor.fetchall()
         return [SubscriptionTierRecord.model_validate(row) for row in rows]
@@ -92,7 +89,7 @@ class SubscriptionRepository:
         from public.subscription_tiers
         where key = %s
         """
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(service=True) as connection, connection.cursor() as cursor:
             cursor.execute(query, (tier_key,))
             row = cursor.fetchone()
         return SubscriptionTierRecord.model_validate(row) if row else None
@@ -118,7 +115,7 @@ class SubscriptionRepository:
         where key = %s
         returning key
         """
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(service=True) as connection, connection.cursor() as cursor:
             cursor.execute(
                 query,
                 (
@@ -143,7 +140,7 @@ class SubscriptionRepository:
     def reserve_generation_quota(self, *, user_id: str) -> QuotaReservationRecord:
         period_start = self.current_utc_period_start()
         try:
-            with self._connection() as connection, connection.cursor() as cursor:
+            with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
                 cursor.execute("set local lock_timeout = '5s'")
                 cursor.execute("set local statement_timeout = '10s'")
                 cursor.execute(
@@ -237,7 +234,7 @@ class SubscriptionRepository:
          and rgu.period_start = %s
         where p.id = %s and p.is_active = true and st.is_active = true
         """
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (period_start, user_id))
             row = cursor.fetchone()
         if row is None:
@@ -260,7 +257,7 @@ class SubscriptionRepository:
         set generation_count = greatest(generation_count - 1, 0)
         where user_id = %s and period_start = %s
         """
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, period))
             connection.commit()
 

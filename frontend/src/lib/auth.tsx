@@ -98,7 +98,12 @@ async function _attemptRefresh(force = false): Promise<string | null> {
         credentials: "include",
       });
       if (!response.ok) {
-        _hasFailedRefreshThisSession = true;
+        // Authentication failures are terminal for the current cookie. Rate
+        // limiting and dependency outages are transient and must remain
+        // retryable on the next user action.
+        if (response.status === 401 || response.status === 403) {
+          _hasFailedRefreshThisSession = true;
+        }
         return null;
       }
       const data: RefreshResponse = await response.json();

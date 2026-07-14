@@ -1,5 +1,17 @@
 # Decisions Made
 
+## 2026-07-14 15:30:00 EDT - Enforce database isolation and shared API abuse controls
+
+- Status: Accepted
+- Context: The PRD required per-user RLS, but the implemented schema explicitly relied only on backend ownership predicates. The API also lacked a shared, multi-instance rate limiter, URL-backed extraction could navigate to attacker-controlled private-network destinations, and dependency/security scans identified additional hardening gaps.
+- Decision:
+  1. Keep explicit repository ownership predicates and add forced PostgreSQL RLS on every application table through a transaction-local authenticated-user or explicit service context under the `app_runtime` role.
+  2. Use Redis-backed atomic fixed-window limits across all API routes, with stricter buckets for authentication, public invite/access-request, upload, extension, worker callback, and expensive generation/export surfaces; production fails closed if throttling is disabled or unavailable.
+  3. Validate URL-backed extraction targets before queueing and inside the worker, and intercept Playwright redirects/subresources to reject non-public network destinations.
+  4. Bound PDF uploads before multipart parsing, parse PDFs in a killable subprocess with a hard deadline, rotate refresh tokens atomically, restrict production CORS/OpenAPI behavior, add response security headers, reject the repository's known local JWT key in production, and remove provider payloads from logs.
+  5. Upgrade vulnerable frontend production and development dependencies, while deferring Fallow's existing non-security dead-code, duplication, and complexity findings to scoped maintainability work.
+- Consequences: Missing backend ownership predicates now fail closed at the database boundary, horizontally scaled API instances share abuse limits, URL extraction has layered SSRF controls, and production configuration rejects several unsafe states. Production rollout must coordinate the RLS migration with the backend deployment and still needs separately credentialed least-privilege user/service database roles plus network-level egress controls for stronger containment.
+
 ## 2026-06-24 19:21:20 EDT - Enforce stricter source-aware resume length minimums
 
 - Status: Accepted

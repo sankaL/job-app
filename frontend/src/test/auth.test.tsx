@@ -441,4 +441,18 @@ describe("frontend phase 0 auth shell", () => {
     await expect(getAccessToken()).rejects.toThrow("Missing authenticated session.");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps transient refresh throttling and outages retryable", async () => {
+    await loadAuthFixtures("development", true);
+    const { getAccessToken } = await import("@/lib/auth");
+    const fetchMock = vi.mocked(fetch);
+
+    fetchMock
+      .mockResolvedValueOnce(new Response("", { status: 429 }))
+      .mockResolvedValueOnce(new Response("", { status: 503 }));
+
+    await expect(getAccessToken()).rejects.toThrow("Missing authenticated session.");
+    await expect(getAccessToken()).rejects.toThrow("Missing authenticated session.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

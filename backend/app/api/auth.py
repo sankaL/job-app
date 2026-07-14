@@ -5,6 +5,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
+from starlette.responses import JSONResponse
 
 from app.core.access import get_current_active_user, get_current_profile
 from app.core.auth import AuthenticatedUser, get_current_user
@@ -71,6 +72,12 @@ def _clear_refresh_cookie(response: Response) -> None:
         key=REFRESH_COOKIE_NAME,
         path=REFRESH_COOKIE_PATH,
     )
+
+
+def _refresh_error(*, status_code: int, detail: str) -> JSONResponse:
+    response = JSONResponse(status_code=status_code, content={"detail": detail})
+    _clear_refresh_cookie(response)
+    return response
 
 
 def _issue_refresh_token(
@@ -199,46 +206,60 @@ def refresh(
     token_hash = hash_token(raw_refresh)
     stored = user_repo.fetch_refresh_token(token_hash=token_hash)
     if stored is None:
-        _clear_refresh_cookie(response)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found.")
+        return _refresh_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token not found.",
+        )
 
     if stored.revoked_at is not None:
         user_repo.revoke_all_user_tokens(user_id=stored.user_id)
-        _clear_refresh_cookie(response)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has been revoked.")
+        return _refresh_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked.",
+        )
 
     expires_at = datetime.fromisoformat(stored.expires_at)
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at <= datetime.now(timezone.utc):
-        _clear_refresh_cookie(response)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token has expired.")
+        return _refresh_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has expired.",
+        )
 
     user = user_repo.fetch_user_by_id(user_id=stored.user_id)
     if user is None:
-        _clear_refresh_cookie(response)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
+        return _refresh_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found.",
+        )
     if not user.is_active:
-        _clear_refresh_cookie(response)
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated.")
+        return _refresh_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated.",
+        )
 
-    user_repo.revoke_refresh_token(token_hash=token_hash)
+    new_raw_refresh = generate_refresh_token()
+    new_token_hash = hash_token(new_raw_refresh)
+    new_expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+    rotated = user_repo.rotate_refresh_token(
+        old_token_hash=token_hash,
+        user_id=user.id,
+        new_token_hash=new_token_hash,
+        expires_at=new_expires_at.isoformat(),
+    )
+    if not rotated:
+        user_repo.revoke_all_user_tokens(user_id=user.id)
+        return _refresh_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has already been used.",
+        )
 
     access_token = create_access_token(
         user_id=user.id,
         email=user.email,
         private_key=settings.jwt_private_key,
         expire_minutes=settings.access_token_expire_minutes,
-    )
-
-    new_raw_refresh = generate_refresh_token()
-    new_token_hash = hash_token(new_raw_refresh)
-    new_expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
-    user_repo.rotate_refresh_token(
-        old_token_hash=token_hash,
-        user_id=user.id,
-        new_token_hash=new_token_hash,
-        expires_at=new_expires_at.isoformat(),
     )
     _set_refresh_cookie(
         response=response,

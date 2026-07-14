@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from functools import lru_cache
 from typing import Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+LOCAL_DEV_JWT_PUBLIC_KEY_SHA256 = "0344dabdc1bc2f4a2ab708f405d47ac75244e6d993c2288ac7fa4891e91fb6d6"
+
+
+def _pem_fingerprint(value: str) -> str:
+    normalized = value.replace("\\n", "\n").strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 class EmailSettings(BaseModel):
@@ -48,6 +59,10 @@ class Settings(BaseSettings):
         default="http://localhost:5173,https://applix.ca,https://www.applix.ca",
         alias="CORS_ORIGINS",
     )
+    chrome_extension_origins: str = Field(default="", alias="CHROME_EXTENSION_ORIGINS")
+    rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
+    rate_limit_fail_closed: bool = Field(default=True, alias="RATE_LIMIT_FAIL_CLOSED")
+    trusted_proxy_hops: int = Field(default=0, ge=0, le=5, alias="TRUSTED_PROXY_HOPS")
     jwt_private_key: str = Field(..., alias="JWT_PRIVATE_KEY")
     jwt_public_key: str = Field(..., alias="JWT_PUBLIC_KEY")
     access_token_expire_minutes: int = Field(default=15, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
@@ -80,13 +95,48 @@ class Settings(BaseSettings):
         )
 
     @model_validator(mode="after")
-    def validate_email_settings(self) -> "Settings":
+    def validate_security_settings(self) -> "Settings":
         self.email
+        if self.app_dev_mode:
+            database_host = (urlparse(self.database_url).hostname or "").lower()
+            app_host = (urlparse(self.app_url).hostname or "").lower()
+            local_hosts = {"localhost", "127.0.0.1", "postgres"}
+            if self.app_env != "development" or database_host not in local_hosts or app_host not in local_hosts:
+                raise ValueError(
+                    "APP_DEV_MODE may only be enabled for the local development stack."
+                )
+        if self.app_env == "production" and not self.rate_limit_enabled:
+            raise ValueError("RATE_LIMIT_ENABLED cannot be disabled in production.")
+        if self.app_env == "production" and not self.rate_limit_fail_closed:
+            raise ValueError("RATE_LIMIT_FAIL_CLOSED cannot be disabled in production.")
+        if (
+            self.app_env == "production"
+            and _pem_fingerprint(self.jwt_public_key) == LOCAL_DEV_JWT_PUBLIC_KEY_SHA256
+        ):
+            raise ValueError("The repository's local-development JWT key cannot be used in production.")
+        if "*" in self.cors_origin_list:
+            raise ValueError("Wildcard CORS origins are not allowed with credentials.")
+        extension_origin_pattern = re.compile(r"^chrome-extension://[a-p]{32}$")
+        if any(
+            extension_origin_pattern.fullmatch(origin) is None
+            for origin in self.chrome_extension_origin_list
+        ):
+            raise ValueError(
+                "CHROME_EXTENSION_ORIGINS must contain exact Chrome extension origins."
+            )
         return self
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def chrome_extension_origin_list(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.chrome_extension_origins.split(",")
+            if origin.strip()
+        ]
 
     @property
     def is_development(self) -> bool:

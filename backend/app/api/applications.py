@@ -25,6 +25,7 @@ from app.services.application_manager import (
 )
 from app.services.resume_render import build_render_document
 from app.services.progress import ProgressRecord, now_iso
+from app.services.url_security import OutboundResolutionUnavailable
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
 logger = logging.getLogger(__name__)
@@ -562,6 +563,12 @@ def _map_service_error(error: Exception) -> HTTPException:
         )
     if isinstance(error, PermissionError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
+    if isinstance(error, OutboundResolutionUnavailable):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(error),
+            headers={"Retry-After": "1"},
+        )
     if isinstance(error, ValueError):
         return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
     logger.exception("Unhandled application service error.", exc_info=error)

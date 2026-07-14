@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Any, Optional
 
-import psycopg
 from psycopg import sql
-from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.db.connection import rls_connection
 
 
 class ProfileRecord(BaseModel):
@@ -48,10 +46,8 @@ class ProfileRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
 
-    @contextmanager
-    def _connection(self):
-        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
-            yield connection
+    def _connection(self, *, user_id: Optional[str] = None, service: bool = False):
+        return rls_connection(self.database_url, user_id=user_id, service=service)
 
     def fetch_profile(self, user_id: str) -> Optional[ProfileRecord]:
         query = """
@@ -77,7 +73,7 @@ class ProfileRepository:
         where id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id,))
             row = cursor.fetchone()
 
@@ -93,7 +89,7 @@ class ProfileRepository:
         where id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id,))
             row = cursor.fetchone()
 
@@ -109,7 +105,7 @@ class ProfileRepository:
         where extension_token_hash = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(service=True) as connection, connection.cursor() as cursor:
             cursor.execute(query, (token_hash,))
             row = cursor.fetchone()
 
@@ -139,7 +135,7 @@ class ProfileRepository:
         where lower(email) = lower(%s)
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(service=True) as connection, connection.cursor() as cursor:
             cursor.execute(query, (email,))
             row = cursor.fetchone()
 
@@ -159,7 +155,7 @@ class ProfileRepository:
           extension_token_last_used_at::text as token_last_used_at
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (token_hash, user_id))
             row = cursor.fetchone()
             connection.commit()
@@ -182,7 +178,7 @@ class ProfileRepository:
           extension_token_last_used_at::text as token_last_used_at
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id,))
             row = cursor.fetchone()
             connection.commit()
@@ -198,7 +194,7 @@ class ProfileRepository:
         where id = %s and extension_token_hash is not null
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id,))
             connection.commit()
 
@@ -212,7 +208,7 @@ class ProfileRepository:
 
         resolved_updates = dict(updates)
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             if "email" not in resolved_updates:
                 cursor.execute("select email from public.users where id = %s", (user_id,))
                 row = cursor.fetchone()
@@ -274,7 +270,7 @@ class ProfileRepository:
         where id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (resume_id, user_id))
             connection.commit()
 
@@ -285,7 +281,7 @@ class ProfileRepository:
         where id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id,))
             row = cursor.fetchone()
 

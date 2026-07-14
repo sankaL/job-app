@@ -22,9 +22,11 @@ describe("chrome extension popup helpers", () => {
     expect(typeof payload.captured_at).toBe("string");
   });
 
-  it("accepts only trusted local app origins", () => {
+  it("accepts only exact trusted app origins", () => {
     expect(normalizeAppOrigin("http://localhost:5173/app/extension")).toBe("http://localhost:5173");
     expect(isTrustedAppUrl("http://localhost:5173/app/extension")).toBe(true);
+    expect(isTrustedAppUrl("https://applix.ca/app/extension")).toBe(true);
+    expect(isTrustedAppUrl("https://www.applix.ca/app/extension")).toBe(true);
     expect(isTrustedAppUrl("https://evil.example")).toBe(false);
   });
 
@@ -33,5 +35,21 @@ describe("chrome extension popup helpers", () => {
 
     expect(popupHtml).toContain('src="./applix-logo.svg"');
     expect(existsSync("public/chrome-extension/applix-logo.svg")).toBe(true);
+  });
+
+  it("captures arbitrary pages only after an active-tab user gesture", () => {
+    const manifest = JSON.parse(
+      readFileSync("public/chrome-extension/manifest.json", "utf8"),
+    ) as {
+      permissions: string[];
+      host_permissions: string[];
+      content_scripts: Array<{ matches: string[] }>;
+    };
+
+    expect(manifest.permissions).toEqual(expect.arrayContaining(["activeTab", "scripting"]));
+    expect(manifest.permissions).not.toContain("tabs");
+    expect(manifest.host_permissions).not.toContain("<all_urls>");
+    expect(manifest.host_permissions).toContain("https://applix.ca/*");
+    expect(manifest.content_scripts.flatMap((entry) => entry.matches)).not.toContain("<all_urls>");
   });
 });

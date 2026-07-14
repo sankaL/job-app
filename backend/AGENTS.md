@@ -22,7 +22,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 ## Security and Data Isolation
 - All application API routes require a valid backend-issued JWT (RS256). Do not add unauthenticated application endpoints beyond the login surface.
 - Enforce per-user isolation on every read, write, background job, and notification path.
-- Backend code must enforce explicit user scoping on every read, write, background job, and notification path. No Row-Level Security is used.
+- Backend code must enforce explicit user scoping on every read, write, background job, and notification path, and repositories must establish the matching transaction-local Row-Level Security context. Treat RLS as defense in depth, not a substitute for ownership predicates.
 - Fail closed on missing or invalid auth, permissions, config, job inputs, and validation outputs.
 - Keep secrets, raw provider payloads, full resume drafts, and full job descriptions out of logs unless sanitized and strictly necessary.
 

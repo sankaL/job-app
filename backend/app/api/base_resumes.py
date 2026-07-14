@@ -1,18 +1,29 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, status, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, field_validator
 
 from app.core.access import get_current_active_user
 from app.core.auth import AuthenticatedUser
 from app.services.base_resumes import BaseResumeService, get_base_resume_service
-from app.services.resume_parser import ResumeParserService
+from app.services.resume_parser import (
+    PdfParseFailedError,
+    PdfParseRejectedError,
+    PdfParseTimeoutError,
+    ResumeParserService,
+    parse_pdf_with_timeout,
+)
 
 router = APIRouter(prefix="/api/base-resumes", tags=["base-resumes"])
+logger = logging.getLogger(__name__)
 
 MAX_PDF_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_RESUME_NAME_LENGTH = 200
+MAX_RESUME_MARKDOWN_LENGTH = 200_000
 
 
 def get_resume_parser() -> ResumeParserService:
@@ -35,7 +46,16 @@ class CreateBaseResumeRequest(BaseModel):
         stripped = value.strip()
         if not stripped:
             raise ValueError("Resume name cannot be blank.")
+        if len(stripped) > MAX_RESUME_NAME_LENGTH:
+            raise ValueError("Resume name is too long.")
         return stripped
+
+    @field_validator("content_md")
+    @classmethod
+    def validate_content_size(cls, value: str) -> str:
+        if len(value) > MAX_RESUME_MARKDOWN_LENGTH:
+            raise ValueError("Resume content is too large.")
+        return value
 
 
 class UpdateBaseResumeRequest(BaseModel):
@@ -50,7 +70,16 @@ class UpdateBaseResumeRequest(BaseModel):
         stripped = value.strip()
         if not stripped:
             raise ValueError("Resume name cannot be blank.")
+        if len(stripped) > MAX_RESUME_NAME_LENGTH:
+            raise ValueError("Resume name is too long.")
         return stripped
+
+    @field_validator("content_md")
+    @classmethod
+    def validate_content_size(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and len(value) > MAX_RESUME_MARKDOWN_LENGTH:
+            raise ValueError("Resume content is too large.")
+        return value
 
 
 class BaseResumeSummary(BaseModel):
@@ -120,6 +149,12 @@ async def upload_base_resume(
     parser: Annotated[ResumeParserService, Depends(get_resume_parser)],
     use_llm_cleanup: Annotated[bool, Form()] = False,
 ) -> BaseResumeDetail:
+    clean_name = name.strip()
+    if not clean_name or len(clean_name) > MAX_RESUME_NAME_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Resume name is required and must be at most 200 characters.",
+        )
     # Validate file extension
     filename = file.filename or ""
     if not filename.lower().endswith(".pdf"):
@@ -137,7 +172,8 @@ async def upload_base_resume(
         )
 
     # Read file content
-    file_bytes = await file.read()
+    file_bytes = await file.read(MAX_PDF_SIZE + 1)
+    await file.close()
 
     # Validate file size
     if len(file_bytes) > MAX_PDF_SIZE:
@@ -145,14 +181,33 @@ async def upload_base_resume(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File size exceeds maximum allowed size of {MAX_PDF_SIZE // (1024 * 1024)} MB.",
         )
+    if not file_bytes.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is not a valid PDF.",
+        )
 
     # Parse the PDF
     try:
-        raw_markdown = parser.parse_pdf(file_bytes)
-    except Exception as error:
+        raw_markdown = await run_in_threadpool(parse_pdf_with_timeout, file_bytes)
+    except PdfParseTimeoutError as error:
+        logger.warning("PDF upload parsing timed out (size_bytes=%d).", len(file_bytes))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to parse PDF file: {str(error)}",
+            detail={"code": "pdf_parse_timeout", "message": "PDF parsing timed out."},
+        ) from error
+    except PdfParseRejectedError as error:
+        code = "pdf_limit_exceeded"
+        logger.info("PDF upload rejected by parser limits (size_bytes=%d).", len(file_bytes))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": code, "message": str(error)},
+        ) from error
+    except PdfParseFailedError as error:
+        logger.warning("PDF upload parsing failed (size_bytes=%d).", len(file_bytes))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "invalid_pdf", "message": "Failed to parse PDF file."},
         ) from error
 
     # Optionally clean up with LLM
@@ -168,7 +223,7 @@ async def upload_base_resume(
     try:
         record = service.create_resume(
             user_id=current_user.id,
-            name=name,
+            name=clean_name,
             content_md=raw_markdown,
         )
         return BaseResumeDetail.model_validate(

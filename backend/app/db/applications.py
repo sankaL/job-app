@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Any, Optional
 
-import psycopg
 from psycopg import sql
-from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.db.connection import rls_connection
 
 
 class ApplicationListRecord(BaseModel):
@@ -150,10 +148,8 @@ class ApplicationRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
 
-    @contextmanager
-    def _connection(self):
-        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
-            yield connection
+    def _connection(self, *, user_id: Optional[str] = None, service: bool = False):
+        return rls_connection(self.database_url, user_id=user_id, service=service)
 
     def list_applications(
         self,
@@ -179,7 +175,7 @@ class ApplicationRepository:
         order by a.updated_at desc
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, params)
             rows = cursor.fetchall()
 
@@ -205,7 +201,7 @@ class ApplicationRepository:
         where a.user_id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id,))
             row = cursor.fetchone()
 
@@ -233,7 +229,7 @@ class ApplicationRepository:
         returning id::text
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, job_url, visible_status, internal_state))
             row = cursor.fetchone()
             connection.commit()
@@ -252,7 +248,7 @@ class ApplicationRepository:
         where a.user_id = %s and a.id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, application_id))
             row = cursor.fetchone()
 
@@ -264,7 +260,7 @@ class ApplicationRepository:
         where a.id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(service=True) as connection, connection.cursor() as cursor:
             cursor.execute(query, (application_id,))
             row = cursor.fetchone()
 
@@ -287,7 +283,7 @@ class ApplicationRepository:
         where user_id = %s and id = %s
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, application_id))
             row = cursor.fetchone()
 
@@ -316,7 +312,7 @@ class ApplicationRepository:
         order by updated_at desc
         """
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, exclude_application_id))
             rows = cursor.fetchall()
 
@@ -349,7 +345,7 @@ class ApplicationRepository:
             """
         ).format(assignments=sql.SQL(", ").join(assignments))
 
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(update_query, (*values, application_id, user_id))
             row = cursor.fetchone()
             connection.commit()
@@ -368,7 +364,7 @@ class ApplicationRepository:
         application_id: str,
         user_id: str,
     ) -> None:
-        with self._connection() as connection, connection.cursor() as cursor:
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(
                 """
                 delete from public.resume_drafts

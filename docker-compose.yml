@@ -31,6 +31,7 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/postgres
       REDIS_URL: redis://redis:6379/0
       CORS_ORIGINS: ${APP_URL:-http://localhost:5173}
+      TRUSTED_PROXY_HOPS: "0"
       JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY}"
       JWT_PUBLIC_KEY: "${JWT_PUBLIC_KEY}"
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}

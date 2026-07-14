@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
-from app.services.resume_parser import ResumeParserService, _validate_cleanup_payload
+from app.services.resume_parser import (
+    PdfParseTimeoutError,
+    ResumeParserService,
+    _validate_cleanup_payload,
+    parse_pdf_with_timeout,
+)
+
+
+def _slow_pdf_process(_file_bytes, _result_queue) -> None:
+    time.sleep(5)
 
 
 class FakeResponse:
@@ -27,6 +37,15 @@ class FakeResponse:
                 }
             ]
         }
+
+
+def test_pdf_parser_subprocess_is_terminated_at_deadline():
+    with pytest.raises(PdfParseTimeoutError, match="time limit"):
+        parse_pdf_with_timeout(
+            b"%PDF-1.7",
+            timeout_seconds=0.05,
+            _process_target=_slow_pdf_process,
+        )
 
 
 @pytest.mark.asyncio

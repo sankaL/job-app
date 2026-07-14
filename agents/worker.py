@@ -9,13 +9,14 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Literal, Optional
+from typing import Any, Awaitable, Callable, Literal, Optional
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 from arq.connections import RedisSettings
 from langchain_openai import ChatOpenAI
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import Route, TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -37,6 +38,7 @@ from length_policy import assess_resume_length
 from privacy import sanitize_resume_markdown
 from resume_judge import judge_resume
 from validation import validate_resume
+from url_security import validate_public_http_url
 
 root_logger = logging.getLogger()
 if root_logger.level > logging.INFO:
@@ -995,13 +997,56 @@ class OpenRouterKeywordExtractionAgent:
         return await llm.ainvoke(prompt)
 
 
+class OutboundRequestGuard:
+    def __init__(
+        self,
+        *,
+        validator: Callable[[str], Awaitable[None]] = validate_public_http_url,
+    ) -> None:
+        self._validator = validator
+        self._validated_hosts: set[tuple[str, int]] = set()
+        self.blocked_request = False
+
+    async def __call__(self, route: Route) -> None:
+        request_url = route.request.url
+        parsed = urlparse(request_url)
+        if parsed.scheme in {"about", "blob", "data"}:
+            await route.continue_()
+            return
+
+        host_key = (
+            (parsed.hostname or "").lower(),
+            parsed.port or (443 if parsed.scheme == "https" else 80),
+        )
+        try:
+            if host_key not in self._validated_hosts:
+                await self._validator(request_url)
+                self._validated_hosts.add(host_key)
+        except ValueError:
+            self.blocked_request = True
+            await route.abort("blockedbyclient")
+            return
+        await route.continue_()
+
+
 async def scrape_page_context(job_url: str) -> PageContext:
+    await validate_public_http_url(job_url)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         try:
-            page = await browser.new_page()
-            await page.goto(job_url, wait_until="domcontentloaded", timeout=30_000)
+            browser_context = await browser.new_context()
+            outbound_guard = OutboundRequestGuard()
+            await browser_context.route("**/*", outbound_guard)
+            page = await browser_context.new_page()
+            try:
+                await page.goto(job_url, wait_until="domcontentloaded", timeout=30_000)
+            except PlaywrightError as error:
+                if outbound_guard.blocked_request:
+                    raise ValueError("Job URL attempted to access a non-public network address.") from error
+                raise
             await page.wait_for_load_state("networkidle", timeout=10_000)
+            if outbound_guard.blocked_request:
+                raise ValueError("Job URL attempted to access a non-public network address.")
             page_title = await page.title()
             final_url = page.url
             visible_text = await _extract_primary_visible_text(page)
