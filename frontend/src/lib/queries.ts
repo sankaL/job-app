@@ -197,15 +197,6 @@ export function updateBootstrapProfile(
   });
 }
 
-export function updateAdminUsersCache(
-  queryClient: QueryClient,
-  search: string,
-  status: "all" | "active" | "invited" | "deactivated",
-  updater: (users: AdminUser[] | undefined) => AdminUser[] | undefined,
-) {
-  queryClient.setQueryData<AdminUser[] | undefined>(queryKeys.adminUsers(search, status), updater);
-}
-
 export async function invalidateAdminUsersQueries(queryClient: QueryClient) {
   await queryClient.invalidateQueries({
     queryKey: queryKeys.adminUsersRoot,

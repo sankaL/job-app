@@ -1,8 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import { env } from "@/lib/env";
 
-// Module-level state: intentionally outside React so api.ts can access the token
-// synchronously via getAccessTokenSync() without requiring a hook context.
+// Module-level state keeps the short-lived token in memory and out of browser storage.
 let _accessToken: string | null = null;
 let _accessTokenExpiresAt: number | null = null;
 let _refreshPromise: Promise<string | null> | null = null;
@@ -69,10 +68,6 @@ export async function getAccessToken(options: { forceRefresh?: boolean } = {}): 
   throw new Error("Missing authenticated session.");
 }
 
-export function getAccessTokenSync(): string | null {
-  return _accessToken;
-}
-
 export function setAccessToken(token: string | null, expiresInSeconds?: number | null) {
   if (!token) {
     clearAccessToken();
@@ -98,7 +93,12 @@ async function _attemptRefresh(force = false): Promise<string | null> {
         credentials: "include",
       });
       if (!response.ok) {
-        _hasFailedRefreshThisSession = true;
+        // Authentication failures are terminal for the current cookie. Rate
+        // limiting and dependency outages are transient and must remain
+        // retryable on the next user action.
+        if (response.status === 401 || response.status === 403) {
+          _hasFailedRefreshThisSession = true;
+        }
         return null;
       }
       const data: RefreshResponse = await response.json();
@@ -124,7 +124,7 @@ async function _attemptRefresh(force = false): Promise<string | null> {
   return _refreshPromise;
 }
 
-export type User = { id: string; email: string } | null;
+type User = { id: string; email: string } | null;
 
 interface AuthContextValue {
   user: User;

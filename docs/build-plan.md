@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-06-30
+**Last updated:** 2026-07-14
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -40,6 +40,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T76 | Complete the follow-up Fallow code-quality reduction across frontend controllers and shared UI | FE/Docs | DONE | 2026-07-14 22:46:00 EDT | Reduced Fallow health findings from 40 to 8 (critical 7→1, high 4→1, moderate 29→6), cleared all static and duplication findings, fixed the final review regressions, split production routes into bounded chunks, retained 157 passing frontend tests, and documented the remaining application-controller decomposition. |
 | B0-T01 | Fail closed when local Supabase exposes an empty JWKS set during backend JWT verification | BE | DONE | 2026-04-07 13:38:00 EDT | Auth verification now treats empty JWKS responses like other key-fetch failures, falls back to the configured shared secret when available, and has regression coverage for both fallback and fail-closed paths. |
 | P0-T01 | Scaffold the committed frontend, backend, and agents stack foundations | Infra | DONE | 2026-04-07 11:36:08 EDT | React/Vite/Tailwind frontend, FastAPI backend, and ARQ worker baseline are committed. |
 | P0-T02 | Dockerize the local frontend, backend, agents, and Supabase dev stack with Makefile orchestration | Infra | DONE | 2026-04-07 11:36:08 EDT | Root Docker Compose, Makefile, migrations runner, health check, and local invite-user seed flow are committed. |
@@ -120,7 +121,9 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
-| B5-T73 | Restore Railway backend after migration and network binding drift | BE/Infra/Docs | DONE | 2026-06-30 17:00:00 EDT | Applied and recorded the missing additive `applications.job_keywords` production migration, changed the backend container from IPv6-only to Railway public-edge-compatible IPv4 binding, split dependency and source installation into cacheable Docker layers, and added deployment-contract regression tests. |
+| B5-T75 | Remediate calibrated Fallow dead-code, duplication, and concentrated frontend complexity findings | FE/Docs | DONE | 2026-07-14 21:35:00 EDT | Removed all reported dead code and clone groups, consolidated modal/auth/API/navigation/activity primitives, reduced critical complexity findings from 12 to 7 and high findings from 10 to 4, retained 153 passing frontend tests, and documented the remaining route-decomposition backlog. |
+| B5-T74 | Audit and harden database, API, extraction, upload, extension, and dependency security | BE/AI/FE/DB/Infra/Docs | DONE | 2026-07-14 15:30:00 EDT | Added forced RLS and explicit repository access contexts for all application tables, shared Redis route limits, SSRF and upload defenses, atomic refresh rotation, production configuration and response-header guards, reduced Chrome extension permissions, upgraded vulnerable dependencies, ran Fallow 3.5.0, and documented rollout plus residual risks. |
+| B5-T73 | Restore Railway backend after migration and network binding drift | BE/Infra/Docs | DONE | 2026-06-30 22:15:00 EDT | Applied and recorded the missing additive `applications.job_keywords` production migration, added explicit IPv4 and IPv6 backend listeners for Railway public-edge and private-service traffic, split dependency and source installation into cacheable Docker layers, and added deployment-contract regression tests. |
 | B5-T72 | Tighten source-aware resume length conformance | AI/BE/FE/Docs | DONE | 2026-06-24 19:21:20 EDT | Full initial generation and full regeneration now enforce a stricter source-aware minimum for every page-length target, prompts include source word count and minimum acceptable words, keyword optimization and section regeneration use non-full-draft length modes, source-limited warnings include safe count metadata, and activity events record sanitized length diagnostics. |
 | B5-T71 | Polish ATS keyword modal chip statuses and section layout | FE | DONE | 2026-06-23 18:43 EDT | Removed visible matched/missing text from keyword chips in favor of green/red highlighting, flattened the modal internals from nested card blocks into sectioned content with a side rail, and added focused frontend regression coverage. |
 | B5-T69 | Harden ATS keyword extraction timeout, callback, and exact-match handling | AI/BE/FE/Docs | DONE | 2026-06-17 09:37:56 EDT | Added bounded keyword model attempts with fallback and failed callbacks, backend re-filtering for worker callback keywords, stale queued/running keyword recovery, punctuation-safe exact phrase boundaries, a public draft-save keyword-match service method, first-load draft invalidation suppression, and focused backend/worker/frontend regression coverage. |

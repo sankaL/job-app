@@ -931,7 +931,7 @@ Admin has three product responsibilities in MVP:
 | Requirement | Detail |
 |---|---|
 | Data isolation | Per-user RLS enforced on all Supabase tables |
-| API security | All routes require valid Supabase JWT |
+| API security | Application routes require a valid backend-issued RS256 JWT; only explicitly documented login, invite, access-request, health, and authenticated service callback surfaces may be public or credentialed separately. Shared Redis rate limits protect all API routes, with stricter limits for authentication, invite, upload, extension, and expensive generation/export operations. |
 | Async processing | Extraction and generation must run as background jobs |
 | Timeouts | See §9 for required timeout boundaries per operation |
 | Logging | Structured logging required on all background jobs, LLM calls, and export operations |

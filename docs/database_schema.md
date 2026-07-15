@@ -175,7 +175,7 @@ Monthly quota counter for resume-writing operations.
 **Isolation requirements**
 
 - Queries must scope by `id` matching the authenticated user's ID.
-- Backend enforces isolation at the application layer; no table-level RLS is used.
+- Table-level RLS enforces the same authenticated-user boundary as a second layer.
 
 ### `base_resumes`
 
@@ -441,13 +441,17 @@ The exact Postgres index type may vary by implementation. For dashboard search, 
 
 ## User Isolation Strategy
 
-Row-Level Security (RLS) has been removed. The backend enforces per-user isolation at the application layer by scoping every query with an explicit `user_id` parameter. This applies to all reads, writes, background jobs, notifications, and exports.
+Per-user isolation is enforced twice: repository queries keep explicit ownership predicates, and PostgreSQL Row-Level Security (RLS) applies the same boundary to every application table. Migration `20260714_000018_enable_row_level_security.sql` enables and forces RLS on `users`, `refresh_tokens`, `profiles`, `base_resumes`, `applications`, `resume_drafts`, `notifications`, `user_invites`, `usage_events`, `resume_generation_usage`, and `subscription_tiers`.
 
 Key rules:
 
 - Every repository query includes `WHERE user_id = %s` (or equivalent) derived from the authenticated JWT.
+- Every repository transaction switches to the non-login, non-superuser, `NOBYPASSRLS` `app_runtime` role and sets exactly one transaction-local access context: an authenticated user ID or an explicit service context.
+- Missing access context fails closed. User-scoped policies compare `user_id` (or the table's owner key) with `app.current_user_id`.
+- Service context is limited to operations that cannot begin with an authenticated owner, including login/token lookup, invite-token lookup, worker callbacks, admin metrics, and subscription-tier administration.
+- `subscription_tiers` is readable in any authenticated user context but writable only in service context. `user_invites` is readable by its inviter or invitee and writable only in service context.
 - No endpoint, background worker, or notification path may access data outside the authenticated user's boundary.
-- The database connection pool uses a single application-level role; there is no per-user database role.
+- RLS is defense in depth. Backend ownership checks remain mandatory, and production should eventually use separately credentialed least-privilege user and service database roles instead of relying on role switching from the migration-owner connection.
 
 ## Implementation Notes
 

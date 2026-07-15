@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import json
 import logging
+import multiprocessing
+import queue
 import re
 from dataclasses import dataclass
 from typing import Optional
@@ -12,6 +14,21 @@ import httpx
 from app.services.resume_privacy import reattach_header_lines, sanitize_resume_markdown
 
 logger = logging.getLogger(__name__)
+MAX_PDF_PAGES = 50
+MAX_EXTRACTED_CHARACTERS = 200_000
+PDF_PARSE_TIMEOUT_SECONDS = 15.0
+
+
+class PdfParseTimeoutError(RuntimeError):
+    pass
+
+
+class PdfParseRejectedError(ValueError):
+    pass
+
+
+class PdfParseFailedError(ValueError):
+    pass
 
 
 @dataclass
@@ -19,6 +36,57 @@ class ResumeCleanupResult:
     cleaned_markdown: str
     needs_review: bool = False
     review_reason: Optional[str] = None
+
+
+def _parse_pdf_process(file_bytes: bytes, result_queue) -> None:
+    try:
+        result_queue.put(("ok", ResumeParserService().parse_pdf(file_bytes)))
+    except ValueError as error:
+        result_queue.put(("rejected", str(error)))
+    except Exception:
+        result_queue.put(("failed", None))
+
+
+def parse_pdf_with_timeout(
+    file_bytes: bytes,
+    *,
+    timeout_seconds: float = PDF_PARSE_TIMEOUT_SECONDS,
+    _process_target=_parse_pdf_process,
+) -> str:
+    """Parse an untrusted PDF in a killable subprocess with a hard deadline."""
+
+    context = multiprocessing.get_context("spawn")
+    result_queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=_process_target,
+        args=(file_bytes, result_queue),
+        daemon=True,
+    )
+    process.start()
+    process.join(timeout_seconds)
+    try:
+        if process.is_alive():
+            process.terminate()
+            process.join(1)
+            if process.is_alive():
+                process.kill()
+                process.join(1)
+            raise PdfParseTimeoutError("PDF parsing exceeded its time limit.")
+
+        try:
+            outcome, payload = result_queue.get(timeout=1)
+        except queue.Empty as error:
+            raise PdfParseFailedError("PDF parsing failed.") from error
+
+        if outcome == "ok" and isinstance(payload, str):
+            return payload
+        if outcome == "rejected" and isinstance(payload, str):
+            raise PdfParseRejectedError(payload)
+        raise PdfParseFailedError("PDF parsing failed.")
+    finally:
+        result_queue.close()
+        result_queue.join_thread()
+        process.close()
 
 
 def _extract_json_payload(text: str) -> dict:
@@ -90,12 +158,18 @@ class ResumeParserService:
         import pdfplumber
 
         markdown_lines: list[str] = []
+        extracted_characters = 0
 
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            if len(pdf.pages) > MAX_PDF_PAGES:
+                raise ValueError("PDF has too many pages.")
             for page_num, page in enumerate(pdf.pages):
                 text = page.extract_text()
                 if not text:
                     continue
+                extracted_characters += len(text)
+                if extracted_characters > MAX_EXTRACTED_CHARACTERS:
+                    raise ValueError("PDF contains too much text.")
 
                 # Process the text to detect structure
                 lines = text.split("\n")
@@ -293,15 +367,11 @@ class ResumeParserService:
             logger.warning("LLM cleanup timed out after 30 seconds, returning raw markdown")
             return ResumeCleanupResult(cleaned_markdown=raw_markdown)
         except httpx.HTTPStatusError as e:
-            logger.warning(
-                "LLM cleanup API error: %s - %s",
-                e.response.status_code,
-                e.response.text[:200] if e.response.text else "no details",
-            )
+            logger.warning("LLM cleanup API error: HTTP %s", e.response.status_code)
             return ResumeCleanupResult(cleaned_markdown=raw_markdown)
-        except (KeyError, json.JSONDecodeError, TypeError, ValueError) as e:
-            logger.warning("LLM cleanup returned invalid structured output: %s", str(e))
+        except (KeyError, json.JSONDecodeError, TypeError, ValueError):
+            logger.warning("LLM cleanup returned invalid structured output")
             return ResumeCleanupResult(cleaned_markdown=raw_markdown)
         except Exception as e:
-            logger.warning("LLM cleanup failed: %s", str(e))
+            logger.warning("LLM cleanup failed (%s)", type(e).__name__)
             return ResumeCleanupResult(cleaned_markdown=raw_markdown)

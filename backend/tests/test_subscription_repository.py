@@ -27,7 +27,8 @@ def test_reserve_generation_quota_maps_lock_timeout_to_busy_error():
             return BusyCursor()
 
     @contextmanager
-    def busy_connection():
+    def busy_connection(*, user_id: str):
+        assert user_id == "user-1"
         yield BusyConnection()
 
     repository._connection = busy_connection  # type: ignore[method-assign]

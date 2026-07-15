@@ -3,8 +3,12 @@
 **Source:** `docs/engineering/fallow-output-1-jun7-2026.json`  
 **Calibration output:** `docs/engineering/fallow-output-2-after-config-jun7-2026.json`  
 **Fallow version:** 2.89.0  
-**Plan status:** Proposed implementation order  
-**Last updated:** 2026-06-07 14:23:00 EDT
+**Plan status:** Phases 1 and most Phase 2 shared-primitives work completed; route decomposition remains
+**Last updated:** 2026-07-14 21:35:00 EDT
+
+## July 14 completion update
+
+Fallow 3.5.0 now reports zero static/dead-code issues, zero duplicate clone groups, and eight health findings. Critical complexity findings fell from 12 to 1 and high findings from 10 to 1 after modal, auth, API, navigation, activity, profile, dashboard, list, base-resume, signup, extension, and application-detail extractions. The remaining work is the staged route/controller decomposition described in Phase 2, led by `ApplicationDetailPage`. Detailed measurements and verification are recorded in `docs/task-output/2026-07-14-fallow-remediation.md`.
 
 ## Executive Summary
 

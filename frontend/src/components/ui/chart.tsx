@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Legend, ResponsiveContainer, Tooltip } from "recharts";
+import { ResponsiveContainer, Tooltip } from "recharts";
 import { cn } from "@/lib/utils";
 
 export type ChartConfig = Record<
@@ -28,10 +28,6 @@ type ChartTooltipContentProps = {
   label?: string | number;
   labelFormatter?: (value: string | number) => React.ReactNode;
   indicator?: "dot" | "line";
-};
-
-type ChartLegendContentProps = {
-  payload?: ChartPayloadItem[];
 };
 
 const ChartConfigContext = React.createContext<ChartConfig | null>(null);
@@ -76,7 +72,6 @@ export function ChartContainer({ config, className, style, children, ...props }:
 }
 
 export const ChartTooltip = Tooltip;
-export const ChartLegend = Legend;
 
 export function ChartTooltipContent({
   active,
@@ -119,29 +114,6 @@ export function ChartTooltipContent({
           );
         })}
       </div>
-    </div>
-  );
-}
-
-export function ChartLegendContent({ payload }: ChartLegendContentProps) {
-  const config = useChartConfig();
-
-  if (!payload?.length) return null;
-
-  return (
-    <div className="flex flex-wrap items-center gap-4 pt-3 text-[10px] font-semibold uppercase tracking-[0.16em]">
-      {payload.map((item) => {
-        const key = getPayloadKey(item);
-        const chartItem = config[key];
-        const tone = item.color ?? chartItem?.color ?? "var(--color-ink)";
-
-        return (
-          <div key={key} className="flex items-center gap-1.5" style={{ color: "var(--color-ink-40)" }}>
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: tone }} />
-            <span>{chartItem?.label ?? key}</span>
-          </div>
-        );
-      })}
     </div>
   );
 }

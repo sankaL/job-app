@@ -20,9 +20,11 @@ function collectJsonLd() {
     .slice(0, 10);
 }
 
-const LOCAL_APP_ORIGINS = new Set([
+const TRUSTED_APP_ORIGINS = new Set([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "https://applix.ca",
+  "https://www.applix.ca",
 ]);
 
 function toOrigin(url) {
@@ -54,7 +56,7 @@ async function isTrustedBridgeMessage(event) {
     return storedOrigin === event.origin;
   }
 
-  return LOCAL_APP_ORIGINS.has(event.origin);
+  return TRUSTED_APP_ORIGINS.has(event.origin);
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

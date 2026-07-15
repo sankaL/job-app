@@ -10,9 +10,11 @@ export function buildImportRequest(capture) {
   };
 }
 
-const LOCAL_APP_ORIGINS = new Set([
+const TRUSTED_APP_ORIGINS = new Set([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "https://applix.ca",
+  "https://www.applix.ca",
 ]);
 
 export function normalizeAppOrigin(url) {
@@ -29,7 +31,7 @@ export function normalizeAppOrigin(url) {
 
 export function isTrustedAppUrl(url) {
   const origin = normalizeAppOrigin(url);
-  return origin !== null && LOCAL_APP_ORIGINS.has(origin);
+  return origin !== null && TRUSTED_APP_ORIGINS.has(origin);
 }
 
 async function getConnectionState() {
@@ -47,7 +49,18 @@ async function getActiveTabCapture() {
     throw new Error("No active tab is available.");
   }
 
-  const response = await chrome.tabs.sendMessage(tab.id, { type: "CAPTURE_CURRENT_PAGE" });
+  let response;
+  try {
+    response = await chrome.tabs.sendMessage(tab.id, { type: "CAPTURE_CURRENT_PAGE" });
+  } catch {
+    // activeTab grants access only after the user opens the popup. Inject the
+    // capture bridge on demand instead of running it on every visited page.
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content-script.js"],
+    });
+    response = await chrome.tabs.sendMessage(tab.id, { type: "CAPTURE_CURRENT_PAGE" });
+  }
   if (!response?.capture) {
     throw new Error("Unable to capture the current page.");
   }
@@ -79,7 +92,7 @@ async function refreshView() {
   }
 
   if (state.token && state.appUrl && !isTrustedAppUrl(state.appUrl)) {
-    setStatus("Stored app connection is not trusted. Reconnect from the local web app.");
+    setStatus("Stored app connection is not trusted. Reconnect from the web app.");
     captureButton.disabled = true;
     openAppButton.disabled = true;
     return state;

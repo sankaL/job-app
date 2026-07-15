@@ -12,7 +12,7 @@ export function SkeletonLine({ className }: SkeletonProps) {
   return <div className={cn("animate-skeleton h-3 rounded", className)} />;
 }
 
-export function SkeletonBlock({ className }: SkeletonProps) {
+function SkeletonBlock({ className }: SkeletonProps) {
   return <div className={cn("animate-skeleton h-10 rounded-lg", className)} />;
 }
 
@@ -30,7 +30,7 @@ export function SkeletonCard({ className, density = "default" }: SkeletonCardPro
   );
 }
 
-export function SkeletonTableRow({ columns = 6 }: { columns?: number }) {
+function SkeletonTableRow({ columns = 6 }: { columns?: number }) {
   return (
     <tr>
       {Array.from({ length: columns }).map((_, i) => (

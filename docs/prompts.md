@@ -947,6 +947,7 @@ Rules:
 
 ### Runtime enforcement
 
+- URL-backed extraction validates the initial `http`/`https` destination before enqueueing and again in the worker. Playwright intercepts redirects and subresource requests and aborts any destination that resolves to localhost, private, link-local, reserved, or otherwise non-public IP space. This is orchestration-layer SSRF protection; it does not change the extraction prompt, payload keys, or structured-output schema.
 - Extraction uses LangChain structured output against the `ExtractedJobPosting` schema.
 - Extraction callbacks use bounded retry/backoff and fail closed through Redis-backed progress reconciliation. The `started` callback is best-effort, terminal callback delivery failures no longer abort extraction after terminal progress is written, and successful extraction payloads are cached in Redis so backend progress polling can recover callback-missed success states.
 - Pasted-description-only extraction may pass `null` for `source_url`, `final_url`, `detected_origin`, and `extracted_reference_id`; the extraction agent must use visible text and available metadata without inventing source identifiers.

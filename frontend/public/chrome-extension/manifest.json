@@ -3,8 +3,13 @@
   "name": "Applix Capture",
   "version": "0.1.0",
   "description": "Create a new application from the current Chrome tab.",
-  "permissions": ["activeTab", "storage", "tabs"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "http://localhost:5173/*",
+    "http://127.0.0.1:5173/*",
+    "https://applix.ca/*",
+    "https://www.applix.ca/*"
+  ],
   "background": {
     "service_worker": "service-worker.js",
     "type": "module"
@@ -15,7 +20,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*",
+        "https://applix.ca/*",
+        "https://www.applix.ca/*"
+      ],
       "js": ["content-script.js"],
       "run_at": "document_start"
     }

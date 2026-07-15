@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -36,7 +43,6 @@ const api = vi.hoisted(() => ({
   fetchExtensionStatus: vi.fn(),
   fetchApplicationDetail: vi.fn(),
   fetchAdminMetrics: vi.fn(),
-  fetchProfile: vi.fn(),
   fetchApplicationProgress: vi.fn(),
   fetchBaseResume: vi.fn(),
   fetchDraft: vi.fn(),
@@ -80,9 +86,10 @@ vi.mock("@/lib/auth", () => ({
     login: vi.fn(),
     logout: vi.fn(),
   }),
-  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  AuthProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
   getAccessToken: () => Promise.resolve("mock-token"),
-  getAccessTokenSync: () => "mock-token",
 }));
 
 const defaultBootstrap = {
@@ -109,7 +116,14 @@ const defaultBootstrap = {
       projects: true,
       certifications: true,
     },
-    section_order: ["summary", "professional_experience", "education", "skills", "projects", "certifications"],
+    section_order: [
+      "summary",
+      "professional_experience",
+      "education",
+      "skills",
+      "projects",
+      "certifications",
+    ],
     created_at: "2026-04-07T12:00:00Z",
     updated_at: "2026-04-07T12:00:00Z",
   },
@@ -220,13 +234,14 @@ function renderWithAppProvider(
   );
 }
 
-function renderTopBar(options?: {
-  initialEntries?: string[];
-}) {
+function renderTopBar(options?: { initialEntries?: string[] }) {
   return renderWithAppProvider(
     <Routes>
       <Route path="/app" element={<TopBar />} />
-      <Route path="/app/applications/:applicationId" element={<div>Detail Route</div>} />
+      <Route
+        path="/app/applications/:applicationId"
+        element={<div>Detail Route</div>}
+      />
     </Routes>,
     { initialEntries: options?.initialEntries ?? ["/app"] },
   );
@@ -251,7 +266,10 @@ function latestStreamHandlers() {
     throw new Error("Expected live stream to be opened.");
   }
   return lastCall[1] as {
-    onSnapshot: (snapshot: { detail: ReturnType<typeof buildApplicationDetail>; progress: ReturnType<typeof buildProgressPayload> | null }) => void;
+    onSnapshot: (snapshot: {
+      detail: ReturnType<typeof buildApplicationDetail>;
+      progress: ReturnType<typeof buildProgressPayload> | null;
+    }) => void;
     onProgress: (progress: ReturnType<typeof buildProgressPayload>) => void;
     onDetail: (detail: ReturnType<typeof buildApplicationDetail>) => void;
     onHeartbeat?: (heartbeat: { sent_at: string }) => void;
@@ -287,26 +305,6 @@ describe("phase 1 applications UI", () => {
     api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail());
     api.fetchApplicationProgress.mockResolvedValue(buildProgressPayload());
     api.fetchDraft.mockResolvedValue(null);
-    api.fetchProfile.mockResolvedValue({
-      id: "user-1",
-      email: "test@test.com",
-      name: "Alex Example",
-      phone: "555-0100",
-      address: "Toronto, ON",
-      linkedin_url: "https://linkedin.com/in/alex-example",
-      default_base_resume_id: null,
-      section_preferences: {
-        summary: true,
-        professional_experience: true,
-        education: true,
-        skills: true,
-        projects: true,
-        certifications: true,
-      },
-      section_order: ["summary", "professional_experience", "education", "skills", "projects", "certifications"],
-      created_at: "2026-04-07T12:00:00Z",
-      updated_at: "2026-04-07T12:00:00Z",
-    });
     api.fetchSessionBootstrap.mockResolvedValue(defaultBootstrap);
     api.fetchBaseResume.mockResolvedValue({
       id: "resume-1",
@@ -327,7 +325,8 @@ describe("phase 1 applications UI", () => {
       name: payload.name ?? "Alex Example",
       phone: payload.phone ?? "555-0100",
       address: payload.address ?? "Toronto, ON",
-      linkedin_url: payload.linkedin_url ?? "https://linkedin.com/in/alex-example",
+      linkedin_url:
+        payload.linkedin_url ?? "https://linkedin.com/in/alex-example",
       default_base_resume_id: null,
       section_preferences: payload.section_preferences ?? {
         summary: true,
@@ -337,7 +336,14 @@ describe("phase 1 applications UI", () => {
         projects: true,
         certifications: true,
       },
-      section_order: payload.section_order ?? ["summary", "professional_experience", "education", "skills", "projects", "certifications"],
+      section_order: payload.section_order ?? [
+        "summary",
+        "professional_experience",
+        "education",
+        "skills",
+        "projects",
+        "certifications",
+      ],
       created_at: "2026-04-07T12:00:00Z",
       updated_at: "2026-04-07T12:05:00Z",
     }));
@@ -353,7 +359,9 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(<ApplicationsListPage />);
 
     expect(await screen.findByText(/no applications yet/i)).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /new application/i })).not.toHaveLength(0);
+    expect(
+      screen.getAllByRole("button", { name: /new application/i }),
+    ).not.toHaveLength(0);
   });
 
   it("loads the applications page with one bootstrap request and one applications request", async () => {
@@ -395,32 +403,43 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(<ApplicationsListPage />);
 
     expect(await screen.findByText("Session expired.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /dismiss/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /dismiss/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("does not show a dismiss action for base resume query load failures", async () => {
-    api.listBaseResumes.mockRejectedValue(new Error("Resume list unavailable."));
+    api.listBaseResumes.mockRejectedValue(
+      new Error("Resume list unavailable."),
+    );
 
     renderWithAppProvider(<BaseResumesPage />);
 
-    expect(await screen.findByText("Resume list unavailable.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /dismiss/i })).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("Resume list unavailable."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /dismiss/i }),
+    ).not.toBeInTheDocument();
   });
 
-  it("initializes the profile page from bootstrap without calling the profile endpoint", async () => {
+  it("initializes the profile page from bootstrap", async () => {
     renderWithAppProvider(<ProfilePage />);
 
     expect(await screen.findByDisplayValue("Alex Example")).toBeInTheDocument();
     expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
-    expect(api.fetchProfile).not.toHaveBeenCalled();
   });
 
   it("shows a recoverable error on the profile page when bootstrap fails", async () => {
-    api.fetchSessionBootstrap.mockRejectedValue(new Error("Session bootstrap failed."));
+    api.fetchSessionBootstrap.mockRejectedValue(
+      new Error("Session bootstrap failed."),
+    );
 
     renderWithAppProvider(<ProfilePage />);
 
-    expect(await screen.findByText(/profile unavailable/i, {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(
+      await screen.findByText(/profile unavailable/i, {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Session bootstrap failed.")).toBeInTheDocument();
   });
 
@@ -430,12 +449,20 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(<ApplicationsListPage />);
 
     await screen.findByText(/no applications yet/i);
-    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /new application/i })[0],
+    );
 
-    expect(await screen.findByRole("dialog", { name: /new application/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("dialog", { name: /new application/i }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(/job url/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /paste description/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText(/pasted job description/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /paste description/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/pasted job description/i),
+    ).not.toBeInTheDocument();
   });
 
   it("reveals the pasted job description field only when the user asks for it", async () => {
@@ -444,78 +471,126 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(<ApplicationsListPage />);
 
     await screen.findByText(/no applications yet/i);
-    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
-    await userEvent.click(screen.getByRole("button", { name: /add pasted description/i }));
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /new application/i })[0],
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /add pasted description/i }),
+    );
 
-    expect(await screen.findByLabelText(/pasted job description/i)).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText(/pasted job description/i),
+    ).toBeInTheDocument();
   });
 
   it("submits URL-only application creation from the modal and navigates to the detail page", async () => {
     api.listApplications.mockResolvedValue([]);
-    api.createApplication.mockResolvedValue(buildApplicationDetail({ id: "app-42", job_url: "https://example.com/jobs/42" }));
+    api.createApplication.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-42",
+        job_url: "https://example.com/jobs/42",
+      }),
+    );
 
     renderWithAppProvider(
       <Routes>
         <Route path="/app/applications" element={<ApplicationsListPage />} />
-        <Route path="/app/applications/:applicationId" element={<div>Detail Route</div>} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<div>Detail Route</div>}
+        />
       </Routes>,
       { initialEntries: ["/app/applications"] },
     );
 
     await screen.findByText(/no applications yet/i);
-    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
-    await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/42");
-    await userEvent.click(screen.getByRole("button", { name: /create application/i }));
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /new application/i })[0],
+    );
+    await userEvent.type(
+      screen.getByLabelText(/job url/i),
+      "https://example.com/jobs/42",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /create application/i }),
+    );
 
     await waitFor(() =>
-      expect(api.createApplication).toHaveBeenCalledWith({ job_url: "https://example.com/jobs/42", source_text: undefined }),
+      expect(api.createApplication).toHaveBeenCalledWith({
+        job_url: "https://example.com/jobs/42",
+        source_text: undefined,
+      }),
     );
     expect(await screen.findByText("Detail Route")).toBeInTheDocument();
   });
 
   it("submits pasted job text from the modal when that field is revealed", async () => {
     api.listApplications.mockResolvedValue([]);
-    api.createApplication.mockResolvedValue(buildApplicationDetail({ id: "app-84", job_url: "https://example.com/jobs/84" }));
+    api.createApplication.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-84",
+        job_url: "https://example.com/jobs/84",
+      }),
+    );
 
     renderWithAppProvider(<ApplicationsListPage />);
 
     await screen.findByText(/no applications yet/i);
-    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
-    await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/84");
-    await userEvent.click(screen.getByRole("button", { name: /add pasted description/i }));
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /new application/i })[0],
+    );
+    await userEvent.type(
+      screen.getByLabelText(/job url/i),
+      "https://example.com/jobs/84",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /add pasted description/i }),
+    );
     await userEvent.type(
       await screen.findByLabelText(/pasted job description/i),
       "Senior Platform Engineer. Build APIs, queues, and internal tools.",
     );
-    await userEvent.click(screen.getByRole("button", { name: /create with pasted text/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /create with pasted text/i }),
+    );
 
     await waitFor(() =>
       expect(api.createApplication).toHaveBeenCalledWith({
         job_url: "https://example.com/jobs/84",
-        source_text: "Senior Platform Engineer. Build APIs, queues, and internal tools.",
+        source_text:
+          "Senior Platform Engineer. Build APIs, queues, and internal tools.",
       }),
     );
   });
 
   it("submits pasted job text without requiring a job URL", async () => {
     api.listApplications.mockResolvedValue([]);
-    api.createApplication.mockResolvedValue(buildApplicationDetail({ id: "app-85", job_url: null }));
+    api.createApplication.mockResolvedValue(
+      buildApplicationDetail({ id: "app-85", job_url: null }),
+    );
 
     renderWithAppProvider(<ApplicationsListPage />);
 
     await screen.findByText(/no applications yet/i);
-    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
-    await userEvent.click(screen.getByRole("button", { name: /paste description/i }));
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /new application/i })[0],
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /paste description/i }),
+    );
     await userEvent.type(
       await screen.findByLabelText(/^job description$/i),
       "Senior Platform Engineer. Build APIs, queues, and internal tools.",
     );
-    await userEvent.click(screen.getByRole("button", { name: /create from description/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /create from description/i }),
+    );
 
     await waitFor(() =>
       expect(api.createApplication).toHaveBeenCalledWith({
         job_url: undefined,
-        source_text: "Senior Platform Engineer. Build APIs, queues, and internal tools.",
+        source_text:
+          "Senior Platform Engineer. Build APIs, queues, and internal tools.",
       }),
     );
   });
@@ -532,10 +607,17 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(<ApplicationsListPage />);
 
     await screen.findByText(/no applications yet/i);
-    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
-    await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/42");
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /new application/i })[0],
+    );
+    await userEvent.type(
+      screen.getByLabelText(/job url/i),
+      "https://example.com/jobs/42",
+    );
 
-    const submitButton = screen.getByRole("button", { name: /create application/i });
+    const submitButton = screen.getByRole("button", {
+      name: /create application/i,
+    });
     const form = submitButton.closest("form") as HTMLFormElement;
     fireEvent.submit(form);
     fireEvent.submit(form);
@@ -545,26 +627,44 @@ describe("phase 1 applications UI", () => {
 
   it("keeps create failures inside the modal instead of promoting them to the page error card", async () => {
     api.listApplications.mockResolvedValue([]);
-    api.createApplication.mockRejectedValueOnce(new Error("Unable to create application."));
+    api.createApplication.mockRejectedValueOnce(
+      new Error("Unable to create application."),
+    );
 
     renderWithAppProvider(<ApplicationsListPage />);
 
     await screen.findByText(/no applications yet/i);
-    await userEvent.click(screen.getAllByRole("button", { name: /new application/i })[0]);
-    await userEvent.type(screen.getByLabelText(/job url/i), "https://example.com/jobs/99");
-    await userEvent.click(screen.getByRole("button", { name: /create application/i }));
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /new application/i })[0],
+    );
+    await userEvent.type(
+      screen.getByLabelText(/job url/i),
+      "https://example.com/jobs/99",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /create application/i }),
+    );
 
-    expect(await screen.findByText("Unable to create application.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Unable to create application."),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Request failed")).not.toBeInTheDocument();
   });
 
   it("opens the notifications dropdown and keeps the badge count tied to attention items", async () => {
     api.listApplications.mockResolvedValue([
-      buildApplicationSummary({ id: "app-1", visible_status: "needs_action", has_action_required_notification: true }),
+      buildApplicationSummary({
+        id: "app-1",
+        visible_status: "needs_action",
+        has_action_required_notification: true,
+      }),
       buildApplicationSummary({ id: "app-2", visible_status: "complete" }),
     ]);
     api.listNotifications.mockResolvedValue([
-      buildNotificationSummary({ id: "notif-1", message: "Resume generated successfully." }),
+      buildNotificationSummary({
+        id: "notif-1",
+        message: "Resume generated successfully.",
+      }),
       buildNotificationSummary({
         id: "notif-2",
         application_id: null,
@@ -589,10 +689,16 @@ describe("phase 1 applications UI", () => {
 
     await userEvent.click(bell);
 
-    expect(await screen.findByRole("dialog", { name: /notifications panel/i })).toBeInTheDocument();
-    expect(await screen.findByText("Resume generated successfully.")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("dialog", { name: /notifications panel/i }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Resume generated successfully."),
+    ).toBeInTheDocument();
     expect(api.listNotifications).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(within(bell).getByText("1")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(bell).getByText("1")).toBeInTheDocument(),
+    );
   });
 
   it("renders a scrollable notifications list for larger inboxes", async () => {
@@ -609,9 +715,13 @@ describe("phase 1 applications UI", () => {
 
     renderTopBar();
 
-    await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /notifications/i }),
+    );
 
-    const notificationsList = await screen.findByRole("list", { name: /notifications list/i });
+    const notificationsList = await screen.findByRole("list", {
+      name: /notifications list/i,
+    });
     expect(notificationsList).toHaveClass("max-h-96");
     expect(notificationsList).toHaveClass("overflow-y-auto");
   });
@@ -627,8 +737,14 @@ describe("phase 1 applications UI", () => {
 
     renderTopBar();
 
-    await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
-    await userEvent.click(await screen.findByRole("button", { name: /generation finished for platform engineer/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /notifications/i }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: /generation finished for platform engineer/i,
+      }),
+    );
 
     expect(await screen.findByText("Detail Route")).toBeInTheDocument();
   });
@@ -644,9 +760,13 @@ describe("phase 1 applications UI", () => {
 
     renderTopBar();
 
-    await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /notifications/i }),
+    );
 
-    const notificationButton = await screen.findByRole("button", { name: /account-level notification/i });
+    const notificationButton = await screen.findByRole("button", {
+      name: /account-level notification/i,
+    });
     expect(notificationButton).toBeDisabled();
     await userEvent.click(notificationButton);
     expect(screen.queryByText("Detail Route")).not.toBeInTheDocument();
@@ -657,15 +777,29 @@ describe("phase 1 applications UI", () => {
 
     renderTopBar();
 
-    await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /notifications/i }),
+    );
 
-    expect(await screen.findByText(/no notifications yet/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/no notifications yet/i),
+    ).toBeInTheDocument();
   });
 
   it("clears only notifications that do not need attention", async () => {
     api.listApplications
-      .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: true })])
-      .mockResolvedValueOnce([buildApplicationSummary({ id: "app-1", has_action_required_notification: false })]);
+      .mockResolvedValueOnce([
+        buildApplicationSummary({
+          id: "app-1",
+          has_action_required_notification: true,
+        }),
+      ])
+      .mockResolvedValueOnce([
+        buildApplicationSummary({
+          id: "app-1",
+          has_action_required_notification: false,
+        }),
+      ]);
     api.listNotifications
       .mockResolvedValueOnce([
         buildNotificationSummary({
@@ -702,25 +836,43 @@ describe("phase 1 applications UI", () => {
       </>,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
-    await userEvent.click(await screen.findByRole("button", { name: /clear all/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /notifications/i }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /clear all/i }),
+    );
 
-    await waitFor(() => expect(api.clearNotifications).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.clearNotifications).toHaveBeenCalledTimes(1),
+    );
     await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("Resume needs manual review.")).toBeInTheDocument();
-    expect(screen.queryByText("Export completed successfully.")).not.toBeInTheDocument();
-    expect(screen.getByText("Cleared notifications that do not need attention.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Resume needs manual review."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Export completed successfully."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Cleared notifications that do not need attention."),
+    ).toBeInTheDocument();
     expect(dispatchSpy).not.toHaveBeenCalled();
   });
 
   it("shows a sanitized error state when notifications fail to load", async () => {
-    api.listNotifications.mockRejectedValueOnce(new Error("Failed to load notifications."));
+    api.listNotifications.mockRejectedValueOnce(
+      new Error("Failed to load notifications."),
+    );
 
     renderTopBar();
 
-    await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /notifications/i }),
+    );
 
-    expect(await screen.findByText(/no notifications yet/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/no notifications yet/i),
+    ).toBeInTheDocument();
   });
 
   it("keeps notifications visible when clearing fails", async () => {
@@ -733,28 +885,47 @@ describe("phase 1 applications UI", () => {
         type: "warning",
       }),
     ]);
-    api.clearNotifications.mockRejectedValueOnce(new Error("Failed to clear notifications"));
+    api.clearNotifications.mockRejectedValueOnce(
+      new Error("Failed to clear notifications"),
+    );
 
     renderTopBar();
 
-    await userEvent.click(screen.getByRole("button", { name: /notifications/i }));
-    await userEvent.click(await screen.findByRole("button", { name: /clear all/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /notifications/i }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /clear all/i }),
+    );
 
-    await waitFor(() => expect(api.clearNotifications).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText("Resume needs manual review.")).toBeInTheDocument();
-    expect(screen.getByText("Failed to clear notifications")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.clearNotifications).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      await screen.findByText("Resume needs manual review."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Failed to clear notifications"),
+    ).toBeInTheDocument();
   });
 
   it("supports current-page selection without triggering row navigation", async () => {
     api.listApplications.mockResolvedValue([
       buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer" }),
-      buildApplicationSummary({ id: "app-2", job_title: "Platform Engineer", company: "Beta Labs" }),
+      buildApplicationSummary({
+        id: "app-2",
+        job_title: "Platform Engineer",
+        company: "Beta Labs",
+      }),
     ]);
 
     renderWithAppProvider(
       <Routes>
         <Route path="/app/applications" element={<ApplicationsListPage />} />
-        <Route path="/app/applications/:applicationId" element={<div>Detail Route</div>} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<div>Detail Route</div>}
+        />
       </Routes>,
       { initialEntries: ["/app/applications"] },
     );
@@ -775,12 +946,30 @@ describe("phase 1 applications UI", () => {
 
   it("bulk mark applied updates only selected rows that are not already applied", async () => {
     const initial = [
-      buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer", applied: false }),
-      buildApplicationSummary({ id: "app-2", job_title: "Platform Engineer", company: "Beta Labs", applied: true }),
+      buildApplicationSummary({
+        id: "app-1",
+        job_title: "Backend Engineer",
+        applied: false,
+      }),
+      buildApplicationSummary({
+        id: "app-2",
+        job_title: "Platform Engineer",
+        company: "Beta Labs",
+        applied: true,
+      }),
     ];
     const updated = [
-      buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer", applied: true }),
-      buildApplicationSummary({ id: "app-2", job_title: "Platform Engineer", company: "Beta Labs", applied: true }),
+      buildApplicationSummary({
+        id: "app-1",
+        job_title: "Backend Engineer",
+        applied: true,
+      }),
+      buildApplicationSummary({
+        id: "app-2",
+        job_title: "Platform Engineer",
+        company: "Beta Labs",
+        applied: true,
+      }),
     ];
     api.listApplications
       .mockResolvedValueOnce(initial)
@@ -805,18 +994,30 @@ describe("phase 1 applications UI", () => {
 
     await userEvent.click(screen.getByLabelText("Select Backend Engineer"));
     await userEvent.click(screen.getByLabelText("Select Platform Engineer"));
-    await userEvent.click(screen.getAllByRole("button", { name: /mark applied/i })[0]);
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /mark applied/i })[0],
+    );
 
     await waitFor(() => expect(api.patchApplication).toHaveBeenCalledTimes(1));
-    expect(api.patchApplication).toHaveBeenCalledWith("app-1", { applied: true });
-    expect(await screen.findByText(/marked 1 application as applied/i)).toBeInTheDocument();
-    expect(screen.queryByText("2 applications selected")).not.toBeInTheDocument();
+    expect(api.patchApplication).toHaveBeenCalledWith("app-1", {
+      applied: true,
+    });
+    expect(
+      await screen.findByText(/marked 1 application as applied/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("2 applications selected"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows singular and plural bulk delete confirmation copy", async () => {
     api.listApplications.mockResolvedValue([
       buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer" }),
-      buildApplicationSummary({ id: "app-2", job_title: "Platform Engineer", company: "Beta Labs" }),
+      buildApplicationSummary({
+        id: "app-2",
+        job_title: "Platform Engineer",
+        company: "Beta Labs",
+      }),
     ]);
 
     renderWithAppProvider(<ApplicationsListPage />);
@@ -837,7 +1038,11 @@ describe("phase 1 applications UI", () => {
 
   it("disables bulk delete when selected rows are still processing", async () => {
     api.listApplications.mockResolvedValue([
-      buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer", internal_state: "generating" }),
+      buildApplicationSummary({
+        id: "app-1",
+        job_title: "Backend Engineer",
+        internal_state: "generating",
+      }),
     ]);
 
     renderWithAppProvider(<ApplicationsListPage />);
@@ -847,15 +1052,29 @@ describe("phase 1 applications UI", () => {
     await userEvent.click(screen.getByLabelText("Select Backend Engineer"));
 
     expect(screen.getByRole("button", { name: /^delete$/i })).toBeDisabled();
-    expect(screen.getByText(/delete is unavailable while 1 selected application is still processing/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /delete is unavailable while 1 selected application is still processing/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("keeps failed selections after a partial bulk delete failure", async () => {
     const initial = [
       buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer" }),
-      buildApplicationSummary({ id: "app-2", job_title: "Platform Engineer", company: "Beta Labs" }),
+      buildApplicationSummary({
+        id: "app-2",
+        job_title: "Platform Engineer",
+        company: "Beta Labs",
+      }),
     ];
-    const updated = [buildApplicationSummary({ id: "app-2", job_title: "Platform Engineer", company: "Beta Labs" })];
+    const updated = [
+      buildApplicationSummary({
+        id: "app-2",
+        job_title: "Platform Engineer",
+        company: "Beta Labs",
+      }),
+    ];
     api.listApplications
       .mockResolvedValueOnce(initial)
       .mockResolvedValueOnce(initial)
@@ -863,7 +1082,11 @@ describe("phase 1 applications UI", () => {
       .mockResolvedValueOnce(updated);
     api.deleteApplication
       .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("Application cannot be deleted while background work is still running."));
+      .mockRejectedValueOnce(
+        new Error(
+          "Application cannot be deleted while background work is still running.",
+        ),
+      );
 
     renderWithAppProvider(<ApplicationsListPage />);
 
@@ -872,45 +1095,75 @@ describe("phase 1 applications UI", () => {
     await userEvent.click(screen.getByLabelText("Select Backend Engineer"));
     await userEvent.click(screen.getByLabelText("Select Platform Engineer"));
     await userEvent.click(screen.getByRole("button", { name: /^delete$/i }));
-    await userEvent.click(await screen.findByRole("button", { name: /delete applications/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /delete applications/i }),
+    );
 
     await waitFor(() => expect(api.deleteApplication).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("1 application selected")).toBeInTheDocument();
+    expect(
+      await screen.findByText("1 application selected"),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Select Platform Engineer")).toBeChecked();
-    expect(await screen.findByText(/1 application failed/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/1 application failed/i),
+    ).toBeInTheDocument();
   });
 
   it("renders row-level icon delete controls for idle applications", async () => {
     api.listApplications.mockResolvedValue([
-      buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer", internal_state: "resume_ready" }),
+      buildApplicationSummary({
+        id: "app-1",
+        job_title: "Backend Engineer",
+        internal_state: "resume_ready",
+      }),
     ]);
 
     renderWithAppProvider(<ApplicationsListPage />);
 
     expect(await screen.findByText("Backend Engineer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /delete backend engineer/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /delete backend engineer/i }),
+    ).toBeInTheDocument();
   });
 
   it("renders row-level stop controls for active extraction applications", async () => {
     api.listApplications.mockResolvedValue([
-      buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer", internal_state: "extracting", visible_status: "draft" }),
+      buildApplicationSummary({
+        id: "app-1",
+        job_title: "Backend Engineer",
+        internal_state: "extracting",
+        visible_status: "draft",
+      }),
     ]);
 
     renderWithAppProvider(<ApplicationsListPage />);
 
     expect(await screen.findByText("Backend Engineer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /stop extraction for backend engineer/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /stop extraction for backend engineer/i,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("disables row-level delete controls while generation work is active", async () => {
     api.listApplications.mockResolvedValue([
-      buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer", internal_state: "generating", visible_status: "draft" }),
+      buildApplicationSummary({
+        id: "app-1",
+        job_title: "Backend Engineer",
+        internal_state: "generating",
+        visible_status: "draft",
+      }),
     ]);
 
     renderWithAppProvider(<ApplicationsListPage />);
 
     expect(await screen.findByText("Backend Engineer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /delete unavailable while backend engineer is still processing/i })).toBeDisabled();
+    expect(
+      screen.getByRole("button", {
+        name: /delete unavailable while backend engineer is still processing/i,
+      }),
+    ).toBeDisabled();
   });
 
   it("renders middle-aligned application table cells for the compact list layout", async () => {
@@ -932,7 +1185,9 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(<DashboardPage />);
 
-    expect(await screen.findByText(/dashboard unavailable/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/dashboard unavailable/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/session expired/i)).toBeInTheDocument();
     expect(screen.queryByText(/no applications yet/i)).not.toBeInTheDocument();
   });
@@ -1047,19 +1302,29 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText("Top Companies")).toBeInTheDocument();
     expect(screen.getByText("Status Breakdown")).toBeInTheDocument();
 
-    const yearSelect = screen.getByRole("combobox", { name: /select monthly activity year/i });
+    const yearSelect = screen.getByRole("combobox", {
+      name: /select monthly activity year/i,
+    });
     expect(yearSelect).toHaveValue(String(currentYear));
-    expect(within(yearSelect).getByRole("option", { name: String(previousYear) })).toBeInTheDocument();
+    expect(
+      within(yearSelect).getByRole("option", { name: String(previousYear) }),
+    ).toBeInTheDocument();
 
     const chart = screen.getByTestId("monthly-activity-chart");
-    expect(chart).toHaveAttribute("aria-label", `Monthly activity for ${currentYear}`);
+    expect(chart).toHaveAttribute(
+      "aria-label",
+      `Monthly activity for ${currentYear}`,
+    );
     expect(screen.getByText("2 created")).toBeInTheDocument();
     expect(screen.getByText("1 created + applied")).toBeInTheDocument();
     expect(screen.getByText(`${currentYear} overview`)).toBeInTheDocument();
 
     await user.selectOptions(yearSelect, String(previousYear));
 
-    expect(chart).toHaveAttribute("aria-label", `Monthly activity for ${previousYear}`);
+    expect(chart).toHaveAttribute(
+      "aria-label",
+      `Monthly activity for ${previousYear}`,
+    );
     expect(screen.getByText("3 created")).toBeInTheDocument();
     expect(screen.getByText("2 created + applied")).toBeInTheDocument();
     expect(screen.getByText(`${previousYear} overview`)).toBeInTheDocument();
@@ -1072,7 +1337,10 @@ describe("phase 1 applications UI", () => {
       buildApplicationSummary({ id: "app-3", job_posting_origin: "linkedin" }),
       buildApplicationSummary({ id: "app-4", job_posting_origin: "indeed" }),
       buildApplicationSummary({ id: "app-5", job_posting_origin: "indeed" }),
-      buildApplicationSummary({ id: "app-6", job_posting_origin: "company_website" }),
+      buildApplicationSummary({
+        id: "app-6",
+        job_posting_origin: "company_website",
+      }),
       buildApplicationSummary({ id: "app-7", job_posting_origin: "glassdoor" }),
       buildApplicationSummary({ id: "app-8", job_posting_origin: "monster" }),
     ]);
@@ -1083,10 +1351,14 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText("LinkedIn")).toBeInTheDocument();
     expect(screen.getByText("Indeed")).toBeInTheDocument();
     expect(screen.getByText("Company Website")).toBeInTheDocument();
-    const otherRow = screen.getByText("Other").closest("div.flex.items-center.justify-between.gap-3");
+    const otherRow = screen
+      .getByText("Other")
+      .closest("div.flex.items-center.justify-between.gap-3");
 
     expect(otherRow).not.toBeNull();
-    expect(screen.getByLabelText("Job sources pie chart")).toHaveTextContent("8");
+    expect(screen.getByLabelText("Job sources pie chart")).toHaveTextContent(
+      "8",
+    );
     expect(within(otherRow as HTMLElement).getByText("2")).toBeInTheDocument();
   });
 
@@ -1143,8 +1415,12 @@ describe("phase 1 applications UI", () => {
     const row = titleCell.closest("tr");
 
     expect(row).not.toBeNull();
-    expect(within(row as HTMLElement).getByText("Needs Action")).toBeInTheDocument();
-    expect(within(row as HTMLElement).queryByText(/action required/i)).not.toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).getByText("Needs Action"),
+    ).toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).queryByText(/action required/i),
+    ).not.toBeInTheDocument();
   });
 
   it("shows conditional other-origin input on the manual entry form", async () => {
@@ -1187,17 +1463,29 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/manual entry required/i)).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(/other source label/i)).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/manual entry required/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(/other source label/i),
+    ).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(screen.getByLabelText(/posting source/i), "other");
+    await userEvent.selectOptions(
+      screen.getByLabelText(/posting source/i),
+      "other",
+    );
 
-    expect(await screen.findByPlaceholderText(/other source label/i)).toBeInTheDocument();
+    expect(
+      await screen.findByPlaceholderText(/other source label/i),
+    ).toBeInTheDocument();
   });
 
   it("hides URL retry on URL-less manual entry applications", async () => {
@@ -1228,15 +1516,26 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/manual entry required/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /retry extraction/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /retry url/i })).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/manual entry required/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /retry with text/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /retry extraction/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /retry url/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("ignores duplicate extraction retry clicks while the first retry is pending", async () => {
@@ -1257,12 +1556,17 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    const retryButton = await screen.findByRole("button", { name: /retry url/i });
+    const retryButton = await screen.findByRole("button", {
+      name: /retry url/i,
+    });
     fireEvent.click(retryButton);
     fireEvent.click(retryButton);
 
@@ -1287,20 +1591,32 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    const sourceText = await screen.findByPlaceholderText(/paste job posting text/i);
-    await userEvent.type(sourceText, "Senior Platform Engineer. Build APIs and queues.");
+    const sourceText = await screen.findByPlaceholderText(
+      /paste job posting text/i,
+    );
+    await userEvent.type(
+      sourceText,
+      "Senior Platform Engineer. Build APIs and queues.",
+    );
 
-    const retryButton = screen.getByRole("button", { name: /retry with text/i });
+    const retryButton = screen.getByRole("button", {
+      name: /retry with text/i,
+    });
     const form = retryButton.closest("form") as HTMLFormElement;
     fireEvent.submit(form);
     fireEvent.submit(form);
 
-    await waitFor(() => expect(api.recoverApplicationFromSource).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.recoverApplicationFromSource).toHaveBeenCalledTimes(1),
+    );
   });
 
   it("ignores duplicate manual-entry submissions while the first save is pending", async () => {
@@ -1321,12 +1637,17 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    const submitButton = await screen.findByRole("button", { name: /submit manual entry/i });
+    const submitButton = await screen.findByRole("button", {
+      name: /submit manual entry/i,
+    });
     const form = submitButton.closest("form") as HTMLFormElement;
     fireEvent.submit(form);
     fireEvent.submit(form);
@@ -1385,20 +1706,35 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     expect(await screen.findByText(/duplicate detected/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /proceed anyway/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /open existing/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /proceed anyway/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /open existing/i }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText(/job title/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/company/i)).toBeInTheDocument();
   });
 
   it("renders the wide detail workspace with settings and generated resume panels", async () => {
-    api.listBaseResumes.mockResolvedValue([{ id: "resume-1", name: "Default Resume", is_default: true, created_at: "2026-04-07T12:00:00Z", updated_at: "2026-04-07T12:00:00Z" }]);
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
     api.fetchApplicationDetail.mockResolvedValue({
       id: "app-1",
       job_url: "https://example.com/job",
@@ -1440,32 +1776,57 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     expect(await screen.findByText(/generated resume/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /job description/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /generation settings/i })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("$170,000 - $210,000 base salary")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /job description/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /generation settings/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue("$170,000 - $210,000 base salary"),
+    ).toBeInTheDocument();
     expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
     const actionsButton = screen.getByRole("button", { name: /actions/i });
     expect(actionsButton).toHaveAttribute("aria-haspopup", "menu");
     expect(actionsButton).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("button", { name: /delete application/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^export$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^regenerate$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^compare$/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /delete application/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^export$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^regenerate$/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^compare$/i }),
+    ).not.toBeInTheDocument();
 
     // Open Actions dropdown to view nested options
     await userEvent.click(actionsButton);
 
     expect(actionsButton).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("menuitem", { name: /export pdf/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /export docx/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /mark applied/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /view posting/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /export pdf/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /export docx/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /mark applied/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /view posting/i }),
+    ).toBeInTheDocument();
   });
 
   it("opens the ATS keyword modal with exact match states", async () => {
@@ -1486,7 +1847,11 @@ describe("phase 1 applications UI", () => {
           keywords: [
             { text: "React Native", source: "extracted" },
             { text: "CI/CD", source: "extracted" },
-            { text: "Kubernetes", source: "manual", added_at: "2026-04-07T12:09:00Z" },
+            {
+              text: "Kubernetes",
+              source: "manual",
+              added_at: "2026-04-07T12:09:00Z",
+            },
           ],
         },
       }),
@@ -1494,15 +1859,26 @@ describe("phase 1 applications UI", () => {
     api.fetchDraft.mockResolvedValue({
       id: "draft-1",
       application_id: "app-1",
-      content_md: "# Resume\n\n## Summary\nBuilt React Native apps with CI/CD pipelines.",
+      content_md:
+        "# Resume\n\n## Summary\nBuilt React Native apps with CI/CD pipelines.",
       generation_params: {
         page_length: "1_page",
         aggressiveness: "medium",
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       keyword_match: {
         matched_count: 2,
@@ -1520,7 +1896,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -1530,22 +1909,38 @@ describe("phase 1 applications UI", () => {
     expect(within(card).getByText("2/3")).toBeInTheDocument();
     expect(within(card).queryByText("React Native")).not.toBeInTheDocument();
 
-    await user.click(within(card).getByRole("button", { name: /ats keywords/i }));
+    await user.click(
+      within(card).getByRole("button", { name: /ats keywords/i }),
+    );
 
-    const dialog = await screen.findByRole("dialog", { name: /ats keyword breakdown/i });
+    const dialog = await screen.findByRole("dialog", {
+      name: /ats keyword breakdown/i,
+    });
     expect(within(dialog).getByText("React Native")).toBeInTheDocument();
     expect(within(dialog).getByText("CI/CD")).toBeInTheDocument();
     expect(within(dialog).getByText("Kubernetes")).toBeInTheDocument();
-    const matchedKeywordPill = dialog.querySelector('[aria-label="React Native, matched keyword"]');
-    const missingKeywordPill = dialog.querySelector('[aria-label="Kubernetes, missing keyword"]');
+    const matchedKeywordPill = dialog.querySelector(
+      '[aria-label="React Native, matched keyword"]',
+    );
+    const missingKeywordPill = dialog.querySelector(
+      '[aria-label="Kubernetes, missing keyword"]',
+    );
     expect(matchedKeywordPill).not.toBeNull();
     expect(missingKeywordPill).not.toBeNull();
     expect(matchedKeywordPill as HTMLElement).not.toHaveTextContent(/matched/i);
     expect(missingKeywordPill as HTMLElement).not.toHaveTextContent(/missing/i);
-    expect(matchedKeywordPill as HTMLElement).toHaveAttribute("style", expect.stringContaining("var(--color-spruce)"));
-    expect(missingKeywordPill as HTMLElement).toHaveAttribute("style", expect.stringContaining("var(--color-ember)"));
+    expect(matchedKeywordPill as HTMLElement).toHaveAttribute(
+      "style",
+      expect.stringContaining("var(--color-spruce)"),
+    );
+    expect(missingKeywordPill as HTMLElement).toHaveAttribute(
+      "style",
+      expect.stringContaining("var(--color-ember)"),
+    );
     expect(within(dialog).getByText(/2\/3/i)).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /remove kubernetes/i })).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("button", { name: /remove kubernetes/i }),
+    ).toBeInTheDocument();
   });
 
   it("adds and removes manual ATS keywords from the modal", async () => {
@@ -1600,7 +1995,11 @@ describe("phase 1 applications UI", () => {
           updated_at: "2026-04-07T12:09:00Z",
           keywords: [
             { text: "React Native", source: "extracted" },
-            { text: "Kubernetes", source: "manual", added_at: "2026-04-07T12:09:00Z" },
+            {
+              text: "Kubernetes",
+              source: "manual",
+              added_at: "2026-04-07T12:09:00Z",
+            },
           ],
         },
       }),
@@ -1608,19 +2007,37 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const card = await screen.findByTestId("keyword-match-card");
-    await user.click(within(card).getByRole("button", { name: /ats keywords/i }));
-    const dialog = await screen.findByRole("dialog", { name: /ats keyword breakdown/i });
-    expect(within(dialog).getByRole("button", { name: /optimize for missing keywords/i })).toBeDisabled();
-    await user.type(within(dialog).getByLabelText(/add keyword/i), " Kubernetes ");
+    await user.click(
+      within(card).getByRole("button", { name: /ats keywords/i }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: /ats keyword breakdown/i,
+    });
+    expect(
+      within(dialog).getByRole("button", {
+        name: /optimize for missing keywords/i,
+      }),
+    ).toBeDisabled();
+    await user.type(
+      within(dialog).getByLabelText(/add keyword/i),
+      " Kubernetes ",
+    );
     await user.click(within(dialog).getByRole("button", { name: /^add$/i }));
 
-    await waitFor(() => expect(api.updateManualKeywords).toHaveBeenCalledWith("app-1", ["Kubernetes"]));
+    await waitFor(() =>
+      expect(api.updateManualKeywords).toHaveBeenCalledWith("app-1", [
+        "Kubernetes",
+      ]),
+    );
     expect(api.fetchDraft).toHaveBeenCalled();
 
     api.updateManualKeywords.mockResolvedValueOnce(
@@ -1636,8 +2053,12 @@ describe("phase 1 applications UI", () => {
         },
       }),
     );
-    await user.click(await within(dialog).findByRole("button", { name: /remove kubernetes/i }));
-    await waitFor(() => expect(api.updateManualKeywords).toHaveBeenLastCalledWith("app-1", []));
+    await user.click(
+      await within(dialog).findByRole("button", { name: /remove kubernetes/i }),
+    );
+    await waitFor(() =>
+      expect(api.updateManualKeywords).toHaveBeenLastCalledWith("app-1", []),
+    );
   });
 
   it("starts targeted keyword optimization from the modal", async () => {
@@ -1692,17 +2113,30 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const card = await screen.findByTestId("keyword-match-card");
-    await user.click(within(card).getByRole("button", { name: /ats keywords/i }));
-    const dialog = await screen.findByRole("dialog", { name: /ats keyword breakdown/i });
-    await user.click(within(dialog).getByRole("button", { name: /optimize for missing keywords/i }));
+    await user.click(
+      within(card).getByRole("button", { name: /ats keywords/i }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: /ats keyword breakdown/i,
+    });
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: /optimize for missing keywords/i,
+      }),
+    );
 
-    await waitFor(() => expect(api.triggerKeywordOptimization).toHaveBeenCalledWith("app-1"));
+    await waitFor(() =>
+      expect(api.triggerKeywordOptimization).toHaveBeenCalledWith("app-1"),
+    );
   });
 
   it("shows keyword extraction updating state and opens the application stream", async () => {
@@ -1722,15 +2156,22 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const card = await screen.findByTestId("keyword-match-card");
     expect(within(card).getByText(/queued/i)).toBeInTheDocument();
-    expect(within(card).getByText(/keyword extraction is updating/i)).toBeInTheDocument();
-    await waitFor(() => expect(api.openApplicationEventStream).toHaveBeenCalled());
+    expect(
+      within(card).getByText(/keyword extraction is updating/i),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.openApplicationEventStream).toHaveBeenCalled(),
+    );
   });
 
   it("shows below-target ATS keyword coverage", async () => {
@@ -1777,7 +2218,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -1806,14 +2250,19 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const card = await screen.findByTestId("keyword-match-card");
     expect(within(card).getByText(/0 total/i)).toBeInTheDocument();
-    expect(within(card).getByText(/keyword extraction timed out/i)).toBeInTheDocument();
+    expect(
+      within(card).getByText(/keyword extraction timed out/i),
+    ).toBeInTheDocument();
   });
 
   it("renders applied status without a misleading timestamp and offers unapplied action", async () => {
@@ -1839,8 +2288,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -1849,7 +2308,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -1858,16 +2320,28 @@ describe("phase 1 applications UI", () => {
     expect(screen.queryByText(/applied on/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^actions$/i }));
-    expect(screen.getByRole("menuitem", { name: /mark unapplied instead/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /mark unapplied instead/i }),
+    ).toBeInTheDocument();
   });
 
   it("downloads DOCX using the server-provided filename", async () => {
     const user = userEvent.setup();
     const appendSpy = vi.spyOn(document.body, "appendChild");
     const removeSpy = vi.spyOn(document.body, "removeChild");
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
 
-    api.listBaseResumes.mockResolvedValue([{ id: "resume-1", name: "Default Resume", is_default: true, created_at: "2026-04-07T12:00:00Z", updated_at: "2026-04-07T12:00:00Z" }]);
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
     api.fetchApplicationDetail.mockResolvedValue({
       id: "app-1",
       job_url: "https://example.com/job",
@@ -1914,7 +2388,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -1924,10 +2401,14 @@ describe("phase 1 applications UI", () => {
     await user.click(screen.getByRole("menuitem", { name: /export docx/i }));
 
     await waitFor(() => expect(api.exportDocx).toHaveBeenCalledWith("app-1"));
-    const anchor = appendSpy.mock.calls.find(([node]) => node instanceof HTMLAnchorElement)?.[0] as HTMLAnchorElement;
+    const anchor = appendSpy.mock.calls.find(
+      ([node]) => node instanceof HTMLAnchorElement,
+    )?.[0] as HTMLAnchorElement;
     expect(anchor.download).toBe("Alex_Example_resume_20260412_101500.docx");
     expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
-    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith(
+      "blob:mock-url",
+    );
 
     appendSpy.mockRestore();
     removeSpy.mockRestore();
@@ -2004,7 +2485,51 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(<BaseResumesPage />);
 
     expect(await screen.findByText("Product Resume")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /delete product resume/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /delete product resume/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("returns to resume upload without submitting the review form", async () => {
+    api.uploadBaseResume.mockResolvedValue({
+      id: "resume-uploaded",
+      name: "Uploaded Resume",
+      content_md: "# Uploaded Resume",
+      is_default: false,
+      needs_review: true,
+      import_warning: "Review formatting.",
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:00:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/resumes/new" element={<BaseResumeEditorPage />} />
+      </Routes>,
+      { initialEntries: ["/app/resumes/new?mode=upload"] },
+    );
+
+    await userEvent.type(
+      screen.getByLabelText(/resume name/i),
+      "Uploaded Resume",
+    );
+    await userEvent.upload(
+      screen.getByLabelText(/pdf file/i),
+      new File(["resume"], "resume.pdf", { type: "application/pdf" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /upload & parse/i }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /re-upload/i }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /re-upload/i }));
+
+    expect(
+      await screen.findByRole("button", { name: /upload & parse/i }),
+    ).toBeInTheDocument();
+    expect(api.updateBaseResume).not.toHaveBeenCalled();
   });
 
   it("deletes a resume from the detail header icon flow", async () => {
@@ -2021,18 +2546,29 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(
       <Routes>
         <Route path="/app/resumes" element={<div>Resumes Route</div>} />
-        <Route path="/app/resumes/:resumeId" element={<BaseResumeEditorPage />} />
+        <Route
+          path="/app/resumes/:resumeId"
+          element={<BaseResumeEditorPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/resumes/resume-1"] },
     );
 
     expect(await screen.findByText("Product Resume")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /^delete resume$/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /^delete resume$/i }),
+    );
     expect(await screen.findByText(/delete resume\?/i)).toBeInTheDocument();
-    await userEvent.click(screen.getAllByRole("button", { name: /delete resume/i }).at(-1) as HTMLElement);
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /delete resume/i })
+        .at(-1) as HTMLElement,
+    );
 
-    await waitFor(() => expect(api.deleteBaseResume).toHaveBeenCalledWith("resume-1"));
+    await waitFor(() =>
+      expect(api.deleteBaseResume).toHaveBeenCalledWith("resume-1"),
+    );
     expect(await screen.findByText("Resumes Route")).toBeInTheDocument();
   });
 
@@ -2081,14 +2617,21 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/blocked automated retrieval/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/blocked automated retrieval/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/9e8afb060bd31117/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /retry with text/i }),
+    ).toBeInTheDocument();
   });
 
   it("does not re-request base resumes when notes autosave updates unrelated detail state", async () => {
@@ -2139,18 +2682,26 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    const notesInput = await screen.findByPlaceholderText(/add your own notes/i);
+    const notesInput =
+      await screen.findByPlaceholderText(/add your own notes/i);
     expect(api.listBaseResumes).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(notesInput, { target: { value: "Remember recruiter context" } });
+    fireEvent.change(notesInput, {
+      target: { value: "Remember recruiter context" },
+    });
 
     await waitFor(() =>
-      expect(api.patchApplication).toHaveBeenCalledWith("app-1", { notes: "Remember recruiter context" }),
+      expect(api.patchApplication).toHaveBeenCalledWith("app-1", {
+        notes: "Remember recruiter context",
+      }),
     );
     expect(api.listBaseResumes).toHaveBeenCalledTimes(1);
   });
@@ -2174,7 +2725,9 @@ describe("phase 1 applications UI", () => {
       },
     ]);
 
-    let resolveNotesSave: ((value: ReturnType<typeof buildApplicationDetail>) => void) | null = null;
+    let resolveNotesSave:
+      | ((value: ReturnType<typeof buildApplicationDetail>) => void)
+      | null = null;
     api.patchApplication.mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -2184,19 +2737,29 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    const notesInput = await screen.findByPlaceholderText(/add your own notes/i);
+    const notesInput =
+      await screen.findByPlaceholderText(/add your own notes/i);
     const jobTitleInput = screen.getByLabelText("Job Title");
 
-    fireEvent.change(notesInput, { target: { value: "Remember recruiter context" } });
-    fireEvent.change(jobTitleInput, { target: { value: "Staff Backend Engineer" } });
+    fireEvent.change(notesInput, {
+      target: { value: "Remember recruiter context" },
+    });
+    fireEvent.change(jobTitleInput, {
+      target: { value: "Staff Backend Engineer" },
+    });
 
     await waitFor(() =>
-      expect(api.patchApplication).toHaveBeenCalledWith("app-1", { notes: "Remember recruiter context" }),
+      expect(api.patchApplication).toHaveBeenCalledWith("app-1", {
+        notes: "Remember recruiter context",
+      }),
     );
 
     await act(async () => {
@@ -2210,7 +2773,9 @@ describe("phase 1 applications UI", () => {
       );
     });
 
-    expect(screen.getByLabelText("Job Title")).toHaveValue("Staff Backend Engineer");
+    expect(screen.getByLabelText("Job Title")).toHaveValue(
+      "Staff Backend Engineer",
+    );
     expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(1);
   });
 
@@ -2218,19 +2783,29 @@ describe("phase 1 applications UI", () => {
     const user = userEvent.setup();
     let isActive = true;
 
-    api.listAdminUsers.mockImplementation(async (params?: { search?: string; status?: string }) => {
-      const adminUser = buildAdminUser({ is_active: isActive, updated_at: isActive ? "2026-04-07T12:05:00Z" : "2026-04-07T12:10:00Z" });
-      if (params?.status === "active") {
-        return isActive ? [adminUser] : [];
-      }
-      if (params?.status === "deactivated") {
-        return isActive ? [] : [adminUser];
-      }
-      return [adminUser];
-    });
+    api.listAdminUsers.mockImplementation(
+      async (params?: { search?: string; status?: string }) => {
+        const adminUser = buildAdminUser({
+          is_active: isActive,
+          updated_at: isActive
+            ? "2026-04-07T12:05:00Z"
+            : "2026-04-07T12:10:00Z",
+        });
+        if (params?.status === "active") {
+          return isActive ? [adminUser] : [];
+        }
+        if (params?.status === "deactivated") {
+          return isActive ? [] : [adminUser];
+        }
+        return [adminUser];
+      },
+    );
     api.deactivateAdminUser.mockImplementation(async () => {
       isActive = false;
-      return buildAdminUser({ is_active: false, updated_at: "2026-04-07T12:10:00Z" });
+      return buildAdminUser({
+        is_active: false,
+        updated_at: "2026-04-07T12:10:00Z",
+      });
     });
 
     renderWithAppProvider(<AdminUsersPage />);
@@ -2244,7 +2819,9 @@ describe("phase 1 applications UI", () => {
     expect(await screen.findByText("Casey Member")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /deactivate/i }));
-    await waitFor(() => expect(api.deactivateAdminUser).toHaveBeenCalledWith("user-2"));
+    await waitFor(() =>
+      expect(api.deactivateAdminUser).toHaveBeenCalledWith("user-2"),
+    );
 
     await user.selectOptions(screen.getByRole("combobox"), "active");
 
@@ -2255,13 +2832,20 @@ describe("phase 1 applications UI", () => {
   it("edits an admin user's subscription tier", async () => {
     const user = userEvent.setup();
     api.listAdminUsers.mockResolvedValue([buildAdminUser()]);
-    api.updateAdminUser.mockResolvedValue(buildAdminUser({ subscription_tier: "pro" }));
+    api.updateAdminUser.mockResolvedValue(
+      buildAdminUser({ subscription_tier: "pro" }),
+    );
 
     renderWithAppProvider(<AdminUsersPage />);
 
     await screen.findByText("Casey Member");
-    await user.click(screen.getByRole("button", { name: /edit member@example.com/i }));
-    await user.selectOptions(screen.getByLabelText(/subscription tier/i), "pro");
+    await user.click(
+      screen.getByRole("button", { name: /edit member@example.com/i }),
+    );
+    await user.selectOptions(
+      screen.getByLabelText(/subscription tier/i),
+      "pro",
+    );
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() =>
@@ -2275,17 +2859,30 @@ describe("phase 1 applications UI", () => {
   it("submits a trimmed admin invite from the invite modal", async () => {
     const user = userEvent.setup();
     api.listAdminUsers.mockResolvedValue([buildAdminUser()]);
-    api.inviteAdminUser.mockResolvedValue(buildAdminUser({ email: "new@example.com" }));
+    api.inviteAdminUser.mockResolvedValue(
+      buildAdminUser({ email: "new@example.com" }),
+    );
 
     renderWithAppProvider(<AdminUsersPage />);
 
     await screen.findByText("Casey Member");
     await user.click(screen.getByRole("button", { name: /send invite/i }));
     const inviteDialog = screen.getByRole("dialog", { name: /send invite/i });
-    await user.type(within(inviteDialog).getByLabelText(/^email$/i), "  new@example.com  ");
-    await user.type(within(inviteDialog).getByLabelText(/first name/i), "  New  ");
-    await user.type(within(inviteDialog).getByLabelText(/last name/i), "  Person  ");
-    await user.click(within(inviteDialog).getByRole("button", { name: /^send invite$/i }));
+    await user.type(
+      within(inviteDialog).getByLabelText(/^email$/i),
+      "  new@example.com  ",
+    );
+    await user.type(
+      within(inviteDialog).getByLabelText(/first name/i),
+      "  New  ",
+    );
+    await user.type(
+      within(inviteDialog).getByLabelText(/last name/i),
+      "  Person  ",
+    );
+    await user.click(
+      within(inviteDialog).getByRole("button", { name: /^send invite$/i }),
+    );
 
     await waitFor(() =>
       expect(api.inviteAdminUser).toHaveBeenCalledWith({
@@ -2304,17 +2901,25 @@ describe("phase 1 applications UI", () => {
     renderWithAppProvider(<AdminUsersPage />);
 
     await screen.findByText("Casey Member");
-    await user.click(screen.getByRole("button", { name: /delete member@example.com/i }));
+    await user.click(
+      screen.getByRole("button", { name: /delete member@example.com/i }),
+    );
     expect(api.deleteAdminUser).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: /^cancel$/i }));
     expect(api.deleteAdminUser).not.toHaveBeenCalled();
-    expect(screen.queryByRole("heading", { name: /delete user/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /delete user/i }),
+    ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /delete member@example.com/i }));
+    await user.click(
+      screen.getByRole("button", { name: /delete member@example.com/i }),
+    );
     await user.click(screen.getByRole("button", { name: /^delete$/i }));
 
-    await waitFor(() => expect(api.deleteAdminUser).toHaveBeenCalledWith("user-2"));
+    await waitFor(() =>
+      expect(api.deleteAdminUser).toHaveBeenCalledWith("user-2"),
+    );
   });
 
   it("updates subscription tier settings from the admin page", async () => {
@@ -2365,7 +2970,12 @@ describe("phase 1 applications UI", () => {
     const limitInput = screen.getByDisplayValue("10");
     await user.clear(limitInput);
     await user.type(limitInput, "12");
-    await user.click(within(limitInput.closest("form") as HTMLFormElement).getByRole("button", { name: /save/i }));
+    await user.click(
+      within(limitInput.closest("form") as HTMLFormElement).getByRole(
+        "button",
+        { name: /save/i },
+      ),
+    );
 
     await waitFor(() =>
       expect(api.updateSubscriptionTier).toHaveBeenCalledWith("basic", {
@@ -2404,11 +3014,16 @@ describe("phase 1 applications UI", () => {
     const primaryInput = within(form).getByLabelText(/primary model/i);
     const fallbackInput = within(form).getByLabelText(/fallback model/i);
 
-    await user.selectOptions(fallbackInput, (primaryInput as HTMLSelectElement).value);
+    await user.selectOptions(
+      fallbackInput,
+      (primaryInput as HTMLSelectElement).value,
+    );
     await user.click(within(form).getByRole("button", { name: /save/i }));
 
     expect(api.updateSubscriptionTier).not.toHaveBeenCalled();
-    expect(await screen.findByText(/fallback model must be different/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/fallback model must be different/i),
+    ).toBeInTheDocument();
   });
 
   it("offers DeepSeek V4 Flash with its supported reasoning levels", async () => {
@@ -2444,17 +3059,30 @@ describe("phase 1 applications UI", () => {
 
     await screen.findByRole("heading", { name: /subscription settings/i });
     await screen.findByText("Basic");
-    const form = screen.getByDisplayValue("10").closest("form") as HTMLFormElement;
+    const form = screen
+      .getByDisplayValue("10")
+      .closest("form") as HTMLFormElement;
     const primaryInput = within(form).getByLabelText(/primary model/i);
-    const primaryReasoningInput = within(form).getByLabelText(/primary reasoning/i);
+    const primaryReasoningInput =
+      within(form).getByLabelText(/primary reasoning/i);
 
     await user.selectOptions(primaryInput, "deepseek/deepseek-v4-flash");
 
-    expect(within(primaryReasoningInput).getByRole("option", { name: "None" })).toBeInTheDocument();
-    expect(within(primaryReasoningInput).getByRole("option", { name: "High" })).toBeInTheDocument();
-    expect(within(primaryReasoningInput).getByRole("option", { name: "Extra high" })).toBeInTheDocument();
-    expect(within(primaryReasoningInput).queryByRole("option", { name: "Low" })).not.toBeInTheDocument();
-    expect(within(primaryReasoningInput).queryByRole("option", { name: "Medium" })).not.toBeInTheDocument();
+    expect(
+      within(primaryReasoningInput).getByRole("option", { name: "None" }),
+    ).toBeInTheDocument();
+    expect(
+      within(primaryReasoningInput).getByRole("option", { name: "High" }),
+    ).toBeInTheDocument();
+    expect(
+      within(primaryReasoningInput).getByRole("option", { name: "Extra high" }),
+    ).toBeInTheDocument();
+    expect(
+      within(primaryReasoningInput).queryByRole("option", { name: "Low" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(primaryReasoningInput).queryByRole("option", { name: "Medium" }),
+    ).not.toBeInTheDocument();
 
     await user.selectOptions(primaryReasoningInput, "xhigh");
     await user.click(within(form).getByRole("button", { name: /save/i }));
@@ -2511,13 +3139,20 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByRole("button", { name: /stop extraction/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^delete application$/i })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /stop extraction/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^delete application$/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("refreshes shell breadcrumbs after saving job info on the detail page", async () => {
@@ -2625,23 +3260,41 @@ describe("phase 1 applications UI", () => {
       <>
         <AppBreadcrumbs />
         <Routes>
-          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+          <Route
+            path="/app/applications/:applicationId"
+            element={<ApplicationDetailPage />}
+          />
         </Routes>
       </>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText("Acme — Backend Engineer")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Acme — Backend Engineer"),
+    ).toBeInTheDocument();
 
     await userEvent.clear(screen.getByLabelText(/job title/i));
-    await userEvent.type(screen.getByLabelText(/job title/i), "Staff Backend Engineer");
+    await userEvent.type(
+      screen.getByLabelText(/job title/i),
+      "Staff Backend Engineer",
+    );
     await userEvent.clear(screen.getByLabelText(/company/i));
     await userEvent.type(screen.getByLabelText(/company/i), "Beta Labs");
-    await userEvent.type(screen.getByLabelText(/location/i), "British Columbia/Ontario");
-    await userEvent.type(screen.getByLabelText(/compensation/i), "$145,000 - $175,000");
-    await userEvent.click(screen.getAllByRole("button", { name: /^save$/i })[0]);
+    await userEvent.type(
+      screen.getByLabelText(/location/i),
+      "British Columbia/Ontario",
+    );
+    await userEvent.type(
+      screen.getByLabelText(/compensation/i),
+      "$145,000 - $175,000",
+    );
+    await userEvent.click(
+      screen.getAllByRole("button", { name: /^save$/i })[0],
+    );
 
-    expect(await screen.findByText("Beta Labs — Staff Backend Engineer")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Beta Labs — Staff Backend Engineer"),
+    ).toBeInTheDocument();
     expect(api.patchApplication).toHaveBeenCalledWith(
       "app-1",
       expect.objectContaining({
@@ -2656,7 +3309,13 @@ describe("phase 1 applications UI", () => {
 
   it("shows detailed aggressiveness help in compact popovers", async () => {
     api.listBaseResumes.mockResolvedValue([
-      { id: "resume-1", name: "Default Resume", is_default: true, created_at: "2026-04-07T12:00:00Z", updated_at: "2026-04-07T12:00:00Z" },
+      {
+        id: "resume-1",
+        name: "Default Resume",
+        is_default: true,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
     ]);
     api.fetchApplicationDetail.mockResolvedValue({
       id: "app-1",
@@ -2699,21 +3358,42 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByRole("heading", { name: /generation settings/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /generation settings/i }),
+    ).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /high aggressiveness details/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /high aggressiveness details/i }),
+    );
 
-    expect(await screen.findByText(/professional experience: aggressively reframe, reprioritize, consolidate, and condense grounded bullets/i)).toBeInTheDocument();
-    expect(screen.getByText(/role titles may be rewritten when the new title still matches the demonstrated work\. company and dates remain fixed\./i)).toBeInTheDocument();
-    expect(screen.getByText(/education: no factual rewrites beyond minimal formatting cleanup\./i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /professional experience: aggressively reframe, reprioritize, consolidate, and condense grounded bullets/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /role titles may be rewritten when the new title still matches the demonstrated work\. company and dates remain fixed\./i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /education: no factual rewrites beyond minimal formatting cleanup\./i,
+      ),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByText("High"));
     expect(
-      await screen.findByText(/high aggressiveness can make substantial changes to wording, emphasis, professional experience role framing, and keyword\/skills coverage, while company and dates stay fixed/i),
+      await screen.findByText(
+        /high aggressiveness can make substantial changes to wording, emphasis, professional experience role framing, and keyword\/skills coverage, while company and dates stay fixed/i,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -2730,7 +3410,8 @@ describe("phase 1 applications UI", () => {
     api.fetchDraft.mockResolvedValue({
       id: "draft-1",
       application_id: "app-1",
-      content_md: "# Resume\n\n## Summary\nBuilt backend systems with Kubernetes.\n\n## Professional Experience\n- Built APIs",
+      content_md:
+        "# Resume\n\n## Summary\nBuilt backend systems with Kubernetes.\n\n## Professional Experience\n- Built APIs",
       generation_params: {
         base_resume_id: "resume-1",
         page_length: "1_page",
@@ -2738,8 +3419,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       review_flags: [
         {
@@ -2755,7 +3446,8 @@ describe("phase 1 applications UI", () => {
     api.fetchBaseResume.mockResolvedValue({
       id: "resume-1",
       name: "Default Resume",
-      content_md: "# Resume\n\n## Summary\nBuilt backend systems.\n\n## Professional Experience\n- Built services",
+      content_md:
+        "# Resume\n\n## Summary\nBuilt backend systems.\n\n## Professional Experience\n- Built services",
       is_default: true,
       created_at: "2026-04-07T12:00:00Z",
       updated_at: "2026-04-07T12:00:00Z",
@@ -2763,16 +3455,27 @@ describe("phase 1 applications UI", () => {
 
     const { container } = renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByRole("button", { name: /^actions$/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /^actions$/i }),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
-    expect(screen.getByRole("menuitem", { name: /^compare$/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /^regen section$/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /^full regen$/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /^compare$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /^regen section$/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /^full regen$/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows a source-limited length warning on the generated draft", async () => {
@@ -2828,13 +3531,21 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect((await screen.findAllByText(/shorter than target/i)).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText(/below the selected 2-page target of 900-1400 words/i).length).toBeGreaterThanOrEqual(1);
+    expect(
+      (await screen.findAllByText(/shorter than target/i)).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText(/below the selected 2-page target of 900-1400 words/i)
+        .length,
+    ).toBeGreaterThanOrEqual(1);
   });
 
   it("opens compare mode, keeps generated edit mode available, and closes back to the default layout", async () => {
@@ -2858,8 +3569,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -2876,35 +3597,56 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: /^actions$/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^actions$/i }),
+    );
     await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
     await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
-    expect(screen.getByRole("menuitem", { name: /close comparison/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: /close comparison/i }),
+    ).toBeInTheDocument();
     // Close the dropdown after checking
     await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
 
-    expect(screen.queryByText(/tailored draft shown beside the generation-time base resume/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        /tailored draft shown beside the generation-time base resume/i,
+      ),
+    ).not.toBeInTheDocument();
     const baseHeading = screen.getByRole("heading", { name: /base resume/i });
     const basePane = baseHeading.closest(".compare-pane-card");
     expect(basePane).not.toBeNull();
-    expect(within(basePane as HTMLElement).getByText("Default Resume")).toBeInTheDocument();
+    expect(
+      within(basePane as HTMLElement).getByText("Default Resume"),
+    ).toBeInTheDocument();
     expect(screen.getAllByText(/base summary/i).length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
     expect(screen.getByDisplayValue(/tailored summary/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /base resume/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /base resume/i }),
+    ).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
-    await userEvent.click(screen.getByRole("menuitem", { name: /close comparison/i }));
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: /close comparison/i }),
+    );
 
-    await userEvent.click(await screen.findByRole("button", { name: /^actions$/i }));
-    expect(screen.getByRole("menuitem", { name: /^compare$/i })).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^actions$/i }),
+    );
+    expect(
+      screen.getByRole("menuitem", { name: /^compare$/i }),
+    ).toBeInTheDocument();
   });
 
   it("renders base-resume headings and bullets cleanly in compare mode", async () => {
@@ -2928,8 +3670,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -2946,22 +3698,33 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: /^actions$/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^actions$/i }),
+    );
     await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
-    const baseHeading = await screen.findByRole("heading", { name: "Base Resume" });
+    const baseHeading = await screen.findByRole("heading", {
+      name: "Base Resume",
+    });
     const basePane = baseHeading.closest(".compare-pane-card");
 
     expect(screen.getByRole("heading", { name: "Skills" })).toBeInTheDocument();
     expect(screen.queryByText("## Skills")).not.toBeInTheDocument();
     expect(basePane).not.toBeNull();
-    expect(within(basePane as HTMLElement).getByText("Playwright").tagName).toBe("LI");
-    expect(within(basePane as HTMLElement).getByText("Cypress").tagName).toBe("LI");
+    expect(
+      within(basePane as HTMLElement).getByText("Playwright").tagName,
+    ).toBe("LI");
+    expect(within(basePane as HTMLElement).getByText("Cypress").tagName).toBe(
+      "LI",
+    );
   });
 
   it("switches the shell into immersive mode during compare and restores the default shell on close", async () => {
@@ -2985,8 +3748,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -3007,14 +3780,19 @@ describe("phase 1 applications UI", () => {
         <MemoryRouter initialEntries={["/app/applications/app-1"]}>
           <Routes>
             <Route path="/app" element={<AppShell />}>
-              <Route path="applications/:applicationId" element={<ApplicationDetailPage />} />
+              <Route
+                path="applications/:applicationId"
+                element={<ApplicationDetailPage />}
+              />
             </Route>
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
     );
 
-    const actionsButton = await screen.findByRole("button", { name: /^actions$/i });
+    const actionsButton = await screen.findByRole("button", {
+      name: /^actions$/i,
+    });
     const shellRoot = actionsButton.closest(".app-shell-root");
     const shellFrame = actionsButton.closest(".app-shell-frame");
 
@@ -3031,7 +3809,9 @@ describe("phase 1 applications UI", () => {
     expect(screen.queryByLabelText(/toggle sidebar/i)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
-    await userEvent.click(screen.getByRole("menuitem", { name: /close comparison/i }));
+    await userEvent.click(
+      screen.getByRole("menuitem", { name: /close comparison/i }),
+    );
 
     expect(shellRoot).toHaveAttribute("data-shell-mode", "default");
   });
@@ -3057,8 +3837,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -3091,18 +3881,27 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     await screen.findByRole("button", { name: /^actions$/i });
     await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
-    expect(screen.getByRole("menuitem", { name: /^compare$/i })).toBeInTheDocument();
-    await waitFor(() => expect(api.fetchBaseResume).toHaveBeenCalledWith("resume-1"));
+    expect(
+      screen.getByRole("menuitem", { name: /^compare$/i }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.fetchBaseResume).toHaveBeenCalledWith("resume-1"),
+    );
 
     await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
-    expect((await screen.findAllByText(/original baseline/i)).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByText(/original baseline/i)).length,
+    ).toBeGreaterThan(0);
   });
 
   it("keeps normal preview usable and blocks compare when the generation-time base resume cannot be loaded", async () => {
@@ -3126,8 +3925,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -3137,16 +3946,25 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: /^actions$/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^actions$/i }),
+    );
     await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
-    expect(await screen.findAllByText(/compare view is unavailable/i)).toHaveLength(2);
-    expect(screen.queryByRole("heading", { name: /base resume/i })).not.toBeInTheDocument();
+    expect(
+      await screen.findAllByText(/compare view is unavailable/i),
+    ).toHaveLength(2);
+    expect(
+      screen.queryByRole("heading", { name: /base resume/i }),
+    ).not.toBeInTheDocument();
     expect(screen.getAllByText(/tailored summary/i).length).toBeGreaterThan(0);
   });
 
@@ -3181,19 +3999,35 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications" element={<div>Applications Route</div>} />
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications"
+          element={<div>Applications Route</div>}
+        />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     await screen.findByText("Backend Engineer");
 
-    await userEvent.click(screen.getByRole("button", { name: /^delete application$/i }));
-    expect(await screen.findByText(/delete application\?/i)).toBeInTheDocument();
-    await userEvent.click(screen.getAllByRole("button", { name: /delete application/i }).at(-1) as HTMLElement);
+    await userEvent.click(
+      screen.getByRole("button", { name: /^delete application$/i }),
+    );
+    expect(
+      await screen.findByText(/delete application\?/i),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen
+        .getAllByRole("button", { name: /delete application/i })
+        .at(-1) as HTMLElement,
+    );
 
-    await waitFor(() => expect(api.deleteApplication).toHaveBeenCalledWith("app-1"));
+    await waitFor(() =>
+      expect(api.deleteApplication).toHaveBeenCalledWith("app-1"),
+    );
     expect(await screen.findByText("Applications Route")).toBeInTheDocument();
   });
 
@@ -3271,22 +4105,41 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByRole("button", { name: /stop extraction/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /stop extraction/i }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /stop extraction/i }));
     expect(await screen.findByText(/stop extraction\?/i)).toBeInTheDocument();
-    await user.click(screen.getAllByRole("button", { name: /stop extraction/i }).at(-1) as HTMLElement);
+    await user.click(
+      screen
+        .getAllByRole("button", { name: /stop extraction/i })
+        .at(-1) as HTMLElement,
+    );
 
-    await waitFor(() => expect(api.cancelExtraction).toHaveBeenCalledWith("app-1"));
-    expect(await screen.findByRole("heading", { name: /manual entry required/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/extraction was stopped/i)[0]).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /retry with text/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^delete application$/i })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.cancelExtraction).toHaveBeenCalledWith("app-1"),
+    );
+    expect(
+      await screen.findByRole("heading", { name: /manual entry required/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/extraction was stopped/i)[0],
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /retry with text/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /^delete application$/i }),
+    ).toBeInTheDocument();
   });
 
   it("renders extension onboarding status", async () => {
@@ -3304,9 +4157,13 @@ describe("phase 1 applications UI", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("heading", { name: /chrome extension/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /chrome extension/i }),
+    ).toBeInTheDocument();
     expect(screen.getByText(/no active token/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /connect extension/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /connect extension/i }),
+    ).toBeInTheDocument();
   });
 
   it("treats generation_pending with a failure reason as failed, not active", async () => {
@@ -3342,14 +4199,21 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByRole("heading", { name: /generation failed/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /generation failed/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/resume generation/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /cancel generation/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /cancel generation/i }),
+    ).not.toBeInTheDocument();
     expect(api.fetchApplicationProgress).not.toHaveBeenCalled();
   });
 
@@ -3424,14 +4288,23 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole("heading", { name: /generation failed/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /cancel generation/i })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      await screen.findByRole("heading", { name: /generation failed/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /cancel generation/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("stops generation polling when terminal progress is returned but detail refresh fails", async () => {
@@ -3477,14 +4350,21 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
+    );
     expect(await screen.findByText(/^draft$/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /cancel generation/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /cancel generation/i }),
+    ).not.toBeInTheDocument();
     expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2);
   });
 
@@ -3520,15 +4400,28 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("heading", { name: /manual entry required/i })).toBeInTheDocument();
-    expect(screen.getByText(/automatic extraction failed\. manual entry is required\./i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      screen.getByRole("heading", { name: /manual entry required/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /automatic extraction failed\. manual entry is required\./i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("maps terminal extraction success progress to generation-pending fallback when detail sync lags", async () => {
@@ -3565,15 +4458,26 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole("heading", { name: /manual entry required/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/company is missing from extraction/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      screen.queryByRole("heading", { name: /manual entry required/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/company is missing from extraction/i),
+    ).toBeInTheDocument();
   });
 
   it("shows subscription quota guidance when full regeneration is capped", async () => {
@@ -3597,8 +4501,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -3612,20 +4526,33 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    const actionsButton = await screen.findByRole("button", { name: /^actions$/i });
+    const actionsButton = await screen.findByRole("button", {
+      name: /^actions$/i,
+    });
     await user.click(actionsButton);
-    await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: /full regen/i }),
+    );
 
-    const confirmButton = await screen.findByRole("button", { name: /^regenerate$/i });
+    const confirmButton = await screen.findByRole("button", {
+      name: /^regenerate$/i,
+    });
     await user.click(confirmButton);
 
-    await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/monthly resume generation limit reached/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      await screen.findByText(/monthly resume generation limit reached/i),
+    ).toBeInTheDocument();
   });
 
   it("keeps custom Full Regen instructions in the modal when regeneration fails to start", async () => {
@@ -3649,33 +4576,58 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
       updated_at: "2026-04-07T12:10:00Z",
     });
-    api.triggerFullRegeneration.mockRejectedValue(new Error("Unable to start regeneration right now."));
+    api.triggerFullRegeneration.mockRejectedValue(
+      new Error("Unable to start regeneration right now."),
+    );
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     await user.click(await screen.findByRole("button", { name: /^actions$/i }));
-    await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: /full regen/i }),
+    );
 
     const instructions = await screen.findByLabelText(/custom instructions/i);
     await user.type(instructions, "Preserve senior cloud leadership emphasis.");
     await user.click(screen.getByRole("button", { name: /^regenerate$/i }));
 
-    await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/unable to start regeneration right now/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /fully regenerate resume/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/custom instructions/i)).toHaveValue("Preserve senior cloud leadership emphasis.");
+    await waitFor(() =>
+      expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      await screen.findByText(/unable to start regeneration right now/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /fully regenerate resume/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/custom instructions/i)).toHaveValue(
+      "Preserve senior cloud leadership emphasis.",
+    );
   });
 
   it("merges saved settings instructions with Full Regen modal instructions", async () => {
@@ -3699,8 +4651,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "Keep infrastructure metrics prominent.",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -3717,25 +4679,36 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     await user.click(await screen.findByRole("button", { name: /^actions$/i }));
-    await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
-    await user.type(await screen.findByLabelText(/custom instructions/i), "Also emphasize senior leadership scope.");
+    await user.click(
+      await screen.findByRole("menuitem", { name: /full regen/i }),
+    );
+    await user.type(
+      await screen.findByLabelText(/custom instructions/i),
+      "Also emphasize senior leadership scope.",
+    );
     await user.click(screen.getByRole("button", { name: /^regenerate$/i }));
 
     await waitFor(() =>
       expect(api.triggerFullRegeneration).toHaveBeenCalledWith("app-1", {
         target_length: "2_page",
         aggressiveness: "high",
-        additional_instructions: "Keep infrastructure metrics prominent.\n\nAlso emphasize senior leadership scope.",
+        additional_instructions:
+          "Keep infrastructure metrics prominent.\n\nAlso emphasize senior leadership scope.",
         use_judge_feedback: undefined,
       }),
     );
-    expect(screen.queryByRole("heading", { name: /fully regenerate resume/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /fully regenerate resume/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the contextual job-details banner when retrying generation without a job title", async () => {
@@ -3767,7 +4740,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -3775,9 +4751,15 @@ describe("phase 1 applications UI", () => {
     await user.click(await screen.findByRole("button", { name: /^retry$/i }));
 
     expect(api.triggerGeneration).not.toHaveBeenCalled();
-    expect(await screen.findByText("Job Information Required")).toBeInTheDocument();
-    expect(screen.getByText(/please supply these under the job details panel/i)).toBeInTheDocument();
-    expect(screen.getByText(/details: add a job title before generating\./i)).toBeInTheDocument();
+    expect(
+      await screen.findByText("Job Information Required"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/please supply these under the job details panel/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/details: add a job title before generating\./i),
+    ).toBeInTheDocument();
   });
 
   it("shows backend generation stage messages while progress polling is active", async () => {
@@ -3793,7 +4775,8 @@ describe("phase 1 applications UI", () => {
       job_id: "job-2",
       workflow_kind: "generation",
       state: "generating",
-      message: "Applying deterministic Professional Experience structure checks",
+      message:
+        "Applying deterministic Professional Experience structure checks",
       percent_complete: 62,
       created_at: "2026-04-07T12:00:00Z",
       updated_at: "2026-04-07T12:01:00Z",
@@ -3803,13 +4786,22 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/applying deterministic professional experience structure checks/i)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      await screen.findByText(
+        /applying deterministic professional experience structure checks/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("updates generation progress from live stream events without waiting for the next watchdog poll", async () => {
@@ -3831,26 +4823,36 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1),
+    );
 
     await act(async () => {
       latestStreamHandlers().onProgress(
         buildProgressPayload({
           workflow_kind: "generation",
           state: "generating",
-          message: "Applying deterministic Professional Experience structure checks",
+          message:
+            "Applying deterministic Professional Experience structure checks",
           percent_complete: 62,
           updated_at: "2026-04-07T12:02:00Z",
         }),
       );
     });
 
-    expect(await screen.findByText(/applying deterministic professional experience structure checks/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /applying deterministic professional experience structure checks/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("disables repeated watchdog polling while live stream heartbeats are flowing", async () => {
@@ -3872,14 +4874,23 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
+    );
 
     await act(async () => {
       latestStreamHandlers().onHeartbeat?.({ sent_at: "2026-04-07T12:01:00Z" });
@@ -3908,35 +4919,48 @@ describe("phase 1 applications UI", () => {
         message: "Resume generation is running.",
       }),
     );
-    api.fetchDraft
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: "draft-1",
-        application_id: "app-1",
-        content_md: "# Resume\n\n## Summary\nTailored summary",
-        generation_params: {
-          base_resume_id: "resume-1",
-          page_length: "1_page",
-          aggressiveness: "medium",
-          additional_instructions: "",
-        },
-        sections_snapshot: {
-          enabled_sections: ["summary", "professional_experience", "education", "skills"],
-          section_order: ["summary", "professional_experience", "education", "skills"],
-        },
-        last_generated_at: "2026-04-07T12:10:00Z",
-        last_exported_at: null,
-        updated_at: "2026-04-07T12:10:00Z",
-      });
+    api.fetchDraft.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nTailored summary",
+      generation_params: {
+        base_resume_id: "resume-1",
+        page_length: "1_page",
+        aggressiveness: "medium",
+        additional_instructions: "",
+      },
+      sections_snapshot: {
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1),
+    );
     await screen.findByText(/resume generation is running/i);
 
     await act(async () => {
@@ -4004,8 +5028,18 @@ describe("phase 1 applications UI", () => {
           additional_instructions: "",
         },
         sections_snapshot: {
-          enabled_sections: ["summary", "professional_experience", "education", "skills"],
-          section_order: ["summary", "professional_experience", "education", "skills"],
+          enabled_sections: [
+            "summary",
+            "professional_experience",
+            "education",
+            "skills",
+          ],
+          section_order: [
+            "summary",
+            "professional_experience",
+            "education",
+            "skills",
+          ],
         },
         last_generated_at: "2026-04-07T12:10:00Z",
         last_exported_at: null,
@@ -4014,13 +5048,20 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2),
+    );
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledTimes(3));
     expect(await screen.findByText(/^in progress$/i)).toBeInTheDocument();
     expect(screen.queryByText(/scoring draft/i)).not.toBeInTheDocument();
@@ -4092,8 +5133,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4102,18 +5153,29 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
+    );
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
     await waitFor(() => {
-      expect(document.querySelector(".resume-preview-markdown")).toHaveTextContent("Grounded summary");
+      expect(
+        document.querySelector(".resume-preview-markdown"),
+      ).toHaveTextContent("Grounded summary");
     });
-    expect(screen.getByText(/refreshing experience bullets/i)).toBeInTheDocument();
-    expect(screen.queryByText(/no resume generated yet/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/refreshing experience bullets/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/no resume generated yet/i),
+    ).not.toBeInTheDocument();
   });
 
   it("closes the stale draft editor immediately when full regeneration starts", async () => {
@@ -4148,8 +5210,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4165,7 +5237,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -4179,12 +5254,18 @@ describe("phase 1 applications UI", () => {
     });
 
     await user.click(screen.getByRole("button", { name: /^actions$/i }));
-    await user.click(await screen.findByRole("menuitem", { name: /full regen/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: /full regen/i }),
+    );
 
-    const confirmButton = await screen.findByRole("button", { name: /^regenerate$/i });
+    const confirmButton = await screen.findByRole("button", {
+      name: /^regenerate$/i,
+    });
     await user.click(confirmButton);
 
-    await waitFor(() => expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1),
+    );
     expect(document.querySelector(".markdown-editor-input")).toBeNull();
     expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
   });
@@ -4226,8 +5307,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "Emphasize architecture leadership.",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:05:00Z",
       last_exported_at: null,
@@ -4245,7 +5336,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -4253,7 +5347,9 @@ describe("phase 1 applications UI", () => {
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByLabelText("3 Pages")).toBeChecked());
     expect(screen.getByRole("radio", { name: /high/i })).toBeChecked();
-    expect(screen.getByDisplayValue("Emphasize architecture leadership.")).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue("Emphasize architecture leadership."),
+    ).toBeInTheDocument();
   });
 
   it("keeps generation settings dirty when the user changes them locally", async () => {
@@ -4293,8 +5389,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:05:00Z",
       last_exported_at: null,
@@ -4312,18 +5418,26 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledTimes(1));
 
-    const settingsHeading = await screen.findByRole("heading", { name: /generation settings/i });
+    const settingsHeading = await screen.findByRole("heading", {
+      name: /generation settings/i,
+    });
     const settingsForm = settingsHeading.closest("form");
     expect(settingsForm).not.toBeNull();
 
-    const saveButton = within(settingsForm as HTMLFormElement).getByRole("button", { name: /^save$/i });
+    const saveButton = within(settingsForm as HTMLFormElement).getByRole(
+      "button",
+      { name: /^save$/i },
+    );
     expect(saveButton).toBeDisabled();
 
     await userEvent.click(screen.getByLabelText("2 Pages"));
@@ -4346,18 +5460,49 @@ describe("phase 1 applications UI", () => {
           pass_threshold: 80,
           score_summary: "Strong alignment with a few voice issues.",
           dimension_scores: {
-            role_alignment: { score: 8, weight: 0.25, weighted_contribution: 20, notes: "Aligned to the JD." },
-            specificity_and_concreteness: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Mostly specific." },
-            voice_and_human_quality: { score: 5, weight: 0.2, weighted_contribution: 10, notes: "Voice still feels templated." },
-            grounding_integrity: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Grounded." },
-            ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
-            length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable length." },
+            role_alignment: {
+              score: 8,
+              weight: 0.25,
+              weighted_contribution: 20,
+              notes: "Aligned to the JD.",
+            },
+            specificity_and_concreteness: {
+              score: 7,
+              weight: 0.2,
+              weighted_contribution: 14,
+              notes: "Mostly specific.",
+            },
+            voice_and_human_quality: {
+              score: 5,
+              weight: 0.2,
+              weighted_contribution: 10,
+              notes: "Voice still feels templated.",
+            },
+            grounding_integrity: {
+              score: 8,
+              weight: 0.2,
+              weighted_contribution: 16,
+              notes: "Grounded.",
+            },
+            ats_safety_and_formatting: {
+              score: 9,
+              weight: 0.1,
+              weighted_contribution: 9,
+              notes: "ATS-safe.",
+            },
+            length_and_density: {
+              score: 7,
+              weight: 0.05,
+              weighted_contribution: 3.5,
+              notes: "Acceptable length.",
+            },
           },
           regeneration_instructions: {
             summary: ["Tighten the summary voice.", null as unknown as string],
           },
           regeneration_priority_dimensions: ["voice_and_human_quality"],
-          evaluator_notes: "A targeted rewrite should push this above the pass threshold.",
+          evaluator_notes:
+            "A targeted rewrite should push this above the pass threshold.",
           evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
           scored_at: "2026-04-07T12:12:00Z",
         },
@@ -4373,8 +5518,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4383,29 +5538,53 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const judgeCard = await screen.findByTestId("resume-judge-card");
     expect(screen.getAllByText(/resume judge/i)).toHaveLength(1);
-    const jobDescriptionCard = await screen.findByTestId("job-description-card");
-    expect(judgeCard.compareDocumentPosition(jobDescriptionCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const jobDescriptionCard = await screen.findByTestId(
+      "job-description-card",
+    );
+    expect(
+      judgeCard.compareDocumentPosition(jobDescriptionCard) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(within(judgeCard).getByText(/78\/100/i)).toBeInTheDocument();
-    expect(within(judgeCard).getByText(/strong alignment with a few voice issues/i)).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByText(/strong alignment with a few voice issues/i),
+    ).toBeInTheDocument();
 
     await userEvent.click(judgeCard.closest("button") as HTMLButtonElement);
 
-    expect(await screen.findByRole("dialog", { name: /resume judge breakdown/i })).toBeInTheDocument();
-    expect(screen.getByText(/verdict: review at 77\.6 \/ 100\./i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /regenerate with judge feedback/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("dialog", { name: /resume judge breakdown/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/verdict: review at 77\.6 \/ 100\./i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /regenerate with judge feedback/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/aligned to the jd/i)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /role alignment/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /role alignment/i }),
+    );
     expect(screen.getByText(/aligned to the jd/i)).toBeInTheDocument();
     expect(screen.getByText(/summary:/i)).toBeInTheDocument();
-    expect(screen.getByText(/- tighten the summary voice\./i)).toBeInTheDocument();
-    expect(screen.getByText(/a targeted rewrite should push this above the pass threshold/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/- tighten the summary voice\./i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /a targeted rewrite should push this above the pass threshold/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("keeps a completed resume judge score visible after export refresh when the backend marks it current", async () => {
@@ -4424,16 +5603,47 @@ describe("phase 1 applications UI", () => {
             pass_threshold: 80,
             score_summary: "Strong alignment with a few voice issues.",
             dimension_scores: {
-              role_alignment: { score: 8, weight: 0.25, weighted_contribution: 20, notes: "Aligned to the JD." },
-              specificity_and_concreteness: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Mostly specific." },
-              voice_and_human_quality: { score: 5, weight: 0.2, weighted_contribution: 10, notes: "Voice still feels templated." },
-              grounding_integrity: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Grounded." },
-              ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
-              length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable length." },
+              role_alignment: {
+                score: 8,
+                weight: 0.25,
+                weighted_contribution: 20,
+                notes: "Aligned to the JD.",
+              },
+              specificity_and_concreteness: {
+                score: 7,
+                weight: 0.2,
+                weighted_contribution: 14,
+                notes: "Mostly specific.",
+              },
+              voice_and_human_quality: {
+                score: 5,
+                weight: 0.2,
+                weighted_contribution: 10,
+                notes: "Voice still feels templated.",
+              },
+              grounding_integrity: {
+                score: 8,
+                weight: 0.2,
+                weighted_contribution: 16,
+                notes: "Grounded.",
+              },
+              ats_safety_and_formatting: {
+                score: 9,
+                weight: 0.1,
+                weighted_contribution: 9,
+                notes: "ATS-safe.",
+              },
+              length_and_density: {
+                score: 7,
+                weight: 0.05,
+                weighted_contribution: 3.5,
+                notes: "Acceptable length.",
+              },
             },
             regeneration_instructions: "Tighten the summary voice.",
             regeneration_priority_dimensions: ["voice_and_human_quality"],
-            evaluator_notes: "A targeted rewrite should push this above the pass threshold.",
+            evaluator_notes:
+              "A targeted rewrite should push this above the pass threshold.",
             evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
             scored_at: "2026-04-07T12:12:00Z",
             is_stale: false,
@@ -4453,16 +5663,47 @@ describe("phase 1 applications UI", () => {
             pass_threshold: 80,
             score_summary: "Strong alignment with a few voice issues.",
             dimension_scores: {
-              role_alignment: { score: 8, weight: 0.25, weighted_contribution: 20, notes: "Aligned to the JD." },
-              specificity_and_concreteness: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Mostly specific." },
-              voice_and_human_quality: { score: 5, weight: 0.2, weighted_contribution: 10, notes: "Voice still feels templated." },
-              grounding_integrity: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Grounded." },
-              ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
-              length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable length." },
+              role_alignment: {
+                score: 8,
+                weight: 0.25,
+                weighted_contribution: 20,
+                notes: "Aligned to the JD.",
+              },
+              specificity_and_concreteness: {
+                score: 7,
+                weight: 0.2,
+                weighted_contribution: 14,
+                notes: "Mostly specific.",
+              },
+              voice_and_human_quality: {
+                score: 5,
+                weight: 0.2,
+                weighted_contribution: 10,
+                notes: "Voice still feels templated.",
+              },
+              grounding_integrity: {
+                score: 8,
+                weight: 0.2,
+                weighted_contribution: 16,
+                notes: "Grounded.",
+              },
+              ats_safety_and_formatting: {
+                score: 9,
+                weight: 0.1,
+                weighted_contribution: 9,
+                notes: "ATS-safe.",
+              },
+              length_and_density: {
+                score: 7,
+                weight: 0.05,
+                weighted_contribution: 3.5,
+                notes: "Acceptable length.",
+              },
             },
             regeneration_instructions: "Tighten the summary voice.",
             regeneration_priority_dimensions: ["voice_and_human_quality"],
-            evaluator_notes: "A targeted rewrite should push this above the pass threshold.",
+            evaluator_notes:
+              "A targeted rewrite should push this above the pass threshold.",
             evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
             scored_at: "2026-04-07T12:12:00Z",
             is_stale: false,
@@ -4480,8 +5721,18 @@ describe("phase 1 applications UI", () => {
           additional_instructions: "",
         },
         sections_snapshot: {
-          enabled_sections: ["summary", "professional_experience", "education", "skills"],
-          section_order: ["summary", "professional_experience", "education", "skills"],
+          enabled_sections: [
+            "summary",
+            "professional_experience",
+            "education",
+            "skills",
+          ],
+          section_order: [
+            "summary",
+            "professional_experience",
+            "education",
+            "skills",
+          ],
         },
         last_generated_at: "2026-04-07T12:10:00Z",
         last_exported_at: null,
@@ -4497,8 +5748,18 @@ describe("phase 1 applications UI", () => {
           additional_instructions: "",
         },
         sections_snapshot: {
-          enabled_sections: ["summary", "professional_experience", "education", "skills"],
-          section_order: ["summary", "professional_experience", "education", "skills"],
+          enabled_sections: [
+            "summary",
+            "professional_experience",
+            "education",
+            "skills",
+          ],
+          section_order: [
+            "summary",
+            "professional_experience",
+            "education",
+            "skills",
+          ],
         },
         last_generated_at: "2026-04-07T12:10:00Z",
         last_exported_at: "2026-04-07T12:12:00Z",
@@ -4511,7 +5772,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -4523,12 +5787,18 @@ describe("phase 1 applications UI", () => {
     await user.click(screen.getByRole("menuitem", { name: /export pdf/i }));
 
     await waitFor(() => expect(api.exportPdf).toHaveBeenCalledWith("app-1"));
-    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2),
+    );
     expect(await screen.findByText(/exported .*2026/i)).toBeInTheDocument();
 
     const refreshedJudgeCard = await screen.findByTestId("resume-judge-card");
-    expect(within(refreshedJudgeCard).getByText(/78\/100/i)).toBeInTheDocument();
-    expect(within(refreshedJudgeCard).queryByText(/^stale$/i)).not.toBeInTheDocument();
+    expect(
+      within(refreshedJudgeCard).getByText(/78\/100/i),
+    ).toBeInTheDocument();
+    expect(
+      within(refreshedJudgeCard).queryByText(/^stale$/i),
+    ).not.toBeInTheDocument();
   });
 
   it("renders an unscored left-rail judge card above the job description", async () => {
@@ -4550,8 +5820,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4560,16 +5840,26 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const judgeCard = await screen.findByTestId("resume-judge-card");
-    const jobDescriptionCard = await screen.findByTestId("job-description-card");
-    expect(judgeCard.compareDocumentPosition(jobDescriptionCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const jobDescriptionCard = await screen.findByTestId(
+      "job-description-card",
+    );
+    expect(
+      judgeCard.compareDocumentPosition(jobDescriptionCard) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(within(judgeCard).getByText(/pending review/i)).toBeInTheDocument();
-    expect(within(judgeCard).getByRole("button", { name: /run judge/i })).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByRole("button", { name: /run judge/i }),
+    ).toBeInTheDocument();
   });
 
   it("renders the queued judge state in the left rail", async () => {
@@ -4595,8 +5885,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4605,14 +5905,19 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const judgeCard = await screen.findByTestId("resume-judge-card");
     expect(within(judgeCard).getByText(/scoring draft/i)).toBeInTheDocument();
-    expect(within(judgeCard).getByText(/judge feedback will appear here shortly/i)).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByText(/judge feedback will appear here shortly/i),
+    ).toBeInTheDocument();
   });
 
   it("updates the Resume Judge card from live detail events", async () => {
@@ -4638,8 +5943,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4648,12 +5963,17 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await waitFor(() => expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1),
+    );
 
     await act(async () => {
       latestStreamHandlers().onDetail(
@@ -4669,12 +5989,42 @@ describe("phase 1 applications UI", () => {
             pass_threshold: 80,
             score_summary: "Strong alignment with a few voice issues.",
             dimension_scores: {
-              role_alignment: { score: 8, weight: 0.25, weighted_contribution: 20, notes: "Aligned." },
-              specificity_and_concreteness: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Specific." },
-              voice_and_human_quality: { score: 6, weight: 0.2, weighted_contribution: 12, notes: "Needs variation." },
-              grounding_integrity: { score: 8, weight: 0.2, weighted_contribution: 16, notes: "Grounded." },
-              ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS safe." },
-              length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Acceptable." },
+              role_alignment: {
+                score: 8,
+                weight: 0.25,
+                weighted_contribution: 20,
+                notes: "Aligned.",
+              },
+              specificity_and_concreteness: {
+                score: 8,
+                weight: 0.2,
+                weighted_contribution: 16,
+                notes: "Specific.",
+              },
+              voice_and_human_quality: {
+                score: 6,
+                weight: 0.2,
+                weighted_contribution: 12,
+                notes: "Needs variation.",
+              },
+              grounding_integrity: {
+                score: 8,
+                weight: 0.2,
+                weighted_contribution: 16,
+                notes: "Grounded.",
+              },
+              ats_safety_and_formatting: {
+                score: 9,
+                weight: 0.1,
+                weighted_contribution: 9,
+                notes: "ATS safe.",
+              },
+              length_and_density: {
+                score: 7,
+                weight: 0.05,
+                weighted_contribution: 3.5,
+                notes: "Acceptable.",
+              },
             },
             regeneration_instructions: "Tighten the summary voice.",
             regeneration_priority_dimensions: ["voice_and_human_quality"],
@@ -4688,7 +6038,9 @@ describe("phase 1 applications UI", () => {
 
     const judgeCard = await screen.findByTestId("resume-judge-card");
     expect(within(judgeCard).getByText(/78\/100/i)).toBeInTheDocument();
-    expect(within(judgeCard).getByText(/strong alignment with a few voice issues/i)).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByText(/strong alignment with a few voice issues/i),
+    ).toBeInTheDocument();
   });
 
   it("does not render a stale queued judge result as a completed score card", async () => {
@@ -4716,8 +6068,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4726,15 +6088,22 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const judgeCard = await screen.findByTestId("resume-judge-card");
-    expect(within(judgeCard).getByText(/scoring unavailable/i)).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByText(/scoring unavailable/i),
+    ).toBeInTheDocument();
     expect(within(judgeCard).queryByText(/—\/100/i)).not.toBeInTheDocument();
-    expect(within(judgeCard).getByRole("button", { name: /re-evaluate/i })).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByRole("button", { name: /re-evaluate/i }),
+    ).toBeInTheDocument();
   });
 
   it("marks stale judge results and lets the user re-evaluate the current draft", async () => {
@@ -4751,12 +6120,42 @@ describe("phase 1 applications UI", () => {
           pass_threshold: 80,
           score_summary: "Usable but out of date.",
           dimension_scores: {
-            role_alignment: { score: 7, weight: 0.25, weighted_contribution: 17.5, notes: "Aligned." },
-            specificity_and_concreteness: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Specific." },
-            voice_and_human_quality: { score: 6, weight: 0.2, weighted_contribution: 12, notes: "Natural enough." },
-            grounding_integrity: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Grounded." },
-            ats_safety_and_formatting: { score: 9, weight: 0.1, weighted_contribution: 9, notes: "ATS-safe." },
-            length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Dense enough." },
+            role_alignment: {
+              score: 7,
+              weight: 0.25,
+              weighted_contribution: 17.5,
+              notes: "Aligned.",
+            },
+            specificity_and_concreteness: {
+              score: 7,
+              weight: 0.2,
+              weighted_contribution: 14,
+              notes: "Specific.",
+            },
+            voice_and_human_quality: {
+              score: 6,
+              weight: 0.2,
+              weighted_contribution: 12,
+              notes: "Natural enough.",
+            },
+            grounding_integrity: {
+              score: 7,
+              weight: 0.2,
+              weighted_contribution: 14,
+              notes: "Grounded.",
+            },
+            ats_safety_and_formatting: {
+              score: 9,
+              weight: 0.1,
+              weighted_contribution: 9,
+              notes: "ATS-safe.",
+            },
+            length_and_density: {
+              score: 7,
+              weight: 0.05,
+              weighted_contribution: 3.5,
+              notes: "Dense enough.",
+            },
           },
           regeneration_instructions: "Refresh the score after edits.",
           regeneration_priority_dimensions: ["role_alignment"],
@@ -4777,8 +6176,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4799,7 +6208,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -4810,9 +6222,13 @@ describe("phase 1 applications UI", () => {
     expect(within(judgeCard).getByText(/stale/i)).toBeInTheDocument();
 
     await userEvent.click(judgeTile as HTMLButtonElement);
-    await userEvent.click(await screen.findByRole("button", { name: /re-evaluate/i }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: /re-evaluate/i }),
+    );
 
-    await waitFor(() => expect(api.triggerResumeJudge).toHaveBeenCalledWith("app-1"));
+    await waitFor(() =>
+      expect(api.triggerResumeJudge).toHaveBeenCalledWith("app-1"),
+    );
   });
 
   it("passes judge feedback into full regeneration without overwriting user instructions", async () => {
@@ -4829,19 +6245,53 @@ describe("phase 1 applications UI", () => {
           pass_threshold: 80,
           score_summary: "Tailoring and voice need a rewrite.",
           dimension_scores: {
-            role_alignment: { score: 5, weight: 0.25, weighted_contribution: 12.5, notes: "Misses core priorities." },
-            specificity_and_concreteness: { score: 5, weight: 0.2, weighted_contribution: 10, notes: "Too generic." },
-            voice_and_human_quality: { score: 4, weight: 0.2, weighted_contribution: 8, notes: "Reads AI-generated." },
-            grounding_integrity: { score: 7, weight: 0.2, weighted_contribution: 14, notes: "Mostly grounded." },
-            ats_safety_and_formatting: { score: 8, weight: 0.1, weighted_contribution: 8, notes: "ATS-safe." },
-            length_and_density: { score: 7, weight: 0.05, weighted_contribution: 3.5, notes: "Length is okay." },
+            role_alignment: {
+              score: 5,
+              weight: 0.25,
+              weighted_contribution: 12.5,
+              notes: "Misses core priorities.",
+            },
+            specificity_and_concreteness: {
+              score: 5,
+              weight: 0.2,
+              weighted_contribution: 10,
+              notes: "Too generic.",
+            },
+            voice_and_human_quality: {
+              score: 4,
+              weight: 0.2,
+              weighted_contribution: 8,
+              notes: "Reads AI-generated.",
+            },
+            grounding_integrity: {
+              score: 7,
+              weight: 0.2,
+              weighted_contribution: 14,
+              notes: "Mostly grounded.",
+            },
+            ats_safety_and_formatting: {
+              score: 8,
+              weight: 0.1,
+              weighted_contribution: 8,
+              notes: "ATS-safe.",
+            },
+            length_and_density: {
+              score: 7,
+              weight: 0.05,
+              weighted_contribution: 3.5,
+              notes: "Length is okay.",
+            },
           },
           regeneration_instructions: {
             summary: ["Rewrite the summary to be candidate-specific."],
             professional_experience: ["Vary bullet openings."],
           },
-          regeneration_priority_dimensions: ["voice_and_human_quality", "role_alignment"],
-          evaluator_notes: "The draft should be regenerated with targeted feedback.",
+          regeneration_priority_dimensions: [
+            "voice_and_human_quality",
+            "role_alignment",
+          ],
+          evaluator_notes:
+            "The draft should be regenerated with targeted feedback.",
           evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
           scored_at: "2026-04-07T12:12:00Z",
         },
@@ -4857,8 +6307,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "Keep infrastructure metrics prominent.",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4886,16 +6346,25 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    const judgeTile = (await screen.findByTestId("resume-judge-card")).closest("button");
+    const judgeTile = (await screen.findByTestId("resume-judge-card")).closest(
+      "button",
+    );
     expect(judgeTile).not.toBeNull();
 
     await userEvent.click(judgeTile as HTMLButtonElement);
-    await userEvent.click(await screen.findByRole("button", { name: /regenerate with judge feedback/i }));
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: /regenerate with judge feedback/i,
+      }),
+    );
 
     await waitFor(() =>
       expect(api.triggerFullRegeneration).toHaveBeenCalledWith("app-1", {
@@ -4929,8 +6398,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4951,18 +6430,29 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const judgeCard = await screen.findByTestId("resume-judge-card");
-    expect(within(judgeCard).getByText(/scoring unavailable/i)).toBeInTheDocument();
-    expect(within(judgeCard).getByText(/judge provider timed out/i)).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByText(/scoring unavailable/i),
+    ).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByText(/judge provider timed out/i),
+    ).toBeInTheDocument();
 
-    await userEvent.click(within(judgeCard).getByRole("button", { name: /try again/i }));
+    await userEvent.click(
+      within(judgeCard).getByRole("button", { name: /try again/i }),
+    );
 
-    await waitFor(() => expect(api.triggerResumeJudge).toHaveBeenCalledWith("app-1"));
+    await waitFor(() =>
+      expect(api.triggerResumeJudge).toHaveBeenCalledWith("app-1"),
+    );
   });
 
   it("disables re-evaluation after three failed judge runs for the current draft", async () => {
@@ -4973,7 +6463,8 @@ describe("phase 1 applications UI", () => {
         internal_state: "resume_ready",
         resume_judge_result: {
           status: "failed",
-          message: "Resume Judge has already reached the maximum of 3 attempts for this draft.",
+          message:
+            "Resume Judge has already reached the maximum of 3 attempts for this draft.",
           evaluated_draft_updated_at: "2026-04-07T12:10:00Z",
           run_attempt_count: 3,
         },
@@ -4989,8 +6480,18 @@ describe("phase 1 applications UI", () => {
         additional_instructions: "",
       },
       sections_snapshot: {
-        enabled_sections: ["summary", "professional_experience", "education", "skills"],
-        section_order: ["summary", "professional_experience", "education", "skills"],
+        enabled_sections: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
+        section_order: [
+          "summary",
+          "professional_experience",
+          "education",
+          "skills",
+        ],
       },
       last_generated_at: "2026-04-07T12:10:00Z",
       last_exported_at: null,
@@ -4999,32 +6500,48 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     const judgeCard = await screen.findByTestId("resume-judge-card");
-    expect(within(judgeCard).getByText(/maximum of 3 attempts/i)).toBeInTheDocument();
-    expect(within(judgeCard).getByRole("button", { name: /max attempts reached/i })).toBeDisabled();
+    expect(
+      within(judgeCard).getByText(/maximum of 3 attempts/i),
+    ).toBeInTheDocument();
+    expect(
+      within(judgeCard).getByRole("button", { name: /max attempts reached/i }),
+    ).toBeDisabled();
   });
 
   it("shows the activity button in the detail header and fetches activity only when opened", async () => {
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     expect(await screen.findByText("Backend Engineer")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /activity/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /activity/i }),
+    ).toBeInTheDocument();
     expect(api.listApplicationActivity).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: /activity/i }));
 
-    expect(await screen.findByRole("dialog", { name: /application activity/i })).toBeInTheDocument();
-    await waitFor(() => expect(api.listApplicationActivity).toHaveBeenCalledWith("app-1"));
+    expect(
+      await screen.findByRole("dialog", { name: /application activity/i }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.listApplicationActivity).toHaveBeenCalledWith("app-1"),
+    );
   });
 
   it("renders a simplified activity timeline and expands AI details on row click", async () => {
@@ -5104,7 +6621,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -5113,19 +6633,27 @@ describe("phase 1 applications UI", () => {
     await userEvent.click(screen.getByRole("button", { name: /activity/i }));
 
     expect(await screen.findByText("Generation failed")).toBeInTheDocument();
-    expect(screen.getByText("Validation failed at the post-check stage.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Validation failed at the post-check stage."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("Resume generated")).toBeInTheDocument();
     expect(screen.getByText("Completed")).toBeInTheDocument();
     expect(screen.getByText("Info")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /generation failed/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /generation failed/i }),
+    );
 
     expect(await screen.findByText(/length check:/i)).toBeInTheDocument();
     expect(screen.getByText(/760 words/i)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /generation failed/i }));
-    await userEvent.click(screen.getByRole("button", { name: /resume generated/i }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /generation failed/i }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /resume generated/i }),
+    );
 
     expect(await screen.findByText(/model:/i)).toBeInTheDocument();
     expect(screen.getByText("openai/gpt-5-mini")).toBeInTheDocument();
@@ -5146,7 +6674,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -5157,18 +6688,25 @@ describe("phase 1 applications UI", () => {
   });
 
   it("renders a clean error state in the activity panel", async () => {
-    api.listApplicationActivity.mockRejectedValue(new Error("Activity feed unavailable."));
+    api.listApplicationActivity.mockRejectedValue(
+      new Error("Activity feed unavailable."),
+    );
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
     await screen.findByText("Backend Engineer");
     await userEvent.click(screen.getByRole("button", { name: /activity/i }));
-    expect(await screen.findByText(/activity unavailable/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/activity unavailable/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/activity feed unavailable/i)).toBeInTheDocument();
   });
 
@@ -5177,7 +6715,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -5192,7 +6733,10 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(
       <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
       </Routes>,
       { initialEntries: ["/app/applications/app-1"] },
     );
@@ -5201,9 +6745,13 @@ describe("phase 1 applications UI", () => {
     const activityButton = screen.getByRole("button", { name: /activity/i });
     await userEvent.click(activityButton);
 
-    const dialog = await screen.findByRole("dialog", { name: /application activity/i });
+    const dialog = await screen.findByRole("dialog", {
+      name: /application activity/i,
+    });
     expect(dialog).toBeInTheDocument();
-    await userEvent.click(within(dialog).getByRole("button", { name: /close activity panel/i }));
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /close activity panel/i }),
+    );
 
     await waitFor(() => expect(activityButton).toHaveFocus());
   });

@@ -21,7 +21,7 @@ const DEFAULT_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
 };
 
-export function Breadcrumbs({ overrides }: BreadcrumbsProps) {
+function Breadcrumbs({ overrides }: BreadcrumbsProps) {
   const { pathname } = useLocation();
 
   const segments = pathname.split("/").filter(Boolean);

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Any, Optional
 
-import psycopg
 from psycopg import sql
-from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.db.connection import rls_connection
 
 
 class AdminUserRecord(BaseModel):
@@ -68,10 +66,8 @@ class AdminRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
 
-    @contextmanager
     def _connection(self):
-        with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
-            yield connection
+        return rls_connection(self.database_url, service=True)
 
     def list_users(
         self,

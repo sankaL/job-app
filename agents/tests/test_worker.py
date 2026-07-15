@@ -17,6 +17,7 @@ from worker import (
     FULL_GENERATION_MAX_TIMEOUT_SECONDS,
     JobProgress,
     OpenRouterExtractionAgent,
+    OutboundRequestGuard,
     PageContext,
     RedisProgressWriter,
     SourceCapture,
@@ -38,6 +39,61 @@ from worker import (
     run_resume_judge_job,
     set_progress,
 )
+
+
+class _FakeRoute:
+    def __init__(self, url: str) -> None:
+        self.request = type("Request", (), {"url": url})()
+        self.continued = False
+        self.aborted_with: str | None = None
+
+    async def continue_(self) -> None:
+        self.continued = True
+
+    async def abort(self, reason: str) -> None:
+        self.aborted_with = reason
+
+
+@pytest.mark.asyncio
+async def test_outbound_request_guard_blocks_private_redirect_or_subresource():
+    validated: list[str] = []
+
+    async def validator(url: str) -> None:
+        validated.append(url)
+        if "127.0.0.1" in url:
+            raise ValueError("private")
+
+    guard = OutboundRequestGuard(validator=validator)
+    public_route = _FakeRoute("https://jobs.example.com/opening")
+    private_route = _FakeRoute("http://127.0.0.1/admin")
+
+    await guard(public_route)  # type: ignore[arg-type]
+    await guard(private_route)  # type: ignore[arg-type]
+
+    assert public_route.continued is True
+    assert private_route.aborted_with == "blockedbyclient"
+    assert guard.blocked_request is True
+    assert validated == ["https://jobs.example.com/opening", "http://127.0.0.1/admin"]
+
+
+@pytest.mark.asyncio
+async def test_outbound_request_guard_caches_validated_hosts_and_allows_data_urls():
+    validated: list[str] = []
+
+    async def validator(url: str) -> None:
+        validated.append(url)
+
+    guard = OutboundRequestGuard(validator=validator)
+    first = _FakeRoute("https://jobs.example.com/a")
+    second = _FakeRoute("https://jobs.example.com/b")
+    data_route = _FakeRoute("data:text/plain,safe")
+
+    await guard(first)  # type: ignore[arg-type]
+    await guard(second)  # type: ignore[arg-type]
+    await guard(data_route)  # type: ignore[arg-type]
+
+    assert first.continued and second.continued and data_route.continued
+    assert validated == ["https://jobs.example.com/a"]
 
 
 def build_generation_result() -> dict[str, object]:

@@ -352,6 +352,27 @@ This runbook applies whenever backend or database work changes schema, compatibi
 - The additive migration was applied to production and recorded in `app_meta.schema_migrations`; no row backfill was required.
 - Future rollouts of schema-dependent readers must keep the documented migration-first order and verify the migration ledger before backend deployment.
 
+## Current Security Change Note: Forced Row-Level Security
+
+- Add migration `supabase/migrations/20260714_000018_enable_row_level_security.sql`.
+- The migration creates the non-login `app_runtime` role, restricted `app_security` context functions, table grants, and explicit policies, then enables and forces RLS on all 11 application tables. It does not alter or backfill row data.
+- The migration runner must be allowed to create/alter roles, grant `app_runtime` to its current database role, create the `app_security` schema, and alter table policies. Confirm those privileges before the production window.
+- Rollout order:
+  1. Back up the database and verify the migration runner privileges in staging.
+  2. Use a controlled maintenance window unless the role/bootstrap and RLS activation are split across separate releases. Drain API traffic and stop old backend instances before policy activation; the old backend does not establish the required transaction-local context.
+  3. Apply the migration while user traffic is stopped and verify it is recorded in `app_meta.schema_migrations`.
+  4. Deploy the new backend, then deploy/restart workers that call it. Do not restore traffic if startup, `/healthz`, or the database policy checks fail.
+  5. Run authenticated user, admin, invite, refresh-token, extension, extraction callback, generation callback, and export smoke tests against the new instances.
+  6. Restore traffic only after those checks pass. A zero-downtime rollout requires a separate bootstrap release that creates `app_runtime` before the backend changes, followed by a later policy-activation release; do not apply this migration ahead of the backend during a normal rolling deployment.
+- Post-deploy database verification:
+  - all 11 tables report both `relrowsecurity` and `relforcerowsecurity`
+  - `pg_policies` reports an explicit policy for every protected table and separate read/write policies for `user_invites` and `subscription_tiers`
+  - an `app_runtime` transaction with user A's context cannot read or mutate user B's row
+  - a transaction with no user or service context returns no protected rows
+  - the explicit service context can perform the required cross-user operations exercised by admin, opaque-token lookup, and worker callback paths
+- Emergency rollback uses the inverse compatibility order: drain traffic, keep the new backend live, disable RLS on the 11 tables, verify explicit repository scoping, then revert backend instances and restore traffic. Do not revert the backend while forced RLS remains active. Do not drop policies, functions, or the role; retain them for forward recovery and re-enable RLS as soon as the incident is resolved.
+- This role-switching design protects against missing ownership predicates. A future credential-hardening migration should split user-scoped and service-scoped access across separately credentialed least-privilege login roles so compromise of the migration-owner database credential does not retain broad bypass capability.
+
 ## Historical Additive Change Note: Resume Judge Result Persistence
 
 - Add the additive migration `supabase/migrations/20260417_000012_phase_5_resume_judge_result.sql`.

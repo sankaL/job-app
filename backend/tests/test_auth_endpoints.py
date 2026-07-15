@@ -95,6 +95,7 @@ class StubUserRepository:
         self.revoked_hashes: list[str] = []
         self.created_tokens: list[tuple[str, str, str]] = []
         self.rotated_tokens: list[dict] = []
+        self.rotation_succeeds = True
 
     def fetch_user_by_email(self, *, email: str) -> Optional[UserRecord]:
         if self.user and self.user.email == email:
@@ -129,13 +130,14 @@ class StubUserRepository:
     def revoke_all_user_tokens(self, *, user_id: str) -> None:
         self.revoked_hashes.append(f"all:{user_id}")
 
-    def rotate_refresh_token(self, *, old_token_hash: str, user_id: str, new_token_hash: str, expires_at: str) -> None:
+    def rotate_refresh_token(self, *, old_token_hash: str, user_id: str, new_token_hash: str, expires_at: str) -> bool:
         self.rotated_tokens.append({
             "old_token_hash": old_token_hash,
             "user_id": user_id,
             "new_token_hash": new_token_hash,
             "expires_at": expires_at,
         })
+        return self.rotation_succeeds
 
 
 class StubProfileRepository:
@@ -349,6 +351,35 @@ def test_logout_without_cookie():
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
+    app.dependency_overrides.clear()
+
+
+def test_refresh_rotation_rejects_replayed_token_atomically():
+    raw_refresh = generate_refresh_token()
+    token_hash = hash_token(raw_refresh)
+    user = _make_user()
+    repo = StubUserRepository(user=user)
+    repo.rotation_succeeds = False
+    repo.refresh_tokens[token_hash] = RefreshTokenRecord(
+        id="token-1",
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    app.dependency_overrides[get_user_repository] = lambda: repo
+    client = TestClient(app)
+    client.cookies.set("refresh_token", raw_refresh, path="/api/auth")
+
+    response = client.post("/api/auth/refresh")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Refresh token has already been used."
+    assert "refresh_token=\"\"" in response.headers["set-cookie"]
+    assert "Max-Age=0" in response.headers["set-cookie"]
+    assert repo.revoked_hashes == [f"all:{user.id}"]
+    assert len(repo.rotated_tokens) == 1
     app.dependency_overrides.clear()
 
 

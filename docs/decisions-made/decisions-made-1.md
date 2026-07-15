@@ -1,5 +1,39 @@
 # Decisions Made
 
+## 2026-07-14 22:15:58 EDT - Continue complexity remediation through stable presentation boundaries
+
+- Status: Accepted
+- Context: The first Fallow remediation left 40 health findings, including seven critical and four high findings. The user expanded the audit to include all code quality issues, but the application-detail route coordinates extraction, generation, draft synchronization, compare mode, Resume Judge, exports, and many modal states in one controller.
+- Decision:
+  1. Continue refactoring every independently testable presentation and pure-data boundary without weakening Fallow thresholds or adding suppression comments.
+  2. Split authentication, profile, extension, dashboard, base-resume, list, admin, activity, table, progress, streaming, ATS keyword, Resume Judge, and generated-workspace responsibilities into focused helpers/components.
+  3. Use the existing full frontend suite as the behavioral contract and stop short of moving the remaining application-detail orchestration into new hooks until hook-level characterization coverage exists.
+  4. Preserve readable formatter output even when physical line count rises, and lazy-load route modules so the quality pass improves initial bundle shape instead of hiding complexity in dense source.
+- Consequences: Health findings fall from 40 to 8 and all critical findings outside `ApplicationDetailPage` are eliminated. Static and duplication findings are zero, the production build has no oversized JavaScript chunk warning, and 157 frontend tests pass. The remaining debt is explicit rather than suppressed; completing it safely requires a dedicated controller/hook task rather than more presentation extraction.
+
+## 2026-07-14 21:35:00 EDT - Clear Fallow structural debt without suppressing the remaining route hotspots
+
+- Status: Accepted
+- Context: The security audit's calibrated Fallow 3.5.0 run identified real dead code, repeated production UI/API structures, and complexity concentrated in core frontend routes. Mixing a wholesale application-workspace rewrite into the RLS/security rollout would have raised regression risk, but leaving every finding deferred would preserve avoidable maintenance drag.
+- Decision:
+  1. Remove all confirmed dead code and internalize unused public symbols rather than suppressing them.
+  2. Eliminate production clone groups through shared modal, authentication, API, navigation, metrics, filter, editor, and application-detail primitives.
+  3. Decompose the activity drawer and notification/account menu into focused components, and simplify profile and application-detail state helpers, while retaining existing user-visible behavior.
+  4. Keep the remaining critical route complexity visible in Fallow and defer the deeper `ApplicationDetailPage`, applications-list, and base-resume controller split to incremental test-led work instead of adding ignore markers or forcing a single broad rewrite.
+- Consequences: Fallow static and duplication gates are clean, critical/high complexity is materially reduced, and the remaining risk is explicit and concentrated. Future application-workspace changes should continue extracting render sections and workflow hooks until the route-level findings clear.
+
+## 2026-07-14 15:30:00 EDT - Enforce database isolation and shared API abuse controls
+
+- Status: Accepted
+- Context: The PRD required per-user RLS, but the implemented schema explicitly relied only on backend ownership predicates. The API also lacked a shared, multi-instance rate limiter, URL-backed extraction could navigate to attacker-controlled private-network destinations, and dependency/security scans identified additional hardening gaps.
+- Decision:
+  1. Keep explicit repository ownership predicates and add forced PostgreSQL RLS on every application table through a transaction-local authenticated-user or explicit service context under the `app_runtime` role.
+  2. Use Redis-backed atomic fixed-window limits across all API routes, with stricter buckets for authentication, public invite/access-request, upload, extension, worker callback, and expensive generation/export surfaces; production fails closed if throttling is disabled or unavailable.
+  3. Validate URL-backed extraction targets before queueing and inside the worker, and intercept Playwright redirects/subresources to reject non-public network destinations.
+  4. Bound PDF uploads before multipart parsing, parse PDFs in a killable subprocess with a hard deadline, rotate refresh tokens atomically, restrict production CORS/OpenAPI behavior, add response security headers, reject the repository's known local JWT key in production, and remove provider payloads from logs.
+  5. Upgrade vulnerable frontend production and development dependencies, while deferring Fallow's existing non-security dead-code, duplication, and complexity findings to scoped maintainability work.
+- Consequences: Missing backend ownership predicates now fail closed at the database boundary, horizontally scaled API instances share abuse limits, URL extraction has layered SSRF controls, and production configuration rejects several unsafe states. Production rollout must coordinate the RLS migration with the backend deployment and still needs separately credentialed least-privilege user/service database roles plus network-level egress controls for stronger containment.
+
 ## 2026-06-24 19:21:20 EDT - Enforce stricter source-aware resume length minimums
 
 - Status: Accepted

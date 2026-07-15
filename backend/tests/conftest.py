@@ -1,5 +1,20 @@
 import os
 
+import pytest
+
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
+
+@pytest.fixture(autouse=True)
+def stub_outbound_job_url_dns(monkeypatch):
+    async def allow_test_job_url(_: str) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "app.services.application_manager.validate_public_http_url",
+        allow_test_job_url,
+    )
+
 # Set JWT keys before any test module imports (needed by app.main module-level settings)
 os.environ.setdefault(
     "JWT_PRIVATE_KEY",
