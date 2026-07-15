@@ -11,7 +11,10 @@ type Row = {
 };
 
 function getBodyRows() {
-  return screen.getAllByRole("row").slice(1).map((row) => row.textContent ?? "");
+  return screen
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) => row.textContent ?? "");
 }
 
 function FilterableTable() {
@@ -21,7 +24,9 @@ function FilterableTable() {
     label: index === 25 ? "Target role" : `Role ${index + 1}`,
     updated: index + 1,
   }));
-  const filteredRows = rows.filter((row) => row.label.toLowerCase().includes(query.toLowerCase()));
+  const filteredRows = rows.filter((row) =>
+    row.label.toLowerCase().includes(query.toLowerCase()),
+  );
 
   return (
     <>
@@ -103,6 +108,42 @@ describe("data table", () => {
 
     await user.click(screen.getByText("Updated"));
     expect(getBodyRows()).toEqual(["Newest30", "Middle20", "Oldest10"]);
+  });
+
+  it("keeps missing sort values last in both directions", async () => {
+    const user = userEvent.setup();
+    const rows: Array<Omit<Row, "updated"> & { updated?: number | null }> = [
+      { id: "missing", label: "Missing", updated: null },
+      { id: "newest", label: "Newest", updated: 30 },
+      { id: "oldest", label: "Oldest", updated: 10 },
+    ];
+
+    render(
+      <DataTable
+        columns={[
+          {
+            key: "label",
+            header: "Label",
+            render: (row) => row.label,
+          },
+          {
+            key: "updated",
+            header: "Updated",
+            sortable: true,
+            sortValue: (row) => row.updated,
+            render: (row) => row.updated ?? "None",
+          },
+        ]}
+        data={rows}
+        getRowKey={(row) => row.id}
+      />,
+    );
+
+    await user.click(screen.getByText("Updated"));
+    expect(getBodyRows()).toEqual(["Oldest10", "Newest30", "MissingNone"]);
+
+    await user.click(screen.getByText("Updated"));
+    expect(getBodyRows()).toEqual(["Newest30", "Oldest10", "MissingNone"]);
   });
 
   it("reports the current page rows when pagination changes", async () => {

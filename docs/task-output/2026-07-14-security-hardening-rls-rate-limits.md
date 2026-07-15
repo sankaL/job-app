@@ -30,7 +30,7 @@ Audited the backend, worker, frontend, Chrome extension, database migrations, pr
 - Important coverage limit: Fallow analyzes TypeScript/JavaScript and did not see the Python Playwright SSRF path. The manual security review found and fixed that issue.
 - Changed-file audit against `origin/main`: zero changed-file dead-code, complexity, or duplication findings.
 
-The initial security commit kept these maintainability findings separate from the isolation rollout. The follow-up remediation on the same branch now clears all 14 static issues and all 26 clone groups, reduces critical complexity findings from 12 to 7 and high findings from 10 to 4, and preserves all 153 frontend tests. See `docs/task-output/2026-07-14-fallow-remediation.md` for the complete before/after report and remaining route-decomposition backlog.
+The initial security commit kept these maintainability findings separate from the isolation rollout. Follow-up remediation on the same branch clears all 14 static issues and all 26 clone groups, reduces health findings from 45 to 8 (critical 12→1 and high 10→1), and finishes with all 157 frontend tests passing. See `docs/task-output/2026-07-14-fallow-remediation.md` for the complete before/after report and remaining controller-decomposition backlog.
 
 ## Verification performed
 
@@ -51,7 +51,7 @@ The initial security commit kept these maintainability findings separate from th
 1. The database currently connects with the migration-owner credential and switches to `app_runtime` per transaction. This protects against omitted ownership predicates, but separately credentialed least-privilege user and service login roles would better contain a compromised database credential or SQL injection.
 2. Application-level DNS checks reduce SSRF substantially but cannot replace network enforcement. Block metadata/private ranges at the worker network boundary or route Playwright through an egress proxy to close DNS time-of-check/time-of-use and browser-resolver gaps.
 3. Redis rate limiting begins at the application edge. A CDN/WAF or platform gateway should enforce coarse IP/body/concurrency limits before requests consume application connections.
-4. Fallow's dead code and duplication are now cleared. The remaining maintainability risk is concentrated in `ApplicationDetailPage`, `ApplicationsListPage`, and `BaseResumeEditorPage`; further decomposition should remain incremental and test-led.
+4. Fallow's dead code and duplication are now cleared. The remaining maintainability risk is concentrated in `ApplicationDetailPage`, with smaller controller findings in `ApplicationsListPage` and `AdminUsersPage`; further decomposition should remain incremental and test-led.
 5. PDF parsing now runs in a killable subprocess with a 15-second hard deadline, page/text caps, and sanitized diagnostic codes. A separately sandboxed container with OS-level CPU, memory, syscall, and filesystem limits would provide stronger hostile-document isolation.
 6. Refresh-token family revocation intentionally treats reuse as a possible theft signal. Two near-simultaneous legitimate refresh requests can therefore invalidate the winning replacement token; introducing a short replay grace period would improve multi-tab behavior but weakens immediate theft containment and needs a product/security decision.
 7. DNS lookup timeouts stop request progress but cannot cancel an already-running operating-system resolver thread. Network egress enforcement remains the containment layer for resolver stalls and DNS rebinding.

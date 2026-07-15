@@ -8,7 +8,7 @@
 
 ## July 14 completion update
 
-Fallow 3.5.0 now reports zero static/dead-code issues and zero duplicate clone groups. Critical complexity findings fell from 12 to 7 and high findings from 10 to 4 after modal, auth, API, navigation, activity, profile, dashboard, list, base-resume, and application-detail extractions. The remaining work is the staged route/controller decomposition described in Phase 2, led by `ApplicationDetailPage`. Detailed measurements and verification are recorded in `docs/task-output/2026-07-14-fallow-remediation.md`.
+Fallow 3.5.0 now reports zero static/dead-code issues, zero duplicate clone groups, and eight health findings. Critical complexity findings fell from 12 to 1 and high findings from 10 to 1 after modal, auth, API, navigation, activity, profile, dashboard, list, base-resume, signup, extension, and application-detail extractions. The remaining work is the staged route/controller decomposition described in Phase 2, led by `ApplicationDetailPage`. Detailed measurements and verification are recorded in `docs/task-output/2026-07-14-fallow-remediation.md`.
 
 ## Executive Summary
 

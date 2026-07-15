@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-07-14 22:15:58 EDT - Continue complexity remediation through stable presentation boundaries
+
+- Status: Accepted
+- Context: The first Fallow remediation left 40 health findings, including seven critical and four high findings. The user expanded the audit to include all code quality issues, but the application-detail route coordinates extraction, generation, draft synchronization, compare mode, Resume Judge, exports, and many modal states in one controller.
+- Decision:
+  1. Continue refactoring every independently testable presentation and pure-data boundary without weakening Fallow thresholds or adding suppression comments.
+  2. Split authentication, profile, extension, dashboard, base-resume, list, admin, activity, table, progress, streaming, ATS keyword, Resume Judge, and generated-workspace responsibilities into focused helpers/components.
+  3. Use the existing full frontend suite as the behavioral contract and stop short of moving the remaining application-detail orchestration into new hooks until hook-level characterization coverage exists.
+  4. Preserve readable formatter output even when physical line count rises, and lazy-load route modules so the quality pass improves initial bundle shape instead of hiding complexity in dense source.
+- Consequences: Health findings fall from 40 to 8 and all critical findings outside `ApplicationDetailPage` are eliminated. Static and duplication findings are zero, the production build has no oversized JavaScript chunk warning, and 157 frontend tests pass. The remaining debt is explicit rather than suppressed; completing it safely requires a dedicated controller/hook task rather than more presentation extraction.
+
 ## 2026-07-14 21:35:00 EDT - Clear Fallow structural debt without suppressing the remaining route hotspots
 
 - Status: Accepted

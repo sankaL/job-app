@@ -40,6 +40,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T76 | Complete the follow-up Fallow code-quality reduction across frontend controllers and shared UI | FE/Docs | DONE | 2026-07-14 22:46:00 EDT | Reduced Fallow health findings from 40 to 8 (critical 7→1, high 4→1, moderate 29→6), cleared all static and duplication findings, fixed the final review regressions, split production routes into bounded chunks, retained 157 passing frontend tests, and documented the remaining application-controller decomposition. |
 | B0-T01 | Fail closed when local Supabase exposes an empty JWKS set during backend JWT verification | BE | DONE | 2026-04-07 13:38:00 EDT | Auth verification now treats empty JWKS responses like other key-fetch failures, falls back to the configured shared secret when available, and has regression coverage for both fallback and fail-closed paths. |
 | P0-T01 | Scaffold the committed frontend, backend, and agents stack foundations | Infra | DONE | 2026-04-07 11:36:08 EDT | React/Vite/Tailwind frontend, FastAPI backend, and ARQ worker baseline are committed. |
 | P0-T02 | Dockerize the local frontend, backend, agents, and Supabase dev stack with Makefile orchestration | Infra | DONE | 2026-04-07 11:36:08 EDT | Root Docker Compose, Makefile, migrations runner, health check, and local invite-user seed flow are committed. |

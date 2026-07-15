@@ -31,6 +31,142 @@ function generationFakeStep(percent: number) {
   return 0.35;
 }
 
+function useStageIndex(shouldRotate: boolean) {
+  const [stageIndex, setStageIndex] = useState(0);
+  useEffect(() => {
+    if (!shouldRotate) return;
+    const interval = window.setInterval(
+      () => setStageIndex((index) => (index + 1) % STAGE_MESSAGES.length),
+      5000,
+    );
+    return () => window.clearInterval(interval);
+  }, [shouldRotate]);
+  return stageIndex;
+}
+
+function useElapsedSeconds(isActive: boolean, sessionKey: string) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!isActive) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(0);
+    const interval = window.setInterval(
+      () => setElapsed((seconds) => seconds + 1),
+      1000,
+    );
+    return () => window.clearInterval(interval);
+  }, [isActive, sessionKey]);
+  return elapsed;
+}
+
+function useSyncedGenerationPercent(
+  defaultPercent: number,
+  isActive: boolean,
+  sessionKey: string,
+) {
+  const [displayPercent, setDisplayPercent] = useState(defaultPercent);
+  useEffect(() => {
+    setDisplayPercent((current) =>
+      isActive ? Math.max(current, defaultPercent) : defaultPercent,
+    );
+  }, [defaultPercent, isActive]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    setDisplayPercent(defaultPercent);
+  }, [defaultPercent, isActive, sessionKey]);
+
+  return [displayPercent, setDisplayPercent] as const;
+}
+
+function useFakeGenerationProgress({
+  defaultPercent,
+  isActive,
+  isTerminal,
+  sessionKey,
+  setDisplayPercent,
+}: {
+  defaultPercent: number;
+  isActive: boolean;
+  isTerminal: boolean;
+  sessionKey: string;
+  setDisplayPercent: React.Dispatch<React.SetStateAction<number>>;
+}) {
+  useEffect(() => {
+    if (!isActive || isTerminal) return;
+    const interval = window.setInterval(() => {
+      setDisplayPercent((current) => {
+        const floor = Math.max(current, defaultPercent);
+        if (floor >= GENERATION_FAKE_PROGRESS_CAP) return floor;
+        return Math.min(
+          GENERATION_FAKE_PROGRESS_CAP,
+          Number((floor + generationFakeStep(floor)).toFixed(1)),
+        );
+      });
+    }, 1200);
+    return () => window.clearInterval(interval);
+  }, [defaultPercent, isActive, isTerminal, sessionKey]);
+}
+
+function getDefaultPercent(
+  progress: ExtractionProgress | null,
+  isOptimistic: boolean,
+) {
+  if (isOptimistic && !progress) return 5;
+  return progress?.percent_complete ?? 10;
+}
+
+function getGenerationSessionKey(
+  progress: ExtractionProgress | null,
+  isActive: boolean,
+) {
+  if (!isActive) return "inactive";
+  return `${progress?.workflow_kind ?? "optimistic"}:${progress?.job_id ?? "optimistic"}`;
+}
+
+function isTerminalGenerationProgress(
+  progress: ExtractionProgress | null,
+  defaultPercent: number,
+) {
+  return [
+    progress?.completed_at,
+    progress?.terminal_error_code,
+    defaultPercent >= 100,
+  ].some(Boolean);
+}
+
+function useGenerationPercent(
+  progress: ExtractionProgress | null,
+  isOptimistic: boolean,
+  isActive: boolean,
+  sessionKey: string,
+) {
+  const defaultPercent = getDefaultPercent(progress, isOptimistic);
+  const isTerminal = isTerminalGenerationProgress(progress, defaultPercent);
+  const [displayPercent, setDisplayPercent] = useSyncedGenerationPercent(
+    defaultPercent,
+    isActive,
+    sessionKey,
+  );
+  useFakeGenerationProgress({
+    defaultPercent,
+    isActive,
+    isTerminal,
+    sessionKey,
+    setDisplayPercent,
+  });
+
+  return Math.min(100, Math.max(displayPercent, defaultPercent));
+}
+
+function formatElapsedTime(elapsed: number) {
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
 export function GenerationProgress({
   progress,
   isOptimistic,
@@ -38,89 +174,22 @@ export function GenerationProgress({
   isCancelling,
   onCancel,
 }: GenerationProgressProps) {
-  const [stageIndex, setStageIndex] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  const defaultPercent = isOptimistic && !progress ? 5 : (progress?.percent_complete ?? 10);
-  const [displayPercent, setDisplayPercent] = useState(defaultPercent);
-  const sessionKey = isActive
-    ? `${progress?.workflow_kind ?? "optimistic"}:${progress?.job_id ?? "optimistic"}`
-    : "inactive";
-  const isTerminalProgress = Boolean(
-    progress?.completed_at || progress?.terminal_error_code || defaultPercent >= 100,
+  const stageIndex = useStageIndex(isOptimistic || !progress?.message);
+  const sessionKey = getGenerationSessionKey(progress, isActive);
+  const elapsed = useElapsedSeconds(isActive, sessionKey);
+  const percentComplete = useGenerationPercent(
+    progress,
+    isOptimistic,
+    isActive,
+    sessionKey,
   );
-
-  // Rotate stage messages every 5 seconds when no real progress message
-  useEffect(() => {
-    if (!isOptimistic && progress?.message) return;
-
-    const interval = setInterval(() => {
-      setStageIndex((i) => (i + 1) % STAGE_MESSAGES.length);
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [isOptimistic, progress?.message]);
-
-  useEffect(() => {
-    if (!isActive) {
-      setDisplayPercent(defaultPercent);
-      return;
-    }
-    setDisplayPercent((current) => Math.max(current, defaultPercent));
-  }, [defaultPercent, isActive]);
-
-  useEffect(() => {
-    if (!isActive) {
-      return;
-    }
-    setElapsed(0);
-    setDisplayPercent(defaultPercent);
-  }, [defaultPercent, isActive, sessionKey]);
-
-  // Elapsed time counter
-  useEffect(() => {
-    if (!isActive) {
-      setElapsed(0);
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setElapsed((e) => e + 1);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isActive]);
-
-  useEffect(() => {
-    if (!isActive || isTerminalProgress) {
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      setDisplayPercent((current) => {
-        const floor = Math.max(current, defaultPercent);
-        if (floor >= GENERATION_FAKE_PROGRESS_CAP) {
-          return floor;
-        }
-        return Math.min(
-          GENERATION_FAKE_PROGRESS_CAP,
-          Number((floor + generationFakeStep(floor)).toFixed(1)),
-        );
-      });
-    }, 1200);
-
-    return () => window.clearInterval(interval);
-  }, [defaultPercent, isActive, isTerminalProgress, sessionKey]);
 
   const displayMessage =
     isOptimistic && !progress
       ? STAGE_MESSAGES[stageIndex]
-      : progress?.message ?? STAGE_MESSAGES[stageIndex];
+      : (progress?.message ?? STAGE_MESSAGES[stageIndex]);
 
-  const percentComplete = Math.min(100, Math.max(displayPercent, defaultPercent));
-
-  const minutes = Math.floor(elapsed / 60);
-  const seconds = elapsed % 60;
-  const elapsedStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  const elapsedStr = formatElapsedTime(elapsed);
 
   return (
     <div
@@ -128,19 +197,26 @@ export function GenerationProgress({
       style={{
         top: "25%",
         background: "rgba(255, 255, 255, 0.97)",
-        boxShadow: "0 8px 32px rgba(16, 24, 40, 0.12), 0 2px 8px rgba(16, 24, 40, 0.08)",
+        boxShadow:
+          "0 8px 32px rgba(16, 24, 40, 0.12), 0 2px 8px rgba(16, 24, 40, 0.08)",
       }}
     >
       {/* Animated icons */}
       <div className="relative mb-4 flex items-center justify-center">
         <Cog
           size={40}
-          style={{ color: "var(--color-spruce)", animation: "gen-spin 2s linear infinite" }}
+          style={{
+            color: "var(--color-spruce)",
+            animation: "gen-spin 2s linear infinite",
+          }}
         />
         <Sparkles
           size={18}
           className="absolute"
-          style={{ color: "var(--color-spruce-light)", animation: "gen-pulse 1.5s ease-in-out infinite" }}
+          style={{
+            color: "var(--color-spruce-light)",
+            animation: "gen-pulse 1.5s ease-in-out infinite",
+          }}
         />
       </div>
 
@@ -168,7 +244,10 @@ export function GenerationProgress({
       </p>
 
       {/* Elapsed time */}
-      <span className="mt-1 text-xs tabular-nums" style={{ color: "var(--color-ink-50)" }}>
+      <span
+        className="mt-1 text-xs tabular-nums"
+        style={{ color: "var(--color-ink-50)" }}
+      >
         {elapsedStr}
       </span>
 
@@ -192,69 +271,162 @@ export function GenerationProgress({
 /* Resume Skeleton - used when generation is in progress */
 export function ResumeSkeleton() {
   return (
-    <div className="h-full overflow-y-auto rounded-xl border p-5" style={{ background: "var(--color-white)", borderColor: "var(--color-border)" }}>
+    <div
+      className="h-full overflow-y-auto rounded-xl border p-5"
+      style={{
+        background: "var(--color-white)",
+        borderColor: "var(--color-border)",
+      }}
+    >
       {/* Header - Name */}
       <div className="animate-skeleton h-6 w-48 rounded mb-3" />
 
       {/* Contact line */}
       <div className="flex gap-3 mb-5">
-        <div className="animate-skeleton h-3 w-24 rounded" style={{ animationDelay: "50ms" }} />
-        <div className="animate-skeleton h-3 w-20 rounded" style={{ animationDelay: "100ms" }} />
-        <div className="animate-skeleton h-3 w-28 rounded" style={{ animationDelay: "150ms" }} />
+        <div
+          className="animate-skeleton h-3 w-24 rounded"
+          style={{ animationDelay: "50ms" }}
+        />
+        <div
+          className="animate-skeleton h-3 w-20 rounded"
+          style={{ animationDelay: "100ms" }}
+        />
+        <div
+          className="animate-skeleton h-3 w-28 rounded"
+          style={{ animationDelay: "150ms" }}
+        />
       </div>
 
       {/* Summary Section */}
       <div className="mb-5">
-        <div className="animate-skeleton h-3.5 w-20 rounded mb-2" style={{ animationDelay: "200ms" }} />
-        <div className="border-b pb-3 mb-3" style={{ borderColor: "var(--color-border)" }}>
-          <div className="animate-skeleton h-2.5 w-full rounded mb-1.5" style={{ animationDelay: "250ms" }} />
-          <div className="animate-skeleton h-2.5 w-5/6 rounded mb-1.5" style={{ animationDelay: "300ms" }} />
-          <div className="animate-skeleton h-2.5 w-4/5 rounded mb-1.5" style={{ animationDelay: "350ms" }} />
-          <div className="animate-skeleton h-2.5 w-3/4 rounded" style={{ animationDelay: "375ms" }} />
+        <div
+          className="animate-skeleton h-3.5 w-20 rounded mb-2"
+          style={{ animationDelay: "200ms" }}
+        />
+        <div
+          className="border-b pb-3 mb-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <div
+            className="animate-skeleton h-2.5 w-full rounded mb-1.5"
+            style={{ animationDelay: "250ms" }}
+          />
+          <div
+            className="animate-skeleton h-2.5 w-5/6 rounded mb-1.5"
+            style={{ animationDelay: "300ms" }}
+          />
+          <div
+            className="animate-skeleton h-2.5 w-4/5 rounded mb-1.5"
+            style={{ animationDelay: "350ms" }}
+          />
+          <div
+            className="animate-skeleton h-2.5 w-3/4 rounded"
+            style={{ animationDelay: "375ms" }}
+          />
         </div>
       </div>
 
       {/* Experience Section */}
       <div className="mb-5">
-        <div className="animate-skeleton h-3.5 w-32 rounded mb-2" style={{ animationDelay: "400ms" }} />
-        <div className="border-b pb-3 mb-3" style={{ borderColor: "var(--color-border)" }}>
+        <div
+          className="animate-skeleton h-3.5 w-32 rounded mb-2"
+          style={{ animationDelay: "400ms" }}
+        />
+        <div
+          className="border-b pb-3 mb-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
           {/* Job 1 */}
           <div className="mb-4">
             <div className="flex justify-between items-center mb-1.5">
-              <div className="animate-skeleton h-3 w-40 rounded" style={{ animationDelay: "450ms" }} />
-              <div className="animate-skeleton h-2.5 w-24 rounded" style={{ animationDelay: "500ms" }} />
+              <div
+                className="animate-skeleton h-3 w-40 rounded"
+                style={{ animationDelay: "450ms" }}
+              />
+              <div
+                className="animate-skeleton h-2.5 w-24 rounded"
+                style={{ animationDelay: "500ms" }}
+              />
             </div>
-            <div className="animate-skeleton h-2.5 w-32 rounded mb-2" style={{ animationDelay: "550ms" }} />
+            <div
+              className="animate-skeleton h-2.5 w-32 rounded mb-2"
+              style={{ animationDelay: "550ms" }}
+            />
             <div className="pl-3 space-y-1.5">
-              <div className="animate-skeleton h-2 w-full rounded" style={{ animationDelay: "600ms" }} />
-              <div className="animate-skeleton h-2 w-11/12 rounded" style={{ animationDelay: "650ms" }} />
-              <div className="animate-skeleton h-2 w-4/5 rounded" style={{ animationDelay: "700ms" }} />
-              <div className="animate-skeleton h-2 w-10/12 rounded" style={{ animationDelay: "720ms" }} />
+              <div
+                className="animate-skeleton h-2 w-full rounded"
+                style={{ animationDelay: "600ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-11/12 rounded"
+                style={{ animationDelay: "650ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-4/5 rounded"
+                style={{ animationDelay: "700ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-10/12 rounded"
+                style={{ animationDelay: "720ms" }}
+              />
             </div>
           </div>
           {/* Job 2 */}
           <div className="mb-4">
             <div className="flex justify-between items-center mb-1.5">
-              <div className="animate-skeleton h-3 w-36 rounded" style={{ animationDelay: "750ms" }} />
-              <div className="animate-skeleton h-2.5 w-20 rounded" style={{ animationDelay: "800ms" }} />
+              <div
+                className="animate-skeleton h-3 w-36 rounded"
+                style={{ animationDelay: "750ms" }}
+              />
+              <div
+                className="animate-skeleton h-2.5 w-20 rounded"
+                style={{ animationDelay: "800ms" }}
+              />
             </div>
-            <div className="animate-skeleton h-2.5 w-28 rounded mb-2" style={{ animationDelay: "850ms" }} />
+            <div
+              className="animate-skeleton h-2.5 w-28 rounded mb-2"
+              style={{ animationDelay: "850ms" }}
+            />
             <div className="pl-3 space-y-1.5">
-              <div className="animate-skeleton h-2 w-full rounded" style={{ animationDelay: "900ms" }} />
-              <div className="animate-skeleton h-2 w-3/4 rounded" style={{ animationDelay: "950ms" }} />
-              <div className="animate-skeleton h-2 w-5/6 rounded" style={{ animationDelay: "970ms" }} />
+              <div
+                className="animate-skeleton h-2 w-full rounded"
+                style={{ animationDelay: "900ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-3/4 rounded"
+                style={{ animationDelay: "950ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-5/6 rounded"
+                style={{ animationDelay: "970ms" }}
+              />
             </div>
           </div>
           {/* Job 3 */}
           <div className="mb-4">
             <div className="flex justify-between items-center mb-1.5">
-              <div className="animate-skeleton h-3 w-32 rounded" style={{ animationDelay: "1000ms" }} />
-              <div className="animate-skeleton h-2.5 w-20 rounded" style={{ animationDelay: "1050ms" }} />
+              <div
+                className="animate-skeleton h-3 w-32 rounded"
+                style={{ animationDelay: "1000ms" }}
+              />
+              <div
+                className="animate-skeleton h-2.5 w-20 rounded"
+                style={{ animationDelay: "1050ms" }}
+              />
             </div>
-            <div className="animate-skeleton h-2.5 w-24 rounded mb-2" style={{ animationDelay: "1100ms" }} />
+            <div
+              className="animate-skeleton h-2.5 w-24 rounded mb-2"
+              style={{ animationDelay: "1100ms" }}
+            />
             <div className="pl-3 space-y-1.5">
-              <div className="animate-skeleton h-2 w-full rounded" style={{ animationDelay: "1150ms" }} />
-              <div className="animate-skeleton h-2 w-2/3 rounded" style={{ animationDelay: "1200ms" }} />
+              <div
+                className="animate-skeleton h-2 w-full rounded"
+                style={{ animationDelay: "1150ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-2/3 rounded"
+                style={{ animationDelay: "1200ms" }}
+              />
             </div>
           </div>
         </div>
@@ -262,8 +434,14 @@ export function ResumeSkeleton() {
 
       {/* Skills Section */}
       <div className="mb-5">
-        <div className="animate-skeleton h-3.5 w-16 rounded mb-2" style={{ animationDelay: "1250ms" }} />
-        <div className="border-b pb-3 mb-3" style={{ borderColor: "var(--color-border)" }}>
+        <div
+          className="animate-skeleton h-3.5 w-16 rounded mb-2"
+          style={{ animationDelay: "1250ms" }}
+        />
+        <div
+          className="border-b pb-3 mb-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
           <div className="flex flex-wrap gap-2 mb-2">
             {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
               <div
@@ -293,27 +471,54 @@ export function ResumeSkeleton() {
 
       {/* Projects Section */}
       <div className="mb-5">
-        <div className="animate-skeleton h-3.5 w-24 rounded mb-2" style={{ animationDelay: "2000ms" }} />
-        <div className="border-b pb-3 mb-3" style={{ borderColor: "var(--color-border)" }}>
+        <div
+          className="animate-skeleton h-3.5 w-24 rounded mb-2"
+          style={{ animationDelay: "2000ms" }}
+        />
+        <div
+          className="border-b pb-3 mb-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
           {/* Project 1 */}
           <div className="mb-3">
             <div className="flex justify-between items-center mb-1.5">
-              <div className="animate-skeleton h-3 w-44 rounded" style={{ animationDelay: "2050ms" }} />
+              <div
+                className="animate-skeleton h-3 w-44 rounded"
+                style={{ animationDelay: "2050ms" }}
+              />
             </div>
             <div className="pl-3 space-y-1.5">
-              <div className="animate-skeleton h-2 w-full rounded" style={{ animationDelay: "2100ms" }} />
-              <div className="animate-skeleton h-2 w-4/5 rounded" style={{ animationDelay: "2150ms" }} />
-              <div className="animate-skeleton h-2 w-3/4 rounded" style={{ animationDelay: "2200ms" }} />
+              <div
+                className="animate-skeleton h-2 w-full rounded"
+                style={{ animationDelay: "2100ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-4/5 rounded"
+                style={{ animationDelay: "2150ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-3/4 rounded"
+                style={{ animationDelay: "2200ms" }}
+              />
             </div>
           </div>
           {/* Project 2 */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
-              <div className="animate-skeleton h-3 w-36 rounded" style={{ animationDelay: "2250ms" }} />
+              <div
+                className="animate-skeleton h-3 w-36 rounded"
+                style={{ animationDelay: "2250ms" }}
+              />
             </div>
             <div className="pl-3 space-y-1.5">
-              <div className="animate-skeleton h-2 w-full rounded" style={{ animationDelay: "2300ms" }} />
-              <div className="animate-skeleton h-2 w-2/3 rounded" style={{ animationDelay: "2350ms" }} />
+              <div
+                className="animate-skeleton h-2 w-full rounded"
+                style={{ animationDelay: "2300ms" }}
+              />
+              <div
+                className="animate-skeleton h-2 w-2/3 rounded"
+                style={{ animationDelay: "2350ms" }}
+              />
             </div>
           </div>
         </div>
@@ -321,28 +526,61 @@ export function ResumeSkeleton() {
 
       {/* Education Section */}
       <div className="mb-5">
-        <div className="animate-skeleton h-3.5 w-24 rounded mb-2" style={{ animationDelay: "2400ms" }} />
-        <div className="border-b pb-3 mb-3" style={{ borderColor: "var(--color-border)" }}>
+        <div
+          className="animate-skeleton h-3.5 w-24 rounded mb-2"
+          style={{ animationDelay: "2400ms" }}
+        />
+        <div
+          className="border-b pb-3 mb-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
           <div className="flex justify-between items-center mb-1">
-            <div className="animate-skeleton h-3 w-40 rounded" style={{ animationDelay: "2450ms" }} />
-            <div className="animate-skeleton h-2.5 w-16 rounded" style={{ animationDelay: "2500ms" }} />
+            <div
+              className="animate-skeleton h-3 w-40 rounded"
+              style={{ animationDelay: "2450ms" }}
+            />
+            <div
+              className="animate-skeleton h-2.5 w-16 rounded"
+              style={{ animationDelay: "2500ms" }}
+            />
           </div>
-          <div className="animate-skeleton h-2.5 w-32 rounded mb-1" style={{ animationDelay: "2550ms" }} />
-          <div className="animate-skeleton h-2 w-24 rounded" style={{ animationDelay: "2600ms" }} />
+          <div
+            className="animate-skeleton h-2.5 w-32 rounded mb-1"
+            style={{ animationDelay: "2550ms" }}
+          />
+          <div
+            className="animate-skeleton h-2 w-24 rounded"
+            style={{ animationDelay: "2600ms" }}
+          />
         </div>
       </div>
 
       {/* Certifications Section */}
       <div>
-        <div className="animate-skeleton h-3.5 w-28 rounded mb-2" style={{ animationDelay: "2650ms" }} />
+        <div
+          className="animate-skeleton h-3.5 w-28 rounded mb-2"
+          style={{ animationDelay: "2650ms" }}
+        />
         <div>
           <div className="flex justify-between items-center mb-1.5">
-            <div className="animate-skeleton h-2.5 w-48 rounded" style={{ animationDelay: "2700ms" }} />
-            <div className="animate-skeleton h-2 w-16 rounded" style={{ animationDelay: "2750ms" }} />
+            <div
+              className="animate-skeleton h-2.5 w-48 rounded"
+              style={{ animationDelay: "2700ms" }}
+            />
+            <div
+              className="animate-skeleton h-2 w-16 rounded"
+              style={{ animationDelay: "2750ms" }}
+            />
           </div>
           <div className="flex justify-between items-center mb-1.5">
-            <div className="animate-skeleton h-2.5 w-40 rounded" style={{ animationDelay: "2800ms" }} />
-            <div className="animate-skeleton h-2 w-14 rounded" style={{ animationDelay: "2850ms" }} />
+            <div
+              className="animate-skeleton h-2.5 w-40 rounded"
+              style={{ animationDelay: "2800ms" }}
+            />
+            <div
+              className="animate-skeleton h-2 w-14 rounded"
+              style={{ animationDelay: "2850ms" }}
+            />
           </div>
         </div>
       </div>

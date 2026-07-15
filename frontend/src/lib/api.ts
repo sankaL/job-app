@@ -150,9 +150,22 @@ export type ResumeJudgeResult = {
 };
 
 export type JobKeywordsPayload = {
-  status: "queued" | "running" | "succeeded" | "failed" | "unavailable" | string;
+  status:
+    | "queued"
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "unavailable"
+    | string;
   source_hash?: string | null;
-  keywords?: Array<{ text?: string | null; source?: "extracted" | "manual" | string | null; added_at?: string | null } | string> | null;
+  keywords?: Array<
+    | {
+        text?: string | null;
+        source?: "extracted" | "manual" | string | null;
+        added_at?: string | null;
+      }
+    | string
+  > | null;
   extracted_at?: string | null;
   updated_at?: string | null;
   model_used?: string | null;
@@ -499,7 +512,9 @@ function buildRequestSignal(externalSignal?: AbortSignal | null): {
     if (externalSignal.aborted) {
       externalAbortHandler();
     } else {
-      externalSignal.addEventListener("abort", externalAbortHandler, { once: true });
+      externalSignal.addEventListener("abort", externalAbortHandler, {
+        once: true,
+      });
     }
   }
 
@@ -536,7 +551,10 @@ async function fetchWithAuthentication(
     }
 
     try {
-      headers.set("Authorization", `Bearer ${await getAccessToken({ forceRefresh: true })}`);
+      headers.set(
+        "Authorization",
+        `Bearer ${await getAccessToken({ forceRefresh: true })}`,
+      );
     } catch {
       return response;
     }
@@ -590,7 +608,10 @@ function parseSseChunk(
   };
 }
 
-async function requireSuccessfulResponse(response: Response, fallback: string): Promise<void> {
+async function requireSuccessfulResponse(
+  response: Response,
+  fallback: string,
+): Promise<void> {
   if (response.ok) return;
 
   let detail = fallback;
@@ -603,27 +624,80 @@ async function requireSuccessfulResponse(response: Response, fallback: string): 
   throw new Error(detail);
 }
 
-async function authenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function authenticatedRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
   return jsonRequest<T>((init) => fetchWithAuthentication(path, init), options);
+}
+
+type ApplicationEventStreamOptions = {
+  signal: AbortSignal;
+  onSnapshot: (snapshot: ApplicationEventSnapshot) => void;
+  onProgress: (progress: ExtractionProgress) => void;
+  onDetail: (detail: ApplicationDetail) => void;
+  onHeartbeat?: (heartbeat: ApplicationHeartbeat) => void;
+};
+
+function dispatchApplicationEvent(
+  parsed: { event: string; payload: unknown },
+  options: ApplicationEventStreamOptions,
+) {
+  switch (parsed.event) {
+    case "snapshot":
+      options.onSnapshot(parsed.payload as ApplicationEventSnapshot);
+      return;
+    case "progress":
+      options.onProgress(parsed.payload as ExtractionProgress);
+      return;
+    case "detail":
+      options.onDetail(parsed.payload as ApplicationDetail);
+      return;
+    case "heartbeat":
+      options.onHeartbeat?.(parsed.payload as ApplicationHeartbeat);
+  }
+}
+
+function consumeApplicationEventChunks(
+  chunks: string[],
+  options: ApplicationEventStreamOptions,
+) {
+  for (const chunk of chunks) {
+    const parsed = parseSseChunk(chunk);
+    if (parsed) dispatchApplicationEvent(parsed, options);
+  }
+}
+
+async function readApplicationEventStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  options: ApplicationEventStreamOptions,
+) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+    consumeApplicationEventChunks(chunks, options);
+  }
 }
 
 export async function openApplicationEventStream(
   applicationId: string,
-  options: {
-    signal: AbortSignal;
-    onSnapshot: (snapshot: ApplicationEventSnapshot) => void;
-    onProgress: (progress: ExtractionProgress) => void;
-    onDetail: (detail: ApplicationDetail) => void;
-    onHeartbeat?: (heartbeat: ApplicationHeartbeat) => void;
-  },
+  options: ApplicationEventStreamOptions,
 ): Promise<void> {
-  const response = await fetchWithAuthentication(`/api/applications/${applicationId}/events`, {
-    method: "GET",
-    headers: {
-      Accept: "text/event-stream",
+  const response = await fetchWithAuthentication(
+    `/api/applications/${applicationId}/events`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "text/event-stream",
+      },
+      signal: options.signal,
     },
-    signal: options.signal,
-  });
+  );
 
   await requireSuccessfulResponse(response, "Unable to open live updates.");
 
@@ -631,47 +705,13 @@ export async function openApplicationEventStream(
     throw new Error("Live updates are unavailable.");
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    const chunks = buffer.split("\n\n");
-    buffer = chunks.pop() ?? "";
-
-    for (const chunk of chunks) {
-      const parsed = parseSseChunk(chunk);
-      if (!parsed) {
-        continue;
-      }
-
-      if (parsed.event === "snapshot") {
-        options.onSnapshot(parsed.payload as ApplicationEventSnapshot);
-        continue;
-      }
-      if (parsed.event === "progress") {
-        options.onProgress(parsed.payload as ExtractionProgress);
-        continue;
-      }
-      if (parsed.event === "detail") {
-        options.onDetail(parsed.payload as ApplicationDetail);
-        continue;
-      }
-      if (parsed.event === "heartbeat") {
-        options.onHeartbeat?.(parsed.payload as ApplicationHeartbeat);
-      }
-    }
-  }
+  await readApplicationEventStream(response.body.getReader(), options);
 }
 
-
-async function authenticatedUpload<T>(path: string, formData: FormData): Promise<T> {
+async function authenticatedUpload<T>(
+  path: string,
+  formData: FormData,
+): Promise<T> {
   const response = await fetchWithAuthentication(path, {
     method: "POST",
     body: formData,
@@ -681,8 +721,14 @@ async function authenticatedUpload<T>(path: string, formData: FormData): Promise
   return response.json();
 }
 
-async function unauthenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  return jsonRequest<T>((init) => fetch(`${env.VITE_API_URL}${path}`, init), options);
+async function unauthenticatedRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  return jsonRequest<T>(
+    (init) => fetch(`${env.VITE_API_URL}${path}`, init),
+    options,
+  );
 }
 
 async function jsonRequest<T>(
@@ -703,7 +749,9 @@ async function jsonRequest<T>(
 }
 
 export async function fetchSessionBootstrap(): Promise<SessionBootstrapResponse> {
-  return authenticatedRequest<SessionBootstrapResponse>("/api/session/bootstrap");
+  return authenticatedRequest<SessionBootstrapResponse>(
+    "/api/session/bootstrap",
+  );
 }
 
 export async function listNotifications(): Promise<NotificationSummary[]> {
@@ -727,55 +775,80 @@ export type CreateApplicationPayload = {
   source_text?: string;
 };
 
-export async function createApplication(payload: CreateApplicationPayload): Promise<ApplicationDetail> {
+export async function createApplication(
+  payload: CreateApplicationPayload,
+): Promise<ApplicationDetail> {
   return authenticatedRequest<ApplicationDetail>("/api/applications", {
     method: "POST",
     body: payload,
   });
 }
 
-export async function fetchApplicationDetail(applicationId: string): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}`);
+export async function fetchApplicationDetail(
+  applicationId: string,
+): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}`,
+  );
 }
 
 export async function patchApplication(
   applicationId: string,
   updates: Record<string, unknown>,
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}`, {
-    method: "PATCH",
-    body: updates,
-  });
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}`,
+    {
+      method: "PATCH",
+      body: updates,
+    },
+  );
 }
 
 export async function deleteApplication(applicationId: string): Promise<void> {
-  const response = await fetchWithAuthentication(`/api/applications/${applicationId}`, {
-    method: "DELETE",
-  });
+  const response = await fetchWithAuthentication(
+    `/api/applications/${applicationId}`,
+    {
+      method: "DELETE",
+    },
+  );
 
   await requireSuccessfulResponse(response, "Delete failed.");
 }
 
-export async function cancelExtraction(applicationId: string): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/cancel-extraction`, {
-    method: "POST",
-  });
+export async function cancelExtraction(
+  applicationId: string,
+): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/cancel-extraction`,
+    {
+      method: "POST",
+    },
+  );
 }
 
-export async function retryExtraction(applicationId: string): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/retry-extraction`, {
-    method: "POST",
-  });
+export async function retryExtraction(
+  applicationId: string,
+): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/retry-extraction`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function submitManualEntry(
   applicationId: string,
   payload: Record<string, unknown>,
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/manual-entry`, {
-    method: "POST",
-    body: payload,
-  });
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/manual-entry`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 export async function resolveDuplicate(
@@ -791,26 +864,39 @@ export async function resolveDuplicate(
   );
 }
 
-export async function fetchApplicationProgress(applicationId: string): Promise<ExtractionProgress> {
-  return authenticatedRequest<ExtractionProgress>(`/api/applications/${applicationId}/progress`);
+export async function fetchApplicationProgress(
+  applicationId: string,
+): Promise<ExtractionProgress> {
+  return authenticatedRequest<ExtractionProgress>(
+    `/api/applications/${applicationId}/progress`,
+  );
 }
 
-export async function listApplicationActivity(applicationId: string): Promise<ApplicationActivityEvent[]> {
-  return authenticatedRequest<ApplicationActivityEvent[]>(`/api/applications/${applicationId}/activity`);
+export async function listApplicationActivity(
+  applicationId: string,
+): Promise<ApplicationActivityEvent[]> {
+  return authenticatedRequest<ApplicationActivityEvent[]>(
+    `/api/applications/${applicationId}/activity`,
+  );
 }
 
 export async function recoverApplicationFromSource(
   applicationId: string,
   payload: Record<string, unknown>,
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/recover-from-source`, {
-    method: "POST",
-    body: payload,
-  });
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/recover-from-source`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 export async function fetchExtensionStatus(): Promise<ExtensionConnectionStatus> {
-  return authenticatedRequest<ExtensionConnectionStatus>("/api/extension/status");
+  return authenticatedRequest<ExtensionConnectionStatus>(
+    "/api/extension/status",
+  );
 }
 
 export async function issueExtensionToken(): Promise<ExtensionTokenResponse> {
@@ -820,9 +906,12 @@ export async function issueExtensionToken(): Promise<ExtensionTokenResponse> {
 }
 
 export async function revokeExtensionToken(): Promise<ExtensionConnectionStatus> {
-  return authenticatedRequest<ExtensionConnectionStatus>("/api/extension/token", {
-    method: "DELETE",
-  });
+  return authenticatedRequest<ExtensionConnectionStatus>(
+    "/api/extension/token",
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 // Base resumes
@@ -831,38 +920,59 @@ export async function listBaseResumes(): Promise<BaseResumeSummary[]> {
   return authenticatedRequest<BaseResumeSummary[]>("/api/base-resumes");
 }
 
-export async function createBaseResume(name: string, contentMd: string): Promise<BaseResumeDetail> {
+export async function createBaseResume(
+  name: string,
+  contentMd: string,
+): Promise<BaseResumeDetail> {
   return authenticatedRequest<BaseResumeDetail>("/api/base-resumes", {
     method: "POST",
     body: { name, content_md: contentMd },
   });
 }
 
-export async function fetchBaseResume(resumeId: string): Promise<BaseResumeDetail> {
-  return authenticatedRequest<BaseResumeDetail>(`/api/base-resumes/${resumeId}`);
+export async function fetchBaseResume(
+  resumeId: string,
+): Promise<BaseResumeDetail> {
+  return authenticatedRequest<BaseResumeDetail>(
+    `/api/base-resumes/${resumeId}`,
+  );
 }
 
 export async function updateBaseResume(
   resumeId: string,
   updates: { name?: string; content_md?: string },
 ): Promise<BaseResumeDetail> {
-  return authenticatedRequest<BaseResumeDetail>(`/api/base-resumes/${resumeId}`, {
-    method: "PATCH",
-    body: updates,
-  });
+  return authenticatedRequest<BaseResumeDetail>(
+    `/api/base-resumes/${resumeId}`,
+    {
+      method: "PATCH",
+      body: updates,
+    },
+  );
 }
 
-export async function deleteBaseResume(resumeId: string, force: boolean = true): Promise<void> {
-  const response = await fetchWithAuthentication(`/api/base-resumes/${resumeId}?force=${force}`, {
-    method: "DELETE",
-  });
+export async function deleteBaseResume(
+  resumeId: string,
+  force: boolean = true,
+): Promise<void> {
+  const response = await fetchWithAuthentication(
+    `/api/base-resumes/${resumeId}?force=${force}`,
+    {
+      method: "DELETE",
+    },
+  );
   await requireSuccessfulResponse(response, "Delete failed.");
 }
 
-export async function setDefaultBaseResume(resumeId: string): Promise<BaseResumeSummary> {
-  return authenticatedRequest<BaseResumeSummary>(`/api/base-resumes/${resumeId}/set-default`, {
-    method: "POST",
-  });
+export async function setDefaultBaseResume(
+  resumeId: string,
+): Promise<BaseResumeSummary> {
+  return authenticatedRequest<BaseResumeSummary>(
+    `/api/base-resumes/${resumeId}/set-default`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function uploadBaseResume(
@@ -876,10 +986,15 @@ export async function uploadBaseResume(
   if (useLlmCleanup !== undefined) {
     formData.append("use_llm_cleanup", String(useLlmCleanup));
   }
-  return authenticatedUpload<BaseResumeDetail>("/api/base-resumes/upload", formData);
+  return authenticatedUpload<BaseResumeDetail>(
+    "/api/base-resumes/upload",
+    formData,
+  );
 }
 
-export async function updateProfile(updates: ProfileUpdatePayload): Promise<ProfileData> {
+export async function updateProfile(
+  updates: ProfileUpdatePayload,
+): Promise<ProfileData> {
   return authenticatedRequest<ProfileData>("/api/profiles", {
     method: "PATCH",
     body: updates,
@@ -888,23 +1003,37 @@ export async function updateProfile(updates: ProfileUpdatePayload): Promise<Prof
 
 // Invite Onboarding
 
-export async function fetchInvitePreview(token: string): Promise<InvitePreview> {
+export async function fetchInvitePreview(
+  token: string,
+): Promise<InvitePreview> {
   const params = new URLSearchParams({ token });
-  return unauthenticatedRequest<InvitePreview>(`/api/public/invites/preview?${params.toString()}`);
+  return unauthenticatedRequest<InvitePreview>(
+    `/api/public/invites/preview?${params.toString()}`,
+  );
 }
 
-export async function acceptInvite(payload: AcceptInvitePayload): Promise<AcceptInviteResponse> {
-  return unauthenticatedRequest<AcceptInviteResponse>("/api/public/invites/accept", {
-    method: "POST",
-    body: payload,
-  });
+export async function acceptInvite(
+  payload: AcceptInvitePayload,
+): Promise<AcceptInviteResponse> {
+  return unauthenticatedRequest<AcceptInviteResponse>(
+    "/api/public/invites/accept",
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
-export async function submitAccessRequest(payload: AccessRequestPayload): Promise<AccessRequestResponse> {
-  return unauthenticatedRequest<AccessRequestResponse>("/api/public/access-requests", {
-    method: "POST",
-    body: payload,
-  });
+export async function submitAccessRequest(
+  payload: AccessRequestPayload,
+): Promise<AccessRequestResponse> {
+  return unauthenticatedRequest<AccessRequestResponse>(
+    "/api/public/access-requests",
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 // Admin
@@ -925,27 +1054,37 @@ export async function listAdminUsers(params?: {
 }
 
 export async function listSubscriptionTiers(): Promise<SubscriptionTier[]> {
-  return authenticatedRequest<SubscriptionTier[]>("/api/admin/subscription-tiers");
+  return authenticatedRequest<SubscriptionTier[]>(
+    "/api/admin/subscription-tiers",
+  );
 }
 
 export async function updateSubscriptionTier(
   tierKey: "basic" | "pro",
   payload: UpdateSubscriptionTierPayload,
 ): Promise<SubscriptionTier> {
-  return authenticatedRequest<SubscriptionTier>(`/api/admin/subscription-tiers/${tierKey}`, {
-    method: "PATCH",
-    body: payload,
-  });
+  return authenticatedRequest<SubscriptionTier>(
+    `/api/admin/subscription-tiers/${tierKey}`,
+    {
+      method: "PATCH",
+      body: payload,
+    },
+  );
 }
 
-export async function inviteAdminUser(payload: InviteUserPayload): Promise<InviteUserResponse> {
+export async function inviteAdminUser(
+  payload: InviteUserPayload,
+): Promise<InviteUserResponse> {
   return authenticatedRequest<InviteUserResponse>("/api/admin/users/invite", {
     method: "POST",
     body: payload,
   });
 }
 
-export async function updateAdminUser(userId: string, updates: UpdateAdminUserPayload): Promise<AdminUser> {
+export async function updateAdminUser(
+  userId: string,
+  updates: UpdateAdminUserPayload,
+): Promise<AdminUser> {
   return authenticatedRequest<AdminUser>(`/api/admin/users/${userId}`, {
     method: "PATCH",
     body: updates,
@@ -953,15 +1092,21 @@ export async function updateAdminUser(userId: string, updates: UpdateAdminUserPa
 }
 
 export async function deactivateAdminUser(userId: string): Promise<AdminUser> {
-  return authenticatedRequest<AdminUser>(`/api/admin/users/${userId}/deactivate`, {
-    method: "POST",
-  });
+  return authenticatedRequest<AdminUser>(
+    `/api/admin/users/${userId}/deactivate`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function reactivateAdminUser(userId: string): Promise<AdminUser> {
-  return authenticatedRequest<AdminUser>(`/api/admin/users/${userId}/reactivate`, {
-    method: "POST",
-  });
+  return authenticatedRequest<AdminUser>(
+    `/api/admin/users/${userId}/reactivate`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function deleteAdminUser(userId: string): Promise<void> {
@@ -982,30 +1127,45 @@ export async function triggerGeneration(
     additional_instructions?: string;
   },
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/generate`, {
-    method: "POST",
-    body: settings,
-  });
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/generate`,
+    {
+      method: "POST",
+      body: settings,
+    },
+  );
 }
 
-export async function fetchDraft(applicationId: string): Promise<ResumeDraft | null> {
-  return authenticatedRequest<ResumeDraft | null>(`/api/applications/${applicationId}/draft`);
+export async function fetchDraft(
+  applicationId: string,
+): Promise<ResumeDraft | null> {
+  return authenticatedRequest<ResumeDraft | null>(
+    `/api/applications/${applicationId}/draft`,
+  );
 }
 
-export async function triggerResumeJudge(applicationId: string): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/judge`, {
-    method: "POST",
-  });
+export async function triggerResumeJudge(
+  applicationId: string,
+): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/judge`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export async function saveDraft(
   applicationId: string,
   content: string,
 ): Promise<ResumeDraft> {
-  return authenticatedRequest<ResumeDraft>(`/api/applications/${applicationId}/draft`, {
-    method: "PUT",
-    body: { content },
-  });
+  return authenticatedRequest<ResumeDraft>(
+    `/api/applications/${applicationId}/draft`,
+    {
+      method: "PUT",
+      body: { content },
+    },
+  );
 }
 
 export async function triggerFullRegeneration(
@@ -1017,27 +1177,38 @@ export async function triggerFullRegeneration(
     use_judge_feedback?: boolean;
   },
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/regenerate`, {
-    method: "POST",
-    body: settings,
-  });
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/regenerate`,
+    {
+      method: "POST",
+      body: settings,
+    },
+  );
 }
 
 export async function updateManualKeywords(
   applicationId: string,
   keywords: string[],
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/keywords/manual`, {
-    method: "PUT",
-    body: { keywords },
-  });
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/keywords/manual`,
+    {
+      method: "PUT",
+      body: { keywords },
+    },
+  );
 }
 
-export async function triggerKeywordOptimization(applicationId: string): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/optimize-keywords`, {
-    method: "POST",
-    body: {},
-  });
+export async function triggerKeywordOptimization(
+  applicationId: string,
+): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/optimize-keywords`,
+    {
+      method: "POST",
+      body: {},
+    },
+  );
 }
 
 export async function triggerSectionRegeneration(
@@ -1045,19 +1216,29 @@ export async function triggerSectionRegeneration(
   sectionName: string,
   instructions: string,
 ): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/regenerate-section`, {
-    method: "POST",
-    body: { section_name: sectionName, instructions },
-  });
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/regenerate-section`,
+    {
+      method: "POST",
+      body: { section_name: sectionName, instructions },
+    },
+  );
 }
 
-export async function cancelGeneration(applicationId: string): Promise<ApplicationDetail> {
-  return authenticatedRequest<ApplicationDetail>(`/api/applications/${applicationId}/cancel-generation`, {
-    method: "POST",
-  });
+export async function cancelGeneration(
+  applicationId: string,
+): Promise<ApplicationDetail> {
+  return authenticatedRequest<ApplicationDetail>(
+    `/api/applications/${applicationId}/cancel-generation`,
+    {
+      method: "POST",
+    },
+  );
 }
 
-function parseDownloadFilename(contentDisposition: string | null): string | null {
+function parseDownloadFilename(
+  contentDisposition: string | null,
+): string | null {
   if (!contentDisposition) return null;
   const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
   if (utf8Match?.[1]) {
@@ -1071,13 +1252,19 @@ function parseDownloadFilename(contentDisposition: string | null): string | null
   return unquotedMatch?.[1]?.trim() ?? null;
 }
 
-async function exportDownload(applicationId: string, path: string): Promise<DownloadResponse> {
+async function exportDownload(
+  applicationId: string,
+  path: string,
+): Promise<DownloadResponse> {
   const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}/api/applications/${applicationId}/${path}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
+  const response = await fetch(
+    `${env.VITE_API_URL}/api/applications/${applicationId}/${path}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     },
-  });
+  );
 
   if (!response.ok) {
     let detail = "Export failed.";
@@ -1092,14 +1279,20 @@ async function exportDownload(applicationId: string, path: string): Promise<Down
 
   return {
     blob: await response.blob(),
-    filename: parseDownloadFilename(response.headers.get("Content-Disposition")),
+    filename: parseDownloadFilename(
+      response.headers.get("Content-Disposition"),
+    ),
   };
 }
 
-export async function exportPdf(applicationId: string): Promise<DownloadResponse> {
+export async function exportPdf(
+  applicationId: string,
+): Promise<DownloadResponse> {
   return exportDownload(applicationId, "export-pdf");
 }
 
-export async function exportDocx(applicationId: string): Promise<DownloadResponse> {
+export async function exportDocx(
+  applicationId: string,
+): Promise<DownloadResponse> {
   return exportDownload(applicationId, "export-docx");
 }
