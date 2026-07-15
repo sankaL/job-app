@@ -1,11 +1,11 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
-import { createPortal } from "react-dom";
-import { Pencil, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState, type FormEvent } from "react";
+import { Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ModalActions, ModalError, ModalShell } from "@/components/ui/modal-shell";
 import { Select } from "@/components/ui/select";
 import { type AdminUser, type UpdateAdminUserPayload } from "@/lib/api";
+import { useContactFields } from "@/lib/use-contact-fields";
 
 type EditUserModalProps = {
   open: boolean;
@@ -14,17 +14,12 @@ type EditUserModalProps = {
   onSubmit: (userId: string, payload: UpdateAdminUserPayload) => Promise<void>;
 };
 
-const DIALOG_WIDTH = "min(520px, calc(100vw - 32px))";
-
 export function EditUserModal({ open, user, onClose, onSubmit }: EditUserModalProps) {
-  const titleId = useId();
-  const descriptionId = useId();
-  const [email, setEmail] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [address, setAddress] = useState("");
-  const [phone, setPhone] = useState("");
-  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const {
+    email, setEmail, firstName, setFirstName, lastName, setLastName,
+    address, setAddress, phone, setPhone, linkedinUrl, setLinkedinUrl,
+    resetContactFields,
+  } = useContactFields();
   const [subscriptionTier, setSubscriptionTier] = useState<"basic" | "pro">("basic");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,12 +40,7 @@ export function EditUserModal({ open, user, onClose, onSubmit }: EditUserModalPr
   }, [user]);
 
   function resetState() {
-    setEmail("");
-    setFirstName("");
-    setLastName("");
-    setAddress("");
-    setPhone("");
-    setLinkedinUrl("");
+    resetContactFields();
     setSubscriptionTier("basic");
     setError(null);
     setIsSubmitting(false);
@@ -65,25 +55,8 @@ export function EditUserModal({ open, user, onClose, onSubmit }: EditUserModalPr
   useEffect(() => {
     if (!open) {
       resetState();
-      return;
     }
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
   }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        handleClose();
-      }
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, isSubmitting]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -108,96 +81,18 @@ export function EditUserModal({ open, user, onClose, onSubmit }: EditUserModalPr
     }
   }
 
-  if (!open || !user || typeof document === "undefined") {
-    return null;
-  }
+  if (!user) return null;
 
-  return createPortal(
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 99999,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "16px",
-      }}
+  return (
+    <ModalShell
+      open={open}
+      title="Edit User"
+      description={user.email}
+      icon={<Pencil size={14} aria-hidden="true" />}
+      closeLabel="Close edit user modal"
+      onClose={handleClose}
+      closeDisabled={isSubmitting}
     >
-      <div
-        aria-hidden="true"
-        onClick={handleClose}
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "rgba(16, 24, 40, 0.48)",
-          backdropFilter: "blur(6px)",
-          animation: "fadeIn 220ms var(--ease-out) both",
-        }}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="animate-scaleIn"
-        style={{
-          position: "relative",
-          zIndex: 1,
-          width: DIALOG_WIDTH,
-          borderRadius: "var(--radius-xl)",
-          border: "1px solid var(--color-border)",
-          background: "var(--color-white)",
-          boxShadow: "var(--shadow-panel)",
-          overflow: "hidden",
-        }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-start justify-between gap-4 px-6 pb-4 pt-6"
-          style={{ borderBottom: "1px solid var(--color-border)" }}
-        >
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <div
-                className="flex h-7 w-7 items-center justify-center rounded-lg"
-                style={{ background: "var(--color-spruce)", color: "white" }}
-              >
-                <Pencil size={14} aria-hidden="true" />
-              </div>
-              <h2
-                id={titleId}
-                className="text-base font-semibold"
-                style={{ color: "var(--color-ink)" }}
-              >
-                Edit User
-              </h2>
-            </div>
-            <p
-              id={descriptionId}
-              className="text-sm leading-relaxed"
-              style={{ color: "var(--color-ink-50)" }}
-            >
-              {user.email}
-            </p>
-          </div>
-          <button
-            type="button"
-            aria-label="Close edit user modal"
-            onClick={handleClose}
-            disabled={isSubmitting}
-            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition-all disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              color: "var(--color-ink-40)",
-              background: "transparent",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            <X size={15} aria-hidden="true" />
-          </button>
-        </div>
-
-        {/* Body */}
         <form className="px-6 pb-6 pt-5" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
@@ -268,35 +163,10 @@ export function EditUserModal({ open, user, onClose, onSubmit }: EditUserModalPr
                 </Select>
               </div>
             </div>
-            {error ? (
-              <div
-                className="rounded-xl border px-4 py-3 text-sm"
-                style={{
-                  color: "var(--color-ember)",
-                  borderColor: "var(--color-ember-10)",
-                  background: "var(--color-ember-05)",
-                }}
-              >
-                {error}
-              </div>
-            ) : null}
+            <ModalError message={error} />
           </div>
-
-          {/* Footer */}
-          <div
-            className="mt-5 flex items-center justify-end gap-2 border-t pt-5"
-            style={{ borderColor: "var(--color-border)" }}
-          >
-            <Button type="button" variant="secondary" onClick={handleClose} disabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button type="submit" loading={isSubmitting} disabled={isSubmitting}>
-              Save Changes
-            </Button>
-          </div>
+          <ModalActions onCancel={handleClose} submitting={isSubmitting} submitLabel="Save Changes" />
         </form>
-      </div>
-    </div>,
-    document.body,
+    </ModalShell>
   );
 }

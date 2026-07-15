@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, type PropsWithChildren } from "react";
 
-export type ShellLayoutMode = "default" | "immersive";
+type ShellLayoutMode = "default" | "immersive";
 
 type ShellLayoutContextValue = {
   mode: ShellLayoutMode;

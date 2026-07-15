@@ -13,14 +13,13 @@ async function loadAuthFixtures(appEnv = "development", appDevMode = false) {
     },
   }));
 
-  const [{ default: App }, { LoginPage }, { LandingPage }, { AuthProvider }, { ProtectedRoute }, { workflowContract }] =
+  const [{ default: App }, { LoginPage }, { LandingPage }, { AuthProvider }, { ProtectedRoute }] =
     await Promise.all([
       import("@/App"),
       import("@/routes/LoginPage"),
       import("@/routes/LandingPage"),
       import("@/lib/auth"),
       import("@/routes/ProtectedRoute"),
-      import("@/lib/workflow-contract"),
     ]);
 
   function renderWithAuth(element: ReactElement) {
@@ -34,7 +33,6 @@ async function loadAuthFixtures(appEnv = "development", appDevMode = false) {
     AuthProvider,
     ProtectedRoute,
     renderWithAuth,
-    workflowContract,
   };
 }
 
@@ -416,7 +414,8 @@ describe("frontend phase 0 auth shell", () => {
   });
 
   it("loads the shared workflow contract from the repo-level artifact", async () => {
-    const { workflowContract } = await loadAuthFixtures("development", true);
+    await loadAuthFixtures("development", true);
+    const { default: workflowContract } = await import("@/lib/workflow-contract.json");
 
     expect(workflowContract.visible_statuses.map((status) => status.id)).toEqual([
       "draft",

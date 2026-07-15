@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
@@ -79,6 +79,75 @@ type JobFormState = {
 };
 
 type ExportFormat = "pdf" | "docx";
+
+function JobInformationFields({
+  form,
+  setForm,
+  compact = false,
+}: {
+  form: JobFormState;
+  setForm: Dispatch<SetStateAction<JobFormState>>;
+  compact?: boolean;
+}) {
+  const controlClass = compact ? "text-sm" : undefined;
+  const labelClass = compact ? "text-xs" : undefined;
+  const setField = (field: keyof JobFormState, value: string) => setForm((current) => ({ ...current, [field]: value }));
+  return (
+    <>
+      <div>
+        <Label htmlFor="job-title" className={labelClass}>Job Title</Label>
+        <Input id="job-title" className={controlClass} placeholder="Job title" value={form.job_title} onChange={(event) => setField("job_title", event.target.value)} />
+      </div>
+      <div>
+        <Label htmlFor="company" className={labelClass}>Company</Label>
+        <Input id="company" className={controlClass} placeholder="Company" value={form.company} onChange={(event) => setField("company", event.target.value)} />
+      </div>
+      <div>
+        <Label htmlFor="origin" className={labelClass}>Posting Source</Label>
+        <Select id="origin" className={controlClass} value={form.job_posting_origin} onChange={(event) => setField("job_posting_origin", event.target.value)}>
+          <option value="">Unknown</option>
+          {jobPostingOriginOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </Select>
+      </div>
+      {form.job_posting_origin === "other" ? (
+        <Input className={controlClass} placeholder="Other source label" value={form.job_posting_origin_other_text} onChange={(event) => setField("job_posting_origin_other_text", event.target.value)} />
+      ) : null}
+      <div>
+        <Label htmlFor="jd" className={labelClass}>Job Description</Label>
+        <Textarea id="jd" className={`${controlClass ?? ""} min-h-32`.trim()} placeholder="Job description" value={form.job_description} onChange={(event) => setField("job_description", event.target.value)} />
+      </div>
+      <div>
+        <Label htmlFor="job-location-detail" className={labelClass}>Location</Label>
+        <Input id="job-location-detail" className={controlClass} placeholder="e.g. British Columbia/Ontario or Toronto, Ontario" value={form.job_location_text} onChange={(event) => setField("job_location_text", event.target.value)} />
+      </div>
+      <div>
+        <Label htmlFor="compensation-detail" className={labelClass}>Compensation</Label>
+        <Input id="compensation-detail" className={controlClass} placeholder="e.g. $140,000 - $175,000 base salary" value={form.compensation_text} onChange={(event) => setField("compensation_text", event.target.value)} />
+      </div>
+    </>
+  );
+}
+
+function NotesCard({
+  value,
+  state,
+  onChange,
+  compact = false,
+}: {
+  value: string;
+  state: "idle" | "saving" | "saved";
+  onChange: (value: string) => void;
+  compact?: boolean;
+}) {
+  const status = state === "saving" ? "Saving…" : state === "saved" ? "Saved." : "Autosaves when you pause typing.";
+  return (
+    <Card density="compact" className="p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Notes</h3>
+      <Textarea className={`mt-3 min-h-24${compact ? " text-sm" : ""}`} placeholder="Add your own notes…" value={value} onChange={(event) => onChange(event.target.value)} />
+      <p className="mt-2 text-xs" style={{ color: "var(--color-ink-40)" }}>{status}</p>
+    </Card>
+  );
+}
 
 const EXTRACTION_POLL_STATES = ["extraction_pending", "extracting"];
 const ACTIVE_GENERATION_STATES = ["generating", "regenerating_full", "regenerating_section"];
@@ -182,20 +251,31 @@ type KeywordEntry = {
   added_at?: string | null;
 };
 
+function normalizeKeywordEntry(item: NonNullable<JobKeywordsPayload["keywords"]>[number]): KeywordEntry | null {
+  const isLegacyKeyword = typeof item === "string";
+  const rawText = isLegacyKeyword ? item : item?.text;
+  if (typeof rawText !== "string") return null;
+  const text = rawText.trim().replace(/\s+/g, " ");
+  if (!text) return null;
+  return {
+    text,
+    source: !isLegacyKeyword && item?.source === "manual" ? "manual" : "extracted",
+    added_at: isLegacyKeyword ? null : item?.added_at ?? null,
+  };
+}
+
 function getKeywordEntries(payload: JobKeywordsPayload | null | undefined): KeywordEntry[] {
   const rawKeywords = payload?.keywords;
   if (!Array.isArray(rawKeywords)) return [];
   const seen = new Set<string>();
   const keywords: KeywordEntry[] = [];
   for (const item of rawKeywords) {
-    const text = typeof item === "string" ? item : item?.text;
-    const cleaned = typeof text === "string" ? text.trim().replace(/\s+/g, " ") : "";
-    if (!cleaned) continue;
-    const key = cleaned.toLowerCase();
+    const entry = normalizeKeywordEntry(item);
+    if (!entry) continue;
+    const key = entry.text.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    const source = typeof item === "string" ? "extracted" : item?.source === "manual" ? "manual" : "extracted";
-    keywords.push({ text: cleaned, source, added_at: typeof item === "string" ? null : item?.added_at ?? null });
+    keywords.push(entry);
   }
   return keywords;
 }
@@ -255,40 +335,75 @@ function deriveVisibleStatus(
   return fallbackStatus;
 }
 
+function getGenerationFailureReason(progress: ExtractionProgress, isRegeneration: boolean) {
+  const code = progress.terminal_error_code;
+  if (!code) return null;
+  if (code === "generation_timeout" || code === "generation_cancelled") return code;
+  return isRegeneration ? "regeneration_failed" : "generation_failed";
+}
+
+function getTerminalGenerationState(progress: ExtractionProgress, isRegeneration: boolean) {
+  if (progress.state === "resume_ready" && !progress.terminal_error_code) return "resume_ready";
+  return isRegeneration ? "resume_ready" : "generation_pending";
+}
+
+function getGenerationFailureDetails(
+  current: ApplicationDetail,
+  progress: ExtractionProgress,
+  failureReason: string | null,
+): ApplicationDetail["generation_failure_details"] {
+  if (!failureReason) return null;
+  const existing = current.generation_failure_details;
+  return {
+    message: progress.message,
+    validation_errors: existing?.validation_errors ?? null,
+    failure_stage: existing?.failure_stage ?? null,
+    attempt_count: existing?.attempt_count ?? null,
+    attempts: existing?.attempts ?? null,
+    terminal_error_code: progress.terminal_error_code,
+  };
+}
+
 function applyTerminalGenerationProgress(
   current: ApplicationDetail,
   progress: ExtractionProgress,
 ): ApplicationDetail {
   const isRegeneration = ["regenerating_full", "regenerating_section"].includes(current.internal_state);
-  const failureReason =
-    progress.terminal_error_code === "generation_timeout" || progress.terminal_error_code === "generation_cancelled"
-      ? progress.terminal_error_code
-      : progress.terminal_error_code
-        ? (isRegeneration ? "regeneration_failed" : "generation_failed")
-        : null;
-  const internalState =
-    progress.state === "resume_ready" && !progress.terminal_error_code
-      ? "resume_ready"
-      : isRegeneration
-        ? "resume_ready"
-        : "generation_pending";
+  const failureReason = getGenerationFailureReason(progress, isRegeneration);
+  const internalState = getTerminalGenerationState(progress, isRegeneration);
 
   return {
     ...current,
     internal_state: internalState,
     visible_status: deriveVisibleStatus(current.visible_status, internalState, failureReason),
     failure_reason: failureReason,
-    generation_failure_details: failureReason
-      ? {
-          message: progress.message,
-          validation_errors: current.generation_failure_details?.validation_errors ?? null,
-          failure_stage: current.generation_failure_details?.failure_stage ?? null,
-          attempt_count: current.generation_failure_details?.attempt_count ?? null,
-          attempts: current.generation_failure_details?.attempts ?? null,
-          terminal_error_code: progress.terminal_error_code,
-        }
-      : null,
+    generation_failure_details: getGenerationFailureDetails(current, progress, failureReason),
     has_action_required_notification: failureReason ? true : current.has_action_required_notification,
+  };
+}
+
+function stringOrEmpty(value: string | null | undefined) {
+  return value || "";
+}
+
+function getSavedJobForm(detail: ApplicationDetail | null) {
+  const {
+    job_title = "",
+    company = "",
+    job_description = "",
+    job_location_text = "",
+    compensation_text = "",
+    job_posting_origin = "",
+    job_posting_origin_other_text = "",
+  } = detail ?? {};
+  return {
+    job_title: stringOrEmpty(job_title),
+    company: stringOrEmpty(company),
+    job_description: stringOrEmpty(job_description),
+    job_location_text: stringOrEmpty(job_location_text),
+    compensation_text: stringOrEmpty(compensation_text),
+    job_posting_origin: stringOrEmpty(job_posting_origin),
+    job_posting_origin_other_text: stringOrEmpty(job_posting_origin_other_text),
   };
 }
 
@@ -517,15 +632,7 @@ export function ApplicationDetailPage() {
   const baseResumesQuery = useBaseResumesQuery(Boolean(detail && !extractionStates.includes(detail.internal_state)));
 
   // Track last saved values for dirty state detection
-  const savedJobForm = useMemo(() => ({
-    job_title: detail?.job_title ?? "",
-    company: detail?.company ?? "",
-    job_description: detail?.job_description ?? "",
-    job_location_text: detail?.job_location_text ?? "",
-    compensation_text: detail?.compensation_text ?? "",
-    job_posting_origin: detail?.job_posting_origin ?? "",
-    job_posting_origin_other_text: detail?.job_posting_origin_other_text ?? "",
-  }), [detail]);
+  const savedJobForm = useMemo(() => getSavedJobForm(detail), [detail]);
 
   const savedSettings = useMemo(() => ({
     base_resume_id: detail?.base_resume_id ?? null,
@@ -600,24 +707,14 @@ export function ApplicationDetailPage() {
 
   function applyDetailState(response: ApplicationDetail, options?: { refreshShell?: boolean }) {
     const generationActive = isGenerationWorkflowActive(response);
+    const regenerationActive = ["regenerating_full", "regenerating_section"].includes(response.internal_state);
     queryClient.setQueryData(queryKeys.application(response.id), response);
     setDetail(response);
     setNotesDraft(response.notes ?? "");
-    setJobForm({
-      job_title: response.job_title ?? "",
-      company: response.company ?? "",
-      job_description: response.job_description ?? "",
-      job_location_text: response.job_location_text ?? "",
-      compensation_text: response.compensation_text ?? "",
-      job_posting_origin: response.job_posting_origin ?? "",
-      job_posting_origin_other_text: response.job_posting_origin_other_text ?? "",
-    });
+    setJobForm(getSavedJobForm(response));
     setSelectedResumeId(response.base_resume_id);
     setIsGenerating(response.internal_state === "generating" && response.failure_reason === null);
-    setIsRegenerating(
-      ["regenerating_full", "regenerating_section"].includes(response.internal_state) &&
-        response.failure_reason === null,
-    );
+    setIsRegenerating(regenerationActive && response.failure_reason === null);
     if (generationActive) {
       dismissDraftEditor();
     }
@@ -2606,46 +2703,7 @@ export function ApplicationDetailPage() {
               <Card density="compact" className="p-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Job Information</h3>
                 <form className="mt-3 space-y-3" onSubmit={handleSaveJobInfo}>
-                  <div>
-                    <Label htmlFor="job-title">Job Title</Label>
-                    <Input id="job-title" placeholder="Job title" value={jobForm.job_title} onChange={(e) => setJobForm((c) => ({ ...c, job_title: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label htmlFor="company">Company</Label>
-                    <Input id="company" placeholder="Company" value={jobForm.company} onChange={(e) => setJobForm((c) => ({ ...c, company: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label htmlFor="origin">Posting Source</Label>
-                    <Select id="origin" value={jobForm.job_posting_origin} onChange={(e) => setJobForm((c) => ({ ...c, job_posting_origin: e.target.value }))}>
-                      <option value="">Unknown</option>
-                      {jobPostingOriginOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </Select>
-                  </div>
-                  {jobForm.job_posting_origin === "other" && (
-                    <Input placeholder="Other source label" value={jobForm.job_posting_origin_other_text} onChange={(e) => setJobForm((c) => ({ ...c, job_posting_origin_other_text: e.target.value }))} />
-                  )}
-                  <div>
-                    <Label htmlFor="jd">Job Description</Label>
-                    <Textarea id="jd" className="min-h-32" placeholder="Job description" value={jobForm.job_description} onChange={(e) => setJobForm((c) => ({ ...c, job_description: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label htmlFor="job-location">Location</Label>
-                    <Input
-                      id="job-location"
-                      placeholder="e.g. British Columbia/Ontario or Toronto, Ontario"
-                      value={jobForm.job_location_text}
-                      onChange={(e) => setJobForm((c) => ({ ...c, job_location_text: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="compensation">Compensation</Label>
-                    <Input
-                      id="compensation"
-                      placeholder="e.g. $140,000 - $175,000 base salary"
-                      value={jobForm.compensation_text}
-                      onChange={(e) => setJobForm((c) => ({ ...c, compensation_text: e.target.value }))}
-                    />
-                  </div>
+                  <JobInformationFields form={jobForm} setForm={setJobForm} />
                   <div className="flex gap-2">
                     <Button loading={isSavingJobInfo} disabled={isSavingJobInfo} type="submit">
                       {isSavingJobInfo ? "Saving…" : "Save"}
@@ -2659,13 +2717,7 @@ export function ApplicationDetailPage() {
 
               {/* Notes + Manual Entry */}
               <div className="space-y-4">
-                <Card density="compact" className="p-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Notes</h3>
-                  <Textarea className="mt-3 min-h-24" placeholder="Add your own notes…" value={notesDraft} onChange={(e) => { setNotesDraft(e.target.value); setNotesState("idle"); }} />
-                  <p className="mt-2 text-xs" style={{ color: "var(--color-ink-40)" }}>
-                    {notesState === "saving" ? "Saving…" : notesState === "saved" ? "Saved." : "Autosaves when you pause typing."}
-                  </p>
-                </Card>
+                <NotesCard value={notesDraft} state={notesState} onChange={(value) => { setNotesDraft(value); setNotesState("idle"); }} />
 
                 <Card variant="danger" density="compact" className="p-4">
                   <h3 className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>Manual Entry Required</h3>
@@ -2760,48 +2812,7 @@ export function ApplicationDetailPage() {
                   </div>
                   {!jobDescriptionCollapsed && (
                     <div className="mt-3 space-y-2.5">
-                    <div>
-                      <Label htmlFor="job-title" className="text-xs">Job Title</Label>
-                      <Input id="job-title" className="text-sm" placeholder="Job title" value={jobForm.job_title} onChange={(e) => setJobForm((c) => ({ ...c, job_title: e.target.value }))} />
-                    </div>
-                    <div>
-                      <Label htmlFor="company" className="text-xs">Company</Label>
-                      <Input id="company" className="text-sm" placeholder="Company" value={jobForm.company} onChange={(e) => setJobForm((c) => ({ ...c, company: e.target.value }))} />
-                    </div>
-                    <div>
-                      <Label htmlFor="origin" className="text-xs">Posting Source</Label>
-                      <Select id="origin" className="text-sm" value={jobForm.job_posting_origin} onChange={(e) => setJobForm((c) => ({ ...c, job_posting_origin: e.target.value }))}>
-                        <option value="">Unknown</option>
-                        {jobPostingOriginOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </Select>
-                    </div>
-                    {jobForm.job_posting_origin === "other" && (
-                      <Input className="text-sm" placeholder="Other source label" value={jobForm.job_posting_origin_other_text} onChange={(e) => setJobForm((c) => ({ ...c, job_posting_origin_other_text: e.target.value }))} />
-                    )}
-                    <div>
-                      <Label htmlFor="jd" className="text-xs">Job Description</Label>
-                      <Textarea id="jd" className="text-sm min-h-32" placeholder="Job description" value={jobForm.job_description} onChange={(e) => setJobForm((c) => ({ ...c, job_description: e.target.value }))} />
-                    </div>
-                    <div>
-                      <Label htmlFor="job-location-detail" className="text-xs">Location</Label>
-                      <Input
-                        id="job-location-detail"
-                        className="text-sm"
-                        placeholder="e.g. British Columbia/Ontario or Toronto, Ontario"
-                        value={jobForm.job_location_text}
-                        onChange={(e) => setJobForm((c) => ({ ...c, job_location_text: e.target.value }))}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="compensation-detail" className="text-xs">Compensation</Label>
-                      <Input
-                        id="compensation-detail"
-                        className="text-sm"
-                        placeholder="e.g. $140,000 - $175,000 base salary"
-                        value={jobForm.compensation_text}
-                        onChange={(e) => setJobForm((c) => ({ ...c, compensation_text: e.target.value }))}
-                      />
-                    </div>
+                      <JobInformationFields form={jobForm} setForm={setJobForm} compact />
                   </div>
                   )}
                 </Card>
@@ -2915,13 +2926,7 @@ export function ApplicationDetailPage() {
                 )}
 
                 {/* Notes Card */}
-                <Card density="compact" className="p-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--color-ink-40)" }}>Notes</h3>
-                  <Textarea className="mt-3 text-sm min-h-24" placeholder="Add your own notes…" value={notesDraft} onChange={(e) => { setNotesDraft(e.target.value); setNotesState("idle"); }} />
-                  <p className="mt-2 text-xs" style={{ color: "var(--color-ink-40)" }}>
-                    {notesState === "saving" ? "Saving…" : notesState === "saved" ? "Saved." : "Autosaves when you pause typing."}
-                  </p>
-                </Card>
+                <NotesCard compact value={notesDraft} state={notesState} onChange={(value) => { setNotesDraft(value); setNotesState("idle"); }} />
               </div>
 
               {/* RIGHT COLUMN - Resume Preview (shown first on mobile via order) */}
@@ -3166,26 +3171,14 @@ export function ApplicationDetailPage() {
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px" }}>
-                  <button
+                  <Button
+                    type="button"
+                    variant="secondary"
                     onClick={() => { setShowSectionRegen(false); setRegenSectionName(""); setRegenInstructions(""); }}
                     disabled={isRegenerating}
-                    style={{
-                      padding: "8px 16px",
-                      borderRadius: "var(--radius-md)",
-                      border: "none",
-                      background: "transparent",
-                      color: "var(--color-ink-50)",
-                      fontSize: "13px",
-                      fontWeight: 600,
-                      cursor: isRegenerating ? "not-allowed" : "pointer",
-                      opacity: isRegenerating ? 0.5 : 1,
-                      transition: "color 150ms, background 150ms",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "var(--color-ink-05)"; e.currentTarget.style.color = "var(--color-ink)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--color-ink-50)"; }}
                   >
                     Cancel
-                  </button>
+                  </Button>
                   <button
                     type="button"
                     disabled={isRegenerating || !regenSectionName || !regenInstructions.trim()}

@@ -21,6 +21,17 @@ const SECTION_LABELS: Record<string, string> = {
 
 const DEFAULT_SECTIONS = ["summary", "professional_experience", "education", "skills", "projects", "certifications"];
 
+function getEditableProfileState(profile: ProfileData) {
+  return {
+    name: profile.name ?? "",
+    phone: profile.phone ?? "",
+    address: profile.address ?? "",
+    linkedinUrl: profile.linkedin_url ?? "",
+    sectionPreferences: profile.section_preferences ?? {},
+    sectionOrder: profile.section_order?.length ? profile.section_order : DEFAULT_SECTIONS,
+  };
+}
+
 export function ProfilePage() {
   const queryClient = useQueryClient();
   const { bootstrap, bootstrapError } = useAppContext();
@@ -44,42 +55,33 @@ export function ProfilePage() {
     sectionOrder: string[];
   } | null>(null);
 
+  function syncProfile(nextProfile: ProfileData) {
+    const nextState = getEditableProfileState(nextProfile);
+    setProfile(nextProfile);
+    setName(nextState.name);
+    setEmail(nextProfile.email);
+    setPhone(nextState.phone);
+    setAddress(nextState.address);
+    setLinkedinUrl(nextState.linkedinUrl);
+    setSectionPreferences(nextState.sectionPreferences);
+    setSectionOrder(nextState.sectionOrder);
+    setOriginalState(nextState);
+  }
+
   useEffect(() => {
     const nextProfile = bootstrap?.profile ?? null;
     if (nextProfile) {
-      setProfile(nextProfile);
-      setName(nextProfile.name ?? "");
-      setEmail(nextProfile.email);
-      setPhone(nextProfile.phone ?? "");
-      setAddress(nextProfile.address ?? "");
-      setLinkedinUrl(nextProfile.linkedin_url ?? "");
-      setSectionPreferences(nextProfile.section_preferences ?? {});
-      setSectionOrder(nextProfile.section_order?.length ? nextProfile.section_order : DEFAULT_SECTIONS);
-      setOriginalState({
-        name: nextProfile.name ?? "",
-        phone: nextProfile.phone ?? "",
-        address: nextProfile.address ?? "",
-        linkedinUrl: nextProfile.linkedin_url ?? "",
-        sectionPreferences: nextProfile.section_preferences ?? {},
-        sectionOrder: nextProfile.section_order?.length ? nextProfile.section_order : DEFAULT_SECTIONS,
-      });
+      syncProfile(nextProfile);
       setError(null);
       setIsLoading(false);
       return;
     }
 
-    if (bootstrapError) {
+    const loadError = bootstrapError ?? (bootstrap ? "Profile unavailable. Refresh the page or sign in again." : null);
+    if (loadError) {
       setProfile(null);
       setOriginalState(null);
-      setError(bootstrapError);
-      setIsLoading(false);
-      return;
-    }
-
-    if (bootstrap && !bootstrap.profile) {
-      setProfile(null);
-      setOriginalState(null);
-      setError("Profile unavailable. Refresh the page or sign in again.");
+      setError(loadError);
       setIsLoading(false);
       return;
     }
@@ -126,22 +128,8 @@ export function ProfilePage() {
         section_preferences: sectionPreferences,
         section_order: sectionOrder,
       });
-      setProfile(response);
       updateBootstrapProfile(queryClient, () => response);
-      setName(response.name ?? "");
-      setPhone(response.phone ?? "");
-      setAddress(response.address ?? "");
-      setLinkedinUrl(response.linkedin_url ?? "");
-      setSectionPreferences(response.section_preferences ?? {});
-      setSectionOrder(response.section_order?.length ? response.section_order : DEFAULT_SECTIONS);
-      setOriginalState({
-        name: response.name ?? "",
-        phone: response.phone ?? "",
-        address: response.address ?? "",
-        linkedinUrl: response.linkedin_url ?? "",
-        sectionPreferences: response.section_preferences ?? {},
-        sectionOrder: response.section_order?.length ? response.section_order : DEFAULT_SECTIONS,
-      });
+      syncProfile(response);
       setSaveState("saved");
       setTimeout(() => setSaveState("idle"), 1500);
     } catch (err) {

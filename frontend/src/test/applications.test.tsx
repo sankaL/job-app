@@ -36,7 +36,6 @@ const api = vi.hoisted(() => ({
   fetchExtensionStatus: vi.fn(),
   fetchApplicationDetail: vi.fn(),
   fetchAdminMetrics: vi.fn(),
-  fetchProfile: vi.fn(),
   fetchApplicationProgress: vi.fn(),
   fetchBaseResume: vi.fn(),
   fetchDraft: vi.fn(),
@@ -82,7 +81,6 @@ vi.mock("@/lib/auth", () => ({
   }),
   AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   getAccessToken: () => Promise.resolve("mock-token"),
-  getAccessTokenSync: () => "mock-token",
 }));
 
 const defaultBootstrap = {
@@ -287,26 +285,6 @@ describe("phase 1 applications UI", () => {
     api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail());
     api.fetchApplicationProgress.mockResolvedValue(buildProgressPayload());
     api.fetchDraft.mockResolvedValue(null);
-    api.fetchProfile.mockResolvedValue({
-      id: "user-1",
-      email: "test@test.com",
-      name: "Alex Example",
-      phone: "555-0100",
-      address: "Toronto, ON",
-      linkedin_url: "https://linkedin.com/in/alex-example",
-      default_base_resume_id: null,
-      section_preferences: {
-        summary: true,
-        professional_experience: true,
-        education: true,
-        skills: true,
-        projects: true,
-        certifications: true,
-      },
-      section_order: ["summary", "professional_experience", "education", "skills", "projects", "certifications"],
-      created_at: "2026-04-07T12:00:00Z",
-      updated_at: "2026-04-07T12:00:00Z",
-    });
     api.fetchSessionBootstrap.mockResolvedValue(defaultBootstrap);
     api.fetchBaseResume.mockResolvedValue({
       id: "resume-1",
@@ -407,12 +385,11 @@ describe("phase 1 applications UI", () => {
     expect(screen.queryByRole("button", { name: /dismiss/i })).not.toBeInTheDocument();
   });
 
-  it("initializes the profile page from bootstrap without calling the profile endpoint", async () => {
+  it("initializes the profile page from bootstrap", async () => {
     renderWithAppProvider(<ProfilePage />);
 
     expect(await screen.findByDisplayValue("Alex Example")).toBeInTheDocument();
     expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
-    expect(api.fetchProfile).not.toHaveBeenCalled();
   });
 
   it("shows a recoverable error on the profile page when bootstrap fails", async () => {

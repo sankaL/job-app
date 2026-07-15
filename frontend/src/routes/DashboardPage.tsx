@@ -1,4 +1,5 @@
 import type { LucideIcon } from "lucide-react";
+import { MetricCard } from "@/components/dashboard/MetricCard";
 import {
   AlertTriangle,
   Briefcase,
@@ -165,6 +166,19 @@ function polarToCartesian(cx: number, cy: number, radius: number, angle: number)
     x: cx + radius * Math.cos(radians),
     y: cy + radius * Math.sin(radians),
   };
+}
+
+function ActivityYearSelect({ id, value, years, onChange }: { id: string; value: number; years: number[]; onChange: (year: number) => void }) {
+  return (
+    <Select
+      id={id}
+      aria-label="Select monthly activity year"
+      value={String(value)}
+      onChange={(event) => onChange(Number(event.target.value))}
+    >
+      {years.map((year) => <option key={year} value={year}>{year}</option>)}
+    </Select>
+  );
 }
 
 export function DashboardPage() {
@@ -347,16 +361,12 @@ export function DashboardPage() {
                     Monthly Activity
                   </h3>
                   <div className="w-28">
-                    <Select
+                    <ActivityYearSelect
                       id="dashboard-monthly-year-mobile"
-                      aria-label="Select monthly activity year"
-                      value={String(selectedYear)}
-                      onChange={(event) => setSelectedYear(Number(event.target.value))}
-                    >
-                      {availableYears.map((year) => (
-                        <option key={year} value={year}>{year}</option>
-                      ))}
-                    </Select>
+                      value={selectedYear}
+                      years={availableYears}
+                      onChange={setSelectedYear}
+                    />
                   </div>
                 </div>
               </div>
@@ -428,18 +438,12 @@ export function DashboardPage() {
             </p>
           </div>
           <div className="w-full sm:w-40">
-            <Select
+            <ActivityYearSelect
               id="dashboard-monthly-year"
-              aria-label="Select monthly activity year"
-              value={String(selectedYear)}
-              onChange={(event) => setSelectedYear(Number(event.target.value))}
-            >
-              {availableYears.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </Select>
+              value={selectedYear}
+              years={availableYears}
+              onChange={setSelectedYear}
+            />
           </div>
         </div>
 
@@ -808,23 +812,5 @@ function StatCard({
   tint: string;
   icon: LucideIcon;
 }) {
-  return (
-    <Card density="compact" className="relative overflow-hidden">
-      <span
-        className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-xl"
-        style={{ background: tint, color: accent }}
-      >
-        <Icon size={18} />
-      </span>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-40)" }}>
-        {label}
-      </div>
-      <div className="mt-2 font-display text-3xl font-semibold tabular-nums" style={{ color: accent }}>
-        {value}
-      </div>
-      <div className="mt-3 h-1.5 w-20 rounded-full" style={{ background: tint }}>
-        <div className="h-full w-8 rounded-full" style={{ background: accent }} />
-      </div>
-    </Card>
-  );
+  return <MetricCard icon={Icon} label={label} value={value} accent={accent} tint={tint} />;
 }

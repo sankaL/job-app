@@ -1,9 +1,8 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { createPortal } from "react-dom";
-import { ArrowRight, FileText, Link2, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, FileText, Link2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ModalActions, ModalError, ModalShell } from "@/components/ui/modal-shell";
 import { Textarea } from "@/components/ui/textarea";
 
 type CreateApplicationSubmission = {
@@ -17,15 +16,12 @@ type CreateApplicationModalProps = {
   onSubmit: (payload: CreateApplicationSubmission) => Promise<void>;
 };
 
-const DIALOG_WIDTH = "min(520px, calc(100vw - 32px))";
 const SOURCE_MODE_OPTIONS = [
   { value: "link", label: "Job link", icon: Link2 },
   { value: "paste", label: "Paste description", icon: FileText },
 ] as const;
 
 export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplicationModalProps) {
-  const titleId = useId();
-  const descriptionId = useId();
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const [sourceMode, setSourceMode] = useState<"link" | "paste">("link");
   const [jobUrl, setJobUrl] = useState("");
@@ -59,8 +55,6 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
       return;
     }
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const focusHandle = window.requestAnimationFrame(() => {
       if (sourceMode === "paste") {
         document.getElementById("new-application-source-text")?.focus();
@@ -70,25 +64,9 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
     });
 
     return () => {
-      document.body.style.overflow = previousOverflow;
       window.cancelAnimationFrame(focusHandle);
     };
   }, [open, sourceMode]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        handleClose();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, isSubmitting]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -125,98 +103,16 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
     }
   }
 
-  if (!open || typeof document === "undefined") {
-    return null;
-  }
-
-  return createPortal(
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 99999,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "16px",
-      }}
+  return (
+    <ModalShell
+      open={open}
+      title="New Application"
+      description="Start from a job link or paste the job description directly."
+      icon={<Link2 size={14} aria-hidden="true" />}
+      closeLabel="Close new application modal"
+      onClose={handleClose}
+      closeDisabled={isSubmitting}
     >
-      <div
-        aria-hidden="true"
-        onClick={handleClose}
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "rgba(16, 24, 40, 0.48)",
-          backdropFilter: "blur(6px)",
-          animation: "fadeIn 220ms var(--ease-out) both",
-        }}
-      />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="animate-scaleIn"
-        style={{
-          position: "relative",
-          zIndex: 1,
-          width: DIALOG_WIDTH,
-          borderRadius: "var(--radius-xl)",
-          border: "1px solid var(--color-border)",
-          background: "var(--color-white)",
-          boxShadow: "var(--shadow-panel)",
-          overflow: "hidden",
-        }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-start justify-between gap-4 px-6 pb-4 pt-6"
-          style={{ borderBottom: "1px solid var(--color-border)" }}
-        >
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <div
-                className="flex h-7 w-7 items-center justify-center rounded-lg"
-                style={{ background: "var(--color-spruce)", color: "white" }}
-              >
-                <Link2 size={14} aria-hidden="true" />
-              </div>
-              <h2
-                id={titleId}
-                className="text-base font-semibold"
-                style={{ color: "var(--color-ink)" }}
-              >
-                New Application
-              </h2>
-            </div>
-            <p
-              id={descriptionId}
-              className="text-sm leading-relaxed"
-              style={{ color: "var(--color-ink-50)" }}
-            >
-              Start from a job link or paste the job description directly.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            aria-label="Close new application modal"
-            onClick={handleClose}
-            disabled={isSubmitting}
-            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition-all disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              color: "var(--color-ink-40)",
-              background: "transparent",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            <X size={15} aria-hidden="true" />
-          </button>
-        </div>
-
-        {/* Body */}
         <form className="px-6 pb-6 pt-5" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div
@@ -303,36 +199,19 @@ export function CreateApplicationModal({ open, onClose, onSubmit }: CreateApplic
               </div>
             )}
 
-            {error ? (
-              <div
-                className="rounded-xl border px-4 py-3 text-sm"
-                style={{
-                  color: "var(--color-ember)",
-                  borderColor: "var(--color-ember-10)",
-                  background: "var(--color-ember-05)",
-                }}
-              >
-                {error}
-              </div>
-            ) : null}
+            <ModalError message={error} />
           </div>
-
-          {/* Footer */}
-          <div
-            className="mt-5 flex items-center justify-end gap-2 border-t pt-5"
-            style={{ borderColor: "var(--color-border)" }}
-          >
-            <Button type="button" variant="secondary" onClick={handleClose} disabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button type="submit" loading={isSubmitting} disabled={isSubmitting}>
-              {!isSubmitting && <ArrowRight size={14} aria-hidden="true" />}
-              {sourceMode === "paste" ? "Create From Description" : showSourceText ? "Create With Pasted Text" : "Create Application"}
-            </Button>
-          </div>
+          <ModalActions
+            onCancel={handleClose}
+            submitting={isSubmitting}
+            submitLabel={
+              <>
+                {!isSubmitting && <ArrowRight size={14} aria-hidden="true" />}
+                {sourceMode === "paste" ? "Create From Description" : showSourceText ? "Create With Pasted Text" : "Create Application"}
+              </>
+            }
+          />
         </form>
-      </div>
-    </div>,
-    document.body,
+    </ModalShell>
   );
 }

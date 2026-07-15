@@ -1,5 +1,16 @@
 # Decisions Made
 
+## 2026-07-14 21:35:00 EDT - Clear Fallow structural debt without suppressing the remaining route hotspots
+
+- Status: Accepted
+- Context: The security audit's calibrated Fallow 3.5.0 run identified real dead code, repeated production UI/API structures, and complexity concentrated in core frontend routes. Mixing a wholesale application-workspace rewrite into the RLS/security rollout would have raised regression risk, but leaving every finding deferred would preserve avoidable maintenance drag.
+- Decision:
+  1. Remove all confirmed dead code and internalize unused public symbols rather than suppressing them.
+  2. Eliminate production clone groups through shared modal, authentication, API, navigation, metrics, filter, editor, and application-detail primitives.
+  3. Decompose the activity drawer and notification/account menu into focused components, and simplify profile and application-detail state helpers, while retaining existing user-visible behavior.
+  4. Keep the remaining critical route complexity visible in Fallow and defer the deeper `ApplicationDetailPage`, applications-list, and base-resume controller split to incremental test-led work instead of adding ignore markers or forcing a single broad rewrite.
+- Consequences: Fallow static and duplication gates are clean, critical/high complexity is materially reduced, and the remaining risk is explicit and concentrated. Future application-workspace changes should continue extracting render sections and workflow hooks until the route-level findings clear.
+
 ## 2026-07-14 15:30:00 EDT - Enforce database isolation and shared API abuse controls
 
 - Status: Accepted

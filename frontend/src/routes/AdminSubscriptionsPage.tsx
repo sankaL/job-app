@@ -75,6 +75,49 @@ function reasoningOptionsForModel(modelId: string) {
   return getModelOption(modelId)?.reasoningEfforts ?? ["none"];
 }
 
+function ModelReasoningFields({
+  tierKey,
+  kind,
+  model,
+  reasoning,
+  onModelChange,
+  onReasoningChange,
+}: {
+  tierKey: string;
+  kind: "Primary" | "Fallback";
+  model: string;
+  reasoning: ReasoningEffort;
+  onModelChange: (value: string) => void;
+  onReasoningChange: (value: ReasoningEffort) => void;
+}) {
+  const idPrefix = `${tierKey}_${kind.toLowerCase()}`;
+  return (
+    <>
+      <div>
+        <Label htmlFor={`${idPrefix}_model`}>{kind} model</Label>
+        <Select id={`${idPrefix}_model`} value={model} onChange={(event) => onModelChange(event.target.value)} required>
+          {openRouterGenerationModels.map((option) => (
+            <option key={option.id} value={option.id}>{option.label}</option>
+          ))}
+        </Select>
+      </div>
+      <div>
+        <Label htmlFor={`${idPrefix}_reasoning`}>{kind} reasoning</Label>
+        <Select
+          id={`${idPrefix}_reasoning`}
+          value={reasoning}
+          onChange={(event) => onReasoningChange(normalizeReasoning(event.target.value))}
+          required
+        >
+          {reasoningOptionsForModel(model).map((effort) => (
+            <option key={effort} value={effort}>{reasoningEffortLabels[effort]}</option>
+          ))}
+        </Select>
+      </div>
+    </>
+  );
+}
+
 export function AdminSubscriptionsPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -270,79 +313,22 @@ export function AdminSubscriptionsPage() {
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor={`${tier.key}_model`}>Primary model</Label>
-                  <Select
-                    id={`${tier.key}_model`}
-                    value={form.generation_model}
-                    onChange={(event) => updateModel(tier.key, "generation_model", event.target.value)}
-                    required
-                  >
-                    {openRouterGenerationModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor={`${tier.key}_reasoning`}>Primary reasoning</Label>
-                  <Select
-                    id={`${tier.key}_reasoning`}
-                    value={form.generation_reasoning_effort}
-                    onChange={(event) =>
-                      updateForm(tier.key, {
-                        generation_reasoning_effort: normalizeReasoning(event.target.value),
-                      })
-                    }
-                    required
-                  >
-                    {reasoningOptionsForModel(form.generation_model).map((effort) => (
-                      <option key={effort} value={effort}>
-                        {reasoningEffortLabels[effort]}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor={`${tier.key}_fallback_model`}>Fallback model</Label>
-                  <Select
-                    id={`${tier.key}_fallback_model`}
-                    value={form.generation_fallback_model}
-                    onChange={(event) =>
-                      updateModel(tier.key, "generation_fallback_model", event.target.value)
-                    }
-                    required
-                  >
-                    {openRouterGenerationModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.label}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor={`${tier.key}_fallback_reasoning`}>Fallback reasoning</Label>
-                  <Select
-                    id={`${tier.key}_fallback_reasoning`}
-                    value={form.generation_fallback_reasoning_effort}
-                    onChange={(event) =>
-                      updateForm(tier.key, {
-                        generation_fallback_reasoning_effort: normalizeReasoning(event.target.value),
-                      })
-                    }
-                    required
-                  >
-                    {reasoningOptionsForModel(form.generation_fallback_model).map((effort) => (
-                      <option key={effort} value={effort}>
-                        {reasoningEffortLabels[effort]}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+                <ModelReasoningFields
+                  tierKey={tier.key}
+                  kind="Primary"
+                  model={form.generation_model}
+                  reasoning={form.generation_reasoning_effort}
+                  onModelChange={(value) => updateModel(tier.key, "generation_model", value)}
+                  onReasoningChange={(value) => updateForm(tier.key, { generation_reasoning_effort: value })}
+                />
+                <ModelReasoningFields
+                  tierKey={tier.key}
+                  kind="Fallback"
+                  model={form.generation_fallback_model}
+                  reasoning={form.generation_fallback_reasoning_effort}
+                  onModelChange={(value) => updateModel(tier.key, "generation_fallback_model", value)}
+                  onReasoningChange={(value) => updateForm(tier.key, { generation_fallback_reasoning_effort: value })}
+                />
 
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
                   <span className="text-xs" style={{ color: "var(--color-ink-40)" }}>

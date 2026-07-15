@@ -53,6 +53,37 @@ function getSettledErrorMessage(result: PromiseSettledResult<unknown>) {
   return result.reason instanceof Error ? result.reason.message : "Request failed.";
 }
 
+function ApplicationFilterSelects({
+  status,
+  applied,
+  onStatusChange,
+  onAppliedChange,
+  className,
+}: {
+  status: string;
+  applied: string;
+  onStatusChange: (value: string) => void;
+  onAppliedChange: (value: string) => void;
+  className: string;
+}) {
+  return (
+    <>
+      <Select aria-label="Filter by status" value={status} onChange={(event) => onStatusChange(event.target.value)} className={className}>
+        <option value="all">All statuses</option>
+        <option value="draft">Draft</option>
+        <option value="needs_action">Needs Action</option>
+        <option value="in_progress">In Progress</option>
+        <option value="complete">Complete</option>
+      </Select>
+      <Select aria-label="Filter by applied" value={applied} onChange={(event) => onAppliedChange(event.target.value)} className={className}>
+        <option value="all">All</option>
+        <option value="applied">Applied</option>
+        <option value="not_applied">Not Applied</option>
+      </Select>
+    </>
+  );
+}
+
 function SelectionCheckbox({
   checked,
   indeterminate = false,
@@ -229,6 +260,17 @@ export function ApplicationsListPage() {
     await invalidateApplicationQueries(queryClient);
   }
 
+  async function reconcileBulkResults(ids: string[], results: PromiseSettledResult<unknown>[]) {
+    const failedIds = ids.filter((_, index) => results[index].status === "rejected");
+    const successCount = ids.length - failedIds.length;
+    await syncApplicationLists();
+    setSelectedIds(failedIds);
+    const failedResult = results.find((result) => result.status === "rejected");
+    const firstError = failedResult ? getSettledErrorMessage(failedResult) : null;
+    if (firstError) setError(firstError);
+    return { failedIds, successCount };
+  }
+
   async function handleBulkMarkApplied() {
     if (bulkApplicableIds.length === 0) {
       toast("All selected applications are already marked as applied.", "info");
@@ -241,10 +283,7 @@ export function ApplicationsListPage() {
       const results = await Promise.allSettled(
         bulkApplicableIds.map((applicationId) => patchApplication(applicationId, { applied: true })),
       );
-      const failedIds = bulkApplicableIds.filter((_, index) => results[index].status === "rejected");
-      const successCount = bulkApplicableIds.length - failedIds.length;
-      await syncApplicationLists();
-      setSelectedIds(failedIds);
+      const { failedIds, successCount } = await reconcileBulkResults(bulkApplicableIds, results);
 
       if (failedIds.length === 0) {
         toast(
@@ -253,10 +292,6 @@ export function ApplicationsListPage() {
         return;
       }
 
-      const firstError = getSettledErrorMessage(results.find((result) => result.status === "rejected") ?? results[0]);
-      if (firstError) {
-        setError(firstError);
-      }
       toast(
         successCount > 0
           ? `Marked ${formatApplicationCount(successCount)} as applied. ${formatApplicationCount(failedIds.length)} failed.`
@@ -281,10 +316,7 @@ export function ApplicationsListPage() {
       const results = await Promise.allSettled(
         deleteIds.map((applicationId) => deleteApplication(applicationId)),
       );
-      const failedIds = deleteIds.filter((_, index) => results[index].status === "rejected");
-      const successCount = deleteIds.length - failedIds.length;
-      await syncApplicationLists();
-      setSelectedIds(failedIds);
+      const { failedIds, successCount } = await reconcileBulkResults(deleteIds, results);
       setDeleteConfirmationOpen(false);
 
       if (failedIds.length === 0) {
@@ -292,10 +324,6 @@ export function ApplicationsListPage() {
         return;
       }
 
-      const firstError = getSettledErrorMessage(results.find((result) => result.status === "rejected") ?? results[0]);
-      if (firstError) {
-        setError(firstError);
-      }
       toast(
         successCount > 0
           ? `Deleted ${formatApplicationCount(successCount)}. ${formatApplicationCount(failedIds.length)} failed.`
@@ -523,28 +551,13 @@ export function ApplicationsListPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="w-full"
         />
-        <Select
-          aria-label="Filter by status"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+        <ApplicationFilterSelects
+          status={statusFilter}
+          applied={appliedFilter}
+          onStatusChange={setStatusFilter}
+          onAppliedChange={setAppliedFilter}
           className="w-full"
-        >
-          <option value="all">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="needs_action">Needs Action</option>
-          <option value="in_progress">In Progress</option>
-          <option value="complete">Complete</option>
-        </Select>
-        <Select
-          aria-label="Filter by applied"
-          value={appliedFilter}
-          onChange={(e) => setAppliedFilter(e.target.value)}
-          className="w-full"
-        >
-          <option value="all">All</option>
-          <option value="applied">Applied</option>
-          <option value="not_applied">Not Applied</option>
-        </Select>
+        />
       </div>
 
       {/* Mobile filters */}
@@ -570,28 +583,13 @@ export function ApplicationsListPage() {
         </div>
         {showMobileFilters && (
           <div className="flex gap-2">
-            <Select
-              aria-label="Filter by status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+            <ApplicationFilterSelects
+              status={statusFilter}
+              applied={appliedFilter}
+              onStatusChange={setStatusFilter}
+              onAppliedChange={setAppliedFilter}
               className="flex-1"
-            >
-              <option value="all">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="needs_action">Needs Action</option>
-              <option value="in_progress">In Progress</option>
-              <option value="complete">Complete</option>
-            </Select>
-            <Select
-              aria-label="Filter by applied"
-              value={appliedFilter}
-              onChange={(e) => setAppliedFilter(e.target.value)}
-              className="flex-1"
-            >
-              <option value="all">All</option>
-              <option value="applied">Applied</option>
-              <option value="not_applied">Not Applied</option>
-            </Select>
+            />
           </div>
         )}
       </div>

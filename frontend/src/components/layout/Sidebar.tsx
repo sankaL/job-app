@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CreditCard } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAppContext } from "@/components/layout/AppContext";
@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 type NavItem = {
   to: string;
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   badge?: number;
   end?: boolean;
 };
@@ -92,6 +92,31 @@ type SidebarProps = {
   onNavigate?: () => void;
 };
 
+function SidebarNavLink({ item, compact = false, onNavigate }: { item: NavItem; compact?: boolean; onNavigate?: () => void }) {
+  return (
+    <NavLink
+      to={item.to}
+      end={item.end}
+      className={({ isActive }) =>
+        `group flex items-center rounded-lg text-sm transition-all ${compact ? "gap-2.5 px-2.5 py-2" : "gap-3 px-3 py-2.5 font-medium"} ${
+          isActive ? "sidebar-nav-active" : "sidebar-nav-item"
+        }`
+      }
+      style={({ isActive }) => ({
+        background: isActive
+          ? compact ? "rgba(255,255,255,0.12)" : "var(--color-sidebar-bg-active)"
+          : "transparent",
+        color: isActive ? "var(--color-sidebar-text-active)" : "var(--color-sidebar-text)",
+      })}
+      onClick={onNavigate}
+    >
+      <span className="flex-shrink-0 transition-colors">{item.icon}</span>
+      <span className={`flex-1 ${compact ? "truncate" : ""}`}>{item.label}</span>
+      {item.badge ? <Badge count={item.badge} variant="warning" /> : null}
+    </NavLink>
+  );
+}
+
 export function Sidebar({ onNavigate }: SidebarProps) {
   const { pathname } = useLocation();
   const { needsActionCount, bootstrap } = useAppContext();
@@ -155,25 +180,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <div className="space-y-1">
           {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
-                  isActive ? "sidebar-nav-active" : "sidebar-nav-item"
-                }`
-              }
-              style={({ isActive }) => ({
-                background: isActive ? "var(--color-sidebar-bg-active)" : "transparent",
-                color: isActive ? "var(--color-sidebar-text-active)" : "var(--color-sidebar-text)",
-              })}
-              onClick={onNavigate}
-            >
-              <span className="flex-shrink-0 transition-colors">{item.icon}</span>
-              <span className="flex-1">{item.label}</span>
-              {item.badge ? <Badge count={item.badge} variant="warning" /> : null}
-            </NavLink>
+            <SidebarNavLink key={item.to} item={item} onNavigate={onNavigate} />
           ))}
 
           {isAdmin ? (
@@ -230,24 +237,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               {adminExpanded ? (
                 <div className="ml-4 mt-1 space-y-1 border-l pl-2.5" style={{ borderColor: "rgba(255,255,255,0.14)" }}>
                   {adminItems.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      end={item.end}
-                      className={({ isActive }) =>
-                        `group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-all ${
-                          isActive ? "sidebar-nav-active" : "sidebar-nav-item"
-                        }`
-                      }
-                      style={({ isActive }) => ({
-                        background: isActive ? "rgba(255,255,255,0.12)" : "transparent",
-                        color: isActive ? "var(--color-sidebar-text-active)" : "var(--color-sidebar-text)",
-                      })}
-                      onClick={onNavigate}
-                    >
-                      <span className="flex-shrink-0 transition-colors">{item.icon}</span>
-                      <span className="flex-1 truncate">{item.label}</span>
-                    </NavLink>
+                    <SidebarNavLink key={item.to} item={item} compact onNavigate={onNavigate} />
                   ))}
                 </div>
               ) : null}

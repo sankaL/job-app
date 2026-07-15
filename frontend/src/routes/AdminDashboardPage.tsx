@@ -8,6 +8,7 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
+import { MetricCard } from "@/components/dashboard/MetricCard";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card } from "@/components/ui/card";
 import { SkeletonCard } from "@/components/ui/skeleton";
@@ -33,28 +34,9 @@ function KpiCard({
   accent: string;
   tint: string;
 }) {
-  return (
-    <Card density="compact" className="relative overflow-hidden">
-      <span
-        className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-xl"
-        style={{ background: tint, color: accent }}
-      >
-        <Icon size={18} />
-      </span>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-40)" }}>
-        {label}
-      </div>
-      <div className="mt-2 font-display text-3xl font-semibold tabular-nums" style={{ color: accent }}>
-        {value}
-      </div>
-      <p className="mt-1 text-xs leading-5" style={{ color: "var(--color-ink-50)" }}>
-        {sublabel}
-      </p>
-      <div className="mt-3 h-1.5 w-20 rounded-full" style={{ background: tint }}>
-        <div className="h-full w-8 rounded-full" style={{ background: accent }} />
-      </div>
-    </Card>
-  );
+  return <MetricCard icon={Icon} label={label} value={value} accent={accent} tint={tint} detail={
+    <p className="mt-1 text-xs leading-5" style={{ color: "var(--color-ink-50)" }}>{sublabel}</p>
+  } />;
 }
 
 function OperationCard({

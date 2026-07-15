@@ -12,25 +12,7 @@ export type SessionBootstrapResponse = {
     email: string | null;
     role: string | null;
   };
-  profile: {
-    id: string;
-    email: string;
-    first_name: string | null;
-    last_name: string | null;
-    name: string | null;
-    phone: string | null;
-    address: string | null;
-    linkedin_url: string | null;
-    is_admin: boolean;
-    is_active: boolean;
-    onboarding_completed_at: string | null;
-    subscription_tier: "basic" | "pro";
-    default_base_resume_id: string | null;
-    section_preferences: Record<string, boolean>;
-    section_order: string[];
-    created_at: string;
-    updated_at: string;
-  } | null;
+  profile: ProfileData | null;
   application_summary: {
     total_count: number;
     applied_count: number;
@@ -443,24 +425,10 @@ export type AdminMetrics = {
   export: AdminOperationMetric;
 };
 
-export type AdminUser = {
-  id: string;
-  email: string;
-  first_name: string | null;
-  last_name: string | null;
-  name: string | null;
-  phone: string | null;
-  address: string | null;
-  linkedin_url: string | null;
-  is_admin: boolean;
-  is_active: boolean;
-  onboarding_completed_at: string | null;
-  subscription_tier: "basic" | "pro";
+export type AdminUser = ProfileData & {
   latest_invite_status: string | null;
   latest_invite_sent_at: string | null;
   latest_invite_expires_at: string | null;
-  created_at: string;
-  updated_at: string;
 };
 
 export type SubscriptionTier = {
@@ -622,28 +590,21 @@ function parseSseChunk(
   };
 }
 
-async function authenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const response = await fetchWithAuthentication(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-    },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+async function requireSuccessfulResponse(response: Response, fallback: string): Promise<void> {
+  if (response.ok) return;
 
-  if (!response.ok) {
-    let detail = "Request failed.";
-    try {
-      const payload = await response.json();
-      detail = messageFromErrorDetail(payload.detail, detail);
-    } catch {
-      detail = "Request failed.";
-    }
-    throw new Error(detail);
+  let detail = fallback;
+  try {
+    const payload = await response.json();
+    detail = messageFromErrorDetail(payload.detail, fallback);
+  } catch {
+    // Preserve the endpoint-specific fallback when the error body is not JSON.
   }
+  throw new Error(detail);
+}
 
-  return response.json();
+async function authenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return jsonRequest<T>((init) => fetchWithAuthentication(path, init), options);
 }
 
 export async function openApplicationEventStream(
@@ -664,16 +625,7 @@ export async function openApplicationEventStream(
     signal: options.signal,
   });
 
-  if (!response.ok) {
-    let detail = "Unable to open live updates.";
-    try {
-      const payload = await response.json();
-      detail = messageFromErrorDetail(payload.detail, detail);
-    } catch {
-      detail = "Unable to open live updates.";
-    }
-    throw new Error(detail);
-  }
+  await requireSuccessfulResponse(response, "Unable to open live updates.");
 
   if (!response.body) {
     throw new Error("Live updates are unavailable.");
@@ -725,22 +677,19 @@ async function authenticatedUpload<T>(path: string, formData: FormData): Promise
     body: formData,
   });
 
-  if (!response.ok) {
-    let detail = "Upload failed.";
-    try {
-      const payload = await response.json();
-      detail = messageFromErrorDetail(payload.detail, detail);
-    } catch {
-      detail = "Upload failed.";
-    }
-    throw new Error(detail);
-  }
-
+  await requireSuccessfulResponse(response, "Upload failed.");
   return response.json();
 }
 
 async function unauthenticatedRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const response = await fetch(`${env.VITE_API_URL}${path}`, {
+  return jsonRequest<T>((init) => fetch(`${env.VITE_API_URL}${path}`, init), options);
+}
+
+async function jsonRequest<T>(
+  execute: (init: RequestInit) => Promise<Response>,
+  options: RequestOptions,
+): Promise<T> {
+  const response = await execute({
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -749,17 +698,7 @@ async function unauthenticatedRequest<T>(path: string, options: RequestOptions =
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
 
-  if (!response.ok) {
-    let detail = "Request failed.";
-    try {
-      const payload = await response.json();
-      detail = messageFromErrorDetail(payload.detail, detail);
-    } catch {
-      detail = "Request failed.";
-    }
-    throw new Error(detail);
-  }
-
+  await requireSuccessfulResponse(response, "Request failed.");
   return response.json();
 }
 
@@ -776,16 +715,7 @@ export async function clearNotifications(): Promise<void> {
     method: "DELETE",
   });
 
-  if (!response.ok) {
-    let detail = "Clear failed.";
-    try {
-      const payload = await response.json();
-      detail = messageFromErrorDetail(payload.detail, detail);
-    } catch {
-      detail = "Clear failed.";
-    }
-    throw new Error(detail);
-  }
+  await requireSuccessfulResponse(response, "Clear failed.");
 }
 
 export async function listApplications(): Promise<ApplicationSummary[]> {
@@ -823,16 +753,7 @@ export async function deleteApplication(applicationId: string): Promise<void> {
     method: "DELETE",
   });
 
-  if (!response.ok) {
-    let detail = "Delete failed.";
-    try {
-      const payload = await response.json();
-      detail = messageFromErrorDetail(payload.detail, detail);
-    } catch {
-      detail = "Delete failed.";
-    }
-    throw new Error(detail);
-  }
+  await requireSuccessfulResponse(response, "Delete failed.");
 }
 
 export async function cancelExtraction(applicationId: string): Promise<ApplicationDetail> {
@@ -932,27 +853,10 @@ export async function updateBaseResume(
 }
 
 export async function deleteBaseResume(resumeId: string, force: boolean = true): Promise<void> {
-  const token = await getAccessToken();
-  const response = await fetch(
-    `${env.VITE_API_URL}/api/base-resumes/${resumeId}?force=${force}`,
-    {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  );
-
-  if (!response.ok) {
-    let detail = "Delete failed.";
-    try {
-      const payload = await response.json();
-      detail = messageFromErrorDetail(payload.detail, detail);
-    } catch {
-      detail = "Delete failed.";
-    }
-    throw new Error(detail);
-  }
+  const response = await fetchWithAuthentication(`/api/base-resumes/${resumeId}?force=${force}`, {
+    method: "DELETE",
+  });
+  await requireSuccessfulResponse(response, "Delete failed.");
 }
 
 export async function setDefaultBaseResume(resumeId: string): Promise<BaseResumeSummary> {
@@ -973,12 +877,6 @@ export async function uploadBaseResume(
     formData.append("use_llm_cleanup", String(useLlmCleanup));
   }
   return authenticatedUpload<BaseResumeDetail>("/api/base-resumes/upload", formData);
-}
-
-// Profile
-
-export async function fetchProfile(): Promise<ProfileData> {
-  return authenticatedRequest<ProfileData>("/api/profiles");
 }
 
 export async function updateProfile(updates: ProfileUpdatePayload): Promise<ProfileData> {
@@ -1067,24 +965,10 @@ export async function reactivateAdminUser(userId: string): Promise<AdminUser> {
 }
 
 export async function deleteAdminUser(userId: string): Promise<void> {
-  const token = await getAccessToken();
-  const response = await fetch(`${env.VITE_API_URL}/api/admin/users/${userId}`, {
+  const response = await fetchWithAuthentication(`/api/admin/users/${userId}`, {
     method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
   });
-
-  if (!response.ok) {
-    let detail = "Delete failed.";
-    try {
-      const payload = await response.json();
-      detail = messageFromErrorDetail(payload.detail, detail);
-    } catch {
-      detail = "Delete failed.";
-    }
-    throw new Error(detail);
-  }
+  await requireSuccessfulResponse(response, "Delete failed.");
 }
 
 // Generation

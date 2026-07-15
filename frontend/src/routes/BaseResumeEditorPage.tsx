@@ -23,6 +23,47 @@ import {
 
 type SaveState = "idle" | "saving" | "saved";
 
+function ResumeContentFields({
+  name,
+  content,
+  onNameChange,
+  onContentChange,
+  namePlaceholder,
+  contentPlaceholder,
+  nameRequired = false,
+}: {
+  name: string;
+  content: string;
+  onNameChange: (value: string) => void;
+  onContentChange: (value: string) => void;
+  namePlaceholder?: string;
+  contentPlaceholder?: string;
+  nameRequired?: boolean;
+}) {
+  return (
+    <>
+      <div>
+        <Label htmlFor="name">Resume Name</Label>
+        <Input id="name" placeholder={namePlaceholder} value={name} onChange={(event) => onNameChange(event.target.value)} required={nameRequired} />
+      </div>
+      <div>
+        <Label htmlFor="content">Content (Markdown)</Label>
+        <MarkdownEditor
+          id="content"
+          className="no-bottom-radius min-h-[50vh]"
+          placeholder={contentPlaceholder}
+          value={content}
+          onChange={(event) => onContentChange(event.target.value)}
+        />
+        <div className="markdown-editor-footer">
+          <span>Markdown · {content.length.toLocaleString()} characters</span>
+          <span>Tab = 2 spaces</span>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function BaseResumeEditorPage() {
   const navigate = useNavigate();
   const { resumeId } = useParams<{ resumeId: string }>();
@@ -200,23 +241,7 @@ export function BaseResumeEditorPage() {
         )}
         <Card>
           <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void handleSaveUploaded(); }}>
-            <div>
-              <Label htmlFor="name">Resume Name</Label>
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="content">Content (Markdown)</Label>
-              <MarkdownEditor
-                id="content"
-                className="no-bottom-radius min-h-[50vh]"
-                value={contentMd}
-                onChange={(e) => setContentMd(e.target.value)}
-              />
-              <div className="markdown-editor-footer">
-                <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
-                <span>Tab = 2 spaces</span>
-              </div>
-            </div>
+            <ResumeContentFields name={name} content={contentMd} onNameChange={setName} onContentChange={setContentMd} />
             <div className="flex gap-2">
               <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">
                 {saveState === "saving" ? "Saving…" : "Save Resume"}
@@ -237,24 +262,15 @@ export function BaseResumeEditorPage() {
         {errorBanner}
         <Card>
           <form className="space-y-4" onSubmit={handleCreateBlank}>
-            <div>
-              <Label htmlFor="name">Resume Name</Label>
-              <Input id="name" placeholder="e.g., Senior Engineer Resume" value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div>
-              <Label htmlFor="content">Content (Markdown)</Label>
-              <MarkdownEditor
-                id="content"
-                className="no-bottom-radius min-h-[50vh]"
-                placeholder={"# Your Name\n\n## Summary\nProfessional summary…\n\n## Experience\n\n### Job Title — Company\n- Accomplishment 1\n- Accomplishment 2\n\n## Skills\n- Skill 1\n- Skill 2"}
-                value={contentMd}
-                onChange={(e) => setContentMd(e.target.value)}
-              />
-              <div className="markdown-editor-footer">
-                <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
-                <span>Tab = 2 spaces</span>
-              </div>
-            </div>
+            <ResumeContentFields
+              name={name}
+              content={contentMd}
+              onNameChange={setName}
+              onContentChange={setContentMd}
+              namePlaceholder="e.g., Senior Engineer Resume"
+              contentPlaceholder={"# Your Name\n\n## Summary\nProfessional summary…\n\n## Experience\n\n### Job Title — Company\n- Accomplishment 1\n- Accomplishment 2\n\n## Skills\n- Skill 1\n- Skill 2"}
+              nameRequired
+            />
             <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">
               {saveState === "saving" ? "Creating…" : "Create Resume"}
             </Button>
@@ -305,23 +321,7 @@ export function BaseResumeEditorPage() {
 
           <Card>
             <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void handleSave(); }}>
-              <div>
-                <Label htmlFor="name">Resume Name</Label>
-                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
-              </div>
-              <div>
-                <Label htmlFor="content">Content (Markdown)</Label>
-                <MarkdownEditor
-                  id="content"
-                  className="no-bottom-radius min-h-[50vh]"
-                  value={contentMd}
-                  onChange={(e) => setContentMd(e.target.value)}
-                />
-                <div className="markdown-editor-footer">
-                  <span>Markdown · {contentMd.length.toLocaleString()} characters</span>
-                  <span>Tab = 2 spaces</span>
-                </div>
-              </div>
+              <ResumeContentFields name={name} content={contentMd} onNameChange={setName} onContentChange={setContentMd} />
               <div className="flex items-center gap-3">
                 <Button loading={saveState === "saving"} disabled={saveState === "saving"} type="submit">
                   {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save Changes"}
