@@ -24,6 +24,8 @@ from experience_contract import (
 )
 from length_policy import TARGET_LENGTH_CONFIGS, prompt_config, source_aware_minimum, word_count
 from privacy import sanitize_resume_markdown
+from langsmith_tracing import model_run_config
+from unslop_prompt import build_unslop_prompt_block
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -109,8 +111,8 @@ FULL_DRAFT_PRIMARY_ATTEMPT_TIMEOUT_SECONDS = 45.0
 FULL_DRAFT_FALLBACK_ATTEMPT_TIMEOUT_SECONDS = 120.0
 SECTION_REGENERATION_PRIMARY_ATTEMPT_TIMEOUT_SECONDS = 30.0
 SECTION_REGENERATION_FALLBACK_ATTEMPT_TIMEOUT_SECONDS = 60.0
-SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
-DEFAULT_GENERATION_REASONING_EFFORT = "none"
+SUPPORTED_REASONING_EFFORTS = {"auto", "none", "low", "medium", "high", "xhigh"}
+DEFAULT_GENERATION_REASONING_EFFORT = "auto"
 
 TARGET_LENGTH_GUIDANCE: dict[str, dict[str, Any]] = {
     target_length: prompt_config(target_length)
@@ -936,6 +938,8 @@ def _build_shared_system_prompt(
         + "\n"
         + _build_voice_rules_block()
         + "\n"
+        + build_unslop_prompt_block()
+        + "\n"
         + _build_keyword_rules_block()
         + "\n"
         + _build_non_negotiables_block(
@@ -1430,6 +1434,8 @@ def _build_section_regeneration_prompt(
 
 def _normalize_reasoning_effort(reasoning_effort: Optional[str]) -> str:
     normalized = str(reasoning_effort or DEFAULT_GENERATION_REASONING_EFFORT).strip().lower()
+    if normalized in {"default", "auto"}:
+        return "auto"
     if normalized not in SUPPORTED_REASONING_EFFORTS:
         allowed = ", ".join(sorted(SUPPORTED_REASONING_EFFORTS))
         raise ValueError(f"Unsupported reasoning effort '{reasoning_effort}'. Expected one of: {allowed}.")
@@ -1444,6 +1450,8 @@ def _reasoning_config_for_operation(
 ) -> Optional[dict[str, Any]]:
     normalized_effort = _normalize_reasoning_effort(reasoning_effort)
     if operation in {"generation", "regeneration_full", "keyword_optimization", "regeneration_section"}:
+        if normalized_effort == "auto":
+            return {"exclude": True}
         payload: dict[str, Any] = {"effort": normalized_effort}
         if normalized_effort != "none":
             payload["exclude"] = True
@@ -1455,7 +1463,11 @@ def _reasoning_effort(reasoning_config: Optional[dict[str, Any]]) -> Optional[st
     if not reasoning_config:
         return None
     effort = reasoning_config.get("effort")
-    return str(effort) if effort else None
+    if effort:
+        return str(effort)
+    if reasoning_config.get("exclude"):
+        return "auto"
+    return None
 
 
 def _attempt_timeout_for_operation(operation: str, *, is_fallback: bool) -> float:
@@ -1569,6 +1581,7 @@ async def _invoke_structured_output(
     timeout: float,
     reasoning_config: Optional[dict[str, Any]],
     aggressiveness: str,
+    run_config: dict[str, Any],
 ) -> BaseModel:
     llm = _build_llm(
         model_name=model_name,
@@ -1578,7 +1591,7 @@ async def _invoke_structured_output(
         reasoning_config=reasoning_config,
         aggressiveness=aggressiveness,
     ).with_structured_output(response_model)
-    result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
+    result = await asyncio.wait_for(llm.ainvoke(prompt, config=run_config), timeout=timeout)
     if isinstance(result, response_model):
         return result
     return response_model.model_validate(result)
@@ -1595,6 +1608,7 @@ async def _invoke_prompt_json(
     timeout: float,
     reasoning_config: Optional[dict[str, Any]],
     aggressiveness: str,
+    run_config: dict[str, Any],
 ) -> BaseModel:
     llm = _build_llm(
         model_name=model_name,
@@ -1604,7 +1618,7 @@ async def _invoke_prompt_json(
         reasoning_config=reasoning_config,
         aggressiveness=aggressiveness,
     )
-    result = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
+    result = await asyncio.wait_for(llm.ainvoke(prompt, config=run_config), timeout=timeout)
     content = _extract_message_text(result.content)
     raw_payload = _extract_json_payload(content)
     normalized_payload = _normalize_response_payload(
@@ -1629,6 +1643,8 @@ async def _attempt_transport(
     transport_mode: str,
     attempts: list[dict[str, Any]],
     aggressiveness: str,
+    is_fallback: bool = False,
+    trace_metadata: Optional[dict[str, Any]] = None,
 ) -> BaseModel:
     if transport_mode not in ("structured", "json", "repair_json"):
         raise ValueError(f"Unsupported transport mode: {transport_mode}")
@@ -1643,6 +1659,19 @@ async def _attempt_transport(
         "timeout": timeout,
         "reasoning_config": reasoning_config,
         "aggressiveness": aggressiveness,
+        "run_config": model_run_config(
+            operation=operation,
+            model=model_name,
+            transport_mode=transport_mode,
+            is_fallback=is_fallback,
+            reasoning_effort=_reasoning_effort(reasoning_config),
+            timeout_seconds=timeout,
+            extra_metadata={
+                "section_ids": expected_section_ids or [],
+                "aggressiveness": aggressiveness,
+                **(trace_metadata or {}),
+            },
+        ),
     }
     if transport_mode != "structured":
         invoke_kwargs["expected_section_ids"] = expected_section_ids
@@ -1714,6 +1743,19 @@ async def _attempt_transport(
             started_at = perf_counter()
             try:
                 invoke_kwargs["reasoning_config"] = None
+                invoke_kwargs["run_config"] = model_run_config(
+                    operation=operation,
+                    model=model_name,
+                    transport_mode=transport_mode,
+                    is_fallback=is_fallback,
+                    timeout_seconds=timeout,
+                    retry_reason="reasoning_unsupported",
+                    extra_metadata={
+                        "section_ids": expected_section_ids or [],
+                        "aggressiveness": aggressiveness,
+                        **(trace_metadata or {}),
+                    },
+                )
                 payload = await invoke(**invoke_kwargs)
                 elapsed_ms = round((perf_counter() - started_at) * 1000)
                 attempts.append(
@@ -1785,6 +1827,7 @@ async def _call_json_with_fallback(
     aggressiveness: str,
     reasoning_effort: Optional[str],
     fallback_reasoning_effort: Optional[str] = None,
+    trace_metadata: Optional[dict[str, Any]] = None,
 ) -> tuple[BaseModel, str, list[dict[str, Any]]]:
     last_error: Optional[Exception] = None
     attempts: list[dict[str, Any]] = []
@@ -1815,6 +1858,8 @@ async def _call_json_with_fallback(
                 transport_mode=transport_mode,
                 attempts=attempts,
                 aggressiveness=aggressiveness,
+                is_fallback=is_fallback,
+                trace_metadata=trace_metadata,
             )
             return payload, model_name, attempts
         except Exception as exc:
@@ -1895,6 +1940,7 @@ async def repair_generated_response(
     aggressiveness: str,
     reasoning_effort: Optional[str] = None,
     fallback_reasoning_effort: Optional[str] = None,
+    target_length: Optional[str] = None,
 ) -> tuple[Optional[BaseModel], str, list[dict[str, Any]], Optional[Exception]]:
     if timeout <= 0:
         return None, model_used, [], asyncio.TimeoutError("No remaining timeout budget for validation repair.")
@@ -1946,6 +1992,8 @@ async def repair_generated_response(
             transport_mode="repair_json",
             attempts=repair_attempts,
             aggressiveness=aggressiveness,
+            is_fallback=repair_model == fallback_model and fallback_model != model,
+            trace_metadata={"target_length": target_length},
         )
         return payload, repair_model, repair_attempts, None
     except Exception as exc:
@@ -2097,6 +2145,7 @@ async def generate_sections(
             aggressiveness=str(aggressiveness).lower(),
             reasoning_effort=reasoning_effort,
             fallback_reasoning_effort=fallback_reasoning_effort,
+            trace_metadata={"target_length": target_length},
         ),
         on_progress=on_progress,
         percent=GENERATION_HEARTBEAT_PERCENT,
@@ -2221,6 +2270,7 @@ async def regenerate_single_section(
                 aggressiveness=str(aggressiveness).lower(),
                 reasoning_effort=reasoning_effort,
                 fallback_reasoning_effort=fallback_reasoning_effort,
+                trace_metadata={"target_length": target_length},
             ),
             on_progress=on_progress,
             percent=GENERATION_HEARTBEAT_PERCENT,
@@ -2240,6 +2290,7 @@ async def regenerate_single_section(
             aggressiveness=str(aggressiveness).lower(),
             reasoning_effort=reasoning_effort,
             fallback_reasoning_effort=fallback_reasoning_effort,
+            trace_metadata={"target_length": target_length},
         )
 
     rendered_section = render_semantic_section(

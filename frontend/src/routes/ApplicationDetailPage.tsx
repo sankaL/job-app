@@ -47,6 +47,7 @@ import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { ResumeRenderPreview } from "@/components/ResumeRenderPreview";
+import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
 import {
   GenerationProgress,
@@ -4772,10 +4773,22 @@ export function ApplicationDetailPage() {
                     )
                   ) : draft ? (
                     compareMode ? (
-                      <div className="compare-layout-grid grid gap-4 lg:grid-cols-2">
-                        {renderGeneratedWorkspacePane()}
-                        {renderBaseWorkspacePane()}
-                      </div>
+                      <CompareWorkspace
+                        baseResume={compareBaseline}
+                        draft={draft}
+                        editMode={editMode}
+                        editContent={editContent}
+                        isSavingDraft={isSavingDraft}
+                        onEnterEdit={handleEnterEditMode}
+                        onCancelEdit={handleCancelEdit}
+                        onContentChange={setEditContent}
+                        onSaveDraft={() => void handleSaveDraft()}
+                        onCloseCompare={handleToggleCompareMode}
+                        onExportPdf={() => void handleExport("pdf")}
+                        isExporting={exportingFormat === "pdf"}
+                        pageLength={pageLength}
+                        aggressiveness={aggressiveness}
+                      />
                     ) : (
                       renderGeneratedWorkspacePane()
                     )

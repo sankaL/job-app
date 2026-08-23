@@ -6,12 +6,22 @@ from app.core.model_catalog import normalize_reasoning_effort, validate_generati
 
 
 def test_normalize_reasoning_effort_accepts_aliases_and_blank_values():
-    assert normalize_reasoning_effort(None) == "none"
+    assert normalize_reasoning_effort(None) == "auto"
+    assert normalize_reasoning_effort("default") == "auto"
+    assert normalize_reasoning_effort("none") == "none"
     assert normalize_reasoning_effort("  Extra_High ") == "xhigh"
     assert normalize_reasoning_effort(" HIGH ") == "high"
 
 
 def test_validate_generation_model_reasoning_accepts_supported_combo():
+    validate_generation_model_reasoning(
+        model_id="openai/gpt-5.6-luna",
+        reasoning_effort="auto",
+    )
+    validate_generation_model_reasoning(
+        model_id="google/gemini-3.7-flash",
+        reasoning_effort="auto",
+    )
     validate_generation_model_reasoning(
         model_id="openai/gpt-5.4-mini",
         reasoning_effort="xhigh",

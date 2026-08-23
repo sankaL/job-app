@@ -81,8 +81,11 @@ class Settings(BaseSettings):
     )
     openrouter_api_key: Optional[str] = Field(default=None, alias="OPENROUTER_API_KEY")
     openrouter_cleanup_model: str = Field(
-        default="openai/gpt-4o-mini", alias="OPENROUTER_CLEANUP_MODEL"
+        default="openai/gpt-5.6-luna", alias="OPENROUTER_CLEANUP_MODEL"
     )
+    langsmith_tracing: bool = Field(default=False, alias="LANGSMITH_TRACING")
+    langsmith_project: Optional[str] = Field(default=None, alias="LANGSMITH_PROJECT")
+    langsmith_api_key: Optional[str] = Field(default=None, alias="LANGSMITH_API_KEY")
     admin_emails: str = Field(default="", alias="ADMIN_EMAILS")
     invite_link_expiry_hours: int = Field(default=168, alias="INVITE_LINK_EXPIRY_HOURS")
 
@@ -97,6 +100,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
         self.email
+        if self.langsmith_tracing:
+            if not str(self.langsmith_project or "").strip():
+                raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")
+            if not str(self.langsmith_api_key or "").strip():
+                raise ValueError("LANGSMITH_API_KEY is required when LANGSMITH_TRACING=true.")
         if self.app_dev_mode:
             database_host = (urlparse(self.database_url).hostname or "").lower()
             app_host = (urlparse(self.app_url).hostname or "").lower()

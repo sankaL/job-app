@@ -33,6 +33,9 @@ def get_resume_parser() -> ResumeParserService:
     return ResumeParserService(
         openrouter_api_key=settings.openrouter_api_key,
         openrouter_model=settings.openrouter_cleanup_model,
+        langsmith_tracing=settings.langsmith_tracing,
+        langsmith_project=settings.langsmith_project,
+        langsmith_api_key=settings.langsmith_api_key,
     )
 
 

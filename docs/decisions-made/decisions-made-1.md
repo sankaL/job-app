@@ -1,5 +1,30 @@
 # Decisions Made
 
+## 2026-08-22 21:45:00 EDT - Redesign resume comparison into an interactive section-by-section diff workspace with GSAP motion
+
+- Status: Accepted
+- Context: The previous compare mode displayed two full-document columns side-by-side with mismatched styling (`ResumeRenderPreview` on the left vs unstyled `MarkdownPreview` on the right) and desynchronized vertical scrolling. Users were forced to manually cross-reference long documents to identify which bullet points, role titles, or keywords were modified or added.
+- Decision:
+  1. Replace the dual tall-column layout with a unified **Section-by-Section Comparison Workspace** (`CompareWorkspace`) that groups and aligns content by canonical resume sections (Summary, Experience, Education, Skills, and Custom Sections).
+  2. Implement canonical section parsing and job-by-job experience pairing (`resume-parser.ts`, `diff-engine.ts`), matching base roles to tailored roles by company and date overlap, and computing word-level diffs via the `diff` library.
+  3. Feature prominent **Role Title Reframing Banners** for high-aggressiveness retitled roles (`Base Title` ➔ `Tailored Title`), bullet-level change tags (`Enhanced`, `Tailored Addition`, `Omitted for Space`), and skill keyword badges.
+  4. Provide instant **View Mode Controls** (Unified Stream vs Side-by-Side Section Cards vs Clean View) and **Diff Highlighting Controls** (Smart Diff, Additions Only, Clean).
+  5. Use **GSAP motion orchestration** for smooth card entrances, sliding tab navigation indicators, and layout transitions.
+  6. Support in-place draft editing directly inside the compare workspace, maintaining full backwards compatibility with all application detail test contracts.
+- Consequences: Resume diffs are intuitive, structured, and visually aligned. Users can review exact tailoring enhancements in seconds. All 168 frontend unit and component tests pass.
+
+## 2026-08-22 20:59:22 EDT - Trace every LLM workflow through sanitized LangSmith runs and apply one shared writing policy
+
+- Status: Accepted
+- Context: The worker had structured logs and local attempt diagnostics, but extraction, generation, regeneration, repair, keyword optimization, and Resume Judge calls had no shared trace hierarchy. The backend's direct resume-cleanup call was also invisible. Prompt voice rules covered some resume-writing problems but did not apply one consistent anti-AI-writing policy across every model-authored text field.
+- Decision:
+  1. Use `LANGSMITH_TRACING` as the single tracing switch and `LANGSMITH_PROJECT` as the project selector. Require `LANGSMITH_API_KEY` and a nonblank project when tracing is enabled, while keeping local and unset defaults off.
+  2. Record stable workflow roots, model attempts, validation and repair, deterministic assembly, and backend cleanup in one project. Keep trace delivery best-effort after configuration validation.
+  3. Send contact-stripped prompts and outputs through a trace-only redactor that removes user ids, profile data, contacts, credentials, URL query secrets, and callback payloads. Root traces receive safe counts, settings, section ids, and pseudonymous application or job ids instead of raw workflow arguments.
+  4. Append the exact shared Unslop instruction to every model system prompt. Grounding, privacy, exact-copy, ATS, structured-output, and operation-specific resume rules override any conflicting general writing advice.
+  5. Keep unslop inside the existing model request. Do not add a second rewriting call because it would add latency, cost, and another chance to break grounding.
+- Consequences: Production can turn on one coherent LangSmith project without enabling local telemetry. Primary, fallback, reasoning retry, and validation-repair attempts are distinguishable. Every LLM call receives the same writing policy, while extraction and cleanup still preserve source text where their contracts require it. A live ingestion smoke test still requires production or staging LangSmith credentials.
+
 ## 2026-07-14 22:15:58 EDT - Continue complexity remediation through stable presentation boundaries
 
 - Status: Accepted

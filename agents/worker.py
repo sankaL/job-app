@@ -37,6 +37,8 @@ from generation import (
 from length_policy import assess_resume_length
 from privacy import sanitize_resume_markdown
 from resume_judge import judge_resume
+from langsmith_tracing import annotate_current_trace, model_run_config, trace_scope, trace_workflow
+from unslop_prompt import build_unslop_prompt_block
 from validation import validate_resume
 from url_security import validate_public_http_url
 
@@ -46,10 +48,12 @@ if root_logger.level > logging.INFO:
 logger = logging.getLogger(__name__)
 
 OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS: dict[str, set[str]] = {
-    "google/gemini-3-flash-preview": {"none", "low", "medium", "high"},
-    "openai/gpt-5.4-mini": {"none", "low", "medium", "high", "xhigh"},
-    "deepseek/deepseek-v4-flash": {"none", "high", "xhigh"},
-    "google/gemini-3.5-flash": {"none", "low", "medium", "high"},
+    "openai/gpt-5.6-luna": {"auto", "none", "low", "medium", "high", "xhigh"},
+    "google/gemini-3.7-flash": {"auto", "none", "low", "medium", "high"},
+    "google/gemini-3-flash-preview": {"auto", "none", "low", "medium", "high"},
+    "openai/gpt-5.4-mini": {"auto", "none", "low", "medium", "high", "xhigh"},
+    "deepseek/deepseek-v4-flash": {"auto", "none", "high", "xhigh"},
+    "google/gemini-3.5-flash": {"auto", "none", "low", "medium", "high"},
 }
 logger.setLevel(logging.INFO)
 
@@ -104,24 +108,29 @@ class WorkerSettingsEnv(BaseSettings):
     shared_contract_path: str = "/workspace/shared/workflow-contract.json"
     openrouter_api_key: Optional[str] = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    extraction_agent_model: Optional[str] = None
-    extraction_agent_fallback_model: Optional[str] = None
-    keyword_extraction_agent_model: Optional[str] = None
-    keyword_extraction_agent_fallback_model: Optional[str] = None
-    generation_agent_model: Optional[str] = None
-    generation_agent_fallback_model: Optional[str] = None
-    generation_agent_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "none"
-    resume_judge_agent_model: Optional[str] = "openai/gpt-5.4-mini"
-    resume_judge_agent_fallback_model: Optional[str] = "openai/gpt-5-mini"
-    resume_judge_agent_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "none"
-    validation_agent_model: Optional[str] = None
-    validation_agent_fallback_model: Optional[str] = None
+    extraction_agent_model: Optional[str] = "openai/gpt-5.6-luna"
+    extraction_agent_fallback_model: Optional[str] = "google/gemini-3.7-flash"
+    keyword_extraction_agent_model: Optional[str] = "openai/gpt-5.6-luna"
+    keyword_extraction_agent_fallback_model: Optional[str] = "google/gemini-3.7-flash"
+    generation_agent_model: Optional[str] = "openai/gpt-5.6-luna"
+    generation_agent_fallback_model: Optional[str] = "google/gemini-3.7-flash"
+    generation_agent_reasoning_effort: Literal["auto", "none", "low", "medium", "high", "xhigh"] = "auto"
+    resume_judge_agent_model: Optional[str] = "openai/gpt-5.6-luna"
+    resume_judge_agent_fallback_model: Optional[str] = "google/gemini-3.7-flash"
+    resume_judge_agent_reasoning_effort: Literal["auto", "none", "low", "medium", "high", "xhigh"] = "auto"
+    validation_agent_model: Optional[str] = "openai/gpt-5.6-luna"
+    validation_agent_fallback_model: Optional[str] = "google/gemini-3.7-flash"
+    langsmith_tracing: bool = False
+    langsmith_project: Optional[str] = None
+    langsmith_api_key: Optional[str] = None
 
     @field_validator("generation_agent_reasoning_effort", mode="before")
     @classmethod
     def normalize_generation_agent_reasoning_effort(cls, value: Any) -> str:
-        normalized = str(value or "none").strip().lower()
-        allowed = {"none", "low", "medium", "high", "xhigh"}
+        normalized = str(value or "auto").strip().lower()
+        if normalized in {"default", "auto"}:
+            return "auto"
+        allowed = {"auto", "none", "low", "medium", "high", "xhigh"}
         if normalized not in allowed:
             allowed_display = ", ".join(sorted(allowed))
             raise ValueError(
@@ -132,8 +141,10 @@ class WorkerSettingsEnv(BaseSettings):
     @field_validator("resume_judge_agent_reasoning_effort", mode="before")
     @classmethod
     def normalize_resume_judge_agent_reasoning_effort(cls, value: Any) -> str:
-        normalized = str(value or "none").strip().lower()
-        allowed = {"none", "low", "medium", "high", "xhigh"}
+        normalized = str(value or "auto").strip().lower()
+        if normalized in {"default", "auto"}:
+            return "auto"
+        allowed = {"auto", "none", "low", "medium", "high", "xhigh"}
         if normalized not in allowed:
             allowed_display = ", ".join(sorted(allowed))
             raise ValueError(
@@ -143,6 +154,11 @@ class WorkerSettingsEnv(BaseSettings):
 
     @model_validator(mode="after")
     def validate_distinct_llm_fallbacks(self) -> "WorkerSettingsEnv":
+        if self.langsmith_tracing:
+            if not str(self.langsmith_project or "").strip():
+                raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")
+            if not str(self.langsmith_api_key or "").strip():
+                raise ValueError("LANGSMITH_API_KEY is required when LANGSMITH_TRACING=true.")
         if (
             self.generation_agent_model
             and self.generation_agent_fallback_model
@@ -197,21 +213,23 @@ def _resolve_generation_reasoning_efforts(
     generation_settings: dict[str, Any],
     settings: WorkerSettingsEnv,
 ) -> tuple[str, str]:
-    primary_reasoning = str(
+    primary_raw = str(
         generation_settings.get(
             "_generation_reasoning_effort",
             settings.generation_agent_reasoning_effort,
         )
-        or "none"
+        or "auto"
     ).strip().lower()
-    fallback_reasoning = str(
+    fallback_raw = str(
         generation_settings.get(
             "_generation_fallback_reasoning_effort",
-            primary_reasoning,
+            primary_raw,
         )
-        or "none"
+        or primary_raw
     ).strip().lower()
-    allowed = {"none", "low", "medium", "high", "xhigh"}
+    primary_reasoning = "auto" if primary_raw in {"default", "auto"} else primary_raw
+    fallback_reasoning = "auto" if fallback_raw in {"default", "auto"} else fallback_raw
+    allowed = {"auto", "none", "low", "medium", "high", "xhigh"}
     if primary_reasoning not in allowed:
         raise RuntimeError("Tier generation reasoning effort is invalid.")
     if fallback_reasoning not in allowed:
@@ -900,7 +918,8 @@ class OpenRouterExtractionAgent:
                     "- If multiple jobs are present, extract the primary posting that best matches the page title, URL, and reference id.\n"
                     "- Use only these normalized origins when known: linkedin, indeed, google_jobs, glassdoor, ziprecruiter, monster, dice, company_website, other.\n"
                     "- If origin is unknown, leave it null.\n"
-                    "- If a field is uncertain, leave it null rather than guessing."
+                    "- If a field is uncertain, leave it null rather than guessing.\n\n"
+                    f"{build_unslop_prompt_block()}"
                 ),
             ),
             (
@@ -919,7 +938,15 @@ class OpenRouterExtractionAgent:
                 ),
             ),
         ]
-        return await llm.ainvoke(prompt)
+        return await llm.ainvoke(
+            prompt,
+            config=model_run_config(
+                operation="job_extraction",
+                model=model_name,
+                transport_mode="structured",
+                is_fallback=model_name == self._settings.extraction_agent_fallback_model,
+            ),
+        )
 
 
 class OpenRouterKeywordExtractionAgent:
@@ -986,7 +1013,8 @@ class OpenRouterKeywordExtractionAgent:
                     "- Prefer concise phrases of 1 to 5 words over long sentences.\n"
                     "- Exclude generic filler, benefits, legal/EEO language, company boilerplate, and vague soft skills unless clearly role-critical.\n"
                     "- Do not include synonyms, inferred terms, normalized variants, plural variants, or reordered wording.\n"
-                    "- Deduplicate case-insensitively."
+                    "- Deduplicate case-insensitively.\n\n"
+                    f"{build_unslop_prompt_block()}"
                 ),
             ),
             (
@@ -994,7 +1022,17 @@ class OpenRouterKeywordExtractionAgent:
                 json.dumps({"job_description": job_description[:EXTRACTION_TEXT_LIMIT]}),
             ),
         ]
-        return await llm.ainvoke(prompt)
+        primary, fallback = self._models()
+        return await llm.ainvoke(
+            prompt,
+            config=model_run_config(
+                operation="keyword_extraction",
+                model=model_name,
+                transport_mode="structured",
+                is_fallback=model_name == fallback and fallback != primary,
+                timeout_seconds=KEYWORD_EXTRACTION_MODEL_TIMEOUT_SECONDS,
+            ),
+        )
 
 
 class OutboundRequestGuard:
@@ -1377,6 +1415,7 @@ async def report_bootstrap_progress(ctx: dict[str, Any]) -> dict[str, Any]:
     return asdict(progress)
 
 
+@trace_workflow("applix.job_extraction")
 async def run_extraction_job(
     ctx: dict[str, Any],
     *,
@@ -1546,6 +1585,7 @@ async def run_extraction_job(
     raise RuntimeError("Extraction completed without a success payload.")
 
 
+@trace_workflow("applix.keyword_extraction")
 async def run_keyword_extraction_job(
     ctx: dict[str, Any],
     *,
@@ -1700,6 +1740,7 @@ def _build_length_diagnostics(
     )
 
 
+@trace_workflow("applix.validation_and_repair")
 async def _validate_generated_sections_with_repair(
     *,
     generated_sections: list[dict[str, Any]],
@@ -1730,6 +1771,16 @@ async def _validate_generated_sections_with_repair(
         professional_experience_anchors=professional_experience_anchors,
         length_validation_mode=_length_validation_mode_for_operation(operation),
     )
+    annotate_current_trace(
+        {
+            "validation_error_count": len(validation_result.get("errors") or []),
+            "validation_error_types": [
+                str(error.get("type") or "unknown")
+                for error in (validation_result.get("errors") or [])
+                if isinstance(error, dict)
+            ],
+        }
+    )
     if validation_result["valid"]:
         return generated_sections, validation_result, attempt_diagnostics, None
 
@@ -1752,6 +1803,7 @@ async def _validate_generated_sections_with_repair(
         aggressiveness=aggressiveness,
         reasoning_effort=reasoning_effort,
         fallback_reasoning_effort=fallback_reasoning_effort,
+        target_length=str(generation_settings.get("page_length") or generation_settings.get("target_length") or ""),
     )
     combined_attempts = [*attempt_diagnostics, *_sanitize_attempts(repair_attempts)]
     if repair_error is not None or repaired_payload is None:
@@ -1781,6 +1833,17 @@ async def _validate_generated_sections_with_repair(
         professional_experience_anchors=professional_experience_anchors,
         length_validation_mode=_length_validation_mode_for_operation(operation),
     )
+    annotate_current_trace(
+        {
+            "repair_attempted": True,
+            "post_repair_validation_error_count": len(validation_after_repair.get("errors") or []),
+            "post_repair_validation_error_types": [
+                str(error.get("type") or "unknown")
+                for error in (validation_after_repair.get("errors") or [])
+                if isinstance(error, dict)
+            ],
+        }
+    )
     if validation_after_repair["valid"]:
         return repaired_sections, validation_after_repair, combined_attempts, None
 
@@ -1794,6 +1857,7 @@ async def _validate_generated_sections_with_repair(
     return repaired_sections, validation_after_repair, combined_attempts, failure_details
 
 
+@trace_workflow("applix.validation_and_repair")
 async def _validate_regenerated_section_with_repair(
     *,
     regenerated_section: dict[str, Any],
@@ -1824,6 +1888,16 @@ async def _validate_regenerated_section_with_repair(
         professional_experience_anchors=professional_experience_anchors,
         length_validation_mode="section",
     )
+    annotate_current_trace(
+        {
+            "validation_error_count": len(validation_result.get("errors") or []),
+            "validation_error_types": [
+                str(error.get("type") or "unknown")
+                for error in (validation_result.get("errors") or [])
+                if isinstance(error, dict)
+            ],
+        }
+    )
     if validation_result["valid"]:
         return regenerated_section, validation_result, attempt_diagnostics, None
 
@@ -1846,6 +1920,7 @@ async def _validate_regenerated_section_with_repair(
         aggressiveness=aggressiveness,
         reasoning_effort=reasoning_effort,
         fallback_reasoning_effort=fallback_reasoning_effort,
+        target_length=str(generation_settings.get("page_length") or generation_settings.get("target_length") or ""),
     )
     combined_attempts = [*attempt_diagnostics, *_sanitize_attempts(repair_attempts)]
     if repair_error is not None or repaired_payload is None:
@@ -1873,6 +1948,17 @@ async def _validate_regenerated_section_with_repair(
         professional_experience_anchors=professional_experience_anchors,
         length_validation_mode="section",
     )
+    annotate_current_trace(
+        {
+            "repair_attempted": True,
+            "post_repair_validation_error_count": len(validation_after_repair.get("errors") or []),
+            "post_repair_validation_error_types": [
+                str(error.get("type") or "unknown")
+                for error in (validation_after_repair.get("errors") or [])
+                if isinstance(error, dict)
+            ],
+        }
+    )
     if validation_after_repair["valid"]:
         return repaired_section, validation_after_repair, combined_attempts, None
 
@@ -1891,6 +1977,7 @@ async def _validate_regenerated_section_with_repair(
 # ---------------------------------------------------------------------------
 
 
+@trace_workflow("applix.resume_generation")
 async def run_generation_job(
     ctx: dict[str, Any],
     *,
@@ -2095,10 +2182,17 @@ async def run_generation_job(
             percent_complete=95,
         )
 
-        content = assemble_resume(
-            personal_info=personal_info,
-            generated_sections=generated_sections,
-        )
+        with trace_scope(
+            "applix.resume_assembly",
+            inputs={"section_count": len(generated_sections)},
+            metadata={"operation": "generation"},
+        ) as assembly_run:
+            content = assemble_resume(
+                personal_info=personal_info,
+                generated_sections=generated_sections,
+            )
+            if assembly_run is not None:
+                assembly_run.end(outputs={"content_chars": len(content)})
         length_diagnostics = _build_length_diagnostics(
             generated_sections=generated_sections,
             base_resume_content=base_resume_content,
@@ -2275,6 +2369,16 @@ async def run_generation_job(
 # ---------------------------------------------------------------------------
 
 
+def _regeneration_trace_name(kwargs: dict[str, Any]) -> str:
+    target = str(kwargs.get("regeneration_target") or "section")
+    if target == "keyword_optimization":
+        return "applix.keyword_optimization"
+    if target == "full":
+        return "applix.resume_regeneration_full"
+    return "applix.resume_regeneration_section"
+
+
+@trace_workflow(_regeneration_trace_name)
 async def run_regeneration_job(
     ctx: dict[str, Any],
     *,
@@ -2514,10 +2618,17 @@ async def run_regeneration_job(
                 message="Assembling regenerated resume draft",
                 percent_complete=95,
             )
-            content = assemble_resume(
-                personal_info=personal_info,
-                generated_sections=generated_sections,
-            )
+            with trace_scope(
+                "applix.resume_assembly",
+                inputs={"section_count": len(generated_sections)},
+                metadata={"operation": "keyword_optimization" if is_keyword_optimization else "regeneration_full"},
+            ) as assembly_run:
+                content = assemble_resume(
+                    personal_info=personal_info,
+                    generated_sections=generated_sections,
+                )
+                if assembly_run is not None:
+                    assembly_run.end(outputs={"content_chars": len(content)})
             length_diagnostics = _build_length_diagnostics(
                 generated_sections=generated_sections,
                 base_resume_content=base_resume_content,
@@ -2814,6 +2925,7 @@ async def run_regeneration_job(
         raise
 
 
+@trace_workflow("applix.resume_judge")
 async def run_resume_judge_job(
     ctx: dict[str, Any],
     *,

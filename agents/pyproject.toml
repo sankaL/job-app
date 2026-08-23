@@ -11,6 +11,7 @@ dependencies = [
   "arq>=0.26.3",
   "httpx>=0.28.1",
   "langchain-openai>=0.3.35",
+  "langsmith>=0.4.37",
   "playwright>=1.58.0",
   "pydantic-settings>=2.8.1"
 ]
@@ -22,4 +23,4 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = ["worker", "generation", "validation", "assembly", "privacy", "length_policy", "url_security"]
+py-modules = ["worker", "generation", "validation", "assembly", "privacy", "length_policy", "url_security", "unslop_prompt", "langsmith_tracing"]

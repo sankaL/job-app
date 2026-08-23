@@ -16,12 +16,14 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from generation import StrictModel
 from length_policy import TARGET_LENGTH_CONFIGS, assess_resume_length
 from privacy import CONTACT_URL_RE, EMAIL_RE, PHONE_RE, sanitize_resume_markdown
+from langsmith_tracing import model_run_config
+from unslop_prompt import build_unslop_prompt_block
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-SUPPORTED_REASONING_EFFORTS = {"none", "low", "medium", "high", "xhigh"}
-DEFAULT_REASONING_EFFORT = "none"
+SUPPORTED_REASONING_EFFORTS = {"auto", "none", "low", "medium", "high", "xhigh"}
+DEFAULT_REASONING_EFFORT = "auto"
 DEFAULT_PASS_THRESHOLD = Decimal("80.0")
 REGENERATION_GUIDANCE_SCORE_THRESHOLD = Decimal("90.0")
 
@@ -195,6 +197,8 @@ def _extract_json_payload(text: str) -> Any:
 
 def _normalize_reasoning_effort(reasoning_effort: Optional[str]) -> str:
     normalized = str(reasoning_effort or DEFAULT_REASONING_EFFORT).strip().lower()
+    if normalized in {"default", "auto"}:
+        return "auto"
     if normalized not in SUPPORTED_REASONING_EFFORTS:
         allowed = ", ".join(sorted(SUPPORTED_REASONING_EFFORTS))
         raise ValueError(f"Unsupported reasoning effort '{reasoning_effort}'. Expected one of: {allowed}.")
@@ -203,6 +207,8 @@ def _normalize_reasoning_effort(reasoning_effort: Optional[str]) -> str:
 
 def _reasoning_config(reasoning_effort: Optional[str]) -> Optional[dict[str, Any]]:
     normalized = _normalize_reasoning_effort(reasoning_effort)
+    if normalized == "auto":
+        return {"exclude": True}
     payload: dict[str, Any] = {"effort": normalized}
     if normalized != "none":
         payload["exclude"] = True
@@ -213,7 +219,11 @@ def _reasoning_effort_value(reasoning_config: Optional[dict[str, Any]]) -> Optio
     if not reasoning_config:
         return None
     effort = reasoning_config.get("effort")
-    return str(effort) if effort else None
+    if effort:
+        return str(effort)
+    if reasoning_config.get("exclude"):
+        return "auto"
+    return None
 
 
 def _looks_like_reasoning_error(error: Exception) -> bool:
@@ -353,7 +363,8 @@ def _build_system_prompt() -> str:
         '  "regeneration_instructions": {"summary": ["specific instruction"]} | null,\n'
         '  "regeneration_priority_dimensions": ["dimension_id"],\n'
         '  "evaluator_notes": "short overall evaluator note"\n'
-        "}"
+        "}\n\n"
+        f"{build_unslop_prompt_block()}"
     )
 
 
@@ -418,6 +429,8 @@ async def _attempt_model(
     timeout: float,
     reasoning_config: Optional[dict[str, Any]],
     attempts: list[dict[str, Any]],
+    is_fallback: bool = False,
+    trace_metadata: Optional[dict[str, Any]] = None,
 ) -> JudgeModelResponse:
     llm = _build_llm(
         model_name=model_name,
@@ -428,7 +441,21 @@ async def _attempt_model(
     )
     started_at = perf_counter()
     try:
-        response = await asyncio.wait_for(llm.ainvoke(prompt), timeout=timeout)
+        response = await asyncio.wait_for(
+            llm.ainvoke(
+                prompt,
+                config=model_run_config(
+                    operation="resume_judge",
+                    model=model_name,
+                    transport_mode="json",
+                    is_fallback=is_fallback,
+                    reasoning_effort=_reasoning_effort_value(reasoning_config),
+                    timeout_seconds=timeout,
+                    extra_metadata=trace_metadata,
+                ),
+            ),
+            timeout=timeout,
+        )
         payload = JudgeModelResponse.model_validate(
             _extract_json_payload(_extract_message_text(response.content))
         )
@@ -466,7 +493,18 @@ async def _attempt_model(
                         base_url=base_url,
                         timeout=timeout,
                         reasoning_config=None,
-                    ).ainvoke(prompt),
+                    ).ainvoke(
+                        prompt,
+                        config=model_run_config(
+                            operation="resume_judge",
+                            model=model_name,
+                            transport_mode="json",
+                            is_fallback=is_fallback,
+                            timeout_seconds=timeout,
+                            retry_reason="reasoning_unsupported",
+                            extra_metadata=trace_metadata,
+                        ),
+                    ),
                     timeout=timeout,
                 )
                 payload = JudgeModelResponse.model_validate(
@@ -663,6 +701,13 @@ async def judge_resume(
                 timeout=timeout,
                 reasoning_config=_reasoning_config(reasoning_effort),
                 attempts=attempts,
+                is_fallback=index > 0,
+                trace_metadata={
+                    "target_length": target_length,
+                    "aggressiveness": aggressiveness,
+                    "generated_word_count": deterministic_observations.get("word_count"),
+                    "contact_leak_types": deterministic_observations.get("contact_leak_types") or [],
+                },
             )
             return {
                 "resume_judge_result": _finalize_response(

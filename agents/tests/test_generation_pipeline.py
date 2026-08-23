@@ -87,7 +87,8 @@ def build_fake_chat(
             self.kwargs = kwargs
             self.response_model = response_model
 
-        async def ainvoke(self, prompt):
+        async def ainvoke(self, prompt, config=None):
+            self.kwargs["run_config"] = config
             return callback(self.kwargs, prompt, True, self.response_model)
 
     class FakeChatOpenAI:
@@ -98,13 +99,15 @@ def build_fake_chat(
         def with_structured_output(self, response_model):
             return FakeStructuredLLM(self.kwargs, response_model)
 
-        async def ainvoke(self, prompt):
+        async def ainvoke(self, prompt, config=None):
+            self.kwargs["run_config"] = config
             return callback(self.kwargs, prompt, False, None)
 
     return FakeChatOpenAI
 
 
 def test_reasoning_config_defaults_by_operation():
+    assert generation._reasoning_config_for_operation("generation", "auto") == {"exclude": True}
     assert generation._reasoning_config_for_operation("generation", "none") == {"effort": "none"}
     assert generation._reasoning_config_for_operation("regeneration_full", "none") == {"effort": "none"}
     assert generation._reasoning_config_for_operation("keyword_optimization", "low") == {
@@ -119,7 +122,8 @@ def test_reasoning_config_defaults_by_operation():
         "effort": "xhigh",
         "exclude": True,
     }
-    assert generation._normalize_reasoning_effort(None) == "none"
+    assert generation._normalize_reasoning_effort(None) == "auto"
+    assert generation._normalize_reasoning_effort("default") == "auto"
 
 
 def test_reasoning_config_rejects_unknown_effort():
@@ -376,6 +380,10 @@ async def test_generate_sections_uses_structured_output_sanitized_prompt_and_rea
         assert "expert_resume_writer" in human_payload["style_contract"]
         assert "other_sections_context" not in human_payload
         assert kwargs["extra_body"] == _reasoning_payload("medium")
+        assert kwargs["run_config"]["metadata"]["section_ids"] == ["summary", "skills"]
+        assert kwargs["run_config"]["metadata"]["target_length"] == "1_page"
+        assert kwargs["run_config"]["metadata"]["aggressiveness"] == "medium"
+        assert kwargs["run_config"]["metadata"]["is_fallback"] is False
         assert structured is True
         return response_model.model_validate(
             {
@@ -531,6 +539,7 @@ async def test_generate_sections_uses_fallback_model_json_when_primary_structure
             raise RuntimeError("structured output unsupported")
         assert kwargs["model"] == "fallback-model"
         assert kwargs["extra_body"] == _reasoning_payload("medium")
+        assert kwargs["run_config"]["metadata"]["is_fallback"] is True
         return FakeResponse(
             json.dumps(
                 {
