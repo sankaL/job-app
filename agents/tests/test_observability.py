@@ -106,7 +106,10 @@ def test_trace_sanitizer_removes_private_and_secret_values():
             "email": "alex@example.com",
             "phone": "+1 (416) 555-0100",
             "authorization": "Bearer secret-token",
-            "text": "See https://example.com/job?token=secret#private and api_key=abc123.",
+            "text": (
+                "See https://example.com/job?token=secret#private, "
+                "https://linkedin.com/in/alex-example, and api_key=abc123."
+            ),
         }
     )
 
@@ -117,7 +120,40 @@ def test_trace_sanitizer_removes_private_and_secret_values():
     assert "secret-token" not in serialized
     assert "token=secret" not in serialized
     assert "abc123" not in serialized
+    assert "alex-example" not in serialized
     assert "https://example.com/job" in serialized
+    assert "<profile-url>" in serialized
+
+
+@pytest.mark.asyncio
+async def test_trace_workflow_survives_trace_completion_failure(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "applix-test")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "lsv2_test")
+    monkeypatch.setattr(tracing, "_build_client", lambda *_args: object())
+
+    class FakeManager:
+        def __init__(self, value=None) -> None:
+            self.value = value
+
+        def __enter__(self):
+            return self.value
+
+        def __exit__(self, *_args):
+            return False
+
+    class FailingRun:
+        def end(self, **_kwargs) -> None:
+            raise RuntimeError("telemetry unavailable")
+
+    monkeypatch.setattr(tracing, "tracing_context", lambda **_kwargs: FakeManager())
+    monkeypatch.setattr(tracing, "trace", lambda *_args, **_kwargs: FakeManager(FailingRun()))
+
+    @tracing.trace_workflow("applix.test")
+    async def operation(**_kwargs):
+        return {"status": "ok"}
+
+    assert await operation(application_id="app-1", job_id="job-1") == {"status": "ok"}
 
 
 @pytest.mark.asyncio
@@ -218,4 +254,7 @@ def test_local_environment_defaults_disable_and_forward_langsmith():
     assert compose.count("LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}") == 2
     assert compose.count("LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-}") == 2
     assert compose.count("LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}") == 2
+    assert "GENERATION_AGENT_MODEL: ${GENERATION_AGENT_MODEL:-openai/gpt-5.6-luna}" in compose
+    assert "GENERATION_AGENT_FALLBACK_MODEL: ${GENERATION_AGENT_FALLBACK_MODEL:-google/gemini-3.7-flash}" in compose
+    assert "GENERATION_AGENT_REASONING_EFFORT: ${GENERATION_AGENT_REASONING_EFFORT:-auto}" in compose
     assert "LANGSMITH_TRACING=false" in root_env

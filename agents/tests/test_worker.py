@@ -524,8 +524,8 @@ def test_worker_settings_normalizes_generation_reasoning_effort():
 def test_local_compose_forwards_generation_and_judge_reasoning_effort_envs():
     compose_text = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text()
 
-    assert "GENERATION_AGENT_REASONING_EFFORT: ${GENERATION_AGENT_REASONING_EFFORT:-none}" in compose_text
-    assert "RESUME_JUDGE_AGENT_REASONING_EFFORT: ${RESUME_JUDGE_AGENT_REASONING_EFFORT:-none}" in compose_text
+    assert "GENERATION_AGENT_REASONING_EFFORT: ${GENERATION_AGENT_REASONING_EFFORT:-auto}" in compose_text
+    assert "RESUME_JUDGE_AGENT_REASONING_EFFORT: ${RESUME_JUDGE_AGENT_REASONING_EFFORT:-auto}" in compose_text
 
 
 def test_worker_settings_rejects_invalid_generation_reasoning_effort():

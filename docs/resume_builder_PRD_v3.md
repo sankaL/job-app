@@ -52,7 +52,7 @@ LangSmith tracing is opt-in through `LANGSMITH_TRACING`. When enabled, `LANGSMIT
 
 A fallback model is configurable per subscription tier for resilience. If the primary model call fails, the system retries once with the tier fallback before treating the job as failed.
 
-Current admin-selectable generation models are Gemini 3 Flash (`google/gemini-3-flash-preview`), GPT 5.4 Mini (`openai/gpt-5.4-mini`), DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`), and Gemini 3.5 Flash (`google/gemini-3.5-flash`). Reasoning choices are model-aware: Gemini Flash options support `none`, `low`, `medium`, and `high`; GPT 5.4 Mini supports `none`, `low`, `medium`, `high`, and `xhigh` / Extra high; DeepSeek V4 Flash supports `none`, `high`, and `xhigh` / Extra high.
+Current admin-selectable generation models are GPT 5.6 Luna (`openai/gpt-5.6-luna`), Gemini 3.7 Flash (`google/gemini-3.7-flash`), Gemini 3 Flash (`google/gemini-3-flash-preview`), GPT 5.4 Mini (`openai/gpt-5.4-mini`), DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`), and Gemini 3.5 Flash (`google/gemini-3.5-flash`). Reasoning choices are model-aware: Luna and GPT 5.4 Mini support `auto`, `none`, `low`, `medium`, `high`, and `xhigh` / Extra high; Gemini models support `auto`, `none`, `low`, `medium`, and `high`; DeepSeek V4 Flash supports `auto`, `none`, `high`, and `xhigh` / Extra high.
 - Basic primary: `google/gemini-3-flash-preview` with reasoning `none`
 - Basic fallback: `openai/gpt-5.4-mini` with reasoning `none`
 - Pro primary: `openai/gpt-5.4-mini` with reasoning `medium`

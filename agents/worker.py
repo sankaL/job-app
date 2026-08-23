@@ -37,7 +37,7 @@ from generation import (
 from length_policy import assess_resume_length
 from privacy import sanitize_resume_markdown
 from resume_judge import judge_resume
-from langsmith_tracing import annotate_current_trace, model_run_config, trace_scope, trace_workflow
+from langsmith_tracing import annotate_current_trace, end_trace_safely, model_run_config, trace_scope, trace_workflow
 from unslop_prompt import build_unslop_prompt_block
 from validation import validate_resume
 from url_security import validate_public_http_url
@@ -2191,8 +2191,7 @@ async def run_generation_job(
                 personal_info=personal_info,
                 generated_sections=generated_sections,
             )
-            if assembly_run is not None:
-                assembly_run.end(outputs={"content_chars": len(content)})
+            end_trace_safely(assembly_run, outputs={"content_chars": len(content)})
         length_diagnostics = _build_length_diagnostics(
             generated_sections=generated_sections,
             base_resume_content=base_resume_content,
@@ -2627,8 +2626,7 @@ async def run_regeneration_job(
                     personal_info=personal_info,
                     generated_sections=generated_sections,
                 )
-                if assembly_run is not None:
-                    assembly_run.end(outputs={"content_chars": len(content)})
+                end_trace_safely(assembly_run, outputs={"content_chars": len(content)})
             length_diagnostics = _build_length_diagnostics(
                 generated_sections=generated_sections,
                 base_resume_content=base_resume_content,

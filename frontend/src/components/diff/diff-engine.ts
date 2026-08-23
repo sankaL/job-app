@@ -27,14 +27,20 @@ export interface BulletDiffItem {
 
 export interface ExperienceEntryDiff {
   id: string;
-  company: string;
+  company: {
+    base: string | null;
+    tailored: string | null;
+    chunks: WordDiffChunk[];
+  };
   location: {
     base: string | null;
     tailored: string | null;
+    chunks: WordDiffChunk[];
   };
   dateRange: {
     base: string | null;
     tailored: string | null;
+    chunks: WordDiffChunk[];
   };
   title: {
     base: string | null;
@@ -269,6 +275,9 @@ export function compareExperienceEntries(
     );
 
     const titleChunks = computeWordDiff(baseTitle ?? "", tailoredTitle);
+    const companyChunks = computeWordDiff(bestBase?.company ?? "", tailored.company);
+    const locationChunks = computeWordDiff(bestBase?.location ?? "", tailored.location ?? "");
+    const dateRangeChunks = computeWordDiff(bestBase?.dateRange ?? "", tailored.dateRange ?? "");
     const bullets = alignExperienceBullets(bestBase?.bullets ?? [], tailored.bullets);
 
     const modifiedBullets = bullets.filter((b) => b.status === "modified").length;
@@ -277,20 +286,34 @@ export function compareExperienceEntries(
 
     let entryStatus: DiffChangeStatus = "unchanged";
     if (!bestBase) entryStatus = "added";
-    else if (isRetitled || modifiedBullets > 0 || addedBullets > 0 || omittedBullets > 0) {
+    else if (
+      companyChunks.some((chunk) => chunk.added || chunk.removed) ||
+      locationChunks.some((chunk) => chunk.added || chunk.removed) ||
+      dateRangeChunks.some((chunk) => chunk.added || chunk.removed) ||
+      isRetitled ||
+      modifiedBullets > 0 ||
+      addedBullets > 0 ||
+      omittedBullets > 0
+    ) {
       entryStatus = "modified";
     }
 
     diffs.push({
       id: `exp-diff-${tailored.id}`,
-      company: tailored.company || bestBase?.company || `Role ${tIdx + 1}`,
+      company: {
+        base: bestBase?.company ?? null,
+        tailored: tailored.company || null,
+        chunks: companyChunks,
+      },
       location: {
         base: bestBase?.location ?? null,
         tailored: tailored.location ?? null,
+        chunks: locationChunks,
       },
       dateRange: {
         base: bestBase?.dateRange ?? null,
         tailored: tailored.dateRange ?? null,
+        chunks: dateRangeChunks,
       },
       title: {
         base: baseTitle,
@@ -314,9 +337,21 @@ export function compareExperienceEntries(
     if (!usedBaseIds.has(base.id)) {
       diffs.push({
         id: `exp-diff-omitted-${base.id}`,
-        company: base.company,
-        location: { base: base.location, tailored: null },
-        dateRange: { base: base.dateRange, tailored: null },
+        company: {
+          base: base.company,
+          tailored: null,
+          chunks: [{ value: base.company, removed: true }],
+        },
+        location: {
+          base: base.location,
+          tailored: null,
+          chunks: base.location ? [{ value: base.location, removed: true }] : [],
+        },
+        dateRange: {
+          base: base.dateRange,
+          tailored: null,
+          chunks: base.dateRange ? [{ value: base.dateRange, removed: true }] : [],
+        },
         title: {
           base: base.title,
           tailored: null,

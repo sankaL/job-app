@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import Settings
-from app.core.tracing import sanitize_trace_data
+from app.core.tracing import end_trace_safely, sanitize_trace_data
 from app.services import resume_parser
 from app.services.resume_parser import ResumeParserService
 from app.services.unslop_prompt import UNSLOP_INSTRUCTION, UNSLOP_PRECEDENCE
@@ -38,7 +38,8 @@ def test_backend_trace_sanitizer_removes_contacts_secrets_and_url_queries():
             "user_id": "user-123",
             "text": (
                 "alex@example.com +1 416 555 0100 Bearer token-value "
-                "https://example.com/path?access_token=secret#fragment api_key=abc123"
+                "https://example.com/path?access_token=secret#fragment "
+                "https://github.com/alex-example api_key=abc123"
             ),
         }
     )
@@ -49,7 +50,17 @@ def test_backend_trace_sanitizer_removes_contacts_secrets_and_url_queries():
     assert "token-value" not in serialized
     assert "access_token=secret" not in serialized
     assert "abc123" not in serialized
+    assert "alex-example" not in serialized
     assert "https://example.com/path" in serialized
+    assert "<profile-url>" in serialized
+
+
+def test_trace_completion_failure_is_best_effort():
+    class FailingRun:
+        def end(self, **_kwargs):
+            raise RuntimeError("telemetry unavailable")
+
+    end_trace_safely(FailingRun(), outputs={"status": "ok"})
 
 
 def test_backend_settings_require_langsmith_credentials_when_enabled(monkeypatch):

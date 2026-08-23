@@ -139,7 +139,7 @@ export function ExperienceDiffCard({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h4 className="text-base font-bold tracking-tight" style={{ color: "var(--color-ink)" }}>
-                {entryDiff.company}
+                <InlineDiffText chunks={entryDiff.company.chunks} mode={highlightMode} />
               </h4>
               {getStatusBadge()}
             </div>
@@ -147,13 +147,13 @@ export function ExperienceDiffCard({
               {entryDiff.dateRange.tailored || entryDiff.dateRange.base ? (
                 <span className="inline-flex items-center gap-1 font-medium">
                   <Calendar size={13} className="opacity-70" />
-                  {entryDiff.dateRange.tailored || entryDiff.dateRange.base}
+                  <InlineDiffText chunks={entryDiff.dateRange.chunks} mode={highlightMode} />
                 </span>
               ) : null}
               {entryDiff.location.tailored || entryDiff.location.base ? (
                 <span className="inline-flex items-center gap-1 font-medium">
                   <MapPin size={13} className="opacity-70" />
-                  {entryDiff.location.tailored || entryDiff.location.base}
+                  <InlineDiffText chunks={entryDiff.location.chunks} mode={highlightMode} />
                 </span>
               ) : null}
             </div>

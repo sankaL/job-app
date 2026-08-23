@@ -22,6 +22,10 @@ SECRET_RE = re.compile(
 )
 OPENAI_KEY_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{10,}\b")
 URL_RE = re.compile(r"https?://[^\s\"'<>,]+", re.I)
+CONTACT_PROFILE_URL_RE = re.compile(
+    r"https?://(?:www\.)?(?:(?:linkedin|github|gitlab|behance|dribbble)\.com|(?:[^\s/]+\.)?portfolio\.[^\s/]+)/[^\s\"'<>,]+",
+    re.I,
+)
 SENSITIVE_KEYS = {
     "api_key",
     "authorization",
@@ -59,6 +63,7 @@ def _sanitize_string(value: str) -> str:
     sanitized = BEARER_RE.sub(r"\1<redacted>", sanitized)
     sanitized = SECRET_RE.sub(r"\1<redacted>", sanitized)
     sanitized = OPENAI_KEY_RE.sub("<api-key>", sanitized)
+    sanitized = CONTACT_PROFILE_URL_RE.sub("<profile-url>", sanitized)
     sanitized = URL_RE.sub(lambda match: _sanitize_url(match.group(0)), sanitized)
     return sanitized
 
@@ -215,6 +220,16 @@ def annotate_current_trace(metadata: Mapping[str, Any]) -> None:
     run_tree.metadata.update(sanitize_trace_data(dict(metadata)))
 
 
+def end_trace_safely(run_tree: Any, **kwargs: Any) -> None:
+    """Finish telemetry without allowing delivery failures to fail the workflow."""
+    if run_tree is None:
+        return
+    try:
+        run_tree.end(**kwargs)
+    except Exception as error:
+        logger.warning("LangSmith run completion failed; continuing without telemetry. error_type=%s", type(error).__name__)
+
+
 def _safe_workflow_inputs(kwargs: Mapping[str, Any]) -> dict[str, Any]:
     generation_settings = kwargs.get("generation_settings")
     safe_generation = generation_settings if isinstance(generation_settings, Mapping) else {}
@@ -266,8 +281,7 @@ def trace_workflow(name: Union[str, Callable[[Mapping[str, Any]], str]]):
                 tags=["applix", "workflow"],
             ) as run_tree:
                 result = await function(*args, **kwargs)
-                if run_tree is not None:
-                    run_tree.end(outputs=sanitize_trace_data(_safe_workflow_output(result)))
+                end_trace_safely(run_tree, outputs=sanitize_trace_data(_safe_workflow_output(result)))
                 return result
 
         return wrapped

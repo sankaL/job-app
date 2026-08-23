@@ -11,7 +11,7 @@ from typing import Optional
 
 import httpx
 
-from app.core.tracing import sanitize_trace_data, trace_llm_scope
+from app.core.tracing import end_trace_safely, sanitize_trace_data, trace_llm_scope
 from app.services.resume_privacy import reattach_header_lines, sanitize_resume_markdown
 from app.services.unslop_prompt import build_unslop_prompt_block
 
@@ -389,17 +389,17 @@ class ResumeParserService:
                     payload = _extract_json_payload(cleaned_body_raw)
                     cleaned_body, needs_review, review_reason = _validate_cleanup_payload(payload)
                     cleaned_sanitized = sanitize_resume_markdown(cleaned_body).sanitized_markdown or cleaned_body
-                    if run_tree is not None:
-                        run_tree.end(
-                            outputs=sanitize_trace_data(
-                                {
-                                    "cleaned_markdown": cleaned_sanitized,
-                                    "needs_review": needs_review,
-                                    "review_reason": review_reason,
-                                }
-                            ),
-                            metadata=sanitize_trace_data({"provider_usage": data.get("usage") or {}}),
-                        )
+                    end_trace_safely(
+                        run_tree,
+                        outputs=sanitize_trace_data(
+                            {
+                                "cleaned_markdown": cleaned_sanitized,
+                                "needs_review": needs_review,
+                                "review_reason": review_reason,
+                            }
+                        ),
+                        metadata=sanitize_trace_data({"provider_usage": data.get("usage") or {}}),
+                    )
                     return ResumeCleanupResult(
                         cleaned_markdown=reattach_header_lines(cleaned_sanitized, sanitized.header_lines),
                         needs_review=needs_review,

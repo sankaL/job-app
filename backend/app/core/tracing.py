@@ -19,6 +19,10 @@ SECRET_RE = re.compile(
 )
 OPENAI_KEY_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{10,}\b")
 URL_RE = re.compile(r"https?://[^\s\"'<>,]+", re.I)
+CONTACT_PROFILE_URL_RE = re.compile(
+    r"https?://(?:www\.)?(?:(?:linkedin|github|gitlab|behance|dribbble)\.com|(?:[^\s/]+\.)?portfolio\.[^\s/]+)/[^\s\"'<>,]+",
+    re.I,
+)
 
 
 def _strip_url_secrets(value: str) -> str:
@@ -49,6 +53,7 @@ def sanitize_trace_data(value: Any, *, depth: int = 12) -> Any:
         sanitized = BEARER_RE.sub(r"\1<redacted>", sanitized)
         sanitized = SECRET_RE.sub(r"\1<redacted>", sanitized)
         sanitized = OPENAI_KEY_RE.sub("<api-key>", sanitized)
+        sanitized = CONTACT_PROFILE_URL_RE.sub("<profile-url>", sanitized)
         return URL_RE.sub(lambda match: _strip_url_secrets(match.group(0)), sanitized)
     if value is None or isinstance(value, (bool, int, float)):
         return value
@@ -58,6 +63,16 @@ def sanitize_trace_data(value: Any, *, depth: int = 12) -> Any:
 def _anonymizer(value: dict) -> dict:
     sanitized = sanitize_trace_data(value)
     return sanitized if isinstance(sanitized, dict) else {}
+
+
+def end_trace_safely(run_tree: Any, **kwargs: Any) -> None:
+    """Finish telemetry without allowing delivery failures to fail cleanup."""
+    if run_tree is None:
+        return
+    try:
+        run_tree.end(**kwargs)
+    except Exception as error:
+        logger.warning("LangSmith run completion failed; continuing without telemetry. error_type=%s", type(error).__name__)
 
 
 @contextmanager

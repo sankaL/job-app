@@ -132,10 +132,42 @@ Bachelor of Science in Computer Science | 2014 - 2018
     expect(diffs.length).toBe(2);
 
     const firstRole = diffs[0];
-    expect(firstRole.company).toBe("Deloitte Canada");
+    expect(firstRole.company.tailored).toBe("Deloitte Canada");
     expect(firstRole.title.isRetitled).toBe(true);
     expect(firstRole.title.base).toBe("Manager, Quality Engineering");
     expect(firstRole.title.tailored).toBe("Software QA/QC Test Manager");
+  });
+
+  it("marks changed employer, date, and location fields as modified", () => {
+    const [diff] = compareExperienceEntries(
+      [
+        {
+          id: "base-role",
+          company: "Acme Inc.",
+          title: "Engineer",
+          location: "Toronto, ON",
+          dateRange: "2020 - Present",
+          bullets: ["Built platform features."],
+          rawText: "Acme Inc. | Toronto, ON\nEngineer | 2020 - Present\n- Built platform features.",
+        },
+      ],
+      [
+        {
+          id: "tailored-role",
+          company: "Acme Holdings",
+          title: "Engineer",
+          location: "Remote",
+          dateRange: "2021 - Present",
+          bullets: ["Built platform features."],
+          rawText: "Acme Holdings | Remote\nEngineer | 2021 - Present\n- Built platform features.",
+        },
+      ],
+    );
+
+    expect(diff.status).toBe("modified");
+    expect(diff.company.chunks.some((chunk) => chunk.added || chunk.removed)).toBe(true);
+    expect(diff.location.chunks.some((chunk) => chunk.added || chunk.removed)).toBe(true);
+    expect(diff.dateRange.chunks.some((chunk) => chunk.added || chunk.removed)).toBe(true);
   });
 
   it("computes full document comparison summary with stats", () => {
