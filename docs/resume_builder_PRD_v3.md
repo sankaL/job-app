@@ -48,9 +48,11 @@ The product should enable a user to:
 
 All LLM calls are routed through **OpenRouter** via LangChain's provider-agnostic interface. Resume generation model and reasoning access are configurable per subscription tier in admin settings; environment model settings remain the worker fallback for legacy queued jobs or missing tier configuration. Prompt construction must not rely on any provider-specific syntax or features.
 
+LangSmith tracing is opt-in through `LANGSMITH_TRACING`. When enabled, `LANGSMITH_PROJECT` and `LANGSMITH_API_KEY` are required and the backend and worker send traces to the same project. Local development defaults to tracing off. Traces may include contact-stripped model prompts and outputs, but must remove user ids, profile fields, contact details, credentials, URL query secrets, raw callbacks, and unsanitized provider payloads. Trace delivery failures must not change user-visible AI workflow results after configuration has validated.
+
 A fallback model is configurable per subscription tier for resilience. If the primary model call fails, the system retries once with the tier fallback before treating the job as failed.
 
-Current admin-selectable generation models are Gemini 3 Flash (`google/gemini-3-flash-preview`), GPT 5.4 Mini (`openai/gpt-5.4-mini`), DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`), and Gemini 3.5 Flash (`google/gemini-3.5-flash`). Reasoning choices are model-aware: Gemini Flash options support `none`, `low`, `medium`, and `high`; GPT 5.4 Mini supports `none`, `low`, `medium`, `high`, and `xhigh` / Extra high; DeepSeek V4 Flash supports `none`, `high`, and `xhigh` / Extra high.
+Current admin-selectable generation models are GPT 5.6 Luna (`openai/gpt-5.6-luna`), Gemini 3.7 Flash (`google/gemini-3.7-flash`), Gemini 3 Flash (`google/gemini-3-flash-preview`), GPT 5.4 Mini (`openai/gpt-5.4-mini`), DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`), and Gemini 3.5 Flash (`google/gemini-3.5-flash`). Reasoning choices are model-aware: Luna and GPT 5.4 Mini support `auto`, `none`, `low`, `medium`, `high`, and `xhigh` / Extra high; Gemini models support `auto`, `none`, `low`, `medium`, and `high`; DeepSeek V4 Flash supports `auto`, `none`, `high`, and `xhigh` / Extra high.
 - Basic primary: `google/gemini-3-flash-preview` with reasoning `none`
 - Basic fallback: `openai/gpt-5.4-mini` with reasoning `none`
 - Pro primary: `openai/gpt-5.4-mini` with reasoning `medium`
@@ -423,6 +425,7 @@ Generation runs through LangChain calling OpenRouter, but each initial-generatio
 - Generated-draft preview, PDF export, and DOCX export must consume the same semantic render model derived from normalized Markdown, rather than separate format-specific line guessing
 - The model must return a strict JSON envelope with ordered section objects. Each section has `id`, `heading`, semantic `content`, and `supporting_snippets`; Markdown body strings, HTML, XML, tables, images, code fences, and extra keys are invalid.
 - Prompt variants must explicitly reflect the selected page target and aggressiveness level
+- Every LLM system prompt must include the shared Unslop instruction verbatim. Operation-specific grounding, privacy, exact-copy, ATS, structured-output, and resume rules take precedence when they conflict with general writing guidance.
 - A second model request is allowed only when the first request fails at the provider or transport level, or returns invalid structured output
 - Final persisted draft output remains Markdown, but Markdown is rendered locally from the semantic JSON object rather than authored directly by the LLM
 - Model called via OpenRouter; model names come from the user's subscription tier, with environment settings retained only as worker fallback for legacy or incomplete queued jobs (see §3.1)
@@ -935,6 +938,7 @@ Admin has three product responsibilities in MVP:
 | Async processing | Extraction and generation must run as background jobs |
 | Timeouts | See §9 for required timeout boundaries per operation |
 | Logging | Structured logging required on all background jobs, LLM calls, and export operations |
+| AI tracing | LangSmith tracing is disabled by default, requires an explicit project and API key when enabled, and records sanitized workflow roots plus nested model attempts without user ids, profile data, credentials, or raw callbacks. |
 | Failure recovery | All failure states must be recoverable by the user (retry, manual entry, regenerate) |
 | PDF freshness | PDF is always generated from the latest `content_md` at export time; no cached PDFs |
 

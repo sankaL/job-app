@@ -15,24 +15,34 @@ class OpenRouterGenerationModel:
 
 OPENROUTER_GENERATION_MODELS: tuple[OpenRouterGenerationModel, ...] = (
     OpenRouterGenerationModel(
+        id="openai/gpt-5.6-luna",
+        label="GPT 5.6 Luna",
+        reasoning_efforts=("auto", "none", "low", "medium", "high", "xhigh"),
+    ),
+    OpenRouterGenerationModel(
+        id="google/gemini-3.7-flash",
+        label="Gemini 3.7 Flash",
+        reasoning_efforts=("auto", "none", "low", "medium", "high"),
+    ),
+    OpenRouterGenerationModel(
         id="google/gemini-3-flash-preview",
         label="Gemini 3 Flash",
-        reasoning_efforts=("none", "low", "medium", "high"),
+        reasoning_efforts=("auto", "none", "low", "medium", "high"),
     ),
     OpenRouterGenerationModel(
         id="openai/gpt-5.4-mini",
         label="GPT 5.4 Mini",
-        reasoning_efforts=("none", "low", "medium", "high", "xhigh"),
+        reasoning_efforts=("auto", "none", "low", "medium", "high", "xhigh"),
     ),
     OpenRouterGenerationModel(
         id="deepseek/deepseek-v4-flash",
         label="DeepSeek V4 Flash",
-        reasoning_efforts=("none", "high", "xhigh"),
+        reasoning_efforts=("auto", "none", "high", "xhigh"),
     ),
     OpenRouterGenerationModel(
         id="google/gemini-3.5-flash",
         label="Gemini 3.5 Flash",
-        reasoning_efforts=("none", "low", "medium", "high"),
+        reasoning_efforts=("auto", "none", "low", "medium", "high"),
     ),
 )
 
@@ -42,7 +52,9 @@ OPENROUTER_GENERATION_MODEL_BY_ID = {
 
 
 def normalize_reasoning_effort(value: object) -> str:
-    normalized = str(value or "none").strip().lower()
+    normalized = str(value or "auto").strip().lower()
+    if normalized in {"default", "auto"}:
+        return "auto"
     if normalized == "extra_high":
         return "xhigh"
     return normalized

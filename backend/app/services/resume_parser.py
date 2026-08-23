@@ -11,7 +11,9 @@ from typing import Optional
 
 import httpx
 
+from app.core.tracing import end_trace_safely, sanitize_trace_data, trace_llm_scope
 from app.services.resume_privacy import reattach_header_lines, sanitize_resume_markdown
+from app.services.unslop_prompt import build_unslop_prompt_block
 
 logger = logging.getLogger(__name__)
 MAX_PDF_PAGES = 50
@@ -140,10 +142,21 @@ class ResumeParserService:
     def __init__(
         self,
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "openai/gpt-4o-mini",
+        openrouter_model: str = "openai/gpt-5.6-luna",
+        langsmith_tracing: bool = False,
+        langsmith_project: Optional[str] = None,
+        langsmith_api_key: Optional[str] = None,
     ) -> None:
         self.openrouter_api_key = openrouter_api_key
         self.openrouter_model = openrouter_model
+        self.langsmith_tracing = langsmith_tracing
+        self.langsmith_project = langsmith_project
+        self.langsmith_api_key = langsmith_api_key
+        if self.langsmith_tracing:
+            if not str(self.langsmith_project or "").strip():
+                raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")
+            if not str(self.langsmith_api_key or "").strip():
+                raise ValueError("LANGSMITH_API_KEY is required when LANGSMITH_TRACING=true.")
 
     def parse_pdf(self, file_bytes: bytes) -> str:
         """
@@ -331,37 +344,67 @@ class ResumeParserService:
             "- Do not introduce em dashes.\n"
             "- Set needs_review to true when the source looks too degraded or ambiguous to structure confidently.\n"
             "- When needs_review is false, set review_reason to null.\n"
+            f"\n{build_unslop_prompt_block()}"
         )
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.openrouter_api_key}",
-                        "HTTP-Referer": "https://resume-builder.local",
-                        "X-Title": "AI Resume Builder",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.openrouter_model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": sanitized_markdown},
-                        ],
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                cleaned_body_raw = data["choices"][0]["message"]["content"]
-                payload = _extract_json_payload(cleaned_body_raw)
-                cleaned_body, needs_review, review_reason = _validate_cleanup_payload(payload)
-                cleaned_sanitized = sanitize_resume_markdown(cleaned_body).sanitized_markdown or cleaned_body
-                return ResumeCleanupResult(
-                    cleaned_markdown=reattach_header_lines(cleaned_sanitized, sanitized.header_lines),
-                    needs_review=needs_review,
-                    review_reason=review_reason if needs_review else None,
-                )
+            with trace_llm_scope(
+                enabled=self.langsmith_tracing,
+                api_key=self.langsmith_api_key,
+                project_name=self.langsmith_project,
+                name="applix.resume_cleanup",
+                inputs={
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": sanitized_markdown},
+                    ]
+                },
+                metadata={
+                    "operation": "resume_cleanup",
+                    "model": self.openrouter_model,
+                    "transport_mode": "http_json",
+                    "timeout_seconds": 30.0,
+                },
+            ) as run_tree:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.openrouter_api_key}",
+                            "HTTP-Referer": "https://resume-builder.local",
+                            "X-Title": "AI Resume Builder",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": self.openrouter_model,
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": sanitized_markdown},
+                            ],
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    cleaned_body_raw = data["choices"][0]["message"]["content"]
+                    payload = _extract_json_payload(cleaned_body_raw)
+                    cleaned_body, needs_review, review_reason = _validate_cleanup_payload(payload)
+                    cleaned_sanitized = sanitize_resume_markdown(cleaned_body).sanitized_markdown or cleaned_body
+                    end_trace_safely(
+                        run_tree,
+                        outputs=sanitize_trace_data(
+                            {
+                                "cleaned_markdown": cleaned_sanitized,
+                                "needs_review": needs_review,
+                                "review_reason": review_reason,
+                            }
+                        ),
+                        metadata=sanitize_trace_data({"provider_usage": data.get("usage") or {}}),
+                    )
+                    return ResumeCleanupResult(
+                        cleaned_markdown=reattach_header_lines(cleaned_sanitized, sanitized.header_lines),
+                        needs_review=needs_review,
+                        review_reason=review_reason if needs_review else None,
+                    )
 
         except httpx.TimeoutException:
             logger.warning("LLM cleanup timed out after 30 seconds, returning raw markdown")

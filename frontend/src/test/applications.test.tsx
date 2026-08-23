@@ -2988,6 +2988,44 @@ describe("phase 1 applications UI", () => {
     );
   });
 
+  it("preserves auto reasoning and new model selections from subscription tiers", async () => {
+    api.listSubscriptionTiers.mockResolvedValue([
+      {
+        key: "basic",
+        name: "Basic",
+        monthly_resume_generation_limit: 10,
+        generation_model: "openai/gpt-5.6-luna",
+        generation_reasoning_effort: "auto",
+        generation_fallback_model: "google/gemini-3.7-flash",
+        generation_fallback_reasoning_effort: "auto",
+        is_active: true,
+        created_at: "2026-08-22T00:00:00Z",
+        updated_at: "2026-08-22T00:00:00Z",
+      },
+    ]);
+
+    renderWithAppProvider(<AdminSubscriptionsPage />);
+
+    await screen.findByRole("heading", { name: /subscription settings/i });
+    await screen.findByText("Basic");
+    const form = screen
+      .getByDisplayValue("10")
+      .closest("form") as HTMLFormElement;
+
+    expect(
+      within(form).getByLabelText(/primary model/i),
+    ).toHaveValue("openai/gpt-5.6-luna");
+    expect(
+      within(form).getByLabelText(/primary reasoning/i),
+    ).toHaveValue("auto");
+    expect(
+      within(form).getByLabelText(/fallback model/i),
+    ).toHaveValue("google/gemini-3.7-flash");
+    expect(
+      within(form).getByLabelText(/fallback reasoning/i),
+    ).toHaveValue("auto");
+  });
+
   it("validates subscription tier model fields before saving", async () => {
     const user = userEvent.setup();
     api.listSubscriptionTiers.mockResolvedValue([

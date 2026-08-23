@@ -83,11 +83,11 @@ function formatDate(value: string) {
 }
 
 function normalizeReasoning(value: string): ReasoningEffort {
-  return isReasoningEffort(value) ? value : "none";
+  return isReasoningEffort(value) ? value : "auto";
 }
 
 function reasoningOptionsForModel(modelId: string) {
-  return getModelOption(modelId)?.reasoningEfforts ?? ["none"];
+  return getModelOption(modelId)?.reasoningEfforts ?? ["auto"];
 }
 
 type ValidatedTierUpdate = {
@@ -271,9 +271,9 @@ export function AdminSubscriptionsPage() {
         ...(current[tierKey] ?? {
           monthly_resume_generation_limit: "",
           generation_model: defaultGenerationModel,
-          generation_reasoning_effort: "none",
+          generation_reasoning_effort: "auto",
           generation_fallback_model: defaultFallbackGenerationModel,
-          generation_fallback_reasoning_effort: "none",
+          generation_fallback_reasoning_effort: "auto",
         }),
         ...updates,
       },
@@ -289,13 +289,13 @@ export function AdminSubscriptionsPage() {
       field === "generation_model"
         ? "generation_reasoning_effort"
         : "generation_fallback_reasoning_effort";
-    const currentReasoning = forms[tierKey]?.[reasoningField] ?? "none";
+    const currentReasoning = forms[tierKey]?.[reasoningField] ?? "auto";
     const allowed = reasoningOptionsForModel(modelId);
     updateForm(tierKey, {
       [field]: modelId,
       [reasoningField]: allowed.includes(currentReasoning)
         ? currentReasoning
-        : "none",
+        : allowed[0] ?? "auto",
     });
   }
 

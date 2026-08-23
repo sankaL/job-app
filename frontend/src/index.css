@@ -480,6 +480,18 @@ html, body, #root {
   }
 }
 
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.diff-section-card {
+  will-change: transform, opacity;
+}
+
 /* ============================================================
    Responsive Sidebar
    ============================================================ */

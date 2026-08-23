@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-07-14
+**Last updated:** 2026-08-23
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -40,6 +40,10 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 | Task ID | Task | Type | Status | Date updated | Comments |
 |---|---|---|---|---|---|
+| B5-T80 | Apply code-review hardening to tracing, model defaults, and resume comparison | AI/BE/FE/Infra/Docs | DONE | 2026-08-22 22:16:09 EDT | Made LangSmith telemetry completion best-effort so observability failures cannot fail resume workflows, sanitized profile URLs before tracing, synchronized Compose and PRD model defaults with the committed Luna/Gemini configuration, and made employer, location, and date changes visible in the compare workspace. Added focused regression coverage. |
+| B5-T79 | Redesign compare UI into an interactive section-by-section comparison workspace with GSAP motion and word diffing | FE/Docs | DONE | 2026-08-23 22:10:00 EDT | Replaced dual full-document side-by-side scrolling columns with a unified section-by-section compare workspace, added canonical resume section parsing and pairing, job-by-job experience matching with title reframing badges, inline word-level diffing with semantic spruce/ember highlighting, GSAP entrance and sliding tab indicators, unified vs side-by-side view toggles, in-place edit mode, and then hardened the compare engine so removed education entries and omitted skills still appear accurately in matched sections. |
+| B5-T78 | Add opt-in LangSmith tracing and the shared Unslop prompt policy to every LLM capability | AI/BE/Infra/Docs | DONE | 2026-08-22 20:59:22 EDT | Added sanitized workflow and model-attempt traces across worker agents and backend resume cleanup, kept local tracing disabled by default, required project and API-key configuration when enabled, embedded the exact shared Unslop instruction with operation-rule precedence in every system prompt, and passed 154 agent tests, 305 backend tests, syntax checks, diff checks, and Compose validation. Production trace ingestion remains off until Railway receives valid LangSmith credentials and an explicit project name. |
+| B5-T77 | Switch production and local LLM configurations to GPT 5.6 Luna with auto reasoning and Gemini 3.7 Flash fallback | AI/BE/Infra/Docs | DONE | 2026-08-22 20:31:00 EDT | Updated all application LLM defaults and Railway production environment variables across agents and backend services to `openai/gpt-5.6-luna` with `google/gemini-3.7-flash` fallback, implemented OpenRouter auto reasoning via `reasoning: {"exclude": true}`, updated model catalogs and environment files, and passed all regression test suites. |
 | B5-T76 | Complete the follow-up Fallow code-quality reduction across frontend controllers and shared UI | FE/Docs | DONE | 2026-07-14 22:46:00 EDT | Reduced Fallow health findings from 40 to 8 (critical 7→1, high 4→1, moderate 29→6), cleared all static and duplication findings, fixed the final review regressions, split production routes into bounded chunks, retained 157 passing frontend tests, and documented the remaining application-controller decomposition. |
 | B0-T01 | Fail closed when local Supabase exposes an empty JWKS set during backend JWT verification | BE | DONE | 2026-04-07 13:38:00 EDT | Auth verification now treats empty JWKS responses like other key-fetch failures, falls back to the configured shared secret when available, and has regression coverage for both fallback and fail-closed paths. |
 | P0-T01 | Scaffold the committed frontend, backend, and agents stack foundations | Infra | DONE | 2026-04-07 11:36:08 EDT | React/Vite/Tailwind frontend, FastAPI backend, and ARQ worker baseline are committed. |

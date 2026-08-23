@@ -1,4 +1,4 @@
-export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "auto" | "none" | "low" | "medium" | "high" | "xhigh";
 
 export type OpenRouterGenerationModelOption = {
   id: string;
@@ -7,6 +7,7 @@ export type OpenRouterGenerationModelOption = {
 };
 
 export const reasoningEffortLabels: Record<ReasoningEffort, string> = {
+  auto: "Auto",
   none: "None",
   low: "Low",
   medium: "Medium",
@@ -16,28 +17,38 @@ export const reasoningEffortLabels: Record<ReasoningEffort, string> = {
 
 export const openRouterGenerationModels: OpenRouterGenerationModelOption[] = [
   {
+    id: "openai/gpt-5.6-luna",
+    label: "GPT 5.6 Luna",
+    reasoningEfforts: ["auto", "none", "low", "medium", "high", "xhigh"],
+  },
+  {
+    id: "google/gemini-3.7-flash",
+    label: "Gemini 3.7 Flash",
+    reasoningEfforts: ["auto", "none", "low", "medium", "high"],
+  },
+  {
     id: "google/gemini-3-flash-preview",
     label: "Gemini 3 Flash",
-    reasoningEfforts: ["none", "low", "medium", "high"],
+    reasoningEfforts: ["auto", "none", "low", "medium", "high"],
   },
   {
     id: "openai/gpt-5.4-mini",
     label: "GPT 5.4 Mini",
-    reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
+    reasoningEfforts: ["auto", "none", "low", "medium", "high", "xhigh"],
   },
   {
     id: "deepseek/deepseek-v4-flash",
     label: "DeepSeek V4 Flash",
-    reasoningEfforts: ["none", "high", "xhigh"],
+    reasoningEfforts: ["auto", "none", "high", "xhigh"],
   },
   {
     id: "google/gemini-3.5-flash",
     label: "Gemini 3.5 Flash",
-    reasoningEfforts: ["none", "low", "medium", "high"],
+    reasoningEfforts: ["auto", "none", "low", "medium", "high"],
   },
 ];
 
-const reasoningEffortValues = new Set<ReasoningEffort>(["none", "low", "medium", "high", "xhigh"]);
+const reasoningEffortValues = new Set<ReasoningEffort>(["auto", "none", "low", "medium", "high", "xhigh"]);
 
 export function getModelOption(modelId: string) {
   return openRouterGenerationModels.find((model) => model.id === modelId) ?? null;

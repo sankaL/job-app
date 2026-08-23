@@ -1,8 +1,8 @@
 # AI Prompt Catalog
 
 **Status:** Current code-derived prompt catalog  
-**Last updated:** 2026-06-17
-**Sources:** `agents/generation.py`, `agents/validation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`
+**Last updated:** 2026-08-22
+**Sources:** `agents/generation.py`, `agents/validation.py`, `agents/resume_judge.py`, `agents/worker.py`, `agents/unslop_prompt.py`, `agents/assembly.py`, `backend/app/services/resume_parser.py`, `backend/app/services/unslop_prompt.py`
 
 This document records the latest live prompt definitions in the repository. The codebase does not maintain semantic prompt version numbers, so "latest version" here means the current prompt implementation at HEAD.
 
@@ -18,6 +18,107 @@ This document records the latest live prompt definitions in the repository. The 
 | Validation-aware repair | `agents/generation.py` | `full-draft or single-section`, repair-only | Repair a previously returned JSON payload using sanitized deterministic validation errors without relaxing the response contract. |
 | Resume upload cleanup | `backend/app/services/resume_parser.py` | One live prompt shape | Improve Markdown structure of parsed resume content without changing substance and signal when manual review is still needed. |
 
+## Shared Unslop policy
+
+Every system prompt appends this precedence rule before the shared instruction:
+
+```text
+Unslop precedence:
+Apply the Unslop instruction below to every text field you author. Do not use it to rewrite fields that this operation requires you to copy or preserve. The operation's grounding, privacy, exact-copy, ATS, structured-output, and resume-specific rules take precedence over conflicting Unslop guidance.
+```
+
+The operation-specific rules remain authoritative. Extraction and keyword prompts still copy source text exactly, cleanup still preserves wording, Resume Judge still evaluates rather than rewriting, and resume generation still obeys grounding, privacy, ATS, semantic JSON, length, and aggressiveness contracts.
+
+The exact shared instruction is:
+
+```text
+# Unslop
+
+Edit text to remove AI patterns and add human voice.
+
+## Process
+
+1. Scan for the patterns below.
+2. Rewrite. Preserve meaning, match intended tone.
+3. Add soul (see next section).
+4. Self-audit: "What makes this obviously AI generated?" Fix remaining tells.
+
+## Adding soul
+
+Removing patterns is half the job. Sterile, voiceless writing is just as obvious.
+
+- **Have opinions.** React to facts instead of neutrally listing pros and cons.
+- **Vary rhythm.** Short sentences. Then longer ones that take their time. Mix it up.
+- **Acknowledge complexity.** "Impressive but also kind of unsettling" beats "impressive."
+- **Use "I" when it fits.** First person isn't unprofessional.
+- **Let some mess in.** Perfect structure looks machine-made.
+- **Be specific.** Not "this is concerning" but "there's something unsettling about agents churning away at 3am."
+
+## Patterns to detect and fix
+
+### Content
+
+1. **Puffery.** "pivotal moment", "testament to", "evolving landscape", "setting the stage for", "indelible mark", "deeply rooted". Cut puffery, state what happened.
+2. **Name-dropping.** Listing media outlets without context. Pick one, say what was said.
+3. **Superficial -ing phrases.** "highlighting...", "ensuring...", "reflecting...", "showcasing...", "fostering...". Delete or expand with real sources.
+4. **Promotional language.** "nestled", "vibrant", "breathtaking", "groundbreaking", "renowned", "stunning", "must-visit". Use neutral descriptions.
+5. **Vague attributions.** "Experts believe", "Industry reports suggest", "Some critics argue". Name the source or delete.
+6. **Formulaic challenges.** "Despite challenges... continues to thrive." Replace with specific facts.
+
+### Language
+
+7. **AI vocabulary.** Additionally, crucial, delve, enduring, enhance, fostering, garner, interplay, intricate, landscape (abstract), pivotal, showcase, tapestry (abstract), testament, underscore, vibrant. Replace with plain words.
+8. **Fancy ways to say "is".** "serves as", "stands as", "boasts", "features". Just say "is" or "has".
+9. **"Not just X, but Y."** State the point directly instead.
+10. **Rule of three.** Forcing ideas into groups of three. Use the natural number.
+11. **Synonym cycling.** Protagonist, main character, central figure, hero all in one paragraph. Pick one, repeat it.
+12. **False ranges.** "from X to Y" where X and Y aren't on a meaningful scale. List topics directly.
+
+### Style
+
+13. **Em dash overuse.** Avoid em dashes entirely. Use periods or commas only (no parentheses, no en dashes, no hyphen-as-dash substitutes). Em dashes are an AI tell, and reaching for parentheses instead just trades one tell for another. If a thought needs separation, end the sentence or use a comma.
+14. **Colon overuse.** Colons are fine before a list or example. Not as mid-sentence connectors. "If you're coming from traditional automation: instead of registering event handlers, you describe conditions" adds nothing with the colon. Rewrite to let the point stand on its own without comparison framing. "Describing when the scheduler should fire works best as plain English." Same meaning, no crutch punctuation.
+15. **Boldface overuse.** Don't bold every proper noun or acronym.
+16. **Inline-header lists.** The tell is a bold label and colon that restates the line: "**Performance:** Performance improved...". Convert those to prose. A bold lead-in that ends in a period, names the item, and is followed by genuinely new detail ("**Schema in TypeScript.** Tables live in one file.") is fine, not a tell.
+17. **Title case headings.** Use sentence case.
+18. **Decorative emojis.** Remove from headings and bullets.
+19. **Curly quotes.** Replace with straight quotes.
+
+### Communication artifacts
+
+20. **Chatbot phrases.** "I hope this helps!", "Let me know if...", "Of course!", "Certainly!", "Found the smoking gun!" Remove.
+21. **Cutoff disclaimers.** "While specific details are limited..." Find sources or remove.
+22. **Sycophantic tone.** "Great question! You're absolutely right!" Respond directly.
+
+### Filler
+
+23. **Filler phrases.** "In order to" becomes "To". "Due to the fact that" becomes "Because". "It is important to note that" gets deleted.
+24. **Excessive hedging.** "could potentially possibly be argued that it might" becomes "may".
+25. **Generic conclusions.** "The future looks bright." State specific plans or facts.
+
+### Jargon
+
+26. **Abstract metaphor nouns.** Substrate, wedge, vector, locus, vantage, nexus, primitive (as noun), harness (as metaphor), surface (as in "API surface"), bedrock, scaffolding (as metaphor), modality, paradigm, gold-plating, ratchet (as metaphor), evacuate (for moving code), endgame, north star, flywheel. These read as technical but usually have a plainer concrete word. "Substrate" becomes "base". "Wedge in" becomes "add". "Vector" becomes "way" or "method". "Gold-plating" becomes "more than the job needs". "Ratchet" becomes the mechanism's real name or "a limit that only tightens". "Evacuate" becomes "move out". "Endgame" becomes "the last phase". Pick the concrete word.
+
+### Plain speech
+
+27. **Say what it does, not how it feels.** "the database stays close at hand", "SQL you can read", "types that follow your schema" name a feeling. The fix names the mechanism or a number: "`.toSQL()` returns the exact string sent to the database", "a column rename fails the build". Ask what the sentence tells the reader to do or know, then write that. If you can't restate it as a concrete instruction, fact, or number, cut it. One more check: if the sentence could appear unchanged in another project's docs, it says nothing about this one. Cut it.
+28. **Shorten or split dense sentences.** If the reader has to backtrack to parse a sentence, break it in two or drop clauses. One idea per sentence.
+29. **Active voice.** Prefer it. Catch "is/are/was/were + past participle" and name the actor: "queries are validated" becomes "the compiler validates queries", "the file is parsed by the loader" becomes "the loader parses the file". Passive is fine only when the actor is unknown or genuinely doesn't matter.
+30. **Cut adverbs, or use a stronger verb.** "runs quickly" becomes "is fast" or the number. "significantly improves" becomes the measured delta. An adverb propping up a weak verb means the verb is wrong.
+31. **Prefer the plain word.** "utilize" becomes "use", "leverage" becomes "use", "facilitate" becomes "help", "numerous" becomes "many", "in the event that" becomes "if". The fancier synonym is rarely clearer.
+```
+
+Validation-aware repair retains the original system prompt, so it inherits the same policy without adding another LLM pass.
+
+## LangSmith trace contract
+
+- `LANGSMITH_TRACING=false` is the local and unset default. Enabling it requires nonblank `LANGSMITH_PROJECT` and `LANGSMITH_API_KEY` values in both the backend and worker services.
+- Stable workflow roots cover job extraction, ATS keyword extraction, initial generation, full regeneration, single-section regeneration, keyword optimization, Resume Judge, and upload cleanup. Validation and repair plus deterministic assembly appear as nested runs.
+- Each LangChain model attempt has a stable run name and safe metadata for operation, model, primary or fallback status, transport mode, reasoning effort, timeout, and retry reason. The direct OpenRouter cleanup request records a custom LLM run with sanitized output and numeric provider usage.
+- Trace inputs and outputs pass through a trace-only redactor. It removes emails, phone numbers, bearer tokens, API-key patterns, URL query strings and fragments, user ids, personal information, and callback payloads. Root runs contain counts, settings, section ids, and pseudonymous application or job ids rather than raw workflow arguments.
+- Missing enabled configuration fails closed before model work begins. Once configuration is valid, trace setup or delivery problems do not change the AI operation's result and never cause prompt or resume bodies to be written to local logs.
+
 ## Resume Judge Prompt
 
 Resume Judge is a dedicated post-generation evaluator. It runs after initial generation, full regeneration, and section regeneration, and it can also be triggered manually for stale edited drafts.
@@ -30,10 +131,11 @@ Resume Judge is a dedicated post-generation evaluator. It runs after initial gen
   - `RESUME_JUDGE_AGENT_FALLBACK_MODEL`
   - `RESUME_JUDGE_AGENT_REASONING_EFFORT`
 - Current tracked defaults are:
-  - primary `openai/gpt-5.4-mini`
-  - fallback `openai/gpt-5-mini`
-  - reasoning `none`
-- `none` is sent to OpenRouter as an explicit `reasoning: {"effort": "none"}` payload so reasoning-capable models are actually run without reasoning instead of falling back to provider defaults.
+  - primary `openai/gpt-5.6-luna`
+  - fallback `google/gemini-3.7-flash`
+  - reasoning `auto`
+- `auto` is sent to OpenRouter as `reasoning: {"exclude": true}` (omitting `effort`) so reasoning-capable models run with their native default/auto reasoning depth while excluding internal thought traces from the output payload.
+- `none` is sent to OpenRouter as an explicit `reasoning: {"effort": "none"}` payload so reasoning-capable models are run without reasoning when explicitly requested.
 - If a provider rejects disabled reasoning with an error such as "reasoning is mandatory" or "cannot be disabled", the same model is retried once without the `reasoning` field so provider-default reasoning can still proceed.
 - The judge allows one primary-model attempt and one fallback-model attempt. If the provider rejects the configured reasoning field, the same model is retried once without reasoning before moving on.
 - Judge failure is fail-open for the application workflow: score state is stored, but resume export, editing, and visible status remain usable.
@@ -161,10 +263,10 @@ This section is organized by what stays constant across all resume-writing opera
 - Initial generation, full regeneration, and single-section regeneration receive a hidden primary/fallback model pair from the user's subscription tier. If an older queued job does not include those values, the worker falls back to the environment-configured generation model settings for compatibility.
 - Initial generation, full regeneration, and single-section regeneration use hidden tier-configured reasoning values when present. Legacy queued jobs without tier reasoning fall back to the env-configured `GENERATION_AGENT_REASONING_EFFORT`; fallback attempts inherit the primary effort unless a tier-specific fallback effort is supplied.
 - Current tracked subscription defaults are Basic `google/gemini-3-flash-preview` primary reasoning `none` with `openai/gpt-5.4-mini` fallback reasoning `none`, and Pro `openai/gpt-5.4-mini` primary reasoning `medium` with `google/gemini-3.5-flash` fallback reasoning `medium`.
-- Allowed reasoning values are `none`, `low`, `medium`, `high`, and `xhigh`.
-- Admin-selectable generation models are model-aware: DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`) exposes only `none`, `high`, and `xhigh`, where `xhigh` maps to max reasoning.
-- The current tracked env defaults set `GENERATION_AGENT_REASONING_EFFORT=none`.
-- `GENERATION_AGENT_REASONING_EFFORT=none` is passed through to OpenRouter as `reasoning: {"effort": "none"}`. Non-`none` efforts also set `exclude=true` so reasoning stays internal and is not returned in the response body.
+- Allowed reasoning values are `auto`, `none`, `low`, `medium`, `high`, and `xhigh`.
+- Admin-selectable generation models are model-aware: DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`) exposes `auto`, `none`, `high`, and `xhigh`, where `xhigh` maps to max reasoning.
+- The current tracked env defaults set `GENERATION_AGENT_REASONING_EFFORT=auto`.
+- `GENERATION_AGENT_REASONING_EFFORT=auto` is passed through to OpenRouter as `reasoning: {"exclude": true}` (omitting `effort` to use model default reasoning). Explicit non-`none` efforts set `effort` and `exclude=true`. `none` sets `effort="none"`.
 - If a provider rejects disabled reasoning as mandatory, the generation layer retries that same model once without a `reasoning` payload before moving on to the fallback model.
 - Validation-aware repair uses the same tier-selected model/reasoning pairing as the generation attempt when the worker job includes tier reasoning; direct legacy repair calls with no reasoning still omit the reasoning payload.
 - Full generation and full regeneration allow up to `240s` per LLM attempt and use heartbeat progress updates while waiting on the model. Section regeneration allows up to `120s` per attempt.

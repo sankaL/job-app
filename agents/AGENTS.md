@@ -11,6 +11,7 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 - Remove personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
 - Do not rely on provider-specific prompt syntax or model-specific features. Prompts must remain portable across OpenRouter-supported models.
 - Model selection belongs in configuration, not prompt assets or code constants.
+- Every model system prompt must include the shared Unslop policy verbatim. Grounding, privacy, exact-copy, ATS, structured-output, and operation-specific resume rules take precedence over conflicting general writing advice.
 - If the primary OpenRouter model fails or returns invalid structured output, allow one retry using the configured fallback model before treating the operation as failed.
 
 ## Generation Rules
