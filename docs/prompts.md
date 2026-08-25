@@ -131,8 +131,8 @@ Resume Judge is a dedicated post-generation evaluator. It runs after initial gen
   - `RESUME_JUDGE_AGENT_FALLBACK_MODEL`
   - `RESUME_JUDGE_AGENT_REASONING_EFFORT`
 - Current tracked defaults are:
-  - primary `openai/gpt-5.6-luna`
-  - fallback `google/gemini-3.7-flash`
+  - primary `google/gemini-3.7-flash`
+  - fallback `openai/gpt-5.6-luna`
   - reasoning `auto`
 - `auto` is sent to OpenRouter as `reasoning: {"exclude": true}` (omitting `effort`) so reasoning-capable models run with their native default/auto reasoning depth while excluding internal thought traces from the output payload.
 - `none` is sent to OpenRouter as an explicit `reasoning: {"effort": "none"}` payload so reasoning-capable models are run without reasoning when explicitly requested.
