@@ -1,6 +1,6 @@
 # Section generation verification
 
-The follow-up uses fictional resumes through the production section pipeline and Pydantic AI runtime. The evaluator never connects to application data, hosted auth/database services, Redis or application callbacks. Tracing is disabled. Run instructions and the case contract are in `agents/evals/README.md`.
+The follow-up uses fictional resumes through the production section pipeline and Pydantic AI runtime. Its model selection uses worker environment defaults, without subscription-tier overrides; this sample does not measure the live Basic/Pro model pairs. The evaluator never connects to application data, hosted auth/database services, Redis or application callbacks. Tracing is disabled. Run instructions and the case contract are in `agents/evals/README.md`.
 
 The live cases cover low and high aggressiveness, one-role regeneration with unrelated manual edits, and minimal keyword optimization. Offline cases also inject malformed output, a changed metric and an unsupported technology to check typed correction and targeted repair. Deterministic checks have explicit factual and preservation labels. The pipeline's semantic audit is part of the evaluated system; passing it is not independent evidence of factual truth.
 

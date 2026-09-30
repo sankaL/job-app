@@ -23,6 +23,12 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 The browser walkthrough verified source review, custom sections, saved edits, fixed Education controls, role instructions and snapshot-based comparison. PDF and DOCX byte checks verified the latest content. Final suites passed 383 backend, 224 worker, 199 frontend and 15 environment/cleanup tests; the frontend production build passed. Synthetic live checks exposed incomplete nested schemas and Google transport constraints. Complete nested contracts plus scoped transport profiles resolved the sample's failures: all four fresh generation/regeneration cases passed across ten HTTP 200 requests, with one targeted repair and $0.03746250 provider-reported cost. Import calls use the same Google subset, verified by mocks. Test tooling guards local endpoints, worker state, atomic fixture inserts and absolute cleanup deadlines. Larger quality/reliability samples, live import/Jev evaluation and browser Blob delivery remain unmeasured; see the [verification report](task-output/2026-09-30-section-generation-evaluation-plan.md).
 
+### Local runtime model audit
+
+**Status:** Complete (2026-09-30 19:11:45 EDT).
+
+Confirmed local import classification uses rules, with Jev opt-in; AI cleanup/nested extraction uses GPT 5.6 Luna. Local Basic generation uses Gemini 3 Flash Preview with GPT 5.4 Mini fallback; Pro uses GPT 5.4 Mini with Gemini 3 Flash Preview fallback. Tier reservations override worker environment defaults, including regeneration and role actions. The standalone live evaluator does not apply these tier overrides. Restored the API from isolated browser-test credentials to its configured local development credentials and verified service health. The generation worker remains stopped; no queued AI work was dispatched. Ambiguous Experience imports can still retain Markdown instead of job entries.
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.
