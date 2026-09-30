@@ -47,8 +47,10 @@ import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { ResumeRenderPreview } from "@/components/ResumeRenderPreview";
+import { DraftSectionWorkbench } from "@/components/resume/DraftSectionWorkbench";
 import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
+import { getResumeRegenerationBlocker } from "@/lib/resume-document";
 import {
   GenerationProgress,
   ResumeSkeleton,
@@ -85,6 +87,8 @@ import {
   type JobKeywordsPayload,
   type KeywordMatch,
   type ResumeDraft,
+  type ResumeDocument,
+  type ResumeSection,
 } from "@/lib/api";
 import {
   AGGRESSIVENESS_OPTIONS,
@@ -2075,6 +2079,7 @@ function GenerationFailureDiagnostics({
 
 export function ApplicationDetailPage() {
   const navigate = useNavigate();
+  const { bootstrap } = useAppContext();
   const queryClient = useQueryClient();
   const { setMode: setShellLayoutMode, clearMode: clearShellLayoutMode } =
     useShellLayout();
@@ -2109,6 +2114,7 @@ export function ApplicationDetailPage() {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [draft, setDraft] = useState<ResumeDraft | null>(null);
+  const [draftDirty, setDraftDirty] = useState(false);
   const [generationProgress, setGenerationProgress] =
     useState<ExtractionProgress | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -2120,6 +2126,7 @@ export function ApplicationDetailPage() {
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [showSectionRegen, setShowSectionRegen] = useState(false);
   const [regenSectionName, setRegenSectionName] = useState("");
+  const [regenEntryId, setRegenEntryId] = useState<string | undefined>();
   const [regenInstructions, setRegenInstructions] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showOptimisticProgress, setShowOptimisticProgress] = useState(false);
@@ -2266,7 +2273,12 @@ export function ApplicationDetailPage() {
     baseResumes.length,
   );
   const fullRegenerationBlocker = getFullRegenerationBlocker(detail);
-  const sectionRegenerationBlocker = getSectionRegenerationBlocker(
+  function sectionRegenerationReason(section: ResumeSection, entryId?: string): string | null {
+    return getResumeRegenerationBlocker(section, draft?.source_snapshot?.document, draft?.generation_params.aggressiveness, entryId);
+  }
+  const selectedRegenSection = draft?.document?.sections.find((section) => section.id === regenSectionName);
+  const sectionSourceBlocker = selectedRegenSection ? sectionRegenerationReason(selectedRegenSection, regenEntryId) : null;
+  const sectionRegenerationBlocker = sectionSourceBlocker ?? getSectionRegenerationBlocker(
     detail,
     regenSectionName,
     regenInstructions,
@@ -2295,7 +2307,7 @@ export function ApplicationDetailPage() {
     [draft],
   );
   const comparisonBaseResumeId = useMemo(() => {
-    const generationResumeId = draft?.generation_params?.base_resume_id;
+    const generationResumeId = draft?.source_snapshot?.base_resume_id ?? draft?.generation_params?.base_resume_id;
     if (typeof generationResumeId === "string" && generationResumeId.trim()) {
       return generationResumeId;
     }
@@ -2663,6 +2675,21 @@ export function ApplicationDetailPage() {
       return;
     }
 
+    if (draft.source_snapshot) {
+      setCompareBaseline({
+        id: draft.source_snapshot.base_resume_id,
+        name: `Source revision ${draft.source_snapshot.revision}`,
+        document: draft.source_snapshot.document,
+        content_md: draft.source_snapshot.content_md,
+        is_default: false,
+        created_at: draft.last_generated_at,
+        updated_at: draft.last_generated_at,
+      });
+      setCompareBaselineError(null);
+      setIsCompareBaselineLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setIsCompareBaselineLoading(true);
     setCompareBaselineError(null);
@@ -2688,7 +2715,7 @@ export function ApplicationDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [draft?.id, comparisonBaseResumeId]);
+  }, [draft?.id, draft?.source_snapshot, comparisonBaseResumeId]);
 
   useEffect(() => {
     if (compareMode) {
@@ -3041,6 +3068,32 @@ export function ApplicationDetailPage() {
     }
   }
 
+  async function handleSaveSectionDocument(document: ResumeDocument, expectedRevision: number): Promise<boolean> {
+    setIsSavingDraft(true);
+    setError(null);
+    try {
+      const updated = await saveDraft(activeApplicationId, { document, expected_revision: expectedRevision });
+      applyDraftState(updated);
+      await invalidateApplicationDraftQueries(queryClient, activeApplicationId);
+      refreshActivityTimeline();
+      toast("Draft saved successfully");
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save draft.");
+      toast("Failed to save draft", "error");
+      return false;
+    } finally { setIsSavingDraft(false); }
+  }
+
+  function openSectionRegeneration(section: ResumeSection, entryId?: string) {
+    const blocker = sectionRegenerationReason(section, entryId);
+    if (blocker) { setError(blocker); return; }
+    setRegenSectionName(section.id);
+    setRegenEntryId(entryId);
+    setRegenInstructions("");
+    setShowSectionRegen(true);
+  }
+
   function handleEnterEditMode() {
     if (draft) {
       setEditContent(draft.content_md);
@@ -3056,6 +3109,7 @@ export function ApplicationDetailPage() {
     overrideInstructions?: string,
     useJudgeFeedback?: boolean,
   ): Promise<boolean> {
+    if (draftDirty) { setError("Save or discard your section edits before regenerating."); return false; }
     if (fullRegenerationBlocker) {
       console.warn("[generation-ui]", {
         event: "blocked_before_request",
@@ -3106,6 +3160,7 @@ export function ApplicationDetailPage() {
   }
 
   async function handleSectionRegeneration() {
+    if (draftDirty) { setError("Save or discard your section edits before regenerating."); return; }
     if (sectionRegenerationBlocker) {
       console.warn("[generation-ui]", {
         event: "blocked_before_request",
@@ -3126,11 +3181,13 @@ export function ApplicationDetailPage() {
         activeApplicationId,
         regenSectionName,
         regenInstructions,
+        regenEntryId,
       );
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
       setShowSectionRegen(false);
       setRegenSectionName("");
+      setRegenEntryId(undefined);
       setRegenInstructions("");
       setHasUserModifiedSettings(false);
       refreshActivityTimeline();
@@ -3256,6 +3313,7 @@ export function ApplicationDetailPage() {
   }
 
   async function handleKeywordOptimization() {
+    if (draftDirty) { setError("Save or discard your section edits before optimizing keywords."); return; }
     if (!draft || generationActive || isOptimizingKeywords) return;
     setIsOptimizingKeywords(true);
     setShowOptimisticProgress(true);
@@ -3283,6 +3341,7 @@ export function ApplicationDetailPage() {
   }
 
   async function handleExport(format: ExportFormat) {
+    if (draftDirty) { setError("Save or discard your section edits before exporting."); return; }
     setActionsMenuOpen(false);
     setExportingFormat(format);
     setError(null);
@@ -3328,6 +3387,7 @@ export function ApplicationDetailPage() {
   }
 
   function handleToggleCompareMode() {
+    if (draftDirty) { setError("Save or discard your section edits before opening comparison."); return; }
     if (compareMode) {
       setCompareMode(false);
       return;
@@ -3534,6 +3594,22 @@ export function ApplicationDetailPage() {
   function renderGeneratedWorkspacePane(options?: {
     lockInteractions?: boolean;
   }) {
+    if (draft) return (
+      <Card className={`${workspaceCardClass} px-4 py-4`} style={activeWorkspaceCardStyle}>
+        <DraftSectionWorkbench
+          key={`${activeApplicationId}:${draft.id}`}
+          draft={draft}
+          profile={bootstrap?.profile ?? null}
+          locked={options?.lockInteractions ?? false}
+          saving={isSavingDraft}
+          onSave={handleSaveSectionDocument}
+          onDirtyChange={setDraftDirty}
+          onRegenerate={openSectionRegeneration}
+          canRegenerate={(section, entryId) => !sectionRegenerationReason(section, entryId)}
+          regenerationReason={sectionRegenerationReason}
+        />
+      </Card>
+    );
     return (
       <GeneratedWorkspacePane
         className={workspaceCardClass}
@@ -3849,6 +3925,8 @@ export function ApplicationDetailPage() {
                           disabled={isRegenerating || exportingFormat !== null}
                           onClick={() => {
                             setActionsMenuOpen(false);
+                            setRegenEntryId(undefined);
+                            setRegenSectionName("");
                             setShowSectionRegen(true);
                           }}
                         >
@@ -4779,7 +4857,7 @@ export function ApplicationDetailPage() {
                         editMode={editMode}
                         editContent={editContent}
                         isSavingDraft={isSavingDraft}
-                        onEnterEdit={handleEnterEditMode}
+                        onEnterEdit={() => setCompareMode(false)}
                         onCancelEdit={handleCancelEdit}
                         onContentChange={setEditContent}
                         onSaveDraft={() => void handleSaveDraft()}
@@ -5005,8 +5083,7 @@ export function ApplicationDetailPage() {
                       lineHeight: 1.5,
                     }}
                   >
-                    Select a section and provide instructions for how to
-                    regenerate it.
+                    {regenEntryId ? "Only this role will be regenerated. Other roles and sections stay as they are." : "Select a section and describe how you want to improve it."}
                   </p>
 
                   <div className="mt-4 space-y-3">
@@ -5020,18 +5097,21 @@ export function ApplicationDetailPage() {
                       <Select
                         className="mt-1 text-sm"
                         value={regenSectionName}
-                        onChange={(e) => setRegenSectionName(e.target.value)}
+                        onChange={(e) => { setRegenSectionName(e.target.value); setRegenEntryId(undefined); }}
                       >
                         <option value="">Select section…</option>
-                        <option value="summary">Summary</option>
-                        <option value="professional_experience">
-                          Professional Experience
-                        </option>
-                        <option value="education">Education</option>
-                        <option value="skills">Skills</option>
-                        <option value="projects">Projects</option>
-                        <option value="certifications">Certifications</option>
+                        {draft?.document ? draft.document.sections.filter((section) => section.enabled).map((section) => (
+                          <option key={section.id} value={section.id} disabled={Boolean(sectionRegenerationReason(section, section.id === regenSectionName ? regenEntryId : undefined))}>{section.heading}</option>
+                        )) : <>
+                          <option value="summary">Summary</option>
+                          <option value="professional_experience">Professional Experience</option>
+                          <option value="education">Education</option>
+                          <option value="skills">Skills</option>
+                          <option value="projects">Projects</option>
+                          <option value="certifications">Certifications</option>
+                        </>}
                       </Select>
+                      {sectionSourceBlocker && <p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>{sectionSourceBlocker}</p>}
                     </div>
                     <div>
                       <Label
@@ -5063,6 +5143,7 @@ export function ApplicationDetailPage() {
                       onClick={() => {
                         setShowSectionRegen(false);
                         setRegenSectionName("");
+                        setRegenEntryId(undefined);
                         setRegenInstructions("");
                       }}
                       disabled={isRegenerating}
@@ -5073,6 +5154,7 @@ export function ApplicationDetailPage() {
                       type="button"
                       disabled={
                         isRegenerating ||
+                        Boolean(sectionRegenerationBlocker) ||
                         !regenSectionName ||
                         !regenInstructions.trim()
                       }

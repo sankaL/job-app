@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
@@ -82,6 +82,18 @@ class Settings(BaseSettings):
     openrouter_api_key: Optional[str] = Field(default=None, alias="OPENROUTER_API_KEY")
     openrouter_cleanup_model: str = Field(
         default="openai/gpt-5.6-luna", alias="OPENROUTER_CLEANUP_MODEL"
+    )
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL"
+    )
+    resume_import_classifier: Literal["local", "jev"] = Field(
+        default="local", alias="RESUME_IMPORT_CLASSIFIER"
+    )
+    openrouter_classification_model: str = Field(
+        default="typesafe/jev-1.13", alias="OPENROUTER_CLASSIFICATION_MODEL"
+    )
+    resume_import_confidence_threshold: float = Field(
+        default=0.8, ge=0.0, le=1.0, alias="RESUME_IMPORT_CONFIDENCE_THRESHOLD"
     )
     langsmith_tracing: bool = Field(default=False, alias="LANGSMITH_TRACING")
     langsmith_project: Optional[str] = Field(default=None, alias="LANGSMITH_PROJECT")

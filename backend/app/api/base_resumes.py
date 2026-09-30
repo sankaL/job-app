@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import logging
+import asyncio
+import time
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, status, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.access import get_current_active_user
 from app.core.auth import AuthenticatedUser
 from app.services.base_resumes import BaseResumeService, get_base_resume_service
+from app.services.resume_document import ResumeDocument
 from app.services.resume_parser import (
     PdfParseFailedError,
     PdfParseRejectedError,
@@ -33,6 +36,10 @@ def get_resume_parser() -> ResumeParserService:
     return ResumeParserService(
         openrouter_api_key=settings.openrouter_api_key,
         openrouter_model=settings.openrouter_cleanup_model,
+        openrouter_base_url=settings.openrouter_base_url,
+        classifier=settings.resume_import_classifier,
+        classification_model=settings.openrouter_classification_model,
+        confidence_threshold=settings.resume_import_confidence_threshold,
         langsmith_tracing=settings.langsmith_tracing,
         langsmith_project=settings.langsmith_project,
         langsmith_api_key=settings.langsmith_api_key,
@@ -41,7 +48,14 @@ def get_resume_parser() -> ResumeParserService:
 
 class CreateBaseResumeRequest(BaseModel):
     name: str
-    content_md: str
+    content_md: str = ""
+    document: Optional[ResumeDocument] = None
+
+    @model_validator(mode="after")
+    def require_content(self):
+        if self.document is None and not self.content_md.strip():
+            raise ValueError("Resume content or a resume document is required.")
+        return self
 
     @field_validator("name")
     @classmethod
@@ -64,6 +78,8 @@ class CreateBaseResumeRequest(BaseModel):
 class UpdateBaseResumeRequest(BaseModel):
     name: Optional[str] = None
     content_md: Optional[str] = None
+    document: Optional[ResumeDocument] = None
+    expected_revision: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("name")
     @classmethod
@@ -97,6 +113,11 @@ class BaseResumeDetail(BaseModel):
     id: str
     name: str
     content_md: str
+    document: ResumeDocument
+    revision: int
+    raw_source_md: Optional[str] = None
+    ready_for_generation: bool = False
+    contact_suggestions: dict[str, str] = Field(default_factory=dict)
     is_default: bool
     created_at: str
     updated_at: str
@@ -137,6 +158,7 @@ async def create_base_resume(
             user_id=current_user.id,
             name=request.name,
             content_md=request.content_md,
+            document=request.document.model_dump(mode="json") if request.document is not None else None,
         )
         return BaseResumeDetail.model_validate(record.model_dump())
     except Exception as error:
@@ -153,6 +175,7 @@ async def upload_base_resume(
     use_llm_cleanup: Annotated[bool, Form()] = False,
 ) -> BaseResumeDetail:
     clean_name = name.strip()
+    started_at = time.monotonic()
     if not clean_name or len(clean_name) > MAX_RESUME_NAME_LENGTH:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -213,14 +236,18 @@ async def upload_base_resume(
             detail={"code": "invalid_pdf", "message": "Failed to parse PDF file."},
         ) from error
 
-    # Optionally clean up with LLM
-    needs_review = False
-    import_warning: Optional[str] = None
-    if use_llm_cleanup:
-        cleanup_result = await parser.cleanup_with_llm(raw_markdown)
-        raw_markdown = cleanup_result.cleaned_markdown
-        needs_review = cleanup_result.needs_review
-        import_warning = cleanup_result.review_reason
+    # PDF parsing and AI assistance share one import deadline. The raw extraction
+    # remains recoverable even when assistance is unavailable or ambiguous.
+    try:
+        import_result = await asyncio.wait_for(
+            parser.import_resume(raw_markdown, use_llm_cleanup=use_llm_cleanup),
+            timeout=max(0.01, 30.0 - (time.monotonic() - started_at)),
+        )
+    except asyncio.TimeoutError:
+        import_result = parser.local_import(
+            raw_markdown,
+            warning="Import assistance timed out. Your original text was preserved; review the sections before generating.",
+        )
 
     # Create the base resume
     try:
@@ -228,12 +255,16 @@ async def upload_base_resume(
             user_id=current_user.id,
             name=clean_name,
             content_md=raw_markdown,
+            document=import_result.document,
+            raw_source_md=raw_markdown,
+            import_warning=import_result.warning,
+            contact_suggestions=import_result.contact_suggestions,
         )
         return BaseResumeDetail.model_validate(
             {
                 **record.model_dump(),
-                "needs_review": needs_review,
-                "import_warning": import_warning,
+                "needs_review": True,
+                "import_warning": import_result.warning,
             }
         )
     except Exception as error:
@@ -264,7 +295,7 @@ async def update_base_resume(
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
 ) -> BaseResumeDetail:
     updates = request.model_dump(exclude_unset=True)
-    if not updates:
+    if not set(updates).difference({"expected_revision"}):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No resume updates provided.",

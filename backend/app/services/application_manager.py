@@ -11,7 +11,7 @@ from time import perf_counter
 from typing import Any, Literal, Optional
 
 from fastapi import Depends
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.config import Settings, get_settings
 from app.db.applications import (
@@ -52,6 +52,7 @@ from app.services.progress import (
 from app.services.resume_render import normalize_resume_markdown
 from app.services.resume_length import assess_resume_length
 from app.services.resume_privacy import sanitize_resume_markdown
+from app.services.resume_document import document_ready, parse_resume_document, render_resume_document, validate_resume_document
 from app.services.url_security import validate_public_http_url
 from app.services.workflow import derive_visible_status
 
@@ -218,11 +219,26 @@ class WorkerCallbackPayload(BaseModel):
 
 
 class GenerationSuccessPayload(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
     content_md: str
     generation_params: dict[str, Any]
     sections_snapshot: dict[str, Any]
     attempts: Optional[list[dict[str, Any]]] = None
     length_diagnostics: Optional[dict[str, Any]] = None
+    document: Optional[dict[str, Any]] = None
+    source_snapshot: Optional[dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def validate_structured_documents(self):
+        if self.document is not None:
+            self.document = validate_resume_document(self.document).model_dump(mode="json")
+            if not isinstance(self.source_snapshot, dict):
+                raise ValueError("Structured drafts require their source snapshot.")
+            source = validate_resume_document(self.source_snapshot.get("document"))
+            if self.source_snapshot.get("revision") != source.revision or not self.source_snapshot.get("base_resume_id"):
+                raise ValueError("Source snapshot revision and base resume ID are required.")
+            self.source_snapshot = {"base_resume_id": str(self.source_snapshot["base_resume_id"]), "revision": source.revision, "document": source.model_dump(mode="json"), "content_md": render_resume_document(source, include_disabled=True)}
+        return self
 
 
 class GenerationFailurePayload(BaseModel):
@@ -1412,7 +1428,7 @@ class ApplicationService:
         try:
             generated = GenerationSuccessPayload.model_validate(generated_payload)
         except Exception:
-            logger.exception("Failed validating cached generation payload for %s", record.id)
+            logger.warning("Invalid cached generation payload (application_id=%s).", record.id)
             return None
 
         latest_record = self.repository.fetch_application(record.user_id, record.id)
@@ -1431,13 +1447,7 @@ class ApplicationService:
                 failure_reason="regeneration_failed",
             )
 
-        draft = self.draft_repository.upsert_draft(
-            application_id=record.id,
-            user_id=record.user_id,
-            content_md=self._normalize_draft_content(generated.content_md),
-            generation_params=generated.generation_params,
-            sections_snapshot=generated.sections_snapshot,
-        )
+        draft = self._persist_generated_draft(record=record, generated=generated)
 
         updated = await self._enqueue_resume_judge_for_draft(
             record=record,
@@ -1676,6 +1686,45 @@ class ApplicationService:
 
         raise ValueError("Unsupported worker event.")
 
+    def _source_settings(self, *, base_resume, profile, draft=None, use_snapshot: bool = False) -> dict[str, Any]:
+        snapshot = getattr(draft, "source_snapshot", None) if use_snapshot else None
+        if isinstance(snapshot, dict) and snapshot.get("document") is not None:
+            document = validate_resume_document(snapshot["document"])
+            base_resume_id = str(snapshot.get("base_resume_id") or base_resume.id)
+        else:
+            raw_document = getattr(base_resume, "document", None)
+            document = validate_resume_document(raw_document) if raw_document is not None else parse_resume_document(sanitize_resume_markdown(base_resume.content_md).sanitized_markdown, reviewed=False)
+            document.revision = getattr(base_resume, "revision", document.revision)
+            base_resume_id = base_resume.id
+        if not document_ready(document):
+            raise PermissionError("Review the enabled base resume sections before generating.")
+        # Privacy values are worker-only inputs. The writer masks copied prompt
+        # payloads, preserving reviewed local facts and untouched draft content.
+        personal = [str(value).strip() for value in [*self._build_personal_info(profile).values(), *(getattr(base_resume, "contact_suggestions", {}) or {}).values()] if value and len(str(value).strip()) >= 3]
+        payload = document.model_dump(mode="json")
+        source_snapshot = {"base_resume_id": base_resume_id, "revision": document.revision, "document": payload, "content_md": render_resume_document(document, include_disabled=True)}
+        result = {"_source_document": payload, "_source_snapshot": source_snapshot, "_base_resume_snapshot_content": source_snapshot["content_md"], "_privacy_values": personal}
+        if draft is not None and getattr(draft, "document", None) is not None:
+            result["_current_document"] = validate_resume_document(draft.document).model_dump(mode="json")
+        return result
+
+    def _document_content(self, *, document, user_id: str) -> str:
+        profile = self._require_profile(user_id=user_id, action="saving a resume")
+        personal = self._build_personal_info(profile)
+        name = str(personal.get("name") or "").strip()
+        contact = " | ".join(str(personal[key]).strip() for key in ["email", "phone", "address", "linkedin_url"] if personal.get(key))
+        return "\n\n".join(part for part in ["# " + name if name else "", contact, render_resume_document(document).strip()] if part) + "\n"
+
+    def _persist_generated_draft(self, *, record, generated):
+        extra = {}
+        content = generated.content_md
+        if generated.document is not None:
+            if generated.source_snapshot["base_resume_id"] != str(generated.generation_params.get("base_resume_id") or ""):
+                raise ValueError("The generated source snapshot does not match the queued source.")
+            extra = {"document": generated.document, "source_snapshot": generated.source_snapshot}
+            content = self._document_content(document=generated.document, user_id=record.user_id)
+        return self.draft_repository.upsert_draft(application_id=record.id, user_id=record.user_id, content_md=self._normalize_draft_content(content), generation_params=generated.generation_params, sections_snapshot=generated.sections_snapshot, **extra)
+
     async def trigger_generation(
         self,
         *,
@@ -1715,6 +1764,7 @@ class ApplicationService:
         personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
+        source_settings = self._source_settings(base_resume=base_resume, profile=profile)
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
 
         generation_settings = {
@@ -1723,7 +1773,7 @@ class ApplicationService:
             "additional_instructions": additional_instructions,
             "base_resume_id": base_resume_id,
             **self._keyword_generation_settings(record=record, aggressiveness=aggressiveness),
-            "_base_resume_snapshot_content": base_resume.content_md,
+            **source_settings,
             **self._quota_generation_settings(quota_reservation),
         }
 
@@ -1765,7 +1815,7 @@ class ApplicationService:
                 job_title=record.job_title,
                 company_name=record.company,
                 job_description=record.job_description,
-                base_resume_content=base_resume.content_md,
+                base_resume_content=source_settings["_base_resume_snapshot_content"],
                 personal_info=personal_info,
                 section_preferences=section_prefs,
                 generation_settings=generation_settings,
@@ -1918,13 +1968,7 @@ class ApplicationService:
             if payload.generated is None:
                 raise ValueError("Missing generated payload for success callback.")
 
-            draft = self.draft_repository.upsert_draft(
-                application_id=record.id,
-                user_id=record.user_id,
-                content_md=self._normalize_draft_content(payload.generated.content_md),
-                generation_params=payload.generated.generation_params,
-                sections_snapshot=payload.generated.sections_snapshot,
-            )
+            draft = self._persist_generated_draft(record=record, generated=payload.generated)
 
             updated = await self._enqueue_resume_judge_for_draft(
                 record=record,
@@ -2034,6 +2078,7 @@ class ApplicationService:
         personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
+        source_settings = self._source_settings(base_resume=base_resume, profile=profile, draft=draft)
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
         judge_instructions = self._get_judge_instructions(record.resume_judge_result)
         effective_additional_instructions = additional_instructions
@@ -2050,7 +2095,7 @@ class ApplicationService:
             "use_judge_feedback": use_judge_feedback,
             "base_resume_id": base_resume_id,
             **self._keyword_generation_settings(record=record, aggressiveness=aggressiveness),
-            "_base_resume_snapshot_content": base_resume.content_md,
+            **source_settings,
             **self._quota_generation_settings(quota_reservation),
         }
 
@@ -2088,7 +2133,7 @@ class ApplicationService:
                 job_title=record.job_title,
                 company_name=record.company,
                 job_description=record.job_description,
-                base_resume_content=base_resume.content_md,
+                base_resume_content=source_settings["_base_resume_snapshot_content"],
                 current_draft_content=draft.content_md,
                 personal_info=personal_info,
                 section_preferences=section_prefs,
@@ -2192,13 +2237,16 @@ class ApplicationService:
         if self._looks_like_blocked_source_placeholder(record):
             return await self._route_blocked_job_data_to_manual_entry(record)
 
-        base_resume_id = str(draft.generation_params.get("base_resume_id") or record.base_resume_id or "").strip()
+        base_resume_id = str((draft.source_snapshot or {}).get("base_resume_id") or draft.generation_params.get("base_resume_id") or record.base_resume_id or "").strip()
         if not base_resume_id:
             raise ValueError("A base resume must be linked to the application for keyword optimization.")
 
         base_resume = self.base_resume_repository.fetch_resume(user_id, base_resume_id)
         if base_resume is None:
-            raise LookupError("Linked base resume not found.")
+            if not draft.source_snapshot:
+                raise LookupError("Linked base resume not found.")
+            from types import SimpleNamespace
+            base_resume = SimpleNamespace(id=base_resume_id, content_md=draft.source_snapshot.get("content_md", ""))
 
         keyword_match = self._build_keyword_match_for_draft(record=record, draft=draft)
         if keyword_match is None or keyword_match["total_count"] <= 0:
@@ -2215,6 +2263,7 @@ class ApplicationService:
             fallback=self._build_section_preferences(profile),
         )
         # Keyword optimization uses monthly resume_generation_usage quota; full_regeneration_count is legacy.
+        source_settings = self._source_settings(base_resume=base_resume, profile=profile, draft=draft, use_snapshot=True)
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
         aggressiveness = str(draft.generation_params.get("aggressiveness") or "medium").strip().lower()
         if aggressiveness not in KEYWORD_COVERAGE_TARGETS:
@@ -2231,7 +2280,7 @@ class ApplicationService:
             "page_length": target_length,
             "aggressiveness": aggressiveness,
             "additional_instructions": additional_instructions,
-            "base_resume_id": base_resume_id,
+            "base_resume_id": source_settings["_source_snapshot"]["base_resume_id"],
             **self._keyword_generation_settings(record=record, aggressiveness=aggressiveness),
             "keyword_optimization": {
                 "enabled": True,
@@ -2240,7 +2289,7 @@ class ApplicationService:
                 "starting_match": keyword_match,
             },
             "_current_draft_snapshot_content": sanitized_current_draft,
-            "_base_resume_snapshot_content": base_resume.content_md,
+            **source_settings,
             **self._quota_generation_settings(quota_reservation),
         }
 
@@ -2277,7 +2326,7 @@ class ApplicationService:
                 job_title=record.job_title,
                 company_name=record.company,
                 job_description=record.job_description,
-                base_resume_content=base_resume.content_md,
+                base_resume_content=source_settings["_base_resume_snapshot_content"],
                 current_draft_content=draft.content_md,
                 personal_info=personal_info,
                 section_preferences=section_prefs,
@@ -2359,6 +2408,7 @@ class ApplicationService:
         application_id: str,
         section_name: str,
         instructions: str,
+        entry_id: Optional[str] = None,
     ) -> ApplicationDetailPayload:
         record = self._require_application(user_id=user_id, application_id=application_id)
 
@@ -2378,13 +2428,16 @@ class ApplicationService:
         if self._looks_like_blocked_source_placeholder(record):
             return await self._route_blocked_job_data_to_manual_entry(record)
 
-        base_resume_id = record.base_resume_id
+        base_resume_id = (draft.source_snapshot or {}).get("base_resume_id") or record.base_resume_id
         if not base_resume_id:
             raise ValueError("A base resume must be linked to the application for regeneration.")
 
         base_resume = self.base_resume_repository.fetch_resume(user_id, base_resume_id)
         if base_resume is None:
-            raise LookupError("Linked base resume not found.")
+            if not draft.source_snapshot:
+                raise LookupError("Linked base resume not found.")
+            from types import SimpleNamespace
+            base_resume = SimpleNamespace(id=base_resume_id, content_md=draft.source_snapshot.get("content_md", ""))
 
         profile = self.profile_repository.fetch_profile(user_id)
         if profile is None:
@@ -2393,16 +2446,39 @@ class ApplicationService:
         personal_info = self._build_personal_info(profile)
 
         section_prefs = self._build_section_preferences(profile)
+        if getattr(draft, "document", None) is not None:
+            current_document = validate_resume_document(draft.document)
+            target = next((section for section in current_document.sections if section.id == section_name or section.heading == section_name or section.kind == section_name), None)
+            if target is None or not target.enabled:
+                raise ValueError("Choose an enabled resume section to regenerate.")
+            if entry_id is not None and not any(entry.id == entry_id for entry in target.entries):
+                raise ValueError("The selected resume entry does not exist in this section.")
+            section_name = target.id
+        elif entry_id is not None:
+            raise ValueError("Entry regeneration requires a structured resume draft.")
+        source_settings = self._source_settings(base_resume=base_resume, profile=profile, draft=draft, use_snapshot=True)
+        if getattr(draft, "document", None) is not None:
+            source_document = validate_resume_document(source_settings["_source_document"])
+            source_target = next((section for section in source_document.sections if section.id == section_name), None)
+            if source_target is None or (entry_id is not None and not any(entry.id == entry_id for entry in source_target.entries)):
+                raise ValueError("This content was added to the draft. Add it to the base resume and regenerate the full resume before tailoring it.")
+            if source_target.kind != target.kind:
+                raise ValueError("This section type changed in the draft. Edit it directly, or update the base resume and regenerate the full resume.")
+            if entry_id is None and any(entry.id not in {source_entry.id for source_entry in source_target.entries} for entry in target.entries):
+                raise ValueError("This section contains entries added to the draft. Add them to the base resume and regenerate the full resume before tailoring the whole section.")
+            if source_target.kind in {"education", "certifications"} or (source_target.kind == "skills" and draft.generation_params.get("aggressiveness") == "low") or (source_target.kind == "professional_experience" and not source_target.entries):
+                raise ValueError("This section contains fixed source facts. Edit it directly in the workbench.")
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
         generation_settings = {
             **draft.generation_params,
-            "base_resume_id": base_resume_id,
+            "base_resume_id": source_settings["_source_snapshot"]["base_resume_id"],
             "instructions": instructions.strip(),
             **self._keyword_generation_settings(
                 record=record,
                 aggressiveness=str(draft.generation_params.get("aggressiveness") or "medium"),
             ),
-            "_base_resume_snapshot_content": base_resume.content_md,
+            **source_settings,
+            "_target_entry_id": entry_id,
             **self._quota_generation_settings(quota_reservation),
         }
 
@@ -2439,7 +2515,7 @@ class ApplicationService:
                 job_title=record.job_title,
                 company_name=record.company,
                 job_description=record.job_description,
-                base_resume_content=base_resume.content_md,
+                base_resume_content=source_settings["_base_resume_snapshot_content"],
                 current_draft_content=draft.content_md,
                 personal_info=personal_info,
                 section_preferences=section_prefs,
@@ -2637,13 +2713,7 @@ class ApplicationService:
                     failure_reason="regeneration_failed",
                 )
 
-            draft = self.draft_repository.upsert_draft(
-                application_id=record.id,
-                user_id=record.user_id,
-                content_md=self._normalize_draft_content(payload.generated.content_md),
-                generation_params=payload.generated.generation_params,
-                sections_snapshot=payload.generated.sections_snapshot,
-            )
+            draft = self._persist_generated_draft(record=record, generated=payload.generated)
 
             updated = await self._enqueue_resume_judge_for_draft(
                 record=record,
@@ -3038,20 +3108,24 @@ class ApplicationService:
         *,
         user_id: str,
         application_id: str,
-        content: str,
+        content: Optional[str] = None,
+        document: Optional[dict[str, Any]] = None,
+        expected_revision: Optional[int] = None,
     ) -> ResumeDraftRecord:
         record = self._require_application(user_id=user_id, application_id=application_id)
-        return await self._save_draft_edit_for_record(record=record, content=content)
+        return await self._save_draft_edit_for_record(record=record, content=content, document=document, expected_revision=expected_revision)
 
     async def save_draft_edit_with_keyword_match(
         self,
         *,
         user_id: str,
         application_id: str,
-        content: str,
+        content: Optional[str] = None,
+        document: Optional[dict[str, Any]] = None,
+        expected_revision: Optional[int] = None,
     ) -> tuple[ResumeDraftRecord, Optional[dict[str, Any]]]:
         record = self._require_application(user_id=user_id, application_id=application_id)
-        updated_draft = await self._save_draft_edit_for_record(record=record, content=content)
+        updated_draft = await self._save_draft_edit_for_record(record=record, content=content, document=document, expected_revision=expected_revision)
         return updated_draft, self._build_keyword_match_for_draft(record=record, draft=updated_draft)
 
     def _keyword_optimization_failure_details(
@@ -3109,7 +3183,9 @@ class ApplicationService:
         self,
         *,
         record: ApplicationRecord,
-        content: str,
+        content: Optional[str] = None,
+        document: Optional[dict[str, Any]] = None,
+        expected_revision: Optional[int] = None,
     ) -> ResumeDraftRecord:
         user_id = record.user_id
         application_id = record.id
@@ -3117,12 +3193,30 @@ class ApplicationService:
         if draft is None:
             raise PermissionError("No draft exists. Generation must happen first.")
 
-        normalized_content = self._normalize_draft_content(content)
+        if record.internal_state in ACTIVE_GENERATION_STATES:
+            raise PermissionError("Wait for generation to finish before saving edits.")
+        structured_updates = {}
+        if document is not None:
+            if expected_revision is None or expected_revision != draft.revision:
+                raise PermissionError("This draft changed. Reload it before saving your edits.")
+            parsed = validate_resume_document(document)
+            if not render_resume_document(parsed).strip():
+                raise ValueError("A draft must contain at least one enabled section.")
+            parsed.revision = draft.revision + 1
+            content = self._document_content(document=parsed, user_id=user_id)
+            structured_updates = {"document": parsed.model_dump(mode="json"), "expected_revision": expected_revision}
+        elif getattr(draft, "document", None) is not None:
+            parsed = parse_resume_document(content or "", reviewed=True, previous=draft.document)
+            parsed.revision = draft.revision + 1
+            content = self._document_content(document=parsed, user_id=user_id)
+            structured_updates = {"document": parsed.model_dump(mode="json"), "expected_revision": draft.revision}
+        normalized_content = self._normalize_draft_content(content or "")
         previous_input_signature = self._resume_judge_input_signature(record=record, draft=draft)
         updated_draft = self.draft_repository.update_draft_content(
             application_id=application_id,
             user_id=user_id,
             content_md=normalized_content,
+            **structured_updates,
         )
         updated_input_signature = self._resume_judge_input_signature(record=record, draft=updated_draft)
 
@@ -3972,7 +4066,7 @@ class ApplicationService:
         record: ApplicationRecord,
         draft: ResumeDraftRecord,
     ) -> Optional[str]:
-        base_resume_snapshot_content = draft.generation_params.get("_base_resume_snapshot_content")
+        base_resume_snapshot_content = (draft.source_snapshot or {}).get("content_md") or draft.generation_params.get("_base_resume_snapshot_content")
         if (
             isinstance(base_resume_snapshot_content, str)
             and base_resume_snapshot_content.strip()
@@ -4113,7 +4207,7 @@ class ApplicationService:
                 "Resume Judge has already reached the maximum of 3 attempts for this draft. "
                 "Regenerate or edit the draft before trying again."
             )
-        base_resume_snapshot_content = draft.generation_params.get("_base_resume_snapshot_content")
+        base_resume_snapshot_content = (draft.source_snapshot or {}).get("content_md") or draft.generation_params.get("_base_resume_snapshot_content")
         if (
             isinstance(base_resume_snapshot_content, str)
             and base_resume_snapshot_content.strip()
@@ -4212,6 +4306,7 @@ class ApplicationService:
                 evaluated_draft_updated_at=draft.updated_at,
                 job_context_signature=current_job_context_signature,
                 input_signature=input_signature,
+                privacy_values=[str(value).strip() for value in self._build_personal_info(self._require_profile(user_id=record.user_id, action="reviewing a resume")).values() if value],
             )
             return updated
         except Exception as error:

@@ -1,19 +1,33 @@
 from __future__ import annotations
 
 import io
+import asyncio
 import json
 import logging
 import multiprocessing
 import queue
 import re
-from dataclasses import dataclass
+import time
+from collections import Counter
+from dataclasses import dataclass, field
 from typing import Optional
 
-import httpx
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.core.tracing import end_trace_safely, sanitize_trace_data, trace_llm_scope
+from app.core.tracing import end_trace_safely, trace_llm_scope
 from app.services.resume_privacy import reattach_header_lines, sanitize_resume_markdown
 from app.services.unslop_prompt import build_unslop_prompt_block
+from app.services.import_ai import invoke_import_output
+from app.services.resume_classifier import classify_resume_sections
+from app.services.resume_contacts import extract_contact_suggestions
+from app.services.resume_document import (
+    HEADINGS,
+    ResumeEntry,
+    ResumeBullet,
+    parse_resume_document,
+    render_section_content,
+)
+from uuid import uuid4, uuid5, NAMESPACE_URL
 
 logger = logging.getLogger(__name__)
 MAX_PDF_PAGES = 50
@@ -38,6 +52,52 @@ class ResumeCleanupResult:
     cleaned_markdown: str
     needs_review: bool = False
     review_reason: Optional[str] = None
+
+
+@dataclass
+class ResumeImportResult:
+    document: dict
+    warning: Optional[str] = None
+    contact_suggestions: dict[str, str] = field(default_factory=dict)
+
+
+class CleanupOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    cleaned_markdown: str = Field(min_length=1, max_length=200000)
+    needs_review: bool
+    review_reason: Optional[str]
+
+    @model_validator(mode="after")
+    def consistent_review(self):
+        _validate_cleanup_payload(self.model_dump())
+        return self
+
+
+class ImportedEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    fields: dict[str, str]
+    bullets: list[str]
+
+
+class ImportedSectionEntries(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    section_id: str
+    entries: list[ImportedEntry]
+
+
+class NestedExtractionOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    sections: list[ImportedSectionEntries]
+
+
+def _word_tokens(value: str) -> list[str]:
+    # Markdown punctuation may change during formatting. Technology suffixes,
+    # decimal separators, metric signs/units and currency symbols are facts.
+    tokens = re.findall(
+        r"(?<!\w)[$€£¥]?[+\-−]?(?:\d+(?:[.,]\d+)*|[.,]\d+)(?:\s*%)?|\.\w+(?:\.\w+)*|\w+(?:\.\w+)*(?:\+\+|#)?",
+        value.casefold(),
+    )
+    return [re.sub(r"\s+", "", token).replace("−", "-") for token in tokens]
 
 
 def _parse_pdf_process(file_bytes: bytes, result_queue) -> None:
@@ -65,19 +125,14 @@ def parse_pdf_with_timeout(
         daemon=True,
     )
     process.start()
-    process.join(timeout_seconds)
     try:
-        if process.is_alive():
-            process.terminate()
-            process.join(1)
-            if process.is_alive():
-                process.kill()
-                process.join(1)
-            raise PdfParseTimeoutError("PDF parsing exceeded its time limit.")
-
         try:
-            outcome, payload = result_queue.get(timeout=1)
+            # Drain while the child runs. Joining first deadlocks the child's
+            # Queue feeder for source text larger than the OS pipe buffer.
+            outcome, payload = result_queue.get(timeout=timeout_seconds)
         except queue.Empty as error:
+            if process.is_alive():
+                raise PdfParseTimeoutError("PDF parsing exceeded its time limit.") from error
             raise PdfParseFailedError("PDF parsing failed.") from error
 
         if outcome == "ok" and isinstance(payload, str):
@@ -86,6 +141,13 @@ def parse_pdf_with_timeout(
             raise PdfParseRejectedError(payload)
         raise PdfParseFailedError("PDF parsing failed.")
     finally:
+        process.join(0.1)
+        if process.is_alive():
+            process.terminate()
+            process.join(0.2)
+            if process.is_alive():
+                process.kill()
+                process.join(0.2)
         result_queue.close()
         result_queue.join_thread()
         process.close()
@@ -146,9 +208,17 @@ class ResumeParserService:
         langsmith_tracing: bool = False,
         langsmith_project: Optional[str] = None,
         langsmith_api_key: Optional[str] = None,
+        openrouter_base_url: str = "https://openrouter.ai/api/v1",
+        classifier: str = "local",
+        classification_model: str = "typesafe/jev-1.13",
+        confidence_threshold: float = 0.8,
     ) -> None:
         self.openrouter_api_key = openrouter_api_key
         self.openrouter_model = openrouter_model
+        self.openrouter_base_url = openrouter_base_url
+        self.classifier = classifier
+        self.classification_model = classification_model
+        self.confidence_threshold = confidence_threshold
         self.langsmith_tracing = langsmith_tracing
         self.langsmith_project = langsmith_project
         self.langsmith_api_key = langsmith_api_key
@@ -308,7 +378,7 @@ class ResumeParserService:
             result = re.sub(pattern, replacement, result)
         return result.strip()
 
-    async def cleanup_with_llm(self, raw_markdown: str) -> ResumeCleanupResult:
+    async def cleanup_with_llm(self, raw_markdown: str, *, timeout_seconds: float = 30.0) -> ResumeCleanupResult:
         """
         Clean up the parsed resume using LLM.
 
@@ -323,13 +393,15 @@ class ResumeParserService:
         """
         if not self.openrouter_api_key:
             logger.debug("OpenRouter API key not configured, skipping LLM cleanup")
-            return ResumeCleanupResult(cleaned_markdown=raw_markdown)
+            return ResumeCleanupResult(cleaned_markdown=raw_markdown, needs_review=True, review_reason="AI import assistance is unavailable. Your original text was preserved; review the sections before generating.")
 
         sanitized = sanitize_resume_markdown(raw_markdown)
         sanitized_markdown = sanitized.sanitized_markdown
         if not sanitized_markdown.strip():
             logger.warning("Sanitized resume content was empty, skipping LLM cleanup")
-            return ResumeCleanupResult(cleaned_markdown=raw_markdown)
+            return ResumeCleanupResult(cleaned_markdown=raw_markdown, needs_review=True, review_reason="No resume body could be identified. Review the original text before generating.")
+        if not re.search(r"^##\s+", sanitized_markdown, flags=re.M):
+            return ResumeCleanupResult(cleaned_markdown=raw_markdown, needs_review=True, review_reason="Section boundaries were unclear. Your original text was preserved; identify the sections before using AI assistance.")
 
         system_prompt = (
             "You are a resume formatting assistant. Improve the structure of parsed resume text into clean Markdown.\n"
@@ -356,65 +428,169 @@ class ResumeParserService:
                 inputs={
                     "messages": [
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": sanitized_markdown},
+                        {"role": "user", "content": "<resume body omitted from telemetry>"},
                     ]
                 },
                 metadata={
                     "operation": "resume_cleanup",
                     "model": self.openrouter_model,
-                    "transport_mode": "http_json",
-                    "timeout_seconds": 30.0,
+                    "transport_mode": "pydantic_ai",
+                    "timeout_seconds": timeout_seconds,
                 },
             ) as run_tree:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {self.openrouter_api_key}",
-                            "HTTP-Referer": "https://resume-builder.local",
-                            "X-Title": "AI Resume Builder",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": self.openrouter_model,
-                            "messages": [
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": sanitized_markdown},
-                            ],
-                        },
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    cleaned_body_raw = data["choices"][0]["message"]["content"]
-                    payload = _extract_json_payload(cleaned_body_raw)
-                    cleaned_body, needs_review, review_reason = _validate_cleanup_payload(payload)
-                    cleaned_sanitized = sanitize_resume_markdown(cleaned_body).sanitized_markdown or cleaned_body
-                    end_trace_safely(
-                        run_tree,
-                        outputs=sanitize_trace_data(
-                            {
-                                "cleaned_markdown": cleaned_sanitized,
-                                "needs_review": needs_review,
-                                "review_reason": review_reason,
-                            }
-                        ),
-                        metadata=sanitize_trace_data({"provider_usage": data.get("usage") or {}}),
-                    )
-                    return ResumeCleanupResult(
-                        cleaned_markdown=reattach_header_lines(cleaned_sanitized, sanitized.header_lines),
-                        needs_review=needs_review,
-                        review_reason=review_reason if needs_review else None,
-                    )
+                def preserve_source(output: CleanupOutput) -> None:
+                    if _word_tokens(output.cleaned_markdown) != _word_tokens(sanitized_markdown):
+                        raise ValueError("Formatting must preserve all source words and numbers in their original order.")
 
-        except httpx.TimeoutException:
-            logger.warning("LLM cleanup timed out after 30 seconds, returning raw markdown")
-            return ResumeCleanupResult(cleaned_markdown=raw_markdown)
-        except httpx.HTTPStatusError as e:
-            logger.warning("LLM cleanup API error: HTTP %s", e.response.status_code)
-            return ResumeCleanupResult(cleaned_markdown=raw_markdown)
-        except (KeyError, json.JSONDecodeError, TypeError, ValueError):
-            logger.warning("LLM cleanup returned invalid structured output")
-            return ResumeCleanupResult(cleaned_markdown=raw_markdown)
-        except Exception as e:
-            logger.warning("LLM cleanup failed (%s)", type(e).__name__)
-            return ResumeCleanupResult(cleaned_markdown=raw_markdown)
+                output = await invoke_import_output(
+                    api_key=self.openrouter_api_key,
+                    base_url=self.openrouter_base_url,
+                    model=self.openrouter_model,
+                    system_prompt=system_prompt,
+                    user_prompt=sanitized_markdown,
+                    output_type=CleanupOutput,
+                    timeout_seconds=timeout_seconds,
+                    validator=preserve_source,
+                )
+                # The check also applies to injected/test providers.
+                preserve_source(output)
+                cleaned_body, needs_review, review_reason = _validate_cleanup_payload(output.model_dump())
+                cleaned_sanitized = sanitize_resume_markdown(cleaned_body).sanitized_markdown
+                end_trace_safely(
+                    run_tree,
+                    outputs={"needs_review": needs_review, "output_characters": len(cleaned_sanitized)},
+                    metadata={"maximum_requests": 2},
+                )
+                return ResumeCleanupResult(
+                    cleaned_markdown=reattach_header_lines(cleaned_sanitized, sanitized.header_lines),
+                    needs_review=needs_review,
+                    review_reason=review_reason if needs_review else None,
+                )
+        except Exception as error:
+            logger.warning("AI import formatting unavailable (error_type=%s).", type(error).__name__)
+            return ResumeCleanupResult(
+                cleaned_markdown=raw_markdown,
+                needs_review=True,
+                review_reason="AI import assistance did not produce a verified result. Your original text was preserved; review the sections before generating.",
+            )
+
+    def local_import(self, raw_markdown: str, *, warning: Optional[str] = None) -> ResumeImportResult:
+        sanitized = sanitize_resume_markdown(raw_markdown)
+        document = parse_resume_document(sanitized.sanitized_markdown, reviewed=False)
+        return ResumeImportResult(document=document.model_dump(mode="json"), warning=warning, contact_suggestions=extract_contact_suggestions(raw_markdown))
+
+    async def import_resume(self, raw_markdown: str, *, use_llm_cleanup: bool = False) -> ResumeImportResult:
+        """Import source sections with an explicit review gate and one deadline."""
+        deadline = time.monotonic() + 30.0
+        warnings: list[str] = []
+        body = raw_markdown
+        if use_llm_cleanup:
+            cleanup = await self.cleanup_with_llm(body, timeout_seconds=min(12.0, deadline - time.monotonic()))
+            body = cleanup.cleaned_markdown
+            if cleanup.review_reason:
+                warnings.append(cleanup.review_reason)
+        sanitized_body = sanitize_resume_markdown(body).sanitized_markdown
+        document = parse_resume_document(sanitized_body, reviewed=False)
+        if self.classifier == "jev":
+            if not self.openrouter_api_key:
+                warnings.append("Section classification is unavailable. Your original text was preserved; review the section types.")
+            elif document.sections and not re.search(r"^##\s+", sanitized_body, flags=re.M):
+                warnings.append("Section boundaries were unclear. Your original text was preserved; identify the sections before classification.")
+            elif document.sections:
+                try:
+                    blocks = {
+                        section.id: {
+                            "heading": section.heading,
+                            "content": sanitize_resume_markdown("## " + section.heading + "\n" + render_section_content(section)).sanitized_markdown,
+                        }
+                        for section in document.sections
+                    }
+                    # Oversized documents stay local instead of silently truncating.
+                    if len(json.dumps(blocks)) > 70000:
+                        raise ValueError("Source exceeds classification input limit.")
+                    labels = await classify_resume_sections(
+                        blocks,
+                        api_key=self.openrouter_api_key,
+                        model=self.classification_model,
+                        timeout_seconds=min(10.0, max(0.01, deadline - time.monotonic())),
+                    )
+                    for section in document.sections:
+                        label = labels[section.id]
+                        section.confidence = label.confidence
+                        if label.confidence < self.confidence_threshold:
+                            warnings.append("Some section types were uncertain. Review their headings and content.")
+                            continue
+                        if label.choice != section.kind:
+                            reparsed = parse_resume_document("## " + HEADINGS[label.choice] + "\n" + render_section_content(section))
+                            if reparsed.sections:
+                                entries = reparsed.sections[0].entries
+                                # Temporary canonical headings are shared by different source
+                                # sections. Seed nested identities from the real source ID.
+                                for entry_index, entry in enumerate(entries):
+                                    entry.id = uuid5(NAMESPACE_URL, section.id + ":classified-entry:" + str(entry_index)).hex
+                                    for bullet_index, bullet in enumerate(entry.bullets):
+                                        bullet.id = uuid5(NAMESPACE_URL, entry.id + ":bullet:" + str(bullet_index)).hex
+                                section.entries = entries
+                            section.kind = label.choice
+                except Exception as error:
+                    logger.warning("Resume section classifier unavailable (error_type=%s).", type(error).__name__)
+                    warnings.append("Section classification did not finish successfully. Your original text was preserved; review the section types.")
+        if use_llm_cleanup and self.openrouter_api_key:
+            ambiguous = [section for section in document.sections if section.kind in {"professional_experience", "education"} and section.content_md.strip() and not section.entries]
+            if ambiguous:
+                try:
+                    await self._extract_nested_entries(ambiguous, timeout_seconds=max(0.01, deadline - time.monotonic()))
+                except Exception as error:
+                    logger.warning("Resume entry extraction unavailable (error_type=%s).", type(error).__name__)
+                    warnings.append("Some entries could not be structured safely. Their original text remains editable; review it before generating.")
+        return ResumeImportResult(document=document.model_dump(mode="json"), warning=" ".join(dict.fromkeys(warnings)) or None, contact_suggestions=extract_contact_suggestions(raw_markdown))
+
+    async def _extract_nested_entries(self, sections, *, timeout_seconds: float) -> None:
+        source = {section.id: section for section in sections}
+        prompt = json.dumps({"sections": [{"section_id": section.id, "kind": section.kind, "content_md": section.content_md} for section in sections]})
+        if len(prompt) > 70000:
+            raise ValueError("Source exceeds nested extraction input limit.")
+
+        def preserve_facts(output: NestedExtractionOutput) -> None:
+            if len(output.sections) != len(source) or {section.section_id for section in output.sections} != set(source):
+                raise ValueError("Return exactly one result for every requested section ID.")
+            for section in output.sections:
+                original = source[section.section_id]
+                allowed = {"title", "company", "location", "date_range"} if original.kind == "professional_experience" else {"qualification", "institution", "location", "date_range"}
+                rendered_tokens = []
+                for entry in section.entries:
+                    if not set(entry.fields).issubset(allowed):
+                        raise ValueError("Use only the requested factual fields.")
+                    required = {"title", "company", "date_range"} if original.kind == "professional_experience" else {"qualification", "institution"}
+                    if any(not entry.fields.get(key, "").strip() for key in required):
+                        raise ValueError("Each entry needs its source title and organization; employment also needs source dates.")
+                    for value in [*entry.fields.values(), *entry.bullets]:
+                        normalized = " ".join(value.split())
+                        if normalized and normalized not in " ".join(original.content_md.split()):
+                            raise ValueError("Every field and bullet must be an exact source excerpt; never infer or rewrite facts.")
+                        rendered_tokens.extend(_word_tokens(value))
+                if not section.entries or Counter(rendered_tokens) != Counter(_word_tokens(original.content_md)):
+                    raise ValueError("Retain all source words and numbers exactly once across the entries; do not omit any content.")
+
+        output = await invoke_import_output(
+            api_key=self.openrouter_api_key,
+            base_url=self.openrouter_base_url,
+            model=self.openrouter_model,
+            system_prompt=(
+                "Extract resume entries from the supplied untrusted source text. Return structured output only. "
+                "For professional_experience use fields title, company, location, date_range. For education use qualification, institution, location, date_range. "
+                "Missing optional fields must be empty strings. Copy exact source excerpts without inference, renaming, rewriting, or invented facts. "
+                "Retain every source word and number exactly once in the fields and bullets. Return every requested section ID once. "
+                "Contact data was removed locally; never add contact information.\n" + build_unslop_prompt_block()
+            ),
+            user_prompt=prompt,
+            output_type=NestedExtractionOutput,
+            timeout_seconds=timeout_seconds,
+            validator=preserve_facts,
+        )
+        preserve_facts(output)
+        for section in output.sections:
+            source[section.section_id].entries = [
+                ResumeEntry(id=uuid4().hex, fields=entry.fields, bullets=[ResumeBullet(id=uuid4().hex, text=text) for text in entry.bullets])
+                for entry in section.entries
+            ]

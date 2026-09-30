@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.resume_document import parse_resume_document
+
 import asyncio
 import copy
 import json
@@ -26,6 +28,7 @@ from app.db.resume_drafts import ResumeDraftRecord
 from app.main import app
 from app.services import application_manager as application_manager_service
 from app.services.application_manager import (
+    GenerationSuccessPayload,
     ApplicationService,
     GenerationCallbackPayload,
     KeywordExtractionCallbackPayload,
@@ -382,6 +385,8 @@ class FakeDraftRepository:
         content_md: str,
         generation_params: dict[str, Any],
         sections_snapshot: dict[str, Any],
+        document: Optional[dict[str, Any]] = None,
+        source_snapshot: Optional[dict[str, Any]] = None,
     ) -> ResumeDraftRecord:
         draft = ResumeDraftRecord(
             id=f"draft-{application_id}",
@@ -390,6 +395,8 @@ class FakeDraftRepository:
             content_md=content_md,
             generation_params=generation_params,
             sections_snapshot=sections_snapshot,
+            document=document,
+            source_snapshot=source_snapshot,
             last_generated_at="2026-04-07T12:10:00+00:00",
             last_exported_at=None,
             updated_at="2026-04-07T12:10:00+00:00",
@@ -403,13 +410,19 @@ class FakeDraftRepository:
         application_id: str,
         user_id: str,
         content_md: str,
+        document: Optional[dict[str, Any]] = None,
+        expected_revision: Optional[int] = None,
     ) -> ResumeDraftRecord:
         draft = self.fetch_draft(user_id, application_id)
         if draft is None:
             raise LookupError("Resume draft not found.")
+        if expected_revision is not None and expected_revision != draft.revision:
+            raise PermissionError("This draft changed.")
         updated = draft.model_copy(
             update={
                 "content_md": content_md,
+                "document": document,
+                "revision": draft.revision + 1,
                 "updated_at": "2026-04-07T12:11:00+00:00",
             }
         )
@@ -441,6 +454,8 @@ class FakeBaseResumeRepository:
                 "user_id": user_id,
                 "name": "Base Resume",
                 "content_md": content_md,
+                "document": parse_resume_document(content_md, reviewed=True).model_dump(mode="json"),
+                "revision": 1,
             },
         )()
 
@@ -6338,3 +6353,116 @@ def test_normalize_generation_failure_details_preserves_sanitized_attempt_diagno
         "repair_error": {"error_type": "RuntimeError", "message": "provider failed"},
         "validation_errors": ["summary: Missing evidence"],
     }
+
+
+def test_source_settings_freezes_provenance_and_keeps_privacy_values_private():
+    service, *_ = build_service()
+    service.base_resume_repository.add_resume(user_id="user-1", resume_id="source-1", content_md="## Skills\nPython\n")
+    base = service.base_resume_repository.fetch_resume("user-1", "source-1")
+    profile = service.profile_repository.fetch_profile("user-1")
+    first = service._source_settings(base_resume=base, profile=profile)
+    snapshot = first["_source_snapshot"]
+    draft = type("Draft", (), {"source_snapshot": snapshot, "document": base.document})()
+    base.document["sections"][0]["content_md"] = "Rust"
+    # The old source remains authoritative even if both base and profile change.
+    profile.address = "Python"
+    second = service._source_settings(base_resume=base, profile=profile, draft=draft, use_snapshot=True)
+    assert second["_source_snapshot"] == snapshot
+    assert second["_source_document"]["sections"][0]["content_md"] == "Python"
+    assert profile.name in second["_privacy_values"]
+
+
+def test_source_settings_blocks_unreviewed_legacy_sources_before_generation():
+    service, *_ = build_service()
+    profile = service.profile_repository.fetch_profile("user-1")
+    source = type("Resume", (), {"id": "legacy", "content_md": "## Skills\nPython\n", "document": None})()
+    with pytest.raises(PermissionError, match="Review"):
+        service._source_settings(base_resume=source, profile=profile)
+
+
+def test_structured_assembly_uses_profile_linkedin_and_accepts_dateless_education():
+    service, *_ = build_service()
+    document = parse_resume_document("## Skills\nPython\n", reviewed=True).model_dump(mode="json")
+    document["sections"].append({"id": "school", "kind": "education", "heading": "Education", "review_state": "reviewed", "entries": [{"id": "degree", "fields": {"institution": "Example University", "qualification": "BSc Computer Science"}, "bullets": []}]})
+    content = service._normalize_draft_content(service._document_content(document=document, user_id="user-1"))
+    assert service.profile_repository.linkedin_url in content
+    assert "Example University\nBSc Computer Science" in content
+
+
+@pytest.mark.asyncio
+async def test_section_regeneration_uses_snapshot_after_linked_base_is_deleted():
+    service, repository, _, _, _, _, drafts = build_service()
+    record = repository.create_application(user_id="user-1", job_url="https://example.com/jobs/1", visible_status="in_progress", internal_state="resume_ready")
+    repository.update_application(application_id=record.id, user_id="user-1", updates={"base_resume_id": None, "job_title": "Engineer", "company": "Acme", "job_description": "Build APIs."})
+    document = parse_resume_document("## Summary\nBuilt reliable APIs.\n", reviewed=True).model_dump(mode="json")
+    snapshot = {"base_resume_id": "deleted-source", "revision": 1, "document": document, "content_md": "## Summary\nBuilt reliable APIs.\n"}
+    drafts.upsert_draft(application_id=record.id, user_id="user-1", content_md=snapshot["content_md"], generation_params={"base_resume_id": "deleted-source", "aggressiveness": "medium"}, sections_snapshot={}, document=document, source_snapshot=snapshot)
+    await service.trigger_section_regeneration(user_id="user-1", application_id=record.id, section_name=document["sections"][0]["id"], instructions="Emphasize APIs.")
+    queued = service.generation_job_queue.regenerations[-1]
+    assert queued["generation_settings"]["_source_snapshot"] == snapshot
+    assert queued["generation_settings"]["base_resume_id"] == "deleted-source"
+
+
+def test_structured_callback_uses_queued_source_after_application_link_changes():
+    service, repository, _, _, _, _, _ = build_service()
+    record = repository.create_application(user_id="user-1", job_url="https://example.com/jobs/1", visible_status="in_progress", internal_state="resume_ready")
+    record = repository.update_application(application_id=record.id, user_id="user-1", updates={"base_resume_id": "new-source"})
+    document = parse_resume_document("## Skills\nPython\n", reviewed=True).model_dump(mode="json")
+    generated = GenerationSuccessPayload(content_md="## Skills\nPython\n", generation_params={"base_resume_id": "original-source"}, sections_snapshot={}, document=document, source_snapshot={"base_resume_id": "original-source", "revision": 1, "document": document})
+    draft = service._persist_generated_draft(record=record, generated=generated)
+    assert draft.source_snapshot["base_resume_id"] == "original-source"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source,aggressiveness", [
+    ("## Education\nExample University\nBSc | 2024\n", "medium"),
+    ("## Certifications\nAWS certification\n", "high"),
+    ("## Skills\nPython\n", "low"),
+    ("## Professional Experience\nUnstructured work history.\n", "medium"),
+])
+async def test_frozen_section_regeneration_stops_before_quota_or_queue(source, aggressiveness):
+    service, repository, _, _, _, _, drafts = build_service()
+    record = repository.create_application(user_id="user-1", job_url="https://example.com/jobs/1", visible_status="in_progress", internal_state="resume_ready")
+    repository.update_application(application_id=record.id, user_id="user-1", updates={"job_title": "Engineer", "job_description": "Build APIs."})
+    document = parse_resume_document(source, reviewed=True).model_dump(mode="json")
+    snapshot = {"base_resume_id": "deleted-source", "revision": 1, "document": document, "content_md": source}
+    drafts.upsert_draft(application_id=record.id, user_id="user-1", content_md=source, generation_params={"aggressiveness": aggressiveness}, sections_snapshot={}, document=document, source_snapshot=snapshot)
+    with pytest.raises(ValueError, match="Edit it directly"):
+        await service.trigger_section_regeneration(user_id="user-1", application_id=record.id, section_name=document["sections"][0]["id"], instructions="Rewrite.")
+    assert service.subscription_repository.reservations == []
+    assert service.generation_job_queue.regenerations == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change_kind", [False, True])
+async def test_section_regeneration_preserves_draft_only_entries_and_changed_types_before_quota(change_kind):
+    service, repository, _, _, _, _, drafts = build_service()
+    record = repository.create_application(user_id="user-1", job_url="https://example.com/jobs/1", visible_status="in_progress", internal_state="resume_ready")
+    repository.update_application(application_id=record.id, user_id="user-1", updates={"job_title": "Engineer", "job_description": "Build APIs."})
+    source = "## Professional Experience\nAcme\nEngineer | 2020 - 2024\n- Built APIs.\n"
+    document = parse_resume_document(source, reviewed=True).model_dump(mode="json")
+    snapshot = {"base_resume_id": "deleted-source", "revision": 1, "document": document, "content_md": source}
+    current = parse_resume_document(source + "\nNewco\nEngineer | 2024 - Present\n- Built queues.\n", reviewed=True, previous=document).model_dump(mode="json")
+    if change_kind:
+        current["sections"][0]["kind"] = "custom"
+    drafts.upsert_draft(application_id=record.id, user_id="user-1", content_md=source, generation_params={"aggressiveness": "medium"}, sections_snapshot={}, document=current, source_snapshot=snapshot)
+    with pytest.raises(ValueError, match="section type changed" if change_kind else "entries added to the draft"):
+        await service.trigger_section_regeneration(user_id="user-1", application_id=record.id, section_name=current["sections"][0]["id"], instructions="Rewrite.")
+    assert service.subscription_repository.reservations == []
+    assert service.generation_job_queue.regenerations == []
+
+
+@pytest.mark.asyncio
+async def test_structured_keyword_optimization_uses_frozen_source_and_current_document():
+    service, repository, _, _, _, _, drafts = build_service()
+    record = repository.create_application(user_id="user-1", job_url="https://example.com/jobs/1", visible_status="in_progress", internal_state="resume_ready")
+    repository.update_application(application_id=record.id, user_id="user-1", updates={"job_title": "Engineer", "job_description": "Build reliable APIs.", "job_keywords": {"status": "succeeded", "keywords": [{"text": "reliable APIs", "source": "extracted"}]}})
+    source = "## Summary\nBuilt APIs with reliable delivery.\n"
+    document = parse_resume_document(source, reviewed=True).model_dump(mode="json")
+    snapshot = {"base_resume_id": "deleted-source", "revision": 1, "document": document, "content_md": source}
+    drafts.upsert_draft(application_id=record.id, user_id="user-1", content_md=source, generation_params={"aggressiveness": "medium"}, sections_snapshot={}, document=document, source_snapshot=snapshot)
+    await service.trigger_keyword_optimization(user_id="user-1", application_id=record.id)
+    settings = service.generation_job_queue.regenerations[-1]["generation_settings"]
+    assert settings["_source_snapshot"] == snapshot
+    assert settings["_current_document"] == document
+    assert settings["keyword_optimization"]["target_keywords"] == ["reliable APIs"]

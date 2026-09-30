@@ -1,18 +1,27 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-08-23
+**Last updated:** 2026-09-30
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Section resume reliability upgrade
+
+**Status:** Complete; independent review findings fixed and local verification passed (2026-09-30 16:30:39 EDT).
+
+- Versioned base/draft documents, stable nested IDs, import review and local contact suggestions.
+- Pydantic AI provider calls, shared bounded budgets, immutable factual assembly and targeted repairs.
+- Source snapshots for section/keyword regeneration and comparison; one inline workbench with custom sections and role actions.
+- Additive migrations 019/020; local Makefile regression targets; no live provider requests or hosted test services.
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.
 - Keep all user data explicitly scoped by `user_id` and protected by backend ownership checks.
-- Store all base resumes and generated drafts as Markdown.
+- Store versioned section documents with Markdown content and deterministic export projections.
 - Keep `applied` separate from the primary application status.
 - Treat `docs/database_schema.md` as the schema source of truth.
 - Local development and testing must run through a Dockerized, Makefile-managed stack.
@@ -496,8 +505,8 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 **PRD Acceptance Coverage**
 
-- Generate an ATS-friendly Markdown resume via LangChain + OpenRouter.
-- View the resume in rendered preview mode.
+- Generate an ATS-friendly section document via Pydantic AI + OpenRouter.
+- Review the resume in one section workbench.
 - Toggle the Applied flag independently of the primary status.
 - Receive in-app notifications for workflow events.
 - Receive email notifications for high-signal generation events.
@@ -539,7 +548,7 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 
 **PRD Acceptance Coverage**
 
-- Edit the resume in plain Markdown mode and save.
+- Edit section Markdown and nested entries with revision checks.
 - Regenerate a single section with required instructions.
 - Regenerate the full resume with updated settings and optional instructions.
 - Export the current draft as a PDF or DOCX download.
@@ -592,9 +601,9 @@ These tables track implementation-sized tasks seeded from the phase roadmap belo
 | See duplicate overlap warnings with similarity score, matched fields, and a link to the existing application | Phase 1 |
 | Dismiss a duplicate warning permanently | Phase 1 |
 | Select a base resume and generation settings before generating | Phase 2 |
-| Generate an ATS-friendly Markdown resume via LangChain + OpenRouter | Phase 3 |
-| View the resume in rendered preview mode | Phase 3 |
-| Edit the resume in plain Markdown mode and save | Phase 4 |
+| Generate an ATS-friendly section document via Pydantic AI + OpenRouter | Phase 3 |
+| Review the resume in one section workbench | Phase 3 |
+| Edit section Markdown and nested entries with revision checks | Phase 4 |
 | Regenerate a single section with required instructions | Phase 4 |
 | Regenerate the full resume with updated settings and optional instructions | Phase 4 |
 | Export the current draft as a PDF or DOCX download | Phase 4 |

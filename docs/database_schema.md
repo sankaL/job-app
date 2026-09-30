@@ -50,6 +50,12 @@ Backend write paths must validate these shapes before persisting them.
 | `resume_drafts.sections_snapshot` | Object with `enabled_sections` and `section_order`, for example `{"enabled_sections": ["summary", "professional_experience", "projects"], "section_order": ["summary", "professional_experience", "projects"]}` | Snapshot of the eligible generated sections taken at generation time so later preference or base-resume changes do not rewrite old drafts implicitly. |
 | `usage_events.metadata` (application activity timeline) | Object with required `activity_type` and optional `title`, `summary`, `details`, `failure_message`, and `attempts`, for example `{"activity_type": "generation_failed", "failure_message": "Validation failed.", "details": {"failure_stage": "validation", "attempt_count": 2, "length_diagnostics": {"target_length": "2_page", "generated_word_count": 800, "source_word_count": 1000, "minimum_acceptable_words": 900, "source_limited_length": false}}, "attempts": [{"model": "openai/gpt-5-mini", "reasoning_effort": "medium", "transport_mode": "responses", "outcome": "invalid_json", "elapsed_ms": 1200, "retry_reason": "invalid output"}]}` | User-facing activity metadata must be sanitized. `details` may include safe workflow diagnostics only (for example model, section, stage, duration, validation summaries, and count-only length diagnostics). Attempt entries are limited to `model`, `reasoning_effort`, `transport_mode`, `outcome`, `elapsed_ms`, and `retry_reason`. No raw resume/job content, auth artifacts, or provider payload dumps. |
 
+### Section document v1
+
+`document` contains `schema_version: 1`, positive `revision`, and ordered `sections`. Each section has a unique stable `id`, `kind` (`summary`, `professional_experience`, `education`, `certifications`, `projects`, `skills`, `custom`), user heading, enabled flag, `review_state` (`reviewed` or `needs_review`), optional confidence 0..1, Markdown `content_md`, paragraph `source_ids` and nested entries. Entries contain stable `id`, string factual `fields`, and bullets `{id, text, source_ids}`. IDs must be unique across the document. Experience fields use `title/company/location/date_range`; Education uses `qualification/institution/location/date_range`. Structured entries are authoritative when present; Markdown holds prose or preserved ambiguous source blocks.
+
+Prose and bullets may cite multiple source IDs. Contact is excluded from this document. Base projections include disabled sections for recovery; draft export projections include enabled sections. Public generation parameters exclude internal source/current payloads: immutable source content belongs only in the private `source_snapshot` column. JSONB object and positive-revision database checks supplement application schema validation and RLS.
+
 ## Table Definitions
 
 ### `users`
@@ -179,7 +185,7 @@ Monthly quota counter for resume-writing operations.
 
 ### `base_resumes`
 
-Stored Markdown source resumes owned by a single user.
+Versioned section source resumes owned by a single user, with a stored Markdown projection.
 
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
@@ -187,6 +193,11 @@ Stored Markdown source resumes owned by a single user.
 | `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
 | `name` | `text` | No | — | User-defined label. Must be non-blank. |
 | `content_md` | `text` | No | — | Full resume stored as Markdown. Must be non-blank. |
+| `document` | `jsonb` | Yes | `null` | Version 1 section document; null only for historical rows. |
+| `revision` | `integer` | No | `1` | Positive optimistic concurrency counter. |
+| `raw_source_md` | `text` | Yes | `null` | Original local extraction for recovery; may contain contact data, user-private. |
+| `import_warning` | `text` | Yes | `null` | Sanitized import/review guidance. |
+| `contact_suggestions` | `jsonb` | No | `{}` | Advisory locally parsed profile fields, never writer inputs. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
 
@@ -279,7 +290,7 @@ User-owned job application records and workflow state.
 
 ### `resume_drafts`
 
-Single current Markdown draft for one application.
+Single current section document and Markdown projection for one application.
 
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
@@ -289,6 +300,9 @@ Single current Markdown draft for one application.
 | `content_md` | `text` | No | — | Latest assembled resume content in Markdown. Must be non-blank. |
 | `generation_params` | `jsonb` | No | — | See JSON contract above. |
 | `sections_snapshot` | `jsonb` | No | — | See JSON contract above. |
+| `document` | `jsonb` | Yes | `null` | Latest versioned section document; null for legacy drafts. |
+| `source_snapshot` | `jsonb` | Yes | `null` | Exact source `{base_resume_id, revision, document, content_md}` used for writing. |
+| `revision` | `integer` | No | `1` | Positive counter; structured saves require the expected revision. |
 | `last_generated_at` | `timestamptz` | No | — | Updated on successful generation and full regeneration. |
 | `last_exported_at` | `timestamptz` | Yes | `null` | Updated on successful export, regardless of supported export format. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write, including manual edits. |

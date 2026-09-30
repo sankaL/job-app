@@ -273,6 +273,11 @@ def _parse_structured_entry_block(block: list[str], *, section_kind: str) -> Ren
     first_right_is_location = first_right is not None and _looks_like_location(first_right)
     second_right_is_location = second_right is not None and _looks_like_location(second_right)
 
+    # Dates can be absent from a reviewed source. Canonical row order still
+    # carries company/institution, then role/qualification without inventing one.
+    if second_right is None and (first_right is None or first_right_is_location):
+        return RenderEntry(row1_left=first_left, row1_right=first_right, row2_left=second_left, row2_right=None, bullets=bullet_lines)
+
     if second_right_is_date and (first_right is None or first_right_is_location):
         return RenderEntry(
             row1_left=first_left,

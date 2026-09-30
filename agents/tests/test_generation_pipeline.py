@@ -531,12 +531,13 @@ async def test_generate_sections_uses_medium_reasoning_for_full_regeneration(mon
 
 
 @pytest.mark.asyncio
-async def test_generate_sections_uses_fallback_model_json_when_primary_structured_output_fails(monkeypatch):
+async def test_generate_sections_uses_typed_fallback_when_primary_structured_output_fails(monkeypatch):
     calls: list[dict[str, Any]] = []
 
     def callback(kwargs, _prompt, structured, response_model):
-        if structured:
-            raise RuntimeError("structured output unsupported")
+        assert structured is True
+        if kwargs["model"] == "primary-model":
+            raise RuntimeError("primary provider failed")
         assert kwargs["model"] == "fallback-model"
         assert kwargs["extra_body"] == _reasoning_payload("medium")
         assert kwargs["run_config"]["metadata"]["is_fallback"] is True
@@ -581,8 +582,8 @@ async def test_generate_sections_falls_back_only_after_invalid_primary_response(
 
     def callback(kwargs, _prompt, structured, response_model):
         model = kwargs["model"]
-        if structured:
-            assert model == "primary-model"
+        assert structured is True
+        if model == "primary-model":
             return {"unexpected": "shape"}
         prompt_json_calls.append(model)
         if model == "fallback-model":
@@ -976,7 +977,7 @@ async def test_repair_generated_response_prefers_unused_fallback_model(monkeypat
     calls: list[dict[str, Any]] = []
 
     def callback(kwargs, prompt, structured, response_model):
-        assert structured is False
+        assert structured is True
         assert kwargs["model"] == "fallback-model"
         assert kwargs["extra_body"] is None
         repair_payload = json.loads(prompt[-1][1])

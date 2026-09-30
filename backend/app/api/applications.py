@@ -382,6 +382,7 @@ class FullRegenerationRequest(BaseModel):
 class SectionRegenerationRequest(BaseModel):
     section_name: str
     instructions: str
+    entry_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
 
     @field_validator("section_name")
     @classmethod
@@ -405,14 +406,24 @@ class SectionRegenerationRequest(BaseModel):
 
 
 class SaveDraftRequest(BaseModel):
-    content: str
+    content: Optional[str] = None
+    document: Optional[dict[str, Any]] = None
+    expected_revision: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("content")
     @classmethod
-    def require_non_blank_content(cls, value: str) -> str:
-        if not value or not value.strip():
+    def require_non_blank_content(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not value.strip():
             raise ValueError("Draft content cannot be blank.")
         return value
+
+    @model_validator(mode="after")
+    def require_content_or_document(self):
+        if self.content is None and self.document is None:
+            raise ValueError("Draft content or a section document is required.")
+        if self.document is not None and self.expected_revision is None:
+            raise ValueError("Structured draft edits require the expected revision.")
+        return self
 
 
 class ManualKeywordsRequest(BaseModel):
@@ -453,6 +464,9 @@ class ResumeDraftResponse(BaseModel):
     content_md: str
     generation_params: dict[str, Any]
     sections_snapshot: dict[str, Any]
+    document: Optional[dict[str, Any]] = None
+    source_snapshot: Optional[dict[str, Any]] = None
+    revision: int = 1
     review_flags: list[dict[str, Any]] = Field(default_factory=list)
     keyword_match: Optional[KeywordMatchResponse] = None
     render_contract_version: Optional[str] = None
@@ -1069,6 +1083,7 @@ async def regenerate_section(
                 application_id=application_id,
                 section_name=request.section_name,
                 instructions=request.instructions,
+                **({"entry_id": request.entry_id} if request.entry_id is not None else {}),
             )
         )
     except Exception as error:
@@ -1178,6 +1193,7 @@ async def save_draft(
             user_id=current_user.id,
             application_id=application_id,
             content=request.content,
+            **({"document": request.document, "expected_revision": request.expected_revision} if request.document is not None else {}),
         )
         return ResumeDraftResponse.model_validate(
             _build_resume_draft_response_payload(

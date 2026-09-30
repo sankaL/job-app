@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import type { BaseResumeDetail, ResumeDraft } from "@/lib/api";
-import { parseResume } from "./resume-parser";
+import { parseResume, parseResumeDocument } from "./resume-parser";
 import { compareResumeDocs, type DiffHighlightMode } from "./diff-engine";
 import { CompareHeroBar } from "./CompareHeroBar";
 import { CompareSectionNav } from "./CompareSectionNav";
@@ -54,10 +54,11 @@ export function CompareWorkspace({
 
   // Compute structured diff
   const summary = useMemo(() => {
-    const baseDoc = parseResume(baseResume?.content_md ?? "");
-    const tailoredDoc = parseResume(draft?.content_md ?? "", draft?.render_model);
+    const source = draft?.source_snapshot;
+    const baseDoc = source?.document ? parseResumeDocument(source.document, source.content_md) : parseResume(baseResume?.content_md ?? "");
+    const tailoredDoc = draft?.document ? parseResumeDocument(draft.document, draft.content_md) : parseResume(draft?.content_md ?? "", draft?.render_model);
     return compareResumeDocs(baseDoc, tailoredDoc);
-  }, [baseResume?.content_md, draft?.content_md, draft?.render_model]);
+  }, [baseResume?.content_md, draft?.content_md, draft?.render_model, draft?.document, draft?.source_snapshot]);
 
   // Filter sections if one is selected
   const displayedSections = useMemo(() => {
@@ -70,7 +71,7 @@ export function CompareWorkspace({
     if (!sectionsContainerRef.current) return;
     const cards = sectionsContainerRef.current.querySelectorAll(".diff-section-card");
     if (cards.length > 0) {
-      gsap.fromTo(
+      const animation = gsap.fromTo(
         cards,
         { opacity: 0, y: 14 },
         {
@@ -82,10 +83,11 @@ export function CompareWorkspace({
           clearProps: "transform,opacity",
         },
       );
+      return () => { animation.kill(); };
     }
   }, [displayedSections, viewLayout]);
 
-  const baseResumeName = baseResume?.name ?? "Baseline Resume";
+  const baseResumeName = draft?.source_snapshot ? `Source revision ${draft.source_snapshot.revision}` : baseResume?.name ?? "Baseline Resume";
 
   return (
     <div
@@ -95,6 +97,7 @@ export function CompareWorkspace({
       {/* Hidden baseline semantic anchors for screen readers & test assertions */}
       <h2 className="sr-only">Base Resume</h2>
 
+      {!draft?.source_snapshot && <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>Legacy comparison uses the available base resume. Its text may have changed since generation, and matches use headings and text.</p>}
       {/* Hero Control Bar */}
       <CompareHeroBar
         summary={summary}

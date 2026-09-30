@@ -10,7 +10,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from time import perf_counter
 from typing import Any, Optional
 
-from langchain_openai import ChatOpenAI
+from llm_runtime import StructuredLLM as ChatOpenAI, bounded_ai_workflow
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from generation import StrictModel
@@ -442,7 +442,7 @@ async def _attempt_model(
     started_at = perf_counter()
     try:
         response = await asyncio.wait_for(
-            llm.ainvoke(
+            llm.with_structured_output(JudgeModelResponse).ainvoke(
                 prompt,
                 config=model_run_config(
                     operation="resume_judge",
@@ -456,7 +456,7 @@ async def _attempt_model(
             ),
             timeout=timeout,
         )
-        payload = JudgeModelResponse.model_validate(
+        payload = response if isinstance(response, JudgeModelResponse) else JudgeModelResponse.model_validate(
             _extract_json_payload(_extract_message_text(response.content))
         )
         attempts.append(
@@ -493,7 +493,7 @@ async def _attempt_model(
                         base_url=base_url,
                         timeout=timeout,
                         reasoning_config=None,
-                    ).ainvoke(
+                    ).with_structured_output(JudgeModelResponse).ainvoke(
                         prompt,
                         config=model_run_config(
                             operation="resume_judge",
@@ -507,7 +507,7 @@ async def _attempt_model(
                     ),
                     timeout=timeout,
                 )
-                payload = JudgeModelResponse.model_validate(
+                payload = retry_response if isinstance(retry_response, JudgeModelResponse) else JudgeModelResponse.model_validate(
                     _extract_json_payload(_extract_message_text(retry_response.content))
                 )
                 attempts.append(
@@ -649,6 +649,7 @@ def _finalize_response(
     }
 
 
+@bounded_ai_workflow(lambda kwargs: kwargs.get("timeout", 60), max_requests=4)
 async def judge_resume(
     *,
     job_title: str,
@@ -666,6 +667,7 @@ async def judge_resume(
     evaluated_draft_updated_at: str,
     scored_at: str,
     timeout: float = 60.0,
+    privacy_values: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     sanitized_base = sanitize_resume_markdown(base_resume_content).sanitized_markdown
     sanitized_generated = sanitize_resume_markdown(generated_resume_content).sanitized_markdown
@@ -685,6 +687,8 @@ async def judge_resume(
         deterministic_observations=deterministic_observations,
     )
 
+    from section_generation import _outbound_private_copy
+    prompt = [(role, _outbound_private_copy(content, privacy_values or [])) for role, content in prompt]
     attempts: list[dict[str, Any]] = []
     last_error: Optional[Exception] = None
     model_sequence = [model]

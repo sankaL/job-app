@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 from arq.connections import RedisSettings
-from langchain_openai import ChatOpenAI
+from llm_runtime import StructuredLLM as ChatOpenAI, bounded_ai_workflow
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Route, TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
@@ -263,6 +263,7 @@ def _stored_generation_settings(
             "_generation_fallback_reasoning_effort",
             "_base_resume_snapshot_content",
             "_current_draft_snapshot_content",
+            "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
     if model_used is not None:
@@ -428,12 +429,18 @@ def build_generation_success_payload(
     regeneration_target: Optional[str] = None,
     attempts: Optional[list[dict[str, Any]]] = None,
     length_diagnostics: Optional[dict[str, Any]] = None,
+    document: Optional[dict[str, Any]] = None,
+    source_snapshot: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     generated: dict[str, Any] = {
         "content_md": content_md,
         "generation_params": generation_params,
         "sections_snapshot": sections_snapshot,
     }
+    if document is not None:
+        generated["document"] = document
+    if source_snapshot is not None:
+        generated["source_snapshot"] = source_snapshot
     if attempts is not None:
         generated["attempts"] = attempts
     if length_diagnostics is not None:
@@ -533,9 +540,7 @@ def build_resume_judge_failure_payload(
 
 
 def _sanitize_error(error: BaseException) -> dict[str, Any]:
-    message = str(error).strip()
-    if len(message) > 240:
-        message = message[:237] + "..."
+    message = "AI workflow timed out." if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else "AI workflow failed."
     return {
         "error_type": type(error).__name__,
         "message": message,
@@ -858,6 +863,7 @@ class OpenRouterExtractionAgent:
     def __init__(self, settings: WorkerSettingsEnv) -> None:
         self._settings = settings
 
+    @bounded_ai_workflow(30, max_requests=4)
     async def extract(self, context: PageContext) -> tuple[ExtractedJobPosting, str]:
         if not self._settings.openrouter_api_key:
             raise RuntimeError("OPENROUTER_API_KEY is not configured.")
@@ -888,6 +894,7 @@ class OpenRouterExtractionAgent:
             api_key=self._settings.openrouter_api_key,
             base_url=self._settings.openrouter_base_url,
             temperature=0,
+            request_timeout=30,
             max_retries=0,
         ).with_structured_output(ExtractedJobPosting)
 
@@ -966,6 +973,7 @@ class OpenRouterKeywordExtractionAgent:
             raise RuntimeError("Keyword extraction fallback model is not configured.")
         return primary, fallback
 
+    @bounded_ai_workflow(30, max_requests=4)
     async def extract_keywords(self, job_description: str) -> tuple[dict[str, Any], str]:
         if not self._settings.openrouter_api_key:
             raise RuntimeError("OPENROUTER_API_KEY is not configured.")
@@ -1335,7 +1343,7 @@ async def post_callback_best_effort(
     app_id: str,
     job_id: str,
     callback_stage: str,
-) -> None:
+) -> bool:
     try:
         await callback.post(payload, path=path)
         _log_generation_event(
@@ -1345,6 +1353,7 @@ async def post_callback_best_effort(
             callback_stage=callback_stage,
             path=path,
         )
+        return True
     except Exception as error:
         _log_generation_event(
             "callback_delivery_failed",
@@ -1359,8 +1368,9 @@ async def post_callback_best_effort(
             callback_stage,
             app_id,
             job_id,
-            error,
+            _sanitize_error(error),
         )
+        return False
 
 
 async def set_generation_result_best_effort(
@@ -1370,7 +1380,7 @@ async def set_generation_result_best_effort(
     job_id: str,
     workflow_kind: str,
     generated: dict[str, Any],
-) -> None:
+) -> bool:
     try:
         await writer.set_generation_result(
             application_id,
@@ -1384,6 +1394,7 @@ async def set_generation_result_best_effort(
             job_id=job_id,
             workflow_kind=workflow_kind,
         )
+        return True
     except Exception as error:
         _log_generation_event(
             "generation_cache_write_failed",
@@ -1397,8 +1408,9 @@ async def set_generation_result_best_effort(
             application_id,
             job_id,
             workflow_kind,
-            error,
+            _sanitize_error(error),
         )
+        return False
 
 
 async def report_bootstrap_progress(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1762,6 +1774,23 @@ async def _validate_generated_sections_with_repair(
     repair_deadline: float,
     on_progress,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], list[dict[str, Any]], Optional[dict[str, Any]]]:
+    if generation_settings.get("_source_document") and generated_sections and all(section.get("_canonical_section") for section in generated_sections):
+        from section_generation import validate_document_sections, validate_keyword_document
+        if operation == "keyword_optimization" and generation_settings.get("_current_document"):
+            from resume_document import validate_resume_document
+            current = validate_resume_document(generation_settings["_current_document"])
+            output = current.model_copy(deep=True)
+            by_id = {section["name"]: section["_canonical_section"] for section in generated_sections}
+            output.sections = [type(section).model_validate(by_id.get(section.id, section.model_dump())) for section in current.sections]
+            checked = validate_keyword_document(output=output, current=current,
+                source=validate_resume_document(generation_settings["_source_document"]),
+                privacy_values=generation_settings.get("_privacy_values") or [])
+        else:
+            checked = validate_document_sections(
+                generated_sections=generated_sections, source_payload=generation_settings["_source_document"],
+                generation_settings=generation_settings, expected_ids=section_ids,
+            )
+        return generated_sections, checked, attempt_diagnostics, None
     aggressiveness = str(generation_settings.get("aggressiveness", "medium")).lower()
     validation_result = await validate_resume(
         generated_sections=generated_sections,
@@ -1878,6 +1907,13 @@ async def _validate_regenerated_section_with_repair(
     repair_deadline: float,
     on_progress,
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], Optional[dict[str, Any]]]:
+    if generation_settings.get("_source_document") and regenerated_section.get("_canonical_section"):
+        from section_generation import validate_document_sections
+        checked = validate_document_sections(
+            generated_sections=[regenerated_section], source_payload=generation_settings["_source_document"],
+            generation_settings={**generation_settings, "_operation": operation}, expected_ids=[regenerated_section["name"]],
+        )
+        return regenerated_section, checked, attempt_diagnostics, None
     aggressiveness = str(generation_settings.get("aggressiveness", "medium")).lower()
     single_section_prefs = [{"name": section_name, "enabled": True, "order": 0}]
     validation_result = await validate_resume(
@@ -2001,7 +2037,10 @@ async def run_generation_job(
         settings,
     )
     public_generation_settings = {
-        key: value for key, value in generation_settings.items() if not str(key).startswith("_")
+        key: value for key, value in generation_settings.items()
+        if not str(key).startswith("_") or key in {
+            "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
+        }
     }
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
@@ -2207,16 +2246,7 @@ async def run_generation_job(
         )
 
         # 5. Done (100%)
-        await set_progress(
-            writer,
-            application_id,
-            job_id=job_id,
-            workflow_kind="generation",
-            state="resume_ready",
-            message="Resume generated",
-            percent_complete=100,
-            completed_at=now_iso(),
-        )
+
         success_payload = build_generation_success_payload(
             application_id=application_id,
             user_id=user_id,
@@ -2232,22 +2262,46 @@ async def run_generation_job(
             },
             attempts=attempt_diagnostics,
             length_diagnostics=length_diagnostics,
+            document=gen_result.get("document"),
+            source_snapshot=gen_result.get("source_snapshot"),
         )
-        await set_generation_result_best_effort(
+        cached = await set_generation_result_best_effort(
             writer,
             application_id=application_id,
             job_id=job_id,
             workflow_kind="generation",
             generated=success_payload["generated"],
         )
-        await post_callback_best_effort(
-            callback,
-            success_payload,
-            path=GENERATION_CALLBACK_PATH,
-            app_id=application_id,
+        if not cached:
+            delivered = await post_callback_best_effort(
+                callback,
+                success_payload,
+                path=GENERATION_CALLBACK_PATH,
+                app_id=application_id,
+                job_id=job_id,
+                callback_stage="generation succeeded",
+            )
+            if not delivered:
+                raise RuntimeError("The generated draft could not be persisted for recovery.")
+        await set_progress(
+            writer,
+            application_id,
             job_id=job_id,
-            callback_stage="generation succeeded",
+            workflow_kind="generation",
+            state="resume_ready",
+            message="Resume generated",
+            percent_complete=100,
+            completed_at=now_iso(),
         )
+        if cached:
+            await post_callback_best_effort(
+                callback,
+                success_payload,
+                path=GENERATION_CALLBACK_PATH,
+                app_id=application_id,
+                job_id=job_id,
+                callback_stage="generation succeeded",
+            )
         _log_generation_event(
             "job_succeeded",
             workflow_kind="generation",
@@ -2257,9 +2311,11 @@ async def run_generation_job(
             attempts=attempt_diagnostics,
         )
 
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as error:
         if not await is_current_job(writer, application_id, job_id):
             return
+        if getattr(error, "attempt_diagnostics", None):
+            attempt_diagnostics = _sanitize_attempts(error.attempt_diagnostics)
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
@@ -2311,6 +2367,8 @@ async def run_generation_job(
     except Exception as error:
         if not await is_current_job(writer, application_id, job_id):
             return
+        if getattr(error, "attempt_diagnostics", None):
+            attempt_diagnostics = _sanitize_attempts(error.attempt_diagnostics)
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
@@ -2322,6 +2380,9 @@ async def run_generation_job(
             "terminal_error_code": "generation_error",
             "error": _sanitize_error(error),
         }
+        if getattr(error, "validation_errors", None):
+            failure_details["validation_errors"] = error.validation_errors
+            failure_details["failure_stage"] = "validation"
         _log_generation_event(
             "job_failed",
             workflow_kind="generation",
@@ -2404,7 +2465,10 @@ async def run_regeneration_job(
         settings,
     )
     public_generation_settings = {
-        key: value for key, value in generation_settings.items() if not str(key).startswith("_")
+        key: value for key, value in generation_settings.items()
+        if not str(key).startswith("_") or key in {
+            "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
+        }
     }
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
@@ -2785,20 +2849,19 @@ async def run_regeneration_job(
             display_name = SECTION_DISPLAY_NAMES.get(
                 section_name, section_name.replace("_", " ").title()
             )
-            content = _replace_section_in_draft(
-                current_draft_content, section_name, regenerated_section["content"], display_name
-            )
+            if regenerated_section.get("document"):
+                from section_generation import document_sections
+                from resume_document import validate_resume_document
+                content = assemble_resume(
+                    personal_info=personal_info,
+                    generated_sections=document_sections(validate_resume_document(regenerated_section["document"])),
+                )
+            else:
+                content = _replace_section_in_draft(
+                    current_draft_content, section_name, regenerated_section["content"], display_name
+                )
 
-        await set_progress(
-            writer,
-            application_id,
-            job_id=job_id,
-            workflow_kind=workflow_kind,
-            state="resume_ready",
-            message="Regeneration complete",
-            percent_complete=100,
-            completed_at=now_iso(),
-        )
+
         success_payload = build_generation_success_payload(
             application_id=application_id,
             user_id=user_id,
@@ -2814,22 +2877,46 @@ async def run_regeneration_job(
             regeneration_target=regeneration_target,
             attempts=attempt_diagnostics,
             length_diagnostics=length_diagnostics,
+            document=(gen_result if is_full_regen else regenerated_section).get("document"),
+            source_snapshot=(gen_result if is_full_regen else regenerated_section).get("source_snapshot"),
         )
-        await set_generation_result_best_effort(
+        cached = await set_generation_result_best_effort(
             writer,
             application_id=application_id,
             job_id=job_id,
             workflow_kind=workflow_kind,
             generated=success_payload["generated"],
         )
-        await post_callback_best_effort(
-            callback,
-            success_payload,
-            path=REGENERATION_CALLBACK_PATH,
-            app_id=application_id,
+        if not cached:
+            delivered = await post_callback_best_effort(
+                callback,
+                success_payload,
+                path=REGENERATION_CALLBACK_PATH,
+                app_id=application_id,
+                job_id=job_id,
+                callback_stage="regeneration succeeded",
+            )
+            if not delivered:
+                raise RuntimeError("The generated draft could not be persisted for recovery.")
+        await set_progress(
+            writer,
+            application_id,
             job_id=job_id,
-            callback_stage="regeneration succeeded",
+            workflow_kind=workflow_kind,
+            state="resume_ready",
+            message="Regeneration complete",
+            percent_complete=100,
+            completed_at=now_iso(),
         )
+        if cached:
+            await post_callback_best_effort(
+                callback,
+                success_payload,
+                path=REGENERATION_CALLBACK_PATH,
+                app_id=application_id,
+                job_id=job_id,
+                callback_stage="regeneration succeeded",
+            )
         _log_generation_event(
             "job_succeeded",
             workflow_kind=workflow_kind,
@@ -2839,9 +2926,11 @@ async def run_regeneration_job(
             attempts=attempt_diagnostics,
         )
 
-    except asyncio.TimeoutError:
+    except asyncio.TimeoutError as error:
         if not await is_current_job(writer, application_id, job_id):
             return
+        if getattr(error, "attempt_diagnostics", None):
+            attempt_diagnostics = _sanitize_attempts(error.attempt_diagnostics)
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
@@ -2882,6 +2971,8 @@ async def run_regeneration_job(
     except Exception as error:
         if not await is_current_job(writer, application_id, job_id):
             return
+        if getattr(error, "attempt_diagnostics", None):
+            attempt_diagnostics = _sanitize_attempts(error.attempt_diagnostics)
         failure_details = {
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
@@ -2893,6 +2984,9 @@ async def run_regeneration_job(
             "terminal_error_code": "regeneration_error",
             "error": _sanitize_error(error),
         }
+        if getattr(error, "validation_errors", None):
+            failure_details["validation_errors"] = error.validation_errors
+            failure_details["failure_stage"] = "validation"
         _log_generation_event(
             "job_failed",
             workflow_kind=workflow_kind,
@@ -2939,6 +3033,7 @@ async def run_resume_judge_job(
     evaluated_draft_updated_at: str,
     job_context_signature: str,
     input_signature: str,
+    privacy_values: Optional[list[str]] = None,
 ) -> None:
     settings = WorkerSettingsEnv()
     callback = BackendCallbackClient(settings)
@@ -2997,6 +3092,7 @@ async def run_resume_judge_job(
                 evaluated_draft_updated_at=evaluated_draft_updated_at,
                 scored_at=now_iso(),
                 timeout=RESUME_JUDGE_TIMEOUT_SECONDS,
+                privacy_values=privacy_values or generation_settings.get("_privacy_values") or [],
             ),
             timeout=RESUME_JUDGE_TIMEOUT_SECONDS,
         )

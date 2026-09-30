@@ -1,0 +1,225 @@
+"""Pydantic AI calls with shared deadlines, usage limits, and safe diagnostics.
+
+SDK transport retries are disabled. Pydantic AI may correct an invalid typed
+response once, and callers explicitly decide whether to use a fallback or repair.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from functools import wraps
+from time import perf_counter
+from types import SimpleNamespace
+from typing import Any, Callable, Optional
+
+from pydantic import BaseModel
+from langsmith_tracing import trace_scope, end_trace_safely
+
+
+class AIRequestError(RuntimeError):
+    """Safe exception boundary: provider payloads never reach worker logs."""
+    def __init__(self, error_type: str, *, reasoning_rejected: bool = False) -> None:
+        self.error_type = error_type
+        self.reasoning_rejected = reasoning_rejected
+        super().__init__("AI provider rejected unsupported reasoning." if reasoning_rejected else "AI provider request failed.")
+
+
+@dataclass
+class CallBudget:
+    deadline: float
+    max_requests: int = 6
+    max_output_tokens: int = 24_000
+    requests: int = 0
+    output_tokens: int = 0
+    attempts: list[dict[str, Any]] = field(default_factory=list)
+
+    @classmethod
+    def for_seconds(cls, seconds: float, *, max_requests: int = 6) -> "CallBudget":
+        return cls(deadline=perf_counter() + seconds, max_requests=max_requests)
+
+    def remaining_seconds(self) -> float:
+        remaining = self.deadline - perf_counter()
+        if remaining <= 0:
+            raise asyncio.TimeoutError("The AI workflow deadline was reached.")
+        if self.requests >= self.max_requests or self.output_tokens >= self.max_output_tokens:
+            raise RuntimeError("The AI workflow usage budget was reached.")
+        return remaining
+
+_workflow_budget: ContextVar[Optional[CallBudget]] = ContextVar("resume_ai_budget", default=None)
+
+def current_call_budget() -> Optional[CallBudget]:
+    return _workflow_budget.get()
+
+def bounded_ai_workflow(seconds: Any, *, max_requests: int = 6):
+    """Share provider/correction/fallback usage across one asynchronous workflow."""
+    def decorate(function):
+        @wraps(function)
+        async def run(*args, **kwargs):
+            existing = _workflow_budget.get()
+            if existing is not None:
+                return await function(*args, **kwargs)
+            duration = seconds(kwargs) if callable(seconds) else seconds
+            token = _workflow_budget.set(CallBudget.for_seconds(duration, max_requests=max_requests))
+            try:
+                return await asyncio.wait_for(function(*args, **kwargs), timeout=duration)
+            finally:
+                _workflow_budget.reset(token)
+        return run
+    return decorate
+
+
+
+async def structured_call(
+    *,
+    prompt: list[tuple[str, str]],
+    output_type: Any,
+    model_name: str,
+    api_key: str,
+    base_url: str,
+    budget: CallBudget,
+    timeout: Optional[float] = None,
+    temperature: float = 0.2,
+    reasoning: Optional[dict[str, Any]] = None,
+    output_validator: Optional[Callable[[Any], Any]] = None,
+    operation: str = "structured_call",
+) -> Any:
+    # Lazy imports allow the deterministic document/validation code to run on its
+    # own. A missing runtime dependency still fails closed at the call boundary.
+    from openai import AsyncOpenAI
+    from pydantic_ai import Agent, ModelRetry, ToolOutput
+    from pydantic_ai.models.openrouter import OpenRouterModel
+    from pydantic_ai.providers.openrouter import OpenRouterProvider
+    from pydantic_ai.usage import RunUsage, UsageLimits
+
+    if not api_key or not model_name:
+        raise RuntimeError("AI provider credentials and model must be configured.")
+    remaining = budget.remaining_seconds()
+    call_timeout = min(remaining, timeout or remaining)
+    remaining_requests = budget.max_requests - budget.requests
+    usage = RunUsage()
+    system = "\n\n".join(content for role, content in prompt if role == "system")
+    user = "\n\n".join(content for role, content in prompt if role != "system")
+    started = perf_counter()
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=call_timeout)
+    settings: dict[str, Any] = {"temperature": temperature, "max_tokens": min(8000, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": {"require_parameters": True}}
+    if reasoning:
+        settings["openrouter_reasoning"] = reasoning
+    allowed_operations = {"generation", "regeneration_full", "regeneration_section", "keyword_optimization", "section_generation", "section_repair", "section_grounding_audit", "keyword_patch", "job_extraction", "keyword_extraction", "resume_judge", "structured_call"}
+    safe_operation = operation if operation in allowed_operations else "structured_call"
+    trace_manager = None
+    run_trace = None
+    outcome = "failed"
+    try:
+        trace_manager = trace_scope(
+            "applix." + safe_operation + ".pydantic_ai", run_type="llm",
+            inputs={"message_count": len(prompt), "prompt_chars": sum(len(content) for _, content in prompt)},
+            metadata={"operation": safe_operation, "model": model_name, "request_limit": remaining_requests, "timeout_seconds": call_timeout},
+            tags=["applix", safe_operation, "pydantic_ai"],
+        )
+        run_trace = trace_manager.__enter__()
+    except Exception:
+        trace_manager = None  # Telemetry availability never controls AI success.
+    try:
+        model = OpenRouterModel(model_name, provider=OpenRouterProvider(openai_client=client))
+        agent = Agent(
+            model,
+            output_type=ToolOutput(output_type),
+            system_prompt=system,
+            retries=1 if remaining_requests > 1 else 0,
+        )
+        if output_validator is not None:
+            @agent.output_validator
+            def validate_output(value: Any) -> Any:
+                try:
+                    return output_validator(value)
+                except ValueError as error:
+                    # Validators supply error codes, never source text or model
+                    # output. Pydantic AI feeds this bounded correction back.
+                    raise ModelRetry(str(error)) from error
+
+        result = await asyncio.wait_for(
+            agent.run(
+                user,
+                model_settings=settings,
+                usage=usage,
+                usage_limits=UsageLimits(
+                    request_limit=remaining_requests,
+                    output_tokens_limit=budget.max_output_tokens - budget.output_tokens,
+                ),
+            ),
+            timeout=call_timeout,
+        )
+        outcome = "success"
+        budget.attempts.append({
+            "model": model_name,
+            "transport_mode": "pydantic_ai",
+            "outcome": "success",
+            "elapsed_ms": round((perf_counter() - started) * 1000),
+            "operation": operation,
+        })
+        return result.output
+    except Exception as error:
+        budget.attempts.append({
+            "model": model_name,
+            "transport_mode": "pydantic_ai",
+            "outcome": "timeout" if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else "failed",
+            "error_type": type(error).__name__,
+            "elapsed_ms": round((perf_counter() - started) * 1000),
+            "operation": operation,
+        })
+        if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+            raise asyncio.TimeoutError("AI provider request timed out.") from None
+        message = str(error).lower()
+        reasoning_rejected = "reasoning" in message and any(word in message for word in ("unknown", "unsupported", "invalid", "mandatory"))
+        raise AIRequestError(type(error).__name__, reasoning_rejected=reasoning_rejected) from None
+    finally:
+        # Failed HTTP requests may not have a usage record. They still consume
+        # a workflow request, preventing retries from multiplying invisibly.
+        budget.requests += max(1, usage.requests)
+        budget.output_tokens += usage.output_tokens
+        end_trace_safely(run_trace, outputs={"outcome": outcome, "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens})
+        if trace_manager is not None:
+            try:
+                trace_manager.__exit__(None, None, None)
+            except Exception:
+                pass  # Optional telemetry cleanup must not mask the safe result.
+        await client.close()
+
+
+class StructuredLLM:
+    """Small compatibility adapter for the existing prompt/transport boundary."""
+
+    def __init__(self, *, model: str, api_key: str, base_url: str, temperature: float = 0,
+                 request_timeout: float = 30, max_retries: int = 0,
+                 extra_body: Optional[dict[str, Any]] = None, **_kwargs: Any) -> None:
+        self.model = model
+        self.api_key = api_key
+        self.base_url = base_url
+        self.temperature = temperature
+        self.timeout = request_timeout
+        self.reasoning = (extra_body or {}).get("reasoning")
+        self.output_type: Any = None
+
+    def with_structured_output(self, output_type: Any) -> "StructuredLLM":
+        self.output_type = output_type
+        return self
+
+    async def ainvoke(self, prompt: list[tuple[str, str]], config: Optional[dict[str, Any]] = None) -> Any:
+        value = await structured_call(
+            prompt=prompt,
+            output_type=self.output_type or dict[str, Any],
+            model_name=self.model,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            budget=current_call_budget() or CallBudget.for_seconds(self.timeout, max_requests=2),
+            timeout=self.timeout,
+            temperature=self.temperature,
+            reasoning=self.reasoning,
+            operation=str((config or {}).get("metadata", {}).get("operation") or "structured_call"),
+        )
+        if self.output_type is not None:
+            return value
+        payload = value.model_dump(mode="json") if isinstance(value, BaseModel) else value
+        return SimpleNamespace(content=json.dumps(payload))

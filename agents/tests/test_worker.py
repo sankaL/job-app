@@ -1156,6 +1156,8 @@ async def test_run_generation_job_completes_and_caches_result_when_callbacks_fai
 
         async def set(self, application_id: str, progress: JobProgress, ttl_seconds: int = 86400):
             del ttl_seconds
+            if progress.state == "resume_ready":
+                assert application_id in self.generated_by_app, "Success must be recoverable before terminal publication."
             self.progress_by_app[application_id] = progress
 
         async def clear_generation_result(self, application_id: str) -> None:

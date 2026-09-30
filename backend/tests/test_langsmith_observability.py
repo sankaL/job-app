@@ -93,43 +93,13 @@ async def test_cleanup_traces_only_sanitized_content_and_unslop_prompt(monkeypat
 
         yield FakeRun()
 
-    class FakeResponse:
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self):
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "content": json.dumps(
-                                {
-                                    "cleaned_markdown": "## Summary\nBuilt APIs.",
-                                    "needs_review": False,
-                                    "review_reason": None,
-                                }
-                            )
-                        }
-                    }
-                ],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-            }
-
-    class FakeAsyncClient:
-        def __init__(self, timeout: float) -> None:
-            self.timeout = timeout
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return False
-
-        async def post(self, *_args, **_kwargs):
-            return FakeResponse()
+    async def fake_invoke(**kwargs):
+        output = resume_parser.CleanupOutput(cleaned_markdown="## Summary\nBuilt APIs.", needs_review=False, review_reason=None)
+        kwargs["validator"](output)
+        return output
 
     monkeypatch.setattr(resume_parser, "trace_llm_scope", fake_trace_scope)
-    monkeypatch.setattr(resume_parser.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(resume_parser, "invoke_import_output", fake_invoke)
     service = ResumeParserService(
         openrouter_api_key="openrouter-key",
         openrouter_model="model",
@@ -148,5 +118,6 @@ async def test_cleanup_traces_only_sanitized_content_and_unslop_prompt(monkeypat
     assert "alex@example.com" not in str(traced_messages)
     assert "416" not in str(traced_messages)
     assert captured["name"] == "applix.resume_cleanup"
-    assert captured["end"]["metadata"]["provider_usage"]["prompt_tokens"] == 10
+    assert "Built APIs" not in str(captured)
+    assert captured["end"]["metadata"]["maximum_requests"] == 2
     assert result.cleaned_markdown.startswith("Alex Example")

@@ -34,6 +34,10 @@ CONTACT_URL_RE = re.compile(
     re.I,
 )
 CONTACT_MARKER_RE = re.compile(r"\b(?:email|phone|mobile|address|location|city|linkedin|github|portfolio)\b", re.I)
+CONTACT_SECTION_HEADINGS = {
+    "contact", "contacts", "contact information", "contact info", "contact details",
+    "personal information", "personal info", "personal details",
+}
 
 
 @dataclass(frozen=True)
@@ -52,7 +56,7 @@ def _is_resume_heading(line: str) -> bool:
     if not stripped:
         return False
     if stripped.startswith("## "):
-        return _normalize_heading(stripped) in COMMON_SECTION_HEADINGS
+        return True
     if stripped.startswith("# "):
         return False
 
@@ -128,21 +132,34 @@ def sanitize_resume_markdown(content: str) -> SanitizedResume:
         ):
             header_lines = candidate_header
             lines = lines[first_section_index:]
-    elif lines:
+    elif first_section_index is None and lines:
         probe: list[str] = []
         for line in lines[:10]:
             if probe and not line.strip():
                 break
             probe.append(line)
-        if probe and (
-            any(_is_contact_line(line) for line in probe)
-            or any(_looks_like_name(line) for line in probe if line.strip())
-        ):
-            header_lines = probe
-            lines = lines[len(probe) :]
+        contact_indexes = [index for index, line in enumerate(probe) if _is_contact_line(line)]
+        if contact_indexes:
+            # Without a section boundary, only remove the supported contact
+            # prefix. Unknown resume facts after it must remain recoverable.
+            header_end = max(contact_indexes) + 1
+            header_lines = probe[:header_end]
+            lines = lines[header_end:]
+        elif probe and probe[0].startswith("# ") and _looks_like_name(probe[0]):
+            header_lines = probe[:1]
+            lines = lines[1:]
 
     kept_lines: list[str] = []
+    in_contact_section = False
     for line in lines:
+        if line.strip().startswith("## "):
+            in_contact_section = _normalize_heading(line) in CONTACT_SECTION_HEADINGS
+            if in_contact_section:
+                removed_contact_lines.append(line)
+                continue
+        if in_contact_section:
+            removed_contact_lines.append(line)
+            continue
         if _is_body_contact_line(line):
             removed_contact_lines.append(line)
             continue

@@ -1,4 +1,4 @@
-import type { ResumeRenderModel } from "@/lib/api";
+import type { ResumeBullet, ResumeDocument, ResumeRenderModel, ResumeSectionEntry } from "@/lib/api";
 
 export type SectionKind =
   | "header"
@@ -17,6 +17,7 @@ export interface ParsedExperienceEntry {
   title: string;
   dateRange: string | null;
   bullets: string[];
+  bulletRecords?: ResumeBullet[];
   rawText: string;
 }
 
@@ -27,6 +28,7 @@ export interface ParsedEducationEntry {
   degree: string;
   dateRange: string | null;
   bullets: string[];
+  bulletRecords?: ResumeBullet[];
   rawText: string;
 }
 
@@ -39,6 +41,7 @@ export interface ParsedSection {
   educationEntries?: ParsedEducationEntry[];
   skillsList?: string[];
   markdownBody?: string;
+  entries?: ResumeSectionEntry[];
 }
 
 export interface ParsedResumeHeader {
@@ -49,6 +52,7 @@ export interface ParsedResumeHeader {
 }
 
 export interface ParsedResumeDoc {
+  stableIds?: boolean;
   header: ParsedResumeHeader;
   sections: ParsedSection[];
   rawMarkdown: string;
@@ -518,4 +522,31 @@ export function parseResume(markdown: string, renderModel?: ResumeRenderModel | 
     }
   }
   return parseMarkdownResume(markdown);
+}
+
+/** Canonical documents use persisted IDs; no heading or text matching is needed. */
+export function parseResumeDocument(document: ResumeDocument, markdown = ""): ParsedResumeDoc {
+  const sections: ParsedSection[] = document.sections.filter((section) => section.enabled).map((section) => {
+    const genericEntryText = section.entries.map((entry) => [...Object.values(entry.fields), ...entry.bullets.map((bullet) => `- ${bullet.text}`)].join("\n")).join("\n\n");
+    const rawMarkdown = section.entries.length ? genericEntryText : section.content_md;
+    const parsed: ParsedSection = {
+      id: section.id, heading: section.heading, kind: section.kind,
+      rawMarkdown, markdownBody: rawMarkdown, entries: section.entries,
+    };
+    if (section.kind === "professional_experience") parsed.experienceEntries = section.entries.map((entry) => ({
+      id: entry.id, title: entry.fields.title ?? "", company: entry.fields.company ?? "",
+      location: entry.fields.location ?? null, dateRange: entry.fields.date_range ?? null,
+      bullets: entry.bullets.map((bullet) => bullet.text), bulletRecords: entry.bullets,
+      rawText: [...Object.values(entry.fields), ...entry.bullets.map((bullet) => bullet.text)].join("\n"),
+    }));
+    if (section.kind === "education") parsed.educationEntries = section.entries.map((entry) => ({
+      id: entry.id, degree: entry.fields.qualification ?? entry.fields.degree ?? "", institution: entry.fields.institution ?? "",
+      location: entry.fields.location ?? null, dateRange: entry.fields.date_range ?? null,
+      bullets: entry.bullets.map((bullet) => bullet.text), bulletRecords: entry.bullets,
+      rawText: [...Object.values(entry.fields), ...entry.bullets.map((bullet) => bullet.text)].join("\n"),
+    }));
+    if (section.kind === "skills") parsed.skillsList = parseSkillsList(rawMarkdown.split("\n"));
+    return parsed;
+  });
+  return { stableIds: true, header: { name: null, contactLine: null, extraLines: [], rawText: "" }, sections, rawMarkdown: markdown };
 }

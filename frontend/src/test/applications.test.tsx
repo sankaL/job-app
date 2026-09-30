@@ -1794,7 +1794,7 @@ describe("phase 1 applications UI", () => {
     expect(
       screen.getByDisplayValue("$170,000 - $210,000 base salary"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/grounded summary/i)).toBeInTheDocument();
     const actionsButton = screen.getByRole("button", { name: /actions/i });
     expect(actionsButton).toHaveAttribute("aria-haspopup", "menu");
     expect(actionsButton).toHaveAttribute("aria-expanded", "false");
@@ -3586,7 +3586,7 @@ describe("phase 1 applications UI", () => {
     ).toBeGreaterThanOrEqual(1);
   });
 
-  it("opens compare mode, keeps generated edit mode available, and closes back to the default layout", async () => {
+  it("opens compare mode and returns to inline section editing", async () => {
     api.fetchApplicationDetail.mockResolvedValue(
       buildApplicationDetail({
         id: "app-1",
@@ -3670,14 +3670,8 @@ describe("phase 1 applications UI", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
     expect(screen.getByDisplayValue(/tailored summary/i)).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: /base resume/i }),
-    ).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
-    await userEvent.click(
-      screen.getByRole("menuitem", { name: /close comparison/i }),
-    );
+    expect(screen.getByTestId("draft-section-workbench")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /base resume/i })).not.toBeInTheDocument();
 
     await userEvent.click(
       await screen.findByRole("button", { name: /^actions$/i }),
@@ -3999,7 +3993,7 @@ describe("phase 1 applications UI", () => {
 
     expect(
       await screen.findAllByText(/compare view is unavailable/i),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(
       screen.queryByRole("heading", { name: /base resume/i }),
     ).not.toBeInTheDocument();
@@ -4373,7 +4367,7 @@ describe("phase 1 applications UI", () => {
         has_action_required_notification: false,
         duplicate_warning: null,
       })
-      .mockRejectedValueOnce(new Error("Application request failed."));
+      .mockRejectedValue(new Error("Application request failed."));
     api.fetchApplicationProgress.mockResolvedValue({
       job_id: "job-1",
       workflow_kind: "generation",
@@ -4403,7 +4397,8 @@ describe("phase 1 applications UI", () => {
     expect(
       screen.queryByRole("button", { name: /cancel generation/i }),
     ).not.toBeInTheDocument();
-    expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(3));
+    expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1);
   });
 
   it("stops extraction polling and shows manual-entry fallback when terminal extraction progress cannot sync detail state", async () => {
@@ -5204,9 +5199,7 @@ describe("phase 1 applications UI", () => {
     );
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
     await waitFor(() => {
-      expect(
-        document.querySelector(".resume-preview-markdown"),
-      ).toHaveTextContent("Grounded summary");
+      expect(screen.getByDisplayValue("Grounded summary")).toBeDisabled();
     });
     expect(
       screen.getByText(/refreshing experience bullets/i),
@@ -5216,7 +5209,7 @@ describe("phase 1 applications UI", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("closes the stale draft editor immediately when full regeneration starts", async () => {
+  it("locks inline section editors immediately when full regeneration starts", async () => {
     const user = userEvent.setup();
     api.listBaseResumes.mockResolvedValue([
       {
@@ -5284,12 +5277,8 @@ describe("phase 1 applications UI", () => {
     );
 
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
-    await screen.findByText(/grounded summary/i);
-
-    await user.click(screen.getByRole("button", { name: /^edit$/i }));
-    await waitFor(() => {
-      expect(document.querySelector(".markdown-editor-input")).not.toBeNull();
-    });
+    await screen.findByDisplayValue(/grounded summary/i);
+    expect(screen.getByDisplayValue("Grounded summary")).not.toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: /^actions$/i }));
     await user.click(
@@ -5304,8 +5293,7 @@ describe("phase 1 applications UI", () => {
     await waitFor(() =>
       expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1),
     );
-    expect(document.querySelector(".markdown-editor-input")).toBeNull();
-    expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Grounded summary")).toBeDisabled();
   });
 
   it("hydrates saved generation settings from the latest draft", async () => {
@@ -6793,4 +6781,62 @@ describe("phase 1 applications UI", () => {
 
     await waitFor(() => expect(activityButton).toHaveFocus());
   });
+  it("compares against the saved source revision and regenerates one stable role", async () => {
+    const user = userEvent.setup();
+    const document = {
+      schema_version: 1, revision: 3, sections: [{
+        id: "stable-experience", kind: "professional_experience", heading: "Experience", enabled: true,
+        review_state: "reviewed", confidence: null, content_md: "", entries: [{
+          id: "stable-role", fields: { company: "Acme", title: "Engineer", date_range: "2022 - Present" },
+          bullets: [{ id: "stable-bullet", text: "Built customer APIs", source_ids: ["stable-bullet"] }],
+        }],
+      }],
+    };
+    api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail({ id: "app-1", visible_status: "in_progress", internal_state: "resume_ready", base_resume_id: "resume-1" }));
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1", application_id: "app-1", document,
+      source_snapshot: { base_resume_id: "resume-1", revision: 3, document, content_md: "## Experience\nAcme" },
+      content_md: "## Experience\nAcme", generation_params: { base_resume_id: "resume-1" }, sections_snapshot: {},
+      last_generated_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z", last_exported_at: null,
+    });
+    api.triggerSectionRegeneration.mockResolvedValue(buildApplicationDetail({ id: "app-1", internal_state: "regenerating_section", visible_status: "in_progress" }));
+    renderWithAppProvider(<Routes><Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} /></Routes>, { initialEntries: ["/app/applications/app-1"] });
+    await screen.findByRole("button", { name: "Regenerate role" });
+    expect(api.fetchBaseResume).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Regenerate role" }));
+    await user.type(screen.getByPlaceholderText("Instructions for regenerating (required)…"), "Emphasize customer API delivery.");
+    await user.click(screen.getByRole("button", { name: /^regenerate$/i }));
+    await waitFor(() => expect(api.triggerSectionRegeneration).toHaveBeenCalledWith("app-1", "stable-experience", "Emphasize customer API delivery.", "stable-role"));
+  });
+
+  it("uses the frozen source and tailoring level to prevent no-op regeneration requests", async () => {
+    const user = userEvent.setup();
+    const fixed = { enabled: true, review_state: "reviewed", confidence: null, content_md: "", entries: [] };
+    const sourceDocument = { schema_version: 1, revision: 2, sections: [
+      { ...fixed, id: "education", kind: "education", heading: "Education", content_md: "College, BSc" },
+      { ...fixed, id: "skills", kind: "skills", heading: "Skills", content_md: "Python" },
+    ] };
+    const document = { ...sourceDocument, sections: [...sourceDocument.sections,
+      { ...fixed, id: "new-project", kind: "projects", heading: "New project", content_md: "Weather app" },
+    ] };
+    api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail({ id: "app-1", visible_status: "in_progress", internal_state: "resume_ready", base_resume_id: "resume-1" }));
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1", application_id: "app-1", document,
+      source_snapshot: { base_resume_id: "resume-1", revision: 2, document: sourceDocument, content_md: "" },
+      content_md: "", generation_params: { base_resume_id: "resume-1", aggressiveness: "low" }, sections_snapshot: {},
+      last_generated_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z", last_exported_at: null,
+    });
+    renderWithAppProvider(<Routes><Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} /></Routes>, { initialEntries: ["/app/applications/app-1"] });
+    const buttons = await screen.findAllByRole("button", { name: "Regenerate section" });
+    expect(buttons).toHaveLength(3);
+    for (const button of buttons) {
+      expect(button).toBeDisabled();
+      await user.click(button);
+    }
+    expect(api.triggerSectionRegeneration).not.toHaveBeenCalled();
+    expect(screen.getByText(/These source facts stay fixed/)).toBeInTheDocument();
+    expect(screen.getByText(/Low tailoring keeps skills fixed/)).toBeInTheDocument();
+    expect(screen.getByText(/Add this section to your base resume/)).toBeInTheDocument();
+  });
+
 });

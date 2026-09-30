@@ -1,11 +1,22 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-06-30
+**Last updated:** 2026-09-30
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
+
+## 2026-09-30 section documents and import review
+
+1. Apply `20260930_000019_resume_section_documents.sql`, then `20260930_000020_resume_contact_suggestions.sql` before deploying new readers or writers. Both are additive; RLS and same-user ownership remain in force.
+2. Deploy API and workers together with pinned Pydantic AI 2.52.0. Existing Markdown jobs/drafts remain readable through explicit legacy adapters. Drain old queued generation work before enabling structured-source-only behavior, or allow the compatible old worker envelope during rollout.
+3. No destructive backfill is required. Historical base documents are parsed locally with deterministic IDs, shown as needing review, and persisted on the next section save under a revision fence. Legacy drafts lack a trustworthy historical source snapshot; do not fabricate one from the current base for comparison.
+4. New imports keep `raw_source_md`, local `contact_suggestions`, and sanitized warning guidance. These are owned user data subject to the same account deletion and access rules as the base resume. No persistent PDF storage is introduced.
+5. Post-deploy verification: import a known and an unknown section; review, reorder and add a custom section; confirm stale base/draft saves return conflict; generate, edit the base, and confirm old draft comparison stays anchored to its snapshot; regenerate one role and confirm sibling content/IDs remain identical; verify separate-user reads cannot access any document or contact suggestion; export the latest projection.
+6. Roll back application code before schema. Keep additive columns and stored snapshots through rollback; old code may update Markdown without maintaining documents, so reconciliation/review is required before re-enabling structured writes. Do not drop the new columns while any new worker or API is active.
+
+Local validation uses Makefile test targets and local Docker Postgres/Redis. `test-migrate` applies migrations through the existing migration runner. Test invocations use fake provider keys, disable tracing, and clear test admin bootstrap configuration.
 
 ## Baseline Rules
 

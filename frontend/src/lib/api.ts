@@ -224,7 +224,26 @@ export type ResumeRenderModel = {
   normalized_markdown: string;
 };
 
+export type ResumeSectionKind =
+  | "summary" | "professional_experience" | "education" | "certifications"
+  | "projects" | "skills" | "custom";
+
+export type ResumeBullet = { id: string; text: string; source_ids: string[] };
+export type ResumeSectionEntry = { id: string; fields: Record<string, string>; bullets: ResumeBullet[] };
+export type ResumeSection = {
+  id: string; kind: ResumeSectionKind; heading: string; enabled: boolean;
+  review_state: "reviewed" | "needs_review"; confidence: number | null;
+  content_md: string; source_ids?: string[]; entries: ResumeSectionEntry[];
+};
+export type ResumeDocument = { schema_version: 1; revision: number; sections: ResumeSection[] };
+export type ResumeSourceSnapshot = {
+  base_resume_id: string; revision: number; document: ResumeDocument; content_md: string;
+};
+
 export type ResumeDraft = {
+  revision?: number;
+  document?: ResumeDocument | null;
+  source_snapshot?: ResumeSourceSnapshot | null;
   id: string;
   application_id: string;
   content_md: string;
@@ -343,6 +362,11 @@ export type BaseResumeSummary = {
 };
 
 export type BaseResumeDetail = {
+  contact_suggestions?: Partial<Record<"name" | "email" | "phone" | "address" | "linkedin", string>>;
+  ready_for_generation?: boolean;
+  raw_source_md?: string | null;
+  revision?: number;
+  document?: ResumeDocument | null;
   id: string;
   name: string;
   content_md: string;
@@ -923,10 +947,11 @@ export async function listBaseResumes(): Promise<BaseResumeSummary[]> {
 export async function createBaseResume(
   name: string,
   contentMd: string,
+  document?: ResumeDocument,
 ): Promise<BaseResumeDetail> {
   return authenticatedRequest<BaseResumeDetail>("/api/base-resumes", {
     method: "POST",
-    body: { name, content_md: contentMd },
+    body: { name, content_md: contentMd, ...(document ? { document } : {}) },
   });
 }
 
@@ -940,7 +965,7 @@ export async function fetchBaseResume(
 
 export async function updateBaseResume(
   resumeId: string,
-  updates: { name?: string; content_md?: string },
+  updates: { name?: string; content_md?: string; document?: ResumeDocument; expected_revision?: number },
 ): Promise<BaseResumeDetail> {
   return authenticatedRequest<BaseResumeDetail>(
     `/api/base-resumes/${resumeId}`,
@@ -1157,13 +1182,13 @@ export async function triggerResumeJudge(
 
 export async function saveDraft(
   applicationId: string,
-  content: string,
+  content: string | { document: ResumeDocument; expected_revision: number },
 ): Promise<ResumeDraft> {
   return authenticatedRequest<ResumeDraft>(
     `/api/applications/${applicationId}/draft`,
     {
       method: "PUT",
-      body: { content },
+      body: typeof content === "string" ? { content } : content,
     },
   );
 }
@@ -1215,12 +1240,13 @@ export async function triggerSectionRegeneration(
   applicationId: string,
   sectionName: string,
   instructions: string,
+  entryId?: string,
 ): Promise<ApplicationDetail> {
   return authenticatedRequest<ApplicationDetail>(
     `/api/applications/${applicationId}/regenerate-section`,
     {
       method: "POST",
-      body: { section_name: sectionName, instructions },
+      body: { section_name: sectionName, instructions, ...(entryId ? { entry_id: entryId } : {}) },
     },
   );
 }

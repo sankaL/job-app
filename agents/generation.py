@@ -14,7 +14,7 @@ from contextlib import suppress
 from time import perf_counter
 from typing import Any, Awaitable, Optional, TypeVar
 
-from langchain_openai import ChatOpenAI
+from llm_runtime import StructuredLLM as ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from experience_contract import (
@@ -1618,9 +1618,10 @@ async def _invoke_prompt_json(
         reasoning_config=reasoning_config,
         aggressiveness=aggressiveness,
     )
-    result = await asyncio.wait_for(llm.ainvoke(prompt, config=run_config), timeout=timeout)
-    content = _extract_message_text(result.content)
-    raw_payload = _extract_json_payload(content)
+    result = await asyncio.wait_for(llm.with_structured_output(response_model).ainvoke(prompt, config=run_config), timeout=timeout)
+    if isinstance(result, response_model):
+        return result
+    raw_payload = result if isinstance(result, dict) else _extract_json_payload(_extract_message_text(result.content))
     normalized_payload = _normalize_response_payload(
         payload=raw_payload,
         response_model=response_model,
@@ -1736,10 +1737,14 @@ async def _attempt_transport(
                 "outcome": outcome,
                 "retry_reason": retry_reason,
                 "error_type": type(exc).__name__,
-                "message": str(exc),
+                "message": "Provider request failed.",
             },
         )
         if reasoning_config is not None and _looks_like_reasoning_error(exc):
+            remaining = timeout - (perf_counter() - started_at)
+            if remaining <= 0:
+                raise asyncio.TimeoutError("The model attempt deadline was reached.") from exc
+            invoke_kwargs["timeout"] = remaining
             started_at = perf_counter()
             try:
                 invoke_kwargs["reasoning_config"] = None
@@ -1806,7 +1811,7 @@ async def _attempt_transport(
                         "outcome": inner_outcome,
                         "retry_reason": inner_retry_reason or "reasoning_unsupported",
                         "error_type": type(inner_exc).__name__,
-                        "message": str(inner_exc),
+                        "message": "Provider request failed.",
                     },
                 )
                 raise inner_exc
@@ -1831,6 +1836,7 @@ async def _call_json_with_fallback(
 ) -> tuple[BaseModel, str, list[dict[str, Any]]]:
     last_error: Optional[Exception] = None
     attempts: list[dict[str, Any]] = []
+    deadline = perf_counter() + timeout
     model_sequence = [(model, False, "structured")]
     if fallback_model and fallback_model != model:
         model_sequence.append((fallback_model, True, "json"))
@@ -1843,7 +1849,10 @@ async def _call_json_with_fallback(
             else reasoning_effort,
             is_fallback=is_fallback,
         )
-        attempt_timeout = min(timeout, _attempt_timeout_for_operation(operation, is_fallback=is_fallback))
+        remaining = deadline - perf_counter()
+        if remaining <= 0:
+            raise asyncio.TimeoutError("The generation call deadline was reached.")
+        attempt_timeout = min(remaining, _attempt_timeout_for_operation(operation, is_fallback=is_fallback))
         try:
             payload = await _attempt_transport(
                 prompt=prompt,
@@ -2096,6 +2105,16 @@ async def generate_sections(
     reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
     fallback_reasoning_effort: Optional[str] = None,
 ) -> dict[str, Any]:
+    if generation_settings.get("_source_document"):
+        from section_generation import generate_document
+        return await generate_document(
+            source_payload=generation_settings["_source_document"],
+            generation_settings=generation_settings, section_preferences=section_preferences,
+            job_title=job_title, company_name=company_name, job_description=job_description,
+            model=model, fallback_model=fallback_model, api_key=api_key, base_url=base_url,
+            on_progress=on_progress, reasoning_effort=reasoning_effort,
+            fallback_reasoning_effort=fallback_reasoning_effort,
+        )
     operation = generation_settings.get("_operation", "generation")
     aggressiveness = generation_settings.get("aggressiveness", "medium")
     target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
@@ -2224,6 +2243,17 @@ async def regenerate_single_section(
     reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
     fallback_reasoning_effort: Optional[str] = None,
 ) -> dict[str, Any]:
+    if generation_settings.get("_source_document"):
+        from section_generation import generate_document
+        return await generate_document(
+            source_payload=generation_settings["_source_document"],
+            generation_settings={**generation_settings, "_operation": "regeneration_section"},
+            section_preferences=[], job_title=job_title, company_name=company_name,
+            job_description=job_description, model=model, fallback_model=fallback_model,
+            api_key=api_key, base_url=base_url, on_progress=on_progress,
+            reasoning_effort=reasoning_effort, fallback_reasoning_effort=fallback_reasoning_effort,
+            target_section_id=section_name, instructions=instructions,
+        )
     aggressiveness = generation_settings.get("aggressiveness", "medium")
     target_length = generation_settings.get("page_length", generation_settings.get("target_length", "1_page"))
 

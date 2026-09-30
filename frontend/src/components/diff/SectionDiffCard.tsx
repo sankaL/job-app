@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   FileText,
   GraduationCap,
@@ -31,11 +31,17 @@ export function SectionDiffCard({
   sectionIndex,
 }: SectionDiffCardProps) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
 
-  const handleCopySection = (text: string) => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopySection = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true); setCopyError(false);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 2000);
+    } catch { setCopyError(true); }
   };
 
   const getSectionIcon = () => {
@@ -82,7 +88,7 @@ export function SectionDiffCard({
           >
             {sectionDiff.heading}
           </h3>
-          {sectionDiff.status === "modified" && (
+          {sectionDiff.status !== "unchanged" && (
             <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
               style={{
@@ -91,7 +97,7 @@ export function SectionDiffCard({
                 border: "1px solid rgba(24, 74, 69, 0.15)",
               }}
             >
-              <Sparkles size={10} /> Tailored
+              <Sparkles size={10} /> {sectionDiff.status === "added" ? "Added" : sectionDiff.status === "removed" ? "Omitted" : "Tailored"}
             </span>
           )}
         </div>
@@ -120,6 +126,7 @@ export function SectionDiffCard({
         )}
       </div>
 
+      {copyError && <p role="alert" className="text-xs" style={{ color: "var(--color-ember)" }}>Unable to copy. Try selecting the section text instead.</p>}
       {/* Experience Entries */}
       {isExperience && sectionDiff.experienceDiffs && (
         <div className="space-y-4">
@@ -297,15 +304,15 @@ export function SectionDiffCard({
               <div className="flex flex-wrap items-start justify-between gap-2 border-b pb-2.5" style={{ borderColor: "var(--color-border)" }}>
                 <div>
                   <h4 className="text-sm font-bold" style={{ color: "var(--color-ink)" }}>
-                    {edu.institution}
+                    {edu.institutionChunks ? <InlineDiffText chunks={edu.institutionChunks} mode={highlightMode} /> : edu.institution}
                   </h4>
                   <p className="text-xs font-medium mt-0.5" style={{ color: "var(--color-spruce)" }}>
                     <InlineDiffText chunks={edu.degree.chunks} mode={highlightMode} />
                   </p>
                 </div>
                 <div className="text-right text-xs" style={{ color: "var(--color-ink-40)" }}>
-                  {edu.dateRange ? <div>{edu.dateRange}</div> : null}
-                  {edu.location ? <div>{edu.location}</div> : null}
+                  {edu.dateRangeChunks ? <div><InlineDiffText chunks={edu.dateRangeChunks} mode={highlightMode} /></div> : edu.dateRange ? <div>{edu.dateRange}</div> : null}
+                  {edu.locationChunks ? <div><InlineDiffText chunks={edu.locationChunks} mode={highlightMode} /></div> : edu.location ? <div>{edu.location}</div> : null}
                 </div>
               </div>
               {edu.bullets.length > 0 && (
@@ -322,9 +329,13 @@ export function SectionDiffCard({
         </div>
       )}
 
+      {sectionDiff.entryDiffs && <div className="space-y-3">{sectionDiff.entryDiffs.map((entry) => <Card key={entry.id} className="p-4">
+        <div className="space-y-2">{entry.fields.map((field) => <div key={field.name} className="text-xs"><span className="mr-2 font-semibold" style={{ color: "var(--color-ink-50)" }}>{field.name.replaceAll("_", " ")}</span><InlineDiffText chunks={field.chunks} mode={highlightMode} /></div>)}</div>
+        {entry.bullets.length > 0 && <ul className="mt-3 list-disc space-y-2 pl-4 text-sm">{entry.bullets.map((bullet) => <li key={bullet.id}><InlineDiffText chunks={bullet.chunks} mode={highlightMode} /></li>)}</ul>}
+      </Card>)}</div>}
       {/* Generic / Custom Section */}
       {!["professional_experience", "summary", "skills", "education"].includes(sectionDiff.kind) &&
-        sectionDiff.genericDiff && (
+        !sectionDiff.entryDiffs && sectionDiff.genericDiff && (
           <Card
             className="rounded-xl border p-4 sm:p-5 shadow-xs"
             style={{

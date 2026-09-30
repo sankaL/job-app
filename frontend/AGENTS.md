@@ -23,7 +23,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Provide meaningful progress messaging during extraction, generation, regeneration, and export flows. A spinner alone is not sufficient.
 - Show clear transient success and error feedback.
 - Surface action-required states prominently on dashboard and detail views.
-- Keep preview mode and Markdown edit mode visually distinct and easy to switch between.
+- Use one section workbench with inline Markdown and entry editing, section controls and section/entry regeneration. Contact information is managed through the profile.
 - Use optimistic UI only where the operation is low-risk and can be rolled back cleanly, such as toggling the `applied` flag.
 - Preserve clear empty states and next-step calls to action for first use and failure recovery.
 
@@ -32,7 +32,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Treat `applied` as a separate boolean flag, not a replacement for the primary status.
 - Show duplicate-review attention before generation when unresolved.
 - After editing or regenerating a previously exported draft, the UI must reflect the status return to `In Progress`.
-- Resume preview should render the latest Markdown draft; edit mode should operate on the same underlying Markdown content.
+- The workbench edits the latest versioned section document. Compare against its stored source snapshot using stable IDs and provenance; the deterministic Markdown projection feeds export.
 - Preference changes for enabled sections and section order apply to future generations unless the user explicitly regenerates.
 
 ## Frontend Security Rules

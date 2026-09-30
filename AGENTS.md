@@ -23,7 +23,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
 ## Global Product Rules
 - This is a private, invite-only application. Do not introduce public signup flows in MVP work.
 - All application data is private to the authenticated user. Treat user isolation as a hard requirement across UI, API, background work, and notifications.
-- All resume content is stored as Markdown. Base resumes and generated drafts remain editable as Markdown.
+- Resume content remains Markdown inside versioned section documents. Stable section, entry and bullet IDs support editing, regeneration and comparison; deterministic Markdown projections support export.
 - Personal information such as name, email, phone, and address comes from the user profile and must not be invented by the LLM.
 - Resume tailoring must stay grounded in the user's source resume and the job posting. Do not invent employers, dates, credentials, or education history. High aggressiveness may retitle Professional Experience role names only when the new title remains a truthful reframing of the same source role and keeps employer and dates unchanged.
 - The `applied` flag is separate from the primary application status and must remain independently user-controlled.

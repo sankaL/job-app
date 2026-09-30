@@ -1,3 +1,13 @@
+## 2026-09-30 — Versioned resume sections and bounded Pydantic AI recovery
+
+**Decision:** Make reviewed section documents the source for resume operations while retaining Markdown content and export projections. Give sections, entries and bullets stable IDs, preserve an immutable source snapshot per draft, keep contact in the profile, and permit custom section types without a schema migration.
+
+**Reason:** Existing semantic output validation could reject one section and then regenerate an entire draft from ambiguous Markdown anchors. Schema correctness alone also did not make facts reliable. Copying immutable source facts locally, validating source references per section and repairing only failed sections reduces that failure surface while preserving valid work.
+
+**Implementation:** Pydantic AI 2.52.0 replaces LangChain provider calls. Full writing batches sections; bounded typed corrections/fallback/targeted repairs share request/token/deadline limits. Imports retain raw source, remain review-gated, and can use optional Jev classification. Jev stays opt-in until evaluated on representative resumes; confidence is advisory. Summary is optional, Experience/Education recommended, and readiness depends on populated reviewed enabled source sections. One inline workbench and ID/provenance comparison replace the global preview/edit workflow.
+
+**Limits:** Factual field invariants and numeric/source-reference checks are deterministic. A separate typed claim audit checks rewritten prose within the same shared request budget. That audit and title-grounding heuristics reduce unsupported claims but do not establish semantic truth. Live model evaluation remains separate from deterministic local regression checks. Full regeneration uses the latest reviewed base; section/keyword actions preserve the draft's original source snapshot.
+
 # Decisions Made
 
 ## 2026-08-22 21:45:00 EDT - Redesign resume comparison into an interactive section-by-section diff workspace with GSAP motion

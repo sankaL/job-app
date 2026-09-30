@@ -1,3 +1,4 @@
+import type { ResumeBullet, ResumeSectionEntry } from "@/lib/api";
 import { diffWordsWithSpace, type Change } from "diff";
 import {
   type ParsedResumeDoc,
@@ -61,6 +62,9 @@ export interface ExperienceEntryDiff {
 export interface EducationEntryDiff {
   id: string;
   institution: string;
+  institutionChunks?: WordDiffChunk[];
+  locationChunks?: WordDiffChunk[];
+  dateRangeChunks?: WordDiffChunk[];
   degree: {
     base: string | null;
     tailored: string | null;
@@ -93,6 +97,7 @@ export interface SectionDiff {
     retainedSkills: string[];
     removedSkills: string[];
   };
+  entryDiffs?: Array<{ id: string; fields: Array<{ name: string; chunks: WordDiffChunk[] }>; bullets: BulletDiffItem[] }>;
   genericDiff?: {
     baseText: string;
     tailoredText: string;
@@ -226,9 +231,41 @@ export function alignExperienceBullets(
   return items;
 }
 
+/** Explicit provenance can combine several source bullets or reuse a source in several outputs. */
+export function alignProvenanceBullets(base: ResumeBullet[], tailored: ResumeBullet[]): BulletDiffItem[] {
+  const source = new Map(base.map((bullet) => [bullet.id, bullet]));
+  const used = new Set<string>();
+  const result: BulletDiffItem[] = tailored.map((bullet) => {
+    const refs = [...new Set(bullet.source_ids.length ? bullet.source_ids : [bullet.id])];
+    const matches = refs.map((id) => source.get(id)).filter((item): item is ResumeBullet => Boolean(item));
+    matches.forEach((item) => used.add(item.id));
+    const baseText = matches.length ? matches.map((item) => item.text).join("\n") : null;
+    return { id: `bullet-${bullet.id}`, status: baseText === null ? "added" : baseText === bullet.text ? "unchanged" : "modified",
+      baseText, tailoredText: bullet.text, chunks: computeWordDiff(baseText ?? "", bullet.text), similarityScore: matches.length ? 1 : 0 };
+  });
+  for (const bullet of base) if (!used.has(bullet.id)) result.push({
+    id: `bullet-omitted-${bullet.id}`, status: "removed", baseText: bullet.text, tailoredText: null,
+    chunks: computeWordDiff(bullet.text, ""), similarityScore: 0,
+  });
+  return result;
+}
+
+function compareGenericEntries(base: ResumeSectionEntry[], tailored: ResumeSectionEntry[]): NonNullable<SectionDiff["entryDiffs"]> {
+  const baseMap = new Map(base.map((entry) => [entry.id, entry]));
+  const ordered = [...tailored.map((entry) => entry.id), ...base.filter((entry) => !tailored.some((item) => item.id === entry.id)).map((entry) => entry.id)];
+  return ordered.map((id) => {
+    const left = baseMap.get(id);
+    const right = tailored.find((entry) => entry.id === id);
+    const keys = [...new Set([...Object.keys(left?.fields ?? {}), ...Object.keys(right?.fields ?? {})])];
+    return { id, fields: keys.map((name) => ({ name, chunks: computeWordDiff(left?.fields[name] ?? "", right?.fields[name] ?? "") })),
+      bullets: alignProvenanceBullets(left?.bullets ?? [], right?.bullets ?? []) };
+  });
+}
+
 export function compareExperienceEntries(
   baseEntries: ParsedExperienceEntry[],
   tailoredEntries: ParsedExperienceEntry[],
+  stableIds = false,
 ): ExperienceEntryDiff[] {
   const diffs: ExperienceEntryDiff[] = [];
   const usedBaseIds = new Set<string>();
@@ -236,10 +273,10 @@ export function compareExperienceEntries(
   tailoredEntries.forEach((tailored, tIdx) => {
     // Find matching base entry by company name or order
     const normTailoredCompany = stripMarkdown(tailored.company).toLowerCase();
-    let bestBase: ParsedExperienceEntry | null = null;
+    let bestBase: ParsedExperienceEntry | null = stableIds ? baseEntries.find((entry) => entry.id === tailored.id) ?? null : null;
     let bestBaseScore = 0;
 
-    for (const base of baseEntries) {
+    for (const base of stableIds ? [] : baseEntries) {
       if (usedBaseIds.has(base.id)) continue;
       const normBaseCompany = stripMarkdown(base.company).toLowerCase();
       let score = 0;
@@ -258,7 +295,7 @@ export function compareExperienceEntries(
     }
 
     // If fallback by index if company similarity isn't found
-    if (!bestBase && baseEntries[tIdx] && !usedBaseIds.has(baseEntries[tIdx].id)) {
+    if (!stableIds && !bestBase && baseEntries[tIdx] && !usedBaseIds.has(baseEntries[tIdx].id)) {
       bestBase = baseEntries[tIdx];
     }
 
@@ -278,7 +315,7 @@ export function compareExperienceEntries(
     const companyChunks = computeWordDiff(bestBase?.company ?? "", tailored.company);
     const locationChunks = computeWordDiff(bestBase?.location ?? "", tailored.location ?? "");
     const dateRangeChunks = computeWordDiff(bestBase?.dateRange ?? "", tailored.dateRange ?? "");
-    const bullets = alignExperienceBullets(bestBase?.bullets ?? [], tailored.bullets);
+    const bullets = stableIds ? alignProvenanceBullets(bestBase?.bulletRecords ?? [], tailored.bulletRecords ?? []) : alignExperienceBullets(bestBase?.bullets ?? [], tailored.bullets);
 
     const modifiedBullets = bullets.filter((b) => b.status === "modified").length;
     const addedBullets = bullets.filter((b) => b.status === "added").length;
@@ -383,13 +420,14 @@ export function compareExperienceEntries(
 export function compareEducationEntries(
   baseEntries: ParsedEducationEntry[],
   tailoredEntries: ParsedEducationEntry[],
+  stableIds = false,
 ): EducationEntryDiff[] {
   const diffs: EducationEntryDiff[] = [];
   const usedBaseIds = new Set<string>();
 
   tailoredEntries.forEach((tailored, idx) => {
-    let bestBase = baseEntries.find((b) => !usedBaseIds.has(b.id) && stripMarkdown(b.institution).toLowerCase() === stripMarkdown(tailored.institution).toLowerCase()) ?? null;
-    if (!bestBase && baseEntries[idx] && !usedBaseIds.has(baseEntries[idx].id)) {
+    let bestBase = baseEntries.find((b) => !usedBaseIds.has(b.id) && (stableIds ? b.id === tailored.id : stripMarkdown(b.institution).toLowerCase() === stripMarkdown(tailored.institution).toLowerCase())) ?? null;
+    if (!stableIds && !bestBase && baseEntries[idx] && !usedBaseIds.has(baseEntries[idx].id)) {
       bestBase = baseEntries[idx];
     }
     if (bestBase) {
@@ -397,7 +435,9 @@ export function compareEducationEntries(
     }
 
     const degreeChunks = computeWordDiff(bestBase?.degree ?? "", tailored.degree);
-    const bullets = alignExperienceBullets(bestBase?.bullets ?? [], tailored.bullets);
+    const bullets = stableIds ? alignProvenanceBullets(bestBase?.bulletRecords ?? [], tailored.bulletRecords ?? []) : alignExperienceBullets(bestBase?.bullets ?? [], tailored.bullets);
+    const institutionChunks = computeWordDiff(bestBase?.institution ?? "", tailored.institution);
+    const institutionChanged = institutionChunks.some((chunk) => chunk.added || chunk.removed);
     const hasDegreeChanges = degreeChunks.some((c) => c.added || c.removed);
     const hasBulletChanges = bullets.some((bullet) => bullet.status !== "unchanged");
     const locationChanged =
@@ -410,13 +450,16 @@ export function compareEducationEntries(
     let status: DiffChangeStatus = "unchanged";
     if (!bestBase) {
       status = "added";
-    } else if (hasDegreeChanges || hasBulletChanges || locationChanged || dateRangeChanged) {
+    } else if (institutionChanged || hasDegreeChanges || hasBulletChanges || locationChanged || dateRangeChanged) {
       status = "modified";
     }
 
     diffs.push({
       id: `edu-diff-${tailored.id}`,
       institution: tailored.institution || bestBase?.institution || `Education ${idx + 1}`,
+      institutionChunks,
+      locationChunks: computeWordDiff(bestBase?.location ?? "", tailored.location ?? ""),
+      dateRangeChunks: computeWordDiff(bestBase?.dateRange ?? "", tailored.dateRange ?? ""),
       degree: {
         base: bestBase?.degree ?? null,
         tailored: tailored.degree,
@@ -462,6 +505,7 @@ export function compareResumeDocs(
   tailoredDoc: ParsedResumeDoc,
 ): ResumeComparisonSummary {
   const sectionDiffs: SectionDiff[] = [];
+  const stableIds = Boolean(baseDoc.stableIds && tailoredDoc.stableIds);
   const usedBaseSectionIds = new Set<string>();
 
   let wordsAdded = 0;
@@ -478,11 +522,11 @@ export function compareResumeDocs(
   tailoredDoc.sections.forEach((tailoredSec, idx) => {
     // Find matching base section by kind
     let matchingBase = baseDoc.sections.find(
-      (b) => !usedBaseSectionIds.has(b.id) && b.kind === tailoredSec.kind,
+      (b) => !usedBaseSectionIds.has(b.id) && (stableIds ? b.id === tailoredSec.id : b.kind === tailoredSec.kind),
     ) ?? null;
 
     // Fallback to title match
-    if (!matchingBase) {
+    if (!stableIds && !matchingBase) {
       matchingBase = baseDoc.sections.find(
         (b) => !usedBaseSectionIds.has(b.id) && stripMarkdown(b.heading).toLowerCase() === stripMarkdown(tailoredSec.heading).toLowerCase(),
       ) ?? null;
@@ -492,12 +536,13 @@ export function compareResumeDocs(
       usedBaseSectionIds.add(matchingBase.id);
     }
 
-    let sectionStatus: DiffChangeStatus = !matchingBase ? "added" : "unchanged";
+    let sectionStatus: DiffChangeStatus = !matchingBase ? "added" : matchingBase.heading !== tailoredSec.heading ? "modified" : "unchanged";
     let expDiffs: ExperienceEntryDiff[] | undefined;
     let eduDiffs: EducationEntryDiff[] | undefined;
     let summaryDiff: SectionDiff["summaryDiff"];
     let skillsDiff: SectionDiff["skillsDiff"];
     let genericDiff: SectionDiff["genericDiff"];
+    let entryDiffs: SectionDiff["entryDiffs"];
     let changesCount = 0;
     let secAdded = 0;
     let secRemoved = 0;
@@ -506,6 +551,7 @@ export function compareResumeDocs(
       expDiffs = compareExperienceEntries(
         matchingBase?.experienceEntries ?? [],
         tailoredSec.experienceEntries ?? [],
+        stableIds,
       );
 
       expDiffs.forEach((e) => {
@@ -528,6 +574,7 @@ export function compareResumeDocs(
       eduDiffs = compareEducationEntries(
         matchingBase?.educationEntries ?? [],
         tailoredSec.educationEntries ?? [],
+        stableIds,
       );
       if (eduDiffs.some((e) => e.status !== "unchanged")) {
         sectionStatus = "modified";
@@ -586,6 +633,7 @@ export function compareResumeDocs(
         removedSkills: removed,
       };
     } else {
+      if (stableIds && ((matchingBase?.entries?.length ?? 0) + (tailoredSec.entries?.length ?? 0) > 0)) entryDiffs = compareGenericEntries(matchingBase?.entries ?? [], tailoredSec.entries ?? []);
       // Generic section
       const baseBody = matchingBase?.rawMarkdown || matchingBase?.markdownBody || "";
       const tailoredBody = tailoredSec.rawMarkdown || tailoredSec.markdownBody || "";
@@ -616,6 +664,7 @@ export function compareResumeDocs(
       };
     }
 
+    if (!matchingBase) sectionStatus = "added";
     sectionDiffs.push({
       id: `sec-diff-${tailoredSec.id || idx}`,
       heading: tailoredSec.heading,
@@ -628,6 +677,7 @@ export function compareResumeDocs(
       summaryDiff,
       skillsDiff,
       genericDiff,
+      entryDiffs,
       stats: {
         changesCount,
         addedCount: secAdded,
@@ -653,9 +703,9 @@ export function compareResumeDocs(
           removedSkills: baseSec.skillsList ?? [],
         };
       } else if (baseSec.kind === "professional_experience") {
-        expDiffs = compareExperienceEntries(baseSec.experienceEntries ?? [], []);
+        expDiffs = compareExperienceEntries(baseSec.experienceEntries ?? [], [], stableIds);
       } else if (baseSec.kind === "education") {
-        eduDiffs = compareEducationEntries(baseSec.educationEntries ?? [], []);
+        eduDiffs = compareEducationEntries(baseSec.educationEntries ?? [], [], stableIds);
       } else if (baseSec.kind === "summary") {
         summaryDiff = {
           baseText: baseSec.rawMarkdown,
@@ -675,6 +725,7 @@ export function compareResumeDocs(
         educationDiffs: eduDiffs,
         summaryDiff,
         skillsDiff,
+        entryDiffs: stableIds && baseSec.entries?.length && !["professional_experience", "education"].includes(baseSec.kind) ? compareGenericEntries(baseSec.entries, []) : undefined,
         genericDiff: {
           baseText: baseSec.rawMarkdown,
           tailoredText: "",

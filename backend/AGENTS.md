@@ -6,7 +6,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Product behavior and data contract: `docs/resume_builder_PRD_v3.md`
 
 ## Backend Commitments
-- Follow the committed backend stack only: FastAPI, Custom JWT Auth, Postgres, LangChain, OpenRouter, Playwright, Resend, and Railway.
+- Follow the committed backend stack only: FastAPI, Custom JWT Auth, Postgres, Pydantic AI, OpenRouter, Playwright, Resend, and Railway.
 - Keep backend responsibilities aligned with these product domains:
   - auth and session validation
   - applications
@@ -41,14 +41,14 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Single-section regeneration must enforce a `120s` idle timeout with a `120s` maximum wall-clock window.
 - PDF export must enforce a `20s` timeout.
 - Background work must use bounded retries, explicit cancellation behavior, and clear terminal failure handling.
-- OpenRouter integration must support a configurable primary model and configurable fallback model, with one retry against the fallback only after primary-model failure or invalid structured output.
+- OpenRouter integration uses configurable primary and fallback models, with bounded output correction and targeted section repairs sharing a request, token and deadline budget.
 
 ## Generation and Validation Boundaries
-- Initial generation and full regeneration must use one LLM request that returns semantic structured JSON for all eligible sections in order.
+- Initial generation and full regeneration batch writable sections in one structured request, copy fixed facts locally, and repair only failed sections within the shared budget.
 - Respect the user's enabled sections, source-supported section eligibility, section order, target length, aggressiveness setting, and additional instructions where applicable.
 - Strip personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
 - Never generate personal information or invent credentials, employers, dates, or educational institutions. Low aggressiveness keeps Professional Experience role titles source-exact. Medium may lightly reframe them only when the title stays grounded in the same core role family and seniority. High may retitle more freely only when the new title still matches the demonstrated work and keeps employer and dates unchanged.
 - Initial generation, full regeneration, and section regeneration must consume the user's subscription quota. The legacy `full_regeneration_count` field is retained for compatibility only.
-- Run deterministic schema and rule validation over generated content before assembly.
+- Require reviewed source sections before generation. Preserve the exact source snapshot for comparison and section/keyword regeneration. Run deterministic schema and rule validation over generated content before assembly.
 - Validator outcomes are limited to approve or fail.
 - Validation failure must block assembly and follow the generation failure path defined by the PRD.
