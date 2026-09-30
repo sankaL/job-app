@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from functools import wraps
@@ -16,6 +17,108 @@ from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
 from langsmith_tracing import trace_scope, end_trace_safely
+
+
+SAFE_AI_OPERATIONS = {"generation", "regeneration_full", "regeneration_section", "keyword_optimization", "section_generation", "section_repair", "section_grounding_audit", "keyword_patch", "job_extraction", "keyword_extraction", "resume_judge", "structured_call"}
+SAFE_PROVIDER_ERROR_CATEGORIES = {"strict_required", "invalid_schema", "reasoning", "unsupported_parameter", "authentication", "rate_limited", "provider_unavailable", "invalid_request", "provider_error"}
+SAFE_PROVIDER_SCHEMA_FLAGS = {"strict", "required", "default", "nullable", "additionalProperties", "$ref", "$defs", "minLength", "maxLength", "minItems", "maxItems", "anyOf", "definitions", "parameters", "properties", "items", "type", "enum", "null", "function_declarations", "parameters_json_schema", "tool_config", "function_calling_config", "min_length", "max_length", "min_items", "max_items", "additional_properties"}
+SAFE_PROVIDER_ERROR_CODES = {"invalid_json_schema", "invalid_schema", "invalid_request_error", "unsupported_parameter", "rate_limit_exceeded", "invalid_api_key", "insufficient_quota"}
+
+
+def safe_provider_error_details(status_code: Any, body: Any) -> dict[str, Any]:
+    """Classify bounded provider error text into fixed labels; never return it."""
+    if type(status_code) is not int or not 400 <= status_code <= 599:
+        return {}
+    fragments: list[str] = []
+    code = None
+    visited = 0
+    def visit(value: Any, depth: int = 0) -> None:
+        nonlocal code, visited
+        visited += 1
+        if depth > 8 or visited > 128 or len(fragments) >= 32:
+            return
+        if isinstance(value, str):
+            fragments.append(value[:2000])
+            # OpenRouter may wrap upstream JSON as metadata.raw. Parsing only
+            # small JSON-looking strings exposes nested known error keys to
+            # this same bounded visitor; no decoded text is returned or saved.
+            if len(value) <= 20000 and value.lstrip().startswith(("{", "[")):
+                try:
+                    nested = json.loads(value)
+                except (ValueError, RecursionError):
+                    pass
+                else:
+                    visit(nested, depth + 1)
+        elif isinstance(value, list):
+            for item in value[:32]:
+                # Lists wrap error-envelope objects rather than add another
+                # envelope level. The global node cap still bounds cycles.
+                visit(item, depth)
+        elif isinstance(value, dict):
+            if isinstance(value.get("code"), str) and value["code"] in SAFE_PROVIDER_ERROR_CODES:
+                code = value["code"]
+            for key in ("error", "message", "type", "code", "param", "metadata", "raw", "details", "errors", "inner_error", "innerError", "detail", "reason", "description", "status", "fieldViolations", "field_violations", "violations", "field", "errorInfo", "error_info"):
+                if key in value:
+                    visit(value[key], depth + 1)
+    visit(body)
+    text = " ".join(fragments).casefold()
+    if "strict" in text and ("required" in text or "all properties" in text):
+        category = "strict_required"
+    elif any(term in text for term in ("schema", "function.parameters", "function_declarations", "anyof", "definitions", "additionalproperties", "additional_properties")) or ("enum" in text and "null" in text):
+        category = "invalid_schema"
+    elif "reasoning" in text and any(word in text for word in ("unsupported", "unknown", "invalid", "mandatory", "parameter")):
+        category = "reasoning"
+    elif any(phrase in text for phrase in ("unsupported parameter", "unknown parameter", "parameter is not supported", "unsupported parameters")):
+        category = "unsupported_parameter"
+    elif status_code in {401, 403}:
+        category = "authentication"
+    elif status_code == 429:
+        category = "rate_limited"
+    elif status_code >= 500:
+        category = "provider_unavailable"
+    elif status_code == 400:
+        category = "invalid_request"
+    else:
+        category = "provider_error"
+    result: dict[str, Any] = {"http_status": status_code, "provider_error_category": category,
+        "provider_schema_flags": sorted(flag for flag in SAFE_PROVIDER_SCHEMA_FLAGS
+            if re.search(r"(?<![a-z0-9_])" + re.escape(flag.casefold()) + r"(?![a-z0-9_])", text))}
+    if code:
+        result["provider_error_code"] = code
+    return result
+
+
+def portable_openrouter_profile(model_name: str) -> Any:
+    """Narrow Google tool schemas to its documented OpenAPI transport subset.
+
+    Extend the pinned SDK's Google transformer so its definition inlining and
+    nullable-union handling stay intact. Constraints omitted from transport
+    remain enforced by the original output model and local section validators.
+    Other upstream profiles use the SDK's unmodified defaults.
+    """
+    if model_name.removeprefix("~").split("/", 1)[0] != "google":
+        return None
+    from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+    profile = OpenRouterProvider.model_profile(model_name)
+    if profile is None or profile.get("json_schema_transformer") is None:
+        raise RuntimeError("Google provider schema compatibility is unavailable.")
+    parent_transformer = profile["json_schema_transformer"]
+
+    class GoogleFunctionSchemaTransformer(parent_transformer):
+        def transform(self, schema):
+            schema = super().transform(schema)
+            # Function `parameters` accepts this narrower subset, rather than
+            # every constraint accepted by Google's structured-output mode.
+            # https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling
+            supported = {"type", "nullable", "required", "format", "description",
+                "properties", "items", "enum", "anyOf", "$ref", "$defs"}
+            for key in tuple(schema):
+                if key not in supported:
+                    del schema[key]
+            return schema
+
+    return {**profile, "json_schema_transformer": GoogleFunctionSchemaTransformer}
 
 
 class AIRequestError(RuntimeError):
@@ -106,8 +209,7 @@ async def structured_call(
     settings: dict[str, Any] = {"temperature": temperature, "max_tokens": min(8000, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": {"require_parameters": True}}
     if reasoning:
         settings["openrouter_reasoning"] = reasoning
-    allowed_operations = {"generation", "regeneration_full", "regeneration_section", "keyword_optimization", "section_generation", "section_repair", "section_grounding_audit", "keyword_patch", "job_extraction", "keyword_extraction", "resume_judge", "structured_call"}
-    safe_operation = operation if operation in allowed_operations else "structured_call"
+    safe_operation = operation if operation in SAFE_AI_OPERATIONS else "structured_call"
     trace_manager = None
     run_trace = None
     outcome = "failed"
@@ -122,10 +224,14 @@ async def structured_call(
     except Exception:
         trace_manager = None  # Telemetry availability never controls AI success.
     try:
-        model = OpenRouterModel(model_name, provider=OpenRouterProvider(openai_client=client))
+        model = OpenRouterModel(model_name, provider=OpenRouterProvider(openai_client=client),
+            profile=portable_openrouter_profile(model_name))
         agent = Agent(
             model,
-            output_type=ToolOutput(output_type),
+            # Gateway profiles may incorrectly auto-enable native strict tools
+            # for portable nullable/default/dictionary schemas. Local typed and
+            # per-section validation remains strict and fail closed.
+            output_type=ToolOutput(output_type, strict=False),
             system_prompt=system,
             retries=1 if remaining_requests > 1 else 0,
         )
@@ -168,6 +274,7 @@ async def structured_call(
             "error_type": type(error).__name__,
             "elapsed_ms": round((perf_counter() - started) * 1000),
             "operation": operation,
+            **safe_provider_error_details(getattr(error, "status_code", None), getattr(error, "body", None)),
         })
         if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
             raise asyncio.TimeoutError("AI provider request timed out.") from None

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from llm_runtime import CallBudget, structured_call
@@ -28,6 +28,8 @@ def mock_provider(monkeypatch, outputs):
         item = outputs.pop(0)
         if isinstance(item, Exception):
             raise item
+        if isinstance(item, httpx.Response):
+            return item
         name = data['tools'][0]['function']['name']
         return httpx.Response(200, json={
             'id': 'test-completion', 'object': 'chat.completion', 'created': 1,
@@ -46,6 +48,133 @@ def mock_provider(monkeypatch, outputs):
 
     monkeypatch.setattr(openai, 'AsyncOpenAI', factory)
     return requests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('batch_name,bullet_type', [('SectionBatch','RewrittenBullet'), ('KeywordSectionBatch','KeywordBulletPatch')])
+async def test_real_provider_tools_receive_full_section_schemas_without_discarding_siblings(monkeypatch, batch_name, bullet_type):
+    import section_generation
+    batch_type = getattr(section_generation, batch_name)
+    malformed = {'id': 'section-id', 'unexpected_field': 'Must be checked locally'}
+    requests = mock_provider(monkeypatch, [{'sections': [malformed]}])
+    budget = CallBudget.for_seconds(3, max_requests=2)
+    output = await structured_call(prompt=[('human','Return requested sections.')], output_type=batch_type,
+        model_name='test/primary', api_key='test', base_url='https://provider.invalid/v1', budget=budget)
+    assert output.sections == [malformed]
+    assert len(requests) == 1
+    schema = requests[0]['tools'][0]['function']['parameters']
+    assert set(schema['properties']['sections']['items']['properties']) == {'id', 'paragraph', 'source_ids', 'entries'}
+    assert schema['$defs'][bullet_type]['additionalProperties'] is False
+    assert 'text' in schema['$defs'][bullet_type]['properties']
+    assert ('id' in schema['$defs'][bullet_type]['properties']) == (batch_name == 'KeywordSectionBatch')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_name', ['google/gemini-3.7-flash', 'test/provider'])
+async def test_runtime_disables_profile_auto_strict_tools_but_keeps_nested_schema(monkeypatch, model_name):
+    import section_generation
+    requests = mock_provider(monkeypatch, [{'sections': []}])
+    await structured_call(prompt=[('human','Return requested sections.')], output_type=section_generation.SectionBatch,
+        model_name=model_name, api_key='test', base_url='https://provider.invalid/v1', budget=CallBudget.for_seconds(3))
+    function = requests[0]['tools'][0]['function']
+    assert function.get('strict', False) is False
+    assert set(function['parameters']['properties']['sections']['items']['properties']) == {'id','paragraph','source_ids','entries'}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('batch_name', ['SectionBatch','KeywordSectionBatch'])
+async def test_google_function_transport_keeps_nested_shape_and_removes_unsupported_constraints(monkeypatch, batch_name):
+    import section_generation
+    requests = mock_provider(monkeypatch, [{'sections': []}])
+    await structured_call(prompt=[('human','Return requested sections.')], output_type=getattr(section_generation,batch_name),
+        model_name='~google/gemini-3.7-flash', api_key='test', base_url='https://provider.invalid/v1', budget=CallBudget.for_seconds(3))
+    schema = requests[0]['tools'][0]['function']['parameters']
+    allowed = {'type','nullable','required','format','description','properties','items','enum','anyOf','$ref','$defs'}
+    def check(node):
+        assert set(node) <= allowed
+        if node.get('type') == 'array':
+            assert 'items' in node
+        for child in node.get('properties',{}).values():
+            check(child)
+        if isinstance(node.get('items'),dict):
+            check(node['items'])
+        for child in node.get('anyOf',[]):
+            check(child)
+    check(schema)
+    section = schema['properties']['sections']['items']
+    assert section['type'] == 'object'
+    assert section['required'] == ['id']
+    assert section['properties']['id']['type'] == 'string'
+    assert section['properties']['entries']['items']['properties']['id']['type'] == 'string'
+    nullable = section['properties']['entries']['items']['properties']['title'] if batch_name == 'SectionBatch' else section['properties']['paragraph']
+    assert nullable['type'] == 'string'
+    assert nullable['nullable'] is True
+
+
+@pytest.mark.asyncio
+async def test_google_transport_omissions_keep_strict_local_output_correction(monkeypatch):
+    class ConstrainedOutput(BaseModel):
+        model_config = ConfigDict(extra='forbid',strict=True)
+        label: str = Field(min_length=2,max_length=4)
+        values: list[int] = Field(min_length=1,max_length=2)
+    requests = mock_provider(monkeypatch, [
+        {'label':'oversized','values':[],'extra':'forbidden'},
+        {'label':'good','values':[1]},
+    ])
+    budget = CallBudget.for_seconds(3,max_requests=2)
+    result = await structured_call(prompt=[('human','Return the requested typed value.')], output_type=ConstrainedOutput,
+        model_name='google/gemini-3.7-flash',api_key='test',base_url='https://provider.invalid/v1',budget=budget)
+    assert result.label == 'good'
+    assert budget.requests == 2
+    schema = requests[0]['tools'][0]['function']['parameters']
+    assert 'additionalProperties' not in schema
+    assert 'maxLength' not in schema['properties']['label']
+    assert 'minItems' not in schema['properties']['values']
+    assert any(message['role']=='tool' for message in requests[1]['messages'])
+
+
+@pytest.mark.asyncio
+async def test_provider_http_schema_error_reports_only_safe_category_status_and_flags(monkeypatch):
+    from llm_runtime import AIRequestError
+    secret = 'user@example.test private provider payload'
+    requests = mock_provider(monkeypatch, [httpx.Response(400, json={'error': {
+        'code':'invalid_json_schema', 'message':'Invalid schema: strict requires all properties in required; nullable default is unsupported.',
+        'metadata': {'raw': secret},
+    }})])
+    budget = CallBudget.for_seconds(3, max_requests=1)
+    with pytest.raises(AIRequestError) as result:
+        await structured_call(prompt=[('human','Return a count.')], output_type=ExampleOutput,
+            model_name='test/provider', api_key='test', base_url='https://provider.invalid/v1', budget=budget)
+    assert len(requests) == 1
+    attempt = budget.attempts[0]
+    assert attempt['http_status'] == 400
+    assert attempt['provider_error_category'] == 'strict_required'
+    assert attempt['provider_error_code'] == 'invalid_json_schema'
+    assert set(attempt['provider_schema_flags']) == {'strict','required','nullable','default','properties'}
+    assert secret not in json.dumps(attempt)
+    assert secret not in str(result.value)
+
+
+@pytest.mark.parametrize('raw_is_json_string', [False, True])
+def test_safe_http_classifier_reads_bounded_nested_upstream_details_and_lists(raw_is_json_string):
+    from llm_runtime import safe_provider_error_details
+    raw = {'error': {'message':'Invalid value at tools.function_declarations.parameters: cannot find enum value for null.',
+        'details':[{'fieldViolations':[{'description':'Invalid parameters_json_schema type; private@example.test'}]}]}}
+    if raw_is_json_string:
+        raw = json.dumps(raw)
+    report = safe_provider_error_details(400, {'error': {'message':'Provider returned error', 'metadata': {'raw':raw}}})
+    assert report['provider_error_category'] == 'invalid_schema'
+    assert {'function_declarations','parameters','type','enum','null','parameters_json_schema'} <= set(report['provider_schema_flags'])
+    assert 'private@example.test' not in json.dumps(report)
+
+
+def test_safe_http_classifier_bounds_cyclic_and_unhashable_error_payloads():
+    from llm_runtime import safe_provider_error_details
+    body = {'error': {'code': {'untrusted':'value'}, 'details': []}}
+    body['error']['details'].append(body)
+    report = safe_provider_error_details(400, body)
+    assert report['provider_error_category'] == 'invalid_request'
+    assert 'untrusted' not in json.dumps(report)
 
 
 @pytest.mark.asyncio

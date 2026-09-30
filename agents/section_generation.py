@@ -8,7 +8,7 @@ import json
 import re
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SkipValidation, ValidationError, field_validator
 
 from llm_runtime import CallBudget, structured_call
 from privacy import EMAIL_RE, PHONE_RE, CONTACT_URL_RE
@@ -42,9 +42,16 @@ class RewrittenSection(BaseModel):
 
 class SectionBatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    # Keeping item parsing local means one malformed item does not throw away
-    # valid siblings. Each item is then parsed against RewrittenSection.
-    sections: list[dict[str, Any]] = Field(max_length=100)
+    # The provider sees the full nested contract. SkipValidation retains raw
+    # dictionaries for independent item validation and valid-sibling recovery.
+    sections: list[SkipValidation[RewrittenSection]] = Field(max_length=100)
+
+    @field_validator("sections")
+    @classmethod
+    def object_items(cls, values):
+        if any(not isinstance(value, dict) for value in values):
+            raise ValueError("section_batch_items_must_be_objects")
+        return values
 
 
 GroundingIssue = Literal["unsupported_technology", "unsupported_metric", "unsupported_scope", "unsupported_credential", "unsupported_employer", "unsupported_role_reframe", "insufficient_source_evidence"]
@@ -77,6 +84,27 @@ class SectionValidationError(ValueError):
 
 def _model_dump(value: Any) -> dict[str, Any]:
     return value.model_dump(mode="json") if isinstance(value, BaseModel) else deepcopy(value)
+
+
+_OUTPUT_KEYS = {"id", "name", "section_id", "kind", "heading", "paragraph", "content", "content_md", "entries", "fields", "bullets", "source_ids", "title"}
+_SECTION_KIND_TOKENS = {"summary", "professional_experience", "education", "certifications", "projects", "skills", "custom"}
+
+
+def record_output_shape(budget: CallBudget, items: list[dict[str, Any]], allowed_ids: set[str]) -> None:
+    """Diagnose contract mismatches with counts and static tokens, never text."""
+    if not budget.attempts:
+        return
+    identifiers = [str(item.get("id") or "") for item in items]
+    unexpected = set(identifiers) - allowed_ids
+    keys = {key for item in items for key in item}
+    budget.attempts[-1]["output_shape"] = {
+        "section_count": len(items),
+        "missing_id_count": sum(not identifier for identifier in identifiers),
+        "unexpected_id_count": sum(identifier not in allowed_ids for identifier in identifiers),
+        "unexpected_known_kind_tokens": sorted(unexpected & _SECTION_KIND_TOKENS),
+        "known_item_keys": sorted(keys & _OUTPUT_KEYS),
+        "unknown_item_key_count": len(keys - _OUTPUT_KEYS),
+    }
 
 
 def _ids(document: ResumeDocument) -> set[str]:
@@ -304,12 +332,25 @@ def build_section_prompt(
         "A repair replaces only the requested failed sections; retained siblings and unrequested entries remain unchanged.\n\n"
         + build_unslop_prompt_block()
     )
+    if operation == "keyword_optimization":
+        system += ("\n\nReturn exactly a JSON object with a sections array of keyword patches. "
+            "A patch has {id,paragraph:null|new prose,source_ids:[],entries:[{id,bullets:[{id,text,source_ids}]}]}. "
+            "Use existing CURRENT bullet IDs. Omit unchanged items; an empty sections array is valid.")
+    else:
+        system += ("\n\nReturn exactly a JSON object with a sections array. "
+            "A prose section has {id,paragraph,source_ids,entries:[]}. "
+            "A structured section has {id,paragraph:\"\",source_ids:[],entries:[{id,title:null|truthful role title,bullets:[{text,source_ids}]}]}. "
+            "Copy section and entry IDs exactly from requested_sections. Never substitute headings, section kinds, names or new IDs. "
+            "Do not return content_md, kind, heading, fields, employer or date keys.")
     payload: dict[str, Any] = {
         "operation": operation,
         "target_role": {"job_title": job_title, "company": company_name},
         "job_description": job_description[:16000],
         "reviewed_source": {**source.model_dump(mode="json"), "sections": [section.model_dump(mode="json") for section in source.sections if section.review_state == "reviewed"]},
         "requested_sections": [_section_prompt_payload(section, target_entry_id) for section in requested],
+        "allowed_section_ids": [section.id for section in requested],
+        "allowed_entry_ids_by_section": {section.id: [entry.id for entry in section.entries
+            if not target_entry_id or entry.id == target_entry_id] for section in requested},
         "aggressiveness": aggressiveness,
         "aggressiveness_contract": AGGRESSIVENESS_CONTRACTS.get(aggressiveness, AGGRESSIVENESS_CONTRACTS["medium"]),
         "title_policy": TITLE_REWRITE_POLICIES.get(aggressiveness, TITLE_REWRITE_POLICIES["medium"]),
@@ -472,6 +513,7 @@ async def generate_document(
         for item in payload.sections:
             items.setdefault(str(item.get("id") or ""), []).append(item)
         allowed = {section.id for section in pending}
+        record_output_shape(budget, payload.sections, allowed)
         unexpected = set(items) - allowed
         next_pending = []
         errors = {}
@@ -660,6 +702,18 @@ class KeywordSectionPatch(BaseModel):
     entries: list[KeywordEntryPatch] = Field(default_factory=list, max_length=100)
 
 
+class KeywordSectionBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sections: list[SkipValidation[KeywordSectionPatch]] = Field(max_length=100)
+
+    @field_validator("sections")
+    @classmethod
+    def object_items(cls, values):
+        if any(not isinstance(value, dict) for value in values):
+            raise ValueError("keyword_batch_items_must_be_objects")
+        return values
+
+
 def apply_keyword_patch(*, patch: Any, source: ResumeSection, current: ResumeSection,
                         document: ResumeDocument, privacy_values: list[str]) -> tuple[ResumeSection, ResumeSection]:
     try:
@@ -783,7 +837,7 @@ async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDo
         last_prompt = prompt
         used_model = model if not round_index else (fallback_model or model)
         try:
-            response = await structured_call(prompt=prompt, output_type=SectionBatch, model_name=used_model,
+            response = await structured_call(prompt=prompt, output_type=KeywordSectionBatch, model_name=used_model,
                 api_key=api_key, base_url=base_url, budget=budget, timeout=45 if not round_index else 60,
                 temperature=0.2, operation="keyword_patch")
         except Exception:
@@ -798,6 +852,7 @@ async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDo
                 duplicates.add(identifier)
             received[identifier] = patch
         allowed = {section.id for section in pending}
+        record_output_shape(budget, response.sections, allowed)
         if set(received) - allowed:
             errors = {section.id: "unexpected_keyword_section" for section in pending}
             continue

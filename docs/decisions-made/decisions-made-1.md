@@ -8,6 +8,8 @@
 
 **Limits:** Factual field invariants and numeric/source-reference checks are deterministic. A separate typed claim audit checks rewritten prose within the same shared request budget. That audit and title-grounding heuristics reduce unsupported claims but do not establish semantic truth. Live model evaluation remains separate from deterministic local regression checks. Full regeneration uses the latest reviewed base; section/keyword actions preserve the draft's original source snapshot.
 
+**Verification follow-up:** The first synthetic live run exposed opaque nested section objects in the provider tool schema. Expose the complete rewrite and keyword-patch schemas while parsing each item locally so valid siblings survive repair. Keep provider strict-mode selection explicit for cross-provider compatibility; strict local shape, grounding and identity checks remain the acceptance boundary. Capture only bounded output-shape counts and predefined tokens in worker diagnostics. The synthetic evaluator and guarded browser fixtures make these failures reproducible without using production data. Google transport schemas retain the documented function-calling subset after SDK definition/nullable handling; omitted bounds and extra-key rules remain strict local checks. A fresh four-case sample passed across ten HTTP 200 requests with one targeted repair. This is initial compatibility/recovery evidence, not a measured reliability rate; separate import/Jev labels and a broader writing-quality benchmark remain necessary.
+
 # Decisions Made
 
 ## 2026-08-22 21:45:00 EDT - Redesign resume comparison into an interactive section-by-section diff workspace with GSAP motion

@@ -34,6 +34,23 @@ function ControlledWorkbench() {
 }
 
 describe("section workbench", () => {
+  it.each([
+    ["professional_experience", ["title", "company", "location", "date_range"]],
+    ["education", ["qualification", "institution", "location", "date_range"]],
+    ["projects", ["name", "details", "url"]],
+    ["certifications", ["name", "issuer", "date"]],
+  ] as const)("keeps %s fields in semantic order after persisted keys are reordered", (kind, order) => {
+    const fields = Object.fromEntries<string>([["z_extra", "last extra"], ...[...order].reverse().map((key) => [key, key] as const), ["a_extra", "first extra"]]);
+    const section = { ...source.sections[0], kind, entries: [{ ...source.sections[0].entries[0], fields, bullets: [] }] };
+    const document = { ...source, sections: [section] };
+    const { rerender } = render(<ResumeSectionWorkbench document={document} onChange={vi.fn()} />);
+    const values = () => screen.getAllByRole("textbox").map((input) => (input as HTMLInputElement).value);
+    expect(values()).toEqual([section.heading, ...order, "first extra", "last extra"]);
+    const persisted = { ...document, sections: [{ ...section, entries: [{ ...section.entries[0], fields: Object.fromEntries(Object.entries(fields).sort(([left], [right]) => left.localeCompare(right))) }] }] };
+    rerender(<ResumeSectionWorkbench document={persisted} onChange={vi.fn()} />);
+    expect(values()).toEqual([section.heading, ...order, "first extra", "last extra"]);
+  });
+
   it.each(["Contact", "Contact information", "Contact info", "Contact details", "Contacts", "Personal information", "Personal details", "Personal info"])("routes the %s heading to profile contact editing", (heading) => {
     const document = { ...source, sections: [{ ...source.sections[0], kind: "custom" as const, heading: ` ${heading.toUpperCase()} ` }] };
     expect(resumeDocumentError(document)).toBe("Manage contact information in your profile.");

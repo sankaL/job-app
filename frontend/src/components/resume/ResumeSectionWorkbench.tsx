@@ -31,12 +31,23 @@ export function ResumeContactCard({ profile, suggestions }: { profile: ProfileDa
 }
 
 const FIELD_LABELS: Record<string, string> = { title: "Role title", company: "Employer", institution: "Institution", degree: "Degree", qualification: "Degree or qualification", details: "Details", url: "Link", location: "Location", date_range: "Dates", name: "Name", issuer: "Issuer", date: "Date", description: "Description" };
+const FIELD_ORDER: Partial<Record<ResumeSectionKind, string[]>> = {
+  professional_experience: ["title", "company", "location", "date_range"],
+  education: ["qualification", "institution", "location", "date_range"],
+  projects: ["name", "details", "url"],
+  certifications: ["name", "issuer", "date"],
+};
 
 function EntryEditor({ entry, index, kind, disabled, onChange, onRemove, onRegenerate, regenerationDisabled = false, regenerationReason }: {
   entry: ResumeSectionEntry; index: number; kind: ResumeSectionKind; disabled: boolean;
   onChange: (entry: ResumeSectionEntry) => void; onRemove: () => void; onRegenerate?: () => void;
   regenerationDisabled?: boolean; regenerationReason?: string | null;
 }) {
+  const preferredFields = FIELD_ORDER[kind] ?? [];
+  const fieldKeys = [
+    ...preferredFields.filter((key) => Object.prototype.hasOwnProperty.call(entry.fields, key)),
+    ...Object.keys(entry.fields).filter((key) => !preferredFields.includes(key)).sort(),
+  ];
   return (
     <div className="rounded-xl border p-3 sm:p-4" style={{ borderColor: "var(--color-border)", background: "var(--color-ink-05)" }}>
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -48,10 +59,10 @@ function EntryEditor({ entry, index, kind, disabled, onChange, onRemove, onRegen
       </div>
       {onRegenerate && regenerationReason && <p className="mb-3 text-xs" style={{ color: "var(--color-ink-50)" }}>{regenerationReason}</p>}
       <div className="grid gap-3 sm:grid-cols-2">
-        {Object.entries(entry.fields).map(([key, value]) => (
+        {fieldKeys.map((key) => (
           <label key={key} className="space-y-1 text-xs">
             <span style={{ color: "var(--color-ink-65)" }}>{FIELD_LABELS[key] ?? key.replaceAll("_", " ")}</span>
-            <Input disabled={disabled} value={value} onChange={(event) => onChange({ ...entry, fields: { ...entry.fields, [key]: event.target.value } })} />
+            <Input disabled={disabled} value={entry.fields[key]} onChange={(event) => onChange({ ...entry, fields: { ...entry.fields, [key]: event.target.value } })} />
           </label>
         ))}
       </div>

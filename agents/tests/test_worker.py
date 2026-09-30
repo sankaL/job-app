@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -9,6 +10,32 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import worker
+
+
+def test_attempt_sanitizer_retains_only_bounded_static_shape_and_http_diagnostics():
+    attempts = worker._sanitize_attempts([{
+        'model':'configured-model', 'operation':'section_repair', 'error_type':'ModelHTTPError',
+        'http_status':400, 'provider_error_category':'invalid_schema', 'provider_error_code':'invalid_json_schema',
+        'provider_schema_flags':['nullable','required','private-schema-key'],
+        'output_shape': {'section_count':2, 'missing_id_count':0, 'unexpected_id_count':-1, 'unknown_item_key_count':99999,
+            'known_item_keys':['id','paragraph','entries','private-field-key'],
+            'unexpected_known_kind_tokens':['skills','private-section-id'],
+            'raw_content':'private body', 'unknown_ids':['private@example.test']},
+        'raw_error':'private provider body',
+    }])
+    item = attempts[0]
+    assert item['operation'] == 'section_repair'
+    assert item['error_type'] == 'ModelHTTPError'
+    assert item['http_status'] == 400
+    assert item['provider_schema_flags'] == ['nullable','required']
+    assert item['output_shape'] == {'section_count':2,'missing_id_count':0,'unknown_item_key_count':1000,
+        'known_item_keys':['entries','id','paragraph'],'unexpected_known_kind_tokens':['skills']}
+    assert 'private' not in json.dumps(item)
+    untrusted = worker._sanitize_attempts([{'operation':{'private':'value'},'error_type':'private error',
+        'provider_error_category':['private'],'http_status':True,'output_shape':{'section_count':False,'known_item_keys':{'private':1}}}])[0]
+    assert 'operation' not in untrusted and 'error_type' not in untrusted and 'output_shape' not in untrusted
+    assert 'provider_error_category' not in untrusted and 'http_status' not in untrusted
+
 from worker import (
     BackendCallbackClient,
     EXTRACTION_TEXT_LIMIT,

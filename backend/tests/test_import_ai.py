@@ -1,13 +1,107 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from copy import deepcopy
+import json
+
+import httpx
 import pytest
 from pydantic import BaseModel
 
 from app.services.import_ai import invoke_import_output
+from app.services.resume_document import ResumeSection
+from app.services.resume_parser import ResumeParserService
 
 
 class ImportOutput(BaseModel):
     value: int
+
+
+@asynccontextmanager
+async def mock_import_provider(monkeypatch, outputs, requests):
+    import openai
+    original_client = openai.AsyncOpenAI
+
+    async def respond(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert all(tool["function"].get("strict") is not True for tool in payload["tools"])
+        name = payload["tools"][0]["function"]["name"]
+        return httpx.Response(200, json={
+            "id": "synthetic-completion", "object": "chat.completion", "created": 1,
+            "model": payload["model"], "provider": "Synthetic",
+            "choices": [{"index": 0, "finish_reason": "tool_calls", "message": {
+                "role": "assistant", "content": None,
+                "tool_calls": [{"id": "synthetic-call", "type": "function", "function": {
+                    "name": name, "arguments": json.dumps(outputs.pop(0)),
+                }}],
+            }}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20},
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http_client:
+        def client(**kwargs):
+            assert kwargs["max_retries"] == 0
+            return original_client(**{**kwargs, "http_client": http_client})
+
+        monkeypatch.setattr("openai.AsyncOpenAI", client)
+        yield
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_output", ["type", "extra_key", "invented_fact", "omitted_fact"])
+@pytest.mark.parametrize("model_name", ["~google/gemini-3-flash-preview", "openai/gpt-4o-mini"])
+async def test_real_import_transport_keeps_flexible_schema_and_local_corrections(monkeypatch, invalid_output, model_name):
+    valid = {"sections": [{"section_id": "experience", "entries": [{
+        "fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"},
+        "bullets": ["Built C++ APIs with +20.5% lower latency."],
+    }]}]}
+    invalid = deepcopy(valid)
+    entry = invalid["sections"][0]["entries"][0]
+    if invalid_output == "type":
+        entry["fields"]["company"] = 12
+    elif invalid_output == "extra_key":
+        entry["employer"] = "Acme"
+    elif invalid_output == "invented_fact":
+        entry["bullets"][0] = "Built C++ APIs with +95% lower latency."
+    else:
+        entry["bullets"] = []
+    source = ResumeSection(id="experience", kind="professional_experience", heading="Experience",
+        content_md="Acme\nEngineer\n2020 - 2024\n- Built C++ APIs with +20.5% lower latency.")
+    requests = []
+    async with mock_import_provider(monkeypatch, [invalid, valid], requests):
+        await ResumeParserService(openrouter_api_key="test-only", openrouter_model=model_name,
+            openrouter_base_url="https://provider.invalid/v1")._extract_nested_entries([source], timeout_seconds=3)
+    assert len(requests) == 2
+    schema = requests[0]["tools"][0]["function"]["parameters"]
+    if model_name.removeprefix("~").startswith("google/"):
+        imported_entry = schema["properties"]["sections"]["items"]["properties"]["entries"]["items"]
+        encoded = json.dumps(schema)
+        for attribute in ["default", "title", "additionalProperties", "minLength", "maxLength", "minItems", "maxItems"]:
+            assert f'"{attribute}":' not in encoded
+        assert "additionalProperties" not in imported_entry["properties"]["fields"]
+    else:
+        imported_entry = schema["$defs"]["ImportedEntry"]
+        assert imported_entry["additionalProperties"] is False
+        assert imported_entry["properties"]["fields"]["additionalProperties"] == {"type": "string"}
+    assert set(imported_entry["properties"]) == {"fields", "bullets"}
+    assert imported_entry["properties"]["fields"]["type"] == "object"
+    assert source.entries[0].fields == valid["sections"][0]["entries"][0]["fields"]
+    assert source.entries[0].bullets[0].text == "Built C++ APIs with +20.5% lower latency."
+    assert any(message["role"] == "tool" for message in requests[1]["messages"])
+
+
+@pytest.mark.asyncio
+async def test_real_cleanup_transport_still_repairs_changed_source_facts(monkeypatch):
+    valid = {"cleaned_markdown": "## Summary\nBuilt C++ APIs with +20.5% lower latency.", "needs_review": False, "review_reason": None}
+    invalid = {**valid, "cleaned_markdown": "## Summary\nBuilt C++ APIs with +95% lower latency."}
+    requests = []
+    async with mock_import_provider(monkeypatch, [invalid, valid], requests):
+        result = await ResumeParserService(openrouter_api_key="test-only", openrouter_model="google/gemini-3-flash-preview",
+            openrouter_base_url="https://provider.invalid/v1").cleanup_with_llm(valid["cleaned_markdown"], timeout_seconds=3)
+    assert len(requests) == 2
+    assert result.cleaned_markdown == valid["cleaned_markdown"] + "\n"
+    assert result.needs_review is False
 
 
 @pytest.mark.asyncio

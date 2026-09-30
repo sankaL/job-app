@@ -14,7 +14,8 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 from arq.connections import RedisSettings
-from llm_runtime import StructuredLLM as ChatOpenAI, bounded_ai_workflow
+from llm_runtime import (StructuredLLM as ChatOpenAI, bounded_ai_workflow, SAFE_AI_OPERATIONS,
+    SAFE_PROVIDER_ERROR_CATEGORIES, SAFE_PROVIDER_SCHEMA_FLAGS, SAFE_PROVIDER_ERROR_CODES)
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Route, TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
@@ -562,6 +563,33 @@ def _sanitize_attempts(attempts: Optional[list[dict[str, Any]]]) -> list[dict[st
         retry_reason = attempt.get("retry_reason")
         if retry_reason:
             sanitized_attempt["retry_reason"] = retry_reason
+        if isinstance(attempt.get("operation"), str) and attempt["operation"] in SAFE_AI_OPERATIONS:
+            sanitized_attempt["operation"] = attempt["operation"]
+        if isinstance(attempt.get("error_type"), str) and attempt["error_type"] in {"ModelHTTPError", "ModelAPIError", "APIStatusError", "BadRequestError", "AuthenticationError", "PermissionDeniedError", "RateLimitError", "InternalServerError", "ConnectError", "ReadTimeout", "ConnectTimeout", "WriteTimeout", "PoolTimeout", "TimeoutError", "ValidationError", "UnexpectedModelBehavior", "UsageLimitExceeded", "AIRequestError", "RuntimeError", "CancelledError"}:
+            sanitized_attempt["error_type"] = attempt["error_type"]
+        status = attempt.get("http_status")
+        if type(status) is int and 400 <= status <= 599:
+            sanitized_attempt["http_status"] = status
+        if isinstance(attempt.get("provider_error_category"), str) and attempt["provider_error_category"] in SAFE_PROVIDER_ERROR_CATEGORIES:
+            sanitized_attempt["provider_error_category"] = attempt["provider_error_category"]
+        if isinstance(attempt.get("provider_error_code"), str) and attempt["provider_error_code"] in SAFE_PROVIDER_ERROR_CODES:
+            sanitized_attempt["provider_error_code"] = attempt["provider_error_code"]
+        flags = attempt.get("provider_schema_flags")
+        if isinstance(flags, list):
+            sanitized_attempt["provider_schema_flags"] = sorted({flag for flag in flags if isinstance(flag, str) and flag in SAFE_PROVIDER_SCHEMA_FLAGS})
+        shape = attempt.get("output_shape")
+        if isinstance(shape, dict):
+            safe_shape = {key: min(value, 1000) for key in ("section_count", "missing_id_count", "unexpected_id_count", "unknown_item_key_count")
+                if type(value := shape.get(key)) is int and value >= 0}
+            for key, allowed in {
+                "known_item_keys": {"id", "name", "section_id", "kind", "heading", "paragraph", "content", "content_md", "entries", "fields", "bullets", "source_ids", "title"},
+                "unexpected_known_kind_tokens": {"summary", "professional_experience", "education", "certifications", "projects", "skills", "custom"},
+            }.items():
+                values = shape.get(key)
+                if isinstance(values, list):
+                    safe_shape[key] = sorted({value for value in values if isinstance(value, str) and value in allowed})
+            if safe_shape:
+                sanitized_attempt["output_shape"] = safe_shape
         sanitized.append(sanitized_attempt)
     return sanitized
 

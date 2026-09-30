@@ -2,12 +2,39 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 import httpx
 from pydantic import BaseModel
 
 Output = TypeVar("Output", bound=BaseModel)
+
+
+def _portable_openrouter_import_profile(model_name: str) -> Any:
+    """Keep Google's tool transport subset separate from local validation."""
+    if model_name.removeprefix("~").split("/", 1)[0] != "google":
+        return None
+    from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+    profile = OpenRouterProvider.model_profile(model_name)
+    if profile is None or profile.get("json_schema_transformer") is None:
+        raise RuntimeError("Google import schema compatibility is unavailable.")
+    parent_transformer = profile["json_schema_transformer"]
+
+    class GoogleImportSchemaTransformer(parent_transformer):
+        def transform(self, schema):
+            schema = super().transform(schema)
+            # Preserve SDK inlining/nullable handling, then keep Google's
+            # documented function-schema attributes at each schema node.
+            # https://docs.cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling
+            supported = {"type", "nullable", "required", "format", "description",
+                "properties", "items", "enum", "anyOf", "$ref", "$defs"}
+            for key in tuple(schema):
+                if key not in supported:
+                    del schema[key]
+            return schema
+
+    return {**profile, "json_schema_transformer": GoogleImportSchemaTransformer}
 
 
 async def invoke_import_output(
@@ -38,9 +65,11 @@ async def invoke_import_output(
         )
         provider = OpenRouterProvider(openai_client=client)
         agent = Agent(
-            OpenRouterModel(model, provider=provider),
+            OpenRouterModel(model, provider=provider, profile=_portable_openrouter_import_profile(model)),
             system_prompt=system_prompt,
-            output_type=ToolOutput(output_type, strict=True),
+            # Provider strict schemas cannot represent the flexible factual
+            # field maps. Pydantic and source validators stay strict locally.
+            output_type=ToolOutput(output_type, strict=False),
             retries=1,
             model_settings={"temperature": 0.0, "max_tokens": 16000, "timeout": timeout_seconds},
         )

@@ -15,7 +15,13 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 - Versioned base/draft documents, stable nested IDs, import review and local contact suggestions.
 - Pydantic AI provider calls, shared bounded budgets, immutable factual assembly and targeted repairs.
 - Source snapshots for section/keyword regeneration and comparison; one inline workbench with custom sections and role actions.
-- Additive migrations 019/020; local Makefile regression targets; no live provider requests or hosted test services.
+- Additive migrations 019/020; local Makefile regression targets; initial checks used no live provider requests or hosted test services.
+
+### Provider and browser verification follow-up
+
+**Status:** Complete (2026-09-30 17:44:02 EDT).
+
+The browser walkthrough verified source review, custom sections, saved edits, fixed Education controls, role instructions and snapshot-based comparison. PDF and DOCX byte checks verified the latest content. Final suites passed 383 backend, 224 worker, 199 frontend and 15 environment/cleanup tests; the frontend production build passed. Synthetic live checks exposed incomplete nested schemas and Google transport constraints. Complete nested contracts plus scoped transport profiles resolved the sample's failures: all four fresh generation/regeneration cases passed across ten HTTP 200 requests, with one targeted repair and $0.03746250 provider-reported cost. Import calls use the same Google subset, verified by mocks. Test tooling guards local endpoints, worker state, atomic fixture inserts and absolute cleanup deadlines. Larger quality/reliability samples, live import/Jev evaluation and browser Blob delivery remain unmeasured; see the [verification report](task-output/2026-09-30-section-generation-evaluation-plan.md).
 
 ## Planning Defaults
 

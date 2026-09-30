@@ -55,6 +55,36 @@ def custom_output():
     return {'id': 'custom-id', 'paragraph': 'Maintained Python tools for a local charity.', 'source_ids': ['custom-id'], 'entries': []}
 
 
+@pytest.mark.parametrize('batch_type', [pipeline.SectionBatch, pipeline.KeywordSectionBatch])
+def test_provider_schema_exposes_nested_sections_but_preserves_local_item_parsing(batch_type):
+    schema = batch_type.model_json_schema()
+    item = schema['properties']['sections']['items']
+    assert set(item['properties']) == {'id', 'paragraph', 'source_ids', 'entries'}
+    assert item['additionalProperties'] is False
+    malformed = {'id': 'experience-id', 'unexpected_field': 'Rejected locally'}
+    result = batch_type.model_validate({'sections': [malformed]})
+    assert result.sections == [malformed]
+    with pytest.raises(ValueError, match='items_must_be_objects'):
+        batch_type.model_validate({'sections': ['Not a JSON object']})
+
+
+def test_output_shape_diagnostics_never_store_untrusted_ids_keys_or_content():
+    budget = pipeline.CallBudget.for_seconds(5)
+    budget.attempts.append({'outcome': 'success'})
+    pipeline.record_output_shape(budget, [
+        {'id': 'contact@example.test', 'arbitrary-secret-key': 'Private body'},
+        {'id': 'education', 'heading': 'Private heading'}, {'name': 'Private name'},
+    ], {'summary-id'})
+    encoded = json.dumps(budget.attempts)
+    assert 'contact@example.test' not in encoded
+    assert 'arbitrary-secret-key' not in encoded
+    assert 'Private' not in encoded
+    shape = budget.attempts[-1]['output_shape']
+    assert shape['unexpected_known_kind_tokens'] == ['education']
+    assert shape['missing_id_count'] == 1
+    assert shape['unexpected_id_count'] == 3
+
+
 async def run_pipeline(monkeypatch, responses, **overrides):
     calls = []
 
@@ -162,6 +192,21 @@ async def test_missing_section_receives_targeted_repair_without_rewriting_valid_
     ])
     assert [section['id'] for section in json.loads(calls[1]['prompt'][1][1])['requested_sections']] == ['custom-id']
     assert len(result['document']['sections']) == 4
+
+
+@pytest.mark.asyncio
+async def test_malformed_nested_sibling_repairs_only_its_section(monkeypatch):
+    malformed = experience_output()
+    malformed['entries'][0]['company'] = 'Do not allow writer factual fields'
+    result, calls = await run_pipeline(monkeypatch, [
+        {'sections': [summary_output(), malformed, custom_output()]},
+        {'sections': [experience_output()]},
+    ])
+    repaired_payload = json.loads(calls[1]['prompt'][1][1])
+    assert repaired_payload['allowed_section_ids'] == ['experience-id']
+    assert [section['id'] for section in repaired_payload['requested_sections']] == ['experience-id']
+    assert result['document']['sections'][0]['content_md'] == summary_output()['paragraph']
+    assert result['document']['sections'][3]['content_md'] == custom_output()['paragraph']
 
 
 @pytest.mark.asyncio
