@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ResumeContactCard, ResumeSectionWorkbench } from "./ResumeSectionWorkbench";
+import { ResumeContactSection, ResumeSectionWorkbench } from "./ResumeSectionWorkbench";
 import type { ProfileData, ResumeDocument, ResumeDraft, ResumeSection } from "@/lib/api";
 import { documentFromMarkdown, resumeDocumentError } from "@/lib/resume-document";
 
@@ -60,7 +60,7 @@ export function DraftSectionWorkbench({ draft, profile, locked = false, saving =
       {changedElsewhere && <Card variant="warning" className="mt-3"><p className="text-xs">A newer draft is available. Your unsaved edits are preserved here. Reload the latest draft before saving.</p><Button type="button" size="sm" variant="secondary" className="mt-2" disabled={locked || saving} onClick={discardChanges}>Reload latest draft</Button></Card>}
       <div className="draft-workbench-content flex min-h-0 flex-1 flex-col gap-4 py-4">
         {!draft.document && <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>This legacy draft will gain section IDs when you save it. To refresh source links, choose Use latest base resume during full regeneration.</p>}
-        <ResumeSectionWorkbench contactPanel={<ResumeContactCard profile={profile} />} document={document} disabled={locked || saving} onChange={(next) => { setDocument(next); setDirty(true); }} onRegenerate={!dirty && draft.document ? onRegenerate : undefined} canRegenerate={canRegenerate} regenerationReason={regenerationReason} />
+        <ResumeSectionWorkbench contactPanel={<ResumeContactSection profile={profile} />} document={document} disabled={locked || saving} onChange={(next) => { setDocument(next); setDirty(true); }} onRegenerate={!dirty && draft.document ? onRegenerate : undefined} canRegenerate={canRegenerate} regenerationReason={regenerationReason} />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
         <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>{dirty ? "Unsaved changes. Save before regenerating or exporting." : "All changes saved"}</p>

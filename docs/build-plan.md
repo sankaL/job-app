@@ -98,6 +98,12 @@ The reported upload contained three roles at the same employer plus an internshi
 
 The upload page now fills the resume workspace, introducing the section review layout before import. Import and generation share a readable processing panel with meaningful task descriptions, elapsed time and accessible status messages. Generation uses reported server progress; import remains indeterminate. Full regeneration retains the current draft as read-only below processing feedback. Local Makefile checks passed all 223 frontend tests and the production build. See [implementation and review evidence](task-output/2026-09-30-resume-processing-ui.md).
 
+## Contact section and upload cleanup
+
+**Status:** Complete; self-review and local verification passed (2026-09-30 23:21:15 EDT).
+
+Source and application contact panels now share normal section headings, preview text and header actions. Upload is a full-width form with one PDF drop zone/picker, name and AI checkbox. Removed the preview column, repeated heading and cards, including the import progress container. Invalid or multiple drops preserve the selected PDF; busy imports ignore replacement drops and failures retain the file/name for retry. Passed 227 frontend tests and the TypeScript/Vite build, with browser verification of the upload layout and source contact section. No schema or AI behavior changed.
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.

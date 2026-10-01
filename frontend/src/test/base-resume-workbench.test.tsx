@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -161,7 +161,9 @@ it("fills the upload workspace and explains a pending import before opening the 
   let finishUpload!: (resume: api.BaseResumeDetail) => void;
   vi.mocked(api.uploadBaseResume).mockReturnValue(new Promise((resolve) => { finishUpload = resolve; }));
   renderEditor("/app/resumes/new?mode=upload");
-  expect(screen.getByRole("complementary", { name: "After import" })).toBeInTheDocument();
+  expect(screen.queryByRole("complementary", { name: "After import" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Start with your existing resume" })).not.toBeInTheDocument();
+  expect(screen.getByText(/Drag your PDF here/)).toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "Resume Name" }).closest("form")).toHaveClass("resume-upload-form");
   await user.type(screen.getByRole("textbox", { name: "Resume Name" }), "Import name");
   await user.upload(screen.getByLabelText("PDF File"), new File(["synthetic"], "resume.pdf", { type: "application/pdf" }));
@@ -195,4 +197,39 @@ it("keeps upload inputs for retry after failure and explains local-only import a
   expect(file).not.toBeDisabled();
   expect((file as HTMLInputElement).files).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Upload & Parse" })).toBeEnabled();
+});
+
+it("imports a dropped PDF and rejects multiple or non-PDF drops without replacing it", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.uploadBaseResume).mockResolvedValue(resume);
+  renderEditor("/app/resumes/new?mode=upload");
+  const drop = screen.getByLabelText("PDF File").closest("label")!;
+  const pdf = new File(["synthetic"], "dropped.pdf", { type: "application/pdf" });
+  fireEvent.drop(drop, { dataTransfer: { files: [pdf] } });
+  expect(screen.getByText("dropped.pdf")).toBeInTheDocument();
+  fireEvent.drop(drop, { dataTransfer: { files: [new File(["text"], "notes.txt", { type: "text/plain" })] } });
+  expect(screen.getByRole("alert")).toHaveTextContent("Choose a PDF file.");
+  fireEvent.drop(drop, { dataTransfer: { files: [pdf, pdf] } });
+  expect(screen.getByRole("alert")).toHaveTextContent("Choose one PDF file at a time.");
+  await user.type(screen.getByRole("textbox", { name: "Resume Name" }), "Dropped resume");
+  await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
+  await waitFor(() => expect(api.uploadBaseResume).toHaveBeenCalledWith(pdf, "Dropped resume", true));
+});
+
+it("ignores dropped replacements while importing and preserves the selected PDF after failure", async () => {
+  const user = userEvent.setup();
+  let failUpload!: (error: Error) => void;
+  vi.mocked(api.uploadBaseResume).mockReturnValue(new Promise((_resolve, reject) => { failUpload = reject; }));
+  renderEditor("/app/resumes/new?mode=upload");
+  const drop = screen.getByLabelText("PDF File").closest("label")!;
+  const pdf = new File(["synthetic"], "first.pdf", { type: "application/pdf" });
+  fireEvent.drop(drop, { dataTransfer: { files: [pdf] } });
+  await user.type(screen.getByRole("textbox", { name: "Resume Name" }), "Retry dropped file");
+  await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
+  fireEvent.drop(drop, { dataTransfer: { files: [new File(["other"], "replacement.pdf", { type: "application/pdf" })] } });
+  expect(screen.getByText("first.pdf")).toBeInTheDocument();
+  expect(screen.queryByText("replacement.pdf")).not.toBeInTheDocument();
+  await act(async () => { failUpload(new Error("Try again.")); });
+  expect(screen.getByText("first.pdf")).toBeInTheDocument();
+  expect(screen.getByLabelText("PDF File")).toBeEnabled();
 });

@@ -2,7 +2,7 @@ import { useId, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent
 import "./resume-workbench.css";
 import { ResumeSectionPreview } from "./ResumeSectionPreview";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, Check, Plus, RefreshCw, Trash2, UserRound, ChevronDown, Pencil } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Plus, RefreshCw, Trash2, ChevronDown, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,23 +10,26 @@ import { Select } from "@/components/ui/select";
 import type { ProfileData, ResumeDocument, ResumeSection, ResumeSectionEntry, ResumeSectionKind } from "@/lib/api";
 import { createResumeEntry, createResumeSection, hasSectionContent, newResumeId, renderSectionContent, sourceSectionReviewError, SECTION_LABELS } from "@/lib/resume-document";
 
-export function ResumeContactCard({ profile, suggestions }: { profile: ProfileData | null; suggestions?: Partial<Record<"name" | "email" | "phone" | "address" | "linkedin", string>> }) {
+export function ResumeContactSection({ profile, suggestions }: { profile: ProfileData | null; suggestions?: Partial<Record<"name" | "email" | "phone" | "address" | "linkedin", string>> }) {
   const contact = [profile?.email, profile?.phone, profile?.address, profile?.linkedin_url].filter(Boolean);
-  return (
-    <div className="resume-contact flex flex-wrap items-start justify-between gap-3">
-      <div className="flex min-w-0 flex-1 gap-3">
-        <UserRound size={18} className="mt-1 shrink-0" style={{ color: "var(--color-spruce)" }} />
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold">Contact information</h3>
-          <p className="mt-1 text-sm">{profile?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Add your name in your profile"}</p>
-          <p className="mt-1 break-words text-xs" style={{ color: "var(--color-ink-65)" }}>{contact.join(" · ") || "Add your contact details in your profile."}</p>
-          <p className="mt-2 text-xs" style={{ color: "var(--color-ink-40)" }}>Copied from your profile. Never sent for tailoring.</p>
-          {suggestions && Object.keys(suggestions).length > 0 && <div className="mt-3 border-t pt-2 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-ink-65)" }}><p className="font-semibold">Contact found in your upload</p><dl className="mt-1 space-y-1">{Object.entries(suggestions).map(([key, value]) => <div key={key} className="flex flex-wrap gap-x-2"><dt className="capitalize">{key}</dt><dd className="break-all">{value}</dd></div>)}</dl><p className="mt-2">Review these details in your profile before using them.</p></div>}
-        </div>
+  return <div>
+    <div className="resume-section-header">
+      <div className="min-w-0 flex-1">
+        <h3 className="resume-section-heading break-words">Contact information</h3>
+        <p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>Copied from your profile. Never sent for tailoring.</p>
       </div>
-      <Link to="/app/profile" className="text-xs font-semibold underline underline-offset-4" style={{ color: "var(--color-spruce)" }}>Edit profile</Link>
+      <div className="resume-section-controls"><Link to="/app/profile" className="resume-profile-edit"><Pencil size={14} aria-hidden="true" /> Edit profile</Link></div>
     </div>
-  );
+    <div className="resume-preview-copy">
+      <p className="font-semibold">{profile?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") || "Add your name in your profile"}</p>
+      <p>{contact.join(" · ") || "Add your contact details in your profile."}</p>
+      {suggestions && Object.values(suggestions).some(Boolean) && <div className="resume-preview-entry mt-5 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+        <p className="font-semibold">Contact found in your upload</p>
+        <dl>{Object.entries(suggestions).filter(([, value]) => Boolean(value)).map(([key, value]) => <div key={key} className="flex flex-wrap gap-x-2"><dt className="capitalize">{key}</dt><dd className="min-w-0 break-words">{value}</dd></div>)}</dl>
+        <p className="text-xs" style={{ color: "var(--color-ink-65)" }}>Review these details in your profile before using them.</p>
+      </div>}
+    </div>
+  </div>;
 }
 
 const FIELD_LABELS: Record<string, string> = { title: "Role title", company: "Employer", institution: "Institution", degree: "Degree", qualification: "Degree or qualification", details: "Details", url: "Link", location: "Location", date_range: "Dates", name: "Name", issuer: "Issuer", date: "Date", description: "Description" };

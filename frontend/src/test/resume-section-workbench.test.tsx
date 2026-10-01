@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { ResumeSectionWorkbench } from "@/components/resume/ResumeSectionWorkbench";
+import { ResumeContactSection, ResumeSectionWorkbench } from "@/components/resume/ResumeSectionWorkbench";
 import { DraftSectionWorkbench } from "@/components/resume/DraftSectionWorkbench";
 import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
 import { alignProvenanceBullets, compareResumeDocs } from "@/components/diff/diff-engine";
@@ -442,4 +442,20 @@ it.each([true, false])("uses ordered tabs and keyboard activation for source=%s"
   await user.click(tabs[2]);
   // A stored section ID cannot collide with the profile contact tab.
   expect(screen.getByRole("tabpanel", { name: "Skills" })).toHaveTextContent("Python");
+});
+
+it.each([true, false])("uses the shared section preview for profile contact details, source=%s", async (isSource) => {
+  const user = userEvent.setup();
+  render(<MemoryRouter><ResumeSectionWorkbench document={source} onChange={vi.fn()} source={isSource} contactPanel={<ResumeContactSection profile={null} suggestions={isSource ? { name: "Source name", email: "source@example.test" } : undefined} />} /></MemoryRouter>);
+  const panel = screen.getByRole("tabpanel", { name: "Contact information" });
+  expect(within(panel).getByRole("heading", { name: "Contact information" })).toHaveClass("resume-section-heading");
+  expect(within(panel).getByRole("link", { name: "Edit profile" })).toHaveAttribute("href", "/app/profile");
+  expect(within(panel).getByText("Add your name in your profile")).toBeInTheDocument();
+  if (isSource) {
+    expect(within(panel).getByText("Source name")).toBeInTheDocument();
+    expect(within(panel).getByText("Review these details in your profile before using them.")).toBeInTheDocument();
+  }
+  await user.click(screen.getByRole("tab", { name: "Experience" }));
+  await user.click(screen.getByRole("tab", { name: "Contact information" }));
+  expect(screen.getByRole("link", { name: "Edit profile" })).toBeInTheDocument();
 });

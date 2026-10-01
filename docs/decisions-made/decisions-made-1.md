@@ -1,3 +1,9 @@
+## 2026-09-30: Simplify upload and unify contact section styling
+
+The user requested a plain upload form and consistent contact presentation. Replace the preview column and upload card with one full-width PDF drop zone, name field, AI checkbox and submit action. Picker and drop paths share file validation and preserve the selected file after recoverable failures. Import feedback remains below the form without a card.
+
+Both source and application workbenches use the same contact section heading, preview typography and header action layout as other sections. Keep profile editing and local contact suggestions, with no changes to stored contact data, AI prompts or parsing behavior.
+
 ## 2026-09-30: Explain resume processing in the full workspace
 
 Use the full available page width for initial upload, with an introduction to section review beside the form. Replace spinner/overlay feedback with an in-flow paper panel explaining source preparation, role parsing or tailored writing, fact checks and review/assembly. Display backend-reported generation progress only. Import has no stage feed, so its steps explain the work without claiming a current stage or fabricated percentage. Retain the current draft as read-only during full regeneration and keep cancellation available for active jobs.
