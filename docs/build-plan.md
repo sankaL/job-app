@@ -8,6 +8,12 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Main merge and Railway release preparation
+
+**Status:** Merge prepared; production deployment awaiting migrations (2026-09-30 23:50:39 EDT).
+
+Merged `origin/main` into `v1.2` without conflicts at `21b326d` and pushed the branch. Makefile-managed checks passed 440 backend, 231 agents, 227 frontend and 15 environment tests plus the frontend production build. Railway CLI authentication and production project access work. Read-only production checks confirm migrations 019–022 are absent from the ledger and schema. The new document/contact columns and unique resume-name index are absent; Basic/Pro allowances remain 40/100. The user owns production migrations and environment configuration. Hold the push to remote `main`, which triggers all three service deployments, until prerequisites are satisfied. See [release preparation evidence](task-output/2026-09-30-main-railway-release.md).
+
 ## Section resume reliability upgrade
 
 **Status:** Complete; independent review findings fixed and local verification passed (2026-09-30 16:30:39 EDT).
