@@ -50,10 +50,7 @@ import { DraftSectionWorkbench } from "@/components/resume/DraftSectionWorkbench
 import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
 import { getResumeRegenerationBlocker } from "@/lib/resume-document";
-import {
-  GenerationProgress,
-  ResumeSkeleton,
-} from "@/components/ui/generation-progress";
+import { GenerationProgress } from "@/components/ui/generation-progress";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import {
@@ -4398,44 +4395,16 @@ export function ApplicationDetailPage() {
                 >
                   {/* Resume Content Area */}
                   {generationActive || showOptimisticProgress ? (
-                    draft ? (
-                      <div className="relative h-full min-h-0">
-                        <div
-                          aria-hidden="true"
-                          className="pointer-events-none absolute inset-0 z-[1] rounded-[1.5rem]"
-                          style={{
-                            background: "rgba(255, 255, 255, 0.45)",
-                            backdropFilter: "blur(1px)",
-                          }}
-                        />
-                        {renderGeneratedWorkspacePane({
-                          lockInteractions: true,
-                        })}
-                        <GenerationProgress
-                          progress={generationProgress}
-                          isOptimistic={showOptimisticProgress}
-                          isActive={generationActive}
-                          isCancelling={isCancelling}
-                          onCancel={() => void handleCancelGeneration()}
-                        />
-                      </div>
-                    ) : (
-                      /* Resume Skeleton during first-time generation */
-                      <Card
-                        className={`${workspaceCardClass} application-resume-placeholder relative p-0`}
-                      >
-                        <div className="flex-1 h-full overflow-hidden">
-                          <ResumeSkeleton />
-                        </div>
-                        <GenerationProgress
-                          progress={generationProgress}
-                          isOptimistic={showOptimisticProgress}
-                          isActive={generationActive}
-                          isCancelling={isCancelling}
-                          onCancel={() => void handleCancelGeneration()}
-                        />
-                      </Card>
-                    )
+                    <div className="application-resume-placeholder min-h-0 overflow-y-auto" aria-label="Resume generation workspace">
+                      <GenerationProgress
+                        progress={generationProgress}
+                        isOptimistic={showOptimisticProgress}
+                        isActive={generationActive}
+                        isCancelling={isCancelling}
+                        onCancel={() => void handleCancelGeneration()}
+                      />
+                      {draft && renderGeneratedWorkspacePane({ lockInteractions: true })}
+                    </div>
                   ) : draft ? (
                     compareMode ? (
                       <CompareWorkspace

@@ -1,3 +1,9 @@
+## 2026-09-30: Explain resume processing in the full workspace
+
+Use the full available page width for initial upload, with an introduction to section review beside the form. Replace spinner/overlay feedback with an in-flow paper panel explaining source preparation, role parsing or tailored writing, fact checks and review/assembly. Display backend-reported generation progress only. Import has no stage feed, so its steps explain the work without claiming a current stage or fabricated percentage. Retain the current draft as read-only during full regeneration and keep cancellation available for active jobs.
+
+This keeps upload, processing and review visually consistent while giving users useful information during longer requests. No schema, AI prompts, model routing or provider behavior changed. See `docs/task-output/2026-09-30-resume-processing-ui.md`.
+
 ## 2026-09-30: Use Tier 2 source spans for resume role extraction
 
 The reported local upload kept work experience as Markdown because plain company/location and role/date lines did not match the local adapter. Live reproduction showed both Tier 2 calls failed correction within their 10s slices. Their output schema exposed opaque factual dictionaries and required the model to copy every duty exactly.

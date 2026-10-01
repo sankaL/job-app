@@ -92,6 +92,12 @@ Default Tier 2 extraction now receives numbered source lines and returns explici
 
 The reported upload contained three roles at the same employer plus an internship. The final span-based primary Tier 2 call completed in 11.60s, and total import took 11.89s. Saved only this unreviewed local import with an owner/revision fence as revision 2; browser confirmed four separate roles and preserved duties. Full suites passed 438 backend, 231 worker and 218 frontend tests, plus type check/production build. Final focused import/upload/document checks passed 101 tests after two more review regressions. Makefile health checks passed at the original API/frontend ports. See [implementation and review evidence](task-output/2026-09-30-base-resume-role-extraction.md).
 
+## Full-width upload and resume processing feedback
+
+**Status:** Complete; code-review findings fixed and local checks passed (2026-09-30 23:14:17 EDT).
+
+The upload page now fills the resume workspace, introducing the section review layout before import. Import and generation share a readable processing panel with meaningful task descriptions, elapsed time and accessible status messages. Generation uses reported server progress; import remains indeterminate. Full regeneration retains the current draft as read-only below processing feedback. Local Makefile checks passed all 223 frontend tests and the production build. See [implementation and review evidence](task-output/2026-09-30-resume-processing-ui.md).
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.

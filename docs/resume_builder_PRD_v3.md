@@ -105,6 +105,8 @@ The system should tailor, prioritize, rewrite, and reorganize content from the u
 ### 5.5 Strong user feedback during async actions
 The app must provide meaningful loading, progress, success, error, and attention states throughout the entire workflow. At every stage, the user should understand what the system is doing, whether it succeeded or failed, and what they need to do next.
 
+Resume generation opens an in-flow processing panel immediately, explaining source/job preparation, tailored writing, factual checks and draft assembly. Show the active job’s reported message and percentage, with an indeterminate bar until progress arrives; do not simulate advancing percentages or completed steps. Include elapsed time and retain cancellation after the job is active. During full regeneration, keep the existing draft available below the panel with editing locked until processing ends. Announce status changes politely and respect reduced-motion preferences.
+
 ---
 
 ## 6. Primary User Journey
@@ -630,6 +632,7 @@ Users can edit section Markdown and structured entries in one workbench when gen
 
 **Method A — File upload:**
 - User uploads an existing `.docx` or `.pdf` resume file
+- The initial upload page uses the same full available width and paper styling as the review workspace, with the upload form beside a preview of section review on desktop and stacked on narrow screens. During PDF import, replace that preview with an explanatory processing panel covering text extraction, sections, role details and source checks. Keep input controls disabled during the request; retain the selected file/name after recoverable failures. Explain the local-only path when AI entry extraction is opted out. Upload has no granular server progress feed, so show indeterminate activity without claiming a current/completed stage or percentage.
 - Backend parses the file (`python-docx`, `pdfplumber`, or equivalent) and converts to Markdown
 - Parse sections locally, classify with Jev, and use Tier 2 extraction by default for every populated Experience/Education section; preserve source text on failure. Users may explicitly opt out of AI entry extraction.
 - User reviews section classifications and extracted entry facts in the workbench before generation

@@ -12,6 +12,7 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ResumeImportProgress } from "@/components/ui/resume-processing";
 import { SkeletonCard } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { createBaseResume, deleteBaseResume, fetchBaseResume, setDefaultBaseResume, updateBaseResume, uploadBaseResume, type BaseResumeDetail, type ResumeDocument } from "@/lib/api";
@@ -149,15 +150,24 @@ export function BaseResumeEditorPage() {
       <PageHeader title={resume?.name ?? (uploadMode ? "Upload resume" : "New resume")} titleContent={editingName ? <><Label className="sr-only" htmlFor="resume-name">Resume Name</Label><Input id="resume-name" className="resume-name-input" form="base-resume-edit-form" autoFocus value={name} maxLength={200} required disabled={saving} placeholder="Name your resume" onChange={(event) => { setName(event.target.value); setSaved(false); }} onKeyDown={(event) => { if (event.key === "Escape" && resume) { setName(nameBeforeEdit.current); setEditingName(false); } }} /></> : undefined} titleAction={!editingName && !loading && (resume || !uploadMode && isNew) ? <IconButton aria-label="Edit resume name" disabled={saving} onClick={() => { nameBeforeEdit.current = name; setEditingName(true); }}><Pencil size={16} /></IconButton> : undefined} subtitle={resume ? `Source resume · revision ${resume.document?.revision ?? 1}` : "Build a reviewed source for every tailored resume"} actions={resume && !isNew ? <div className="flex gap-2">{!resume.is_default && <Button size="sm" variant="secondary" disabled={settingDefault} onClick={() => void handleDefault()}>{settingDefault ? "Setting…" : "Set Default"}</Button>}<IconButton variant="danger" aria-label="Delete resume" disabled={deleting} onClick={() => setConfirmDelete(true)}><Trash2 size={16} /></IconButton></div> : undefined} />
       {error && <Card variant="danger"><p className="text-sm">{error}</p><p className="mt-2 text-xs">Your unsaved edits are still here. If another tab saved this resume, reload its latest revision before trying again.</p></Card>}
       {loading ? <SkeletonCard /> : !isNew && !resume ? <Card><p className="text-sm">This resume could not be loaded.</p><Button className="mt-3" variant="secondary" onClick={() => navigate("/app/resumes")}>Back to resumes</Button></Card> : uploadMode && !resume ? (
-        <div className="resume-upload"><form className="mx-auto max-w-xl space-y-5" onSubmit={handleUpload}>
+        <div className="resume-upload-layout">
+          <div className="resume-upload"><form className="resume-upload-form" aria-busy={uploading} onSubmit={handleUpload}>
           <div><h2 className="font-display text-xl font-semibold">Start with your existing resume</h2><p className="mt-2 text-sm" style={{ color: "var(--color-ink-65)" }}>Upload a PDF, then check one section at a time before tailoring.</p></div>
           <div><Label htmlFor="resume-name">Resume Name</Label><Input id="resume-name" value={name} maxLength={200} placeholder="e.g., Senior Engineer Resume" required disabled={uploading} onChange={(event) => setName(event.target.value)} /></div>
           <div><Label htmlFor="resume-file">PDF File</Label><input id="resume-file" ref={fileInputRef} accept=".pdf,application/pdf" className="mt-2 block w-full min-w-0 text-sm" type="file" disabled={uploading} /></div>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={uploading} checked={classify} onChange={(event) => setClassify(event.target.checked)} /> Use AI to extract roles, education and their details</label>
           <p className="text-xs" style={{ color: "var(--color-ink-65)" }}>Contact information stays local. Unknown or uncertain sections are kept for your review.</p>
-          <Button type="submit" loading={uploading}>{uploading ? "Extracting and classifying sections…" : "Upload & Parse"}</Button>
-          {uploading && <p role="status" className="text-sm" style={{ color: "var(--color-spruce)" }}>Reading your PDF and identifying sections. You can review the original text after import.</p>}
+          <Button type="submit" disabled={uploading}>{uploading ? "Import in progress" : "Upload & Parse"}</Button>
         </form></div>
+          {uploading ? <ResumeImportProgress useAi={classify} /> : <aside className="resume-upload-preview" aria-label="After import">
+            <p className="resume-upload-eyebrow">Your next workspace</p><h2>One resume. Every role in its place.</h2>
+            <p>After import, review your source in full-width sections. Each role keeps its own employer, location, dates and duties.</p>
+            <div className="resume-upload-preview-tabs" aria-hidden="true"><span>Contact</span><span>Experience</span><span>Education</span><span>Skills</span></div>
+            <div className="resume-upload-preview-role"><span>Professional Experience</span><h3>Separate roles, even at the same company</h3><p>Review factual details and duties together, then make any corrections inline.</p></div>
+            <div className="resume-upload-preview-role"><span>Original extracted text</span><h3>Your source stays available</h3><p>Compare uncertain details with the PDF text before marking each section reviewed.</p></div>
+            <p className="resume-upload-preview-note">Import first. Review next. Tailor when you're ready.</p>
+          </aside>}
+        </div>
       ) : (
         <form id="base-resume-edit-form" className="resume-editor-form" onSubmit={handleSave}>
           {resume?.needs_review && <div className="resume-import-warning"><p className="font-semibold">Check your import before tailoring</p><p className="mt-1">{resume.import_warning ?? "Check the imported facts and section types."} Confirm that each job has its own role, employer, dates and bullets.</p></div>}

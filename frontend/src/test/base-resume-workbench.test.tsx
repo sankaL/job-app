@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -154,4 +154,45 @@ it("closes header-name editing when returning an imported resume to upload", asy
   const input = screen.getByRole("textbox", { name: "Resume Name" });
   expect(input).not.toHaveAttribute("form", "base-resume-edit-form");
   expect(screen.getAllByRole("textbox", { name: "Resume Name" })).toHaveLength(1);
+});
+
+it("fills the upload workspace and explains a pending import before opening the parsed sections", async () => {
+  const user = userEvent.setup();
+  let finishUpload!: (resume: api.BaseResumeDetail) => void;
+  vi.mocked(api.uploadBaseResume).mockReturnValue(new Promise((resolve) => { finishUpload = resolve; }));
+  renderEditor("/app/resumes/new?mode=upload");
+  expect(screen.getByRole("complementary", { name: "After import" })).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Resume Name" }).closest("form")).toHaveClass("resume-upload-form");
+  await user.type(screen.getByRole("textbox", { name: "Resume Name" }), "Import name");
+  await user.upload(screen.getByLabelText("PDF File"), new File(["synthetic"], "resume.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
+  expect(screen.getByRole("region", { name: "Reading and structuring your resume" })).toBeInTheDocument();
+  expect(screen.getByText("Separate roles and their details")).toBeInTheDocument();
+  expect(screen.getByRole("progressbar")).not.toHaveAttribute("value");
+  expect(screen.getByRole("button", { name: "Import in progress" })).toBeDisabled();
+  expect(screen.getByRole("textbox", { name: "Resume Name" })).toBeDisabled();
+  await act(async () => { finishUpload({ ...resume, raw_source_md: "Original extracted text" }); });
+  expect(await screen.findByRole("tab", { name: /Experience/ })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Reading and structuring your resume" })).not.toBeInTheDocument();
+});
+
+it("keeps upload inputs for retry after failure and explains local-only import accurately", async () => {
+  const user = userEvent.setup();
+  let failUpload!: (error: Error) => void;
+  vi.mocked(api.uploadBaseResume).mockReturnValue(new Promise((_resolve, reject) => { failUpload = reject; }));
+  renderEditor("/app/resumes/new?mode=upload");
+  const name = screen.getByRole("textbox", { name: "Resume Name" });
+  const file = screen.getByLabelText("PDF File");
+  await user.type(name, "Retry me");
+  await user.upload(file, new File(["synthetic"], "resume.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("checkbox", { name: /Use AI to extract/ }));
+  await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
+  expect(screen.getByRole("status")).toHaveTextContent("without AI entry extraction");
+  expect(screen.getByText("Parse recognizable role headers")).toBeInTheDocument();
+  await act(async () => { failUpload(new Error("Import unavailable. Retry your PDF.")); });
+  expect(await screen.findByText("Import unavailable. Retry your PDF.")).toBeInTheDocument();
+  expect(name).toHaveValue("Retry me");
+  expect(file).not.toBeDisabled();
+  expect((file as HTMLInputElement).files).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Upload & Parse" })).toBeEnabled();
 });

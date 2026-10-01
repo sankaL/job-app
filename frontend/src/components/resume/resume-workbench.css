@@ -114,3 +114,22 @@
   /* Isolate descendant overflow so the details cannot extend the page's scroll area. */
   .application-support-column { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; padding-right: .25rem; contain: layout; }
 }
+
+/* Upload occupies the same available page width as the parsed source. */
+.resume-upload-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; width: 100%; }
+.resume-upload-form { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+.resume-upload-form > button { align-self: start; }
+.resume-upload-preview { min-width: 0; padding: clamp(1.25rem, 3vw, 2rem); border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-white); overflow-wrap: anywhere; }
+.resume-upload-eyebrow { color: var(--color-spruce); font-size: .6875rem; letter-spacing: .12em; text-transform: uppercase; font-weight: 600; }
+.resume-upload-preview > h2 { margin-top: .75rem; font: 600 clamp(1.5rem, 2.5vw, 2rem)/1.2 "Fraunces", Georgia, serif; }
+.resume-upload-preview > p:not(.resume-upload-eyebrow) { margin-top: .875rem; color: var(--color-ink-65); font-size: .875rem; line-height: 1.65; }
+.resume-upload-preview-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1.75rem; color: var(--color-ink-50); font-size: .6875rem; }
+.resume-upload-preview-tabs span { padding: .375rem .5rem; border-bottom: 1px solid var(--color-border); }
+.resume-upload-preview-tabs span:nth-child(2) { color: var(--color-spruce); border-color: var(--color-spruce); }
+.resume-upload-preview-role { padding: 1.25rem 0; border-top: 1px solid var(--color-border); margin-top: .75rem; }
+.resume-upload-preview-role > span { color: var(--color-ink-50); font-size: .6875rem; }
+.resume-upload-preview-role h3 { margin-top: .5rem; font-size: .9375rem; font-weight: 600; }
+.resume-upload-preview-role p { margin-top: .5rem; font-size: .8125rem; color: var(--color-ink-65); line-height: 1.6; }
+.resume-upload-preview-note { border-top: 1px solid var(--color-border); padding-top: 1rem; }
+@media (min-width: 1024px) { .resume-upload-layout { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); align-items: start; } }
+@media (max-width: 639px) { .resume-upload { padding: 1.25rem; } .resume-upload-form input[type="file"] { font-size: .8125rem; } }
