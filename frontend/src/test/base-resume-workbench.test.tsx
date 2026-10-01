@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "@/components/layout/AppContext";
+import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { ToastProvider } from "@/components/ui/toast";
 import { BaseResumeEditorPage } from "@/routes/BaseResumeEditorPage";
 import * as api from "@/lib/api";
@@ -22,7 +23,7 @@ const document: api.ResumeDocument = { schema_version: 1, revision: 3, sections:
 const resume: api.BaseResumeDetail = { id: "base", name: "Source resume", document, content_md: "", is_default: false, created_at: "", updated_at: "" };
 
 function renderEditor() {
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={["/app/resumes/base"]}><AppProvider><ToastProvider><Routes><Route path="/app/resumes/:resumeId" element={<BaseResumeEditorPage />} /></Routes></ToastProvider></AppProvider></MemoryRouter></QueryClientProvider>);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={["/app/resumes/base"]}><AppProvider><ToastProvider><AppBreadcrumbs /><Routes><Route path="/app/resumes/:resumeId" element={<BaseResumeEditorPage />} /></Routes></ToastProvider></AppProvider></MemoryRouter></QueryClientProvider>);
 }
 
 beforeEach(() => {
@@ -32,16 +33,17 @@ beforeEach(() => {
 });
 
 describe("base resume save dock", () => {
-  it("submits the linked form from the floating dock and keeps offscreen section edits and review gates", async () => {
+  it("submits the form from the sticky save bar and keeps offscreen section edits and review gates", async () => {
     const user = userEvent.setup();
     vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, document: { ...payload.document!, revision: 4 } }));
     renderEditor();
-    await user.click(await screen.findByRole("button", { name: "Edit Experience" }));
+    await user.click(await screen.findByRole("tab", { name: /Experience/ }));
+    await user.click(screen.getByRole("button", { name: "Edit Experience" }));
     const save = screen.getByRole("button", { name: "Save Changes" });
-    expect(save.closest("form")).toBeNull();
+    expect(save.closest("form")).toHaveAttribute("id", "base-resume-edit-form");
     expect(save).toHaveAttribute("form", "base-resume-edit-form");
     await user.type(screen.getByRole("textbox", { name: "Employer" }), " Ltd");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Current resume section" }), "skills");
+    await user.click(screen.getByRole("tab", { name: /Skills/ }));
     await user.click(screen.getByRole("button", { name: "Edit Skills" }));
     await user.type(screen.getByRole("textbox", { name: /Section content/ }), ", SQL");
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
@@ -61,11 +63,38 @@ describe("base resume save dock", () => {
     const user = userEvent.setup();
     vi.mocked(api.updateBaseResume).mockRejectedValue(new Error("A newer revision was saved. Reload before retrying."));
     renderEditor();
-    await user.click(await screen.findByRole("button", { name: "Edit Experience" }));
+    await user.click(await screen.findByRole("tab", { name: /Experience/ }));
+    await user.click(screen.getByRole("button", { name: "Edit Experience" }));
     await user.type(screen.getByRole("textbox", { name: "Entry 1 bullet 1" }), " for clients");
     await user.click(screen.getByRole("button", { name: "Save Changes" }));
     expect(await screen.findByText(/A newer revision was saved/)).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Entry 1 bullet 1" })).toHaveValue("Built services for clients");
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
   });
+});
+
+it("shows saved resume names in the header and breadcrumb after a rename", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, name: payload.name!, document: { ...payload.document!, revision: 4 } }));
+  renderEditor();
+  expect(await screen.findByRole("heading", { name: "Source resume", level: 1 })).toBeInTheDocument();
+  const input = screen.getByRole("textbox", { name: "Resume Name" });
+  await user.clear(input);
+  await user.type(input, "Engineering resume");
+  await user.click(screen.getByRole("button", { name: "Save Changes" }));
+  expect(await screen.findByRole("heading", { name: "Engineering resume", level: 1 })).toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Engineering resume");
+});
+
+it("preserves edits when a duplicate name is rejected", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.updateBaseResume).mockRejectedValue(new Error("You already have a resume with this name. Choose a different name."));
+  renderEditor();
+  await user.click(await screen.findByRole("tab", { name: "Skills" }));
+  await user.click(screen.getByRole("button", { name: "Edit Skills" }));
+  await user.type(screen.getByRole("textbox", { name: /Section content/ }), ", SQL");
+  await user.click(screen.getByRole("button", { name: "Save Changes" }));
+  expect(await screen.findByText(/Choose a different name/)).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: /Section content/ })).toHaveValue("Python, SQL");
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
 });

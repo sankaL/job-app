@@ -7,6 +7,14 @@
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
 
+## 2026-09-30 unique resume names
+
+- Apply `20260930_000022_unique_resume_names.sql` before deploying the API conflict handling and updated workbench. The unique index enforces `(user_id, lower(btrim(name)))`; separate users can retain identical labels.
+- Back up labels before rollout. The transaction locks writes, keeps the oldest duplicate by `created_at` and ID, and assigns available numbered suffixes to later duplicates. Existing suffixes are skipped. Renamed rows advance both revision counters, fencing stale edits. Resume content, stable IDs, ownership and application/default references stay intact.
+- Lock acquisition is bounded at five seconds and SQL execution at sixty seconds. A failure rolls back the backfill and index. Retry through the normal migration runner after resolving contention; the index creation tolerates a retry after an interrupted ledger write. Large datasets may need a planned maintenance window.
+- Verify migration 022 in the ledger and the unique index definition. Check duplicate creates, uploads and renames return HTTP 409 with the name-conflict message, preserve unsaved work, and never expose database details. Check a case-only rename of the same resume and reuse by another user still succeed. Check concurrent creates allow exactly one writer.
+- Rollback application code together if needed. Retain the index and renamed labels to preserve uniqueness. Removing the index or restoring duplicate labels requires a separate reviewed data migration; code rollback alone does not restore prior labels.
+
 ## 2026-09-30 resume-owned inclusion and order
 
 - No new SQL migration or backfill. Keep Profile `section_preferences`/`section_order`, legacy Markdown, excluded section content, and existing source snapshots. Do not copy Profile preferences into reviewed documents automatically.

@@ -72,6 +72,12 @@ Initial writing follows the reviewed base document, including custom sections. S
 
 Both tasks and the preview follow-up finished before commit. Combined validation passed 418 backend, 231 worker, 210 frontend and 15 environment tests (874 total), plus the frontend type check/production build and whitespace checks. Review fixes cover job boundaries/date order, frozen-source regeneration and role preservation, document-authoritative exports, comparison of re-included sections, floating-save form association and suppression of external Markdown images. Static synthetic layouts passed five widths from 320 to 1440 pixels. Live-origin/browser and actual failing PDF verification remain unperformed; existing merged imports require re-upload or manual correction. See [combined review evidence](task-output/2026-09-30-combined-workbench-review.md).
 
+## Resume workbench tabs, scrolling and names
+
+**Status:** Complete; review findings fixed and local verification passed (2026-09-30 21:43:32 EDT).
+
+Source and generated workbenches use contact-first real tabs, ordered sections and a distinct extracted-text reference. The source workspace uses the full width beneath its name/banners, with saved-name breadcrumbs. Removed nested workbench/shell scrolling, height matching and the fixed-save bottom reserve; growing text editors share page scrolling. Migration 022 enforces names unique per user with collision-safe duplicate-label suffixes and sanitized conflicts. Passed 214 frontend and 421 backend tests, final 42 tab/editor tests, the production build and browser checks. See [implementation and review evidence](task-output/2026-09-30-workbench-tabs.md).
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.

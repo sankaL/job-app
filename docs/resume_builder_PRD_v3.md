@@ -635,9 +635,9 @@ Users can edit section Markdown and structured entries in one workbench when gen
 
 **Review workbench:**
 - Base and application workbenches open with read-only section previews. An accessible Edit button on each section, or double-clicking its preview, opens only that section for editing. Returning to Preview does not save or mark facts reviewed.
-- Review source sections one at a time using the section index. Keep unsaved edits when switching sections or editors.
-- Use a single document surface with divider-separated, collapsible entries. Section type controls are secondary settings; inclusion and ordering remain available in the workbench.
-- Keep review progress and an accessible floating save action visible across desktop, tablet and phone widths. Saving and marking facts reviewed are separate actions.
+- Both source and generated resumes use real tabs with one visible content panel. Contact information is first, followed by sections in saved document order. Imported original text has a distinct Extracted text tab. Keep unsaved edits when switching tabs or editors; switching returns the selected section to preview.
+- Put the workbench directly below the resume name and any banners, using the full available page width. Keep tabs at the top of the desktop left rail and above content at narrower widths. Use one page scrollbar, growing text editors and content-sized panels. Section type controls are secondary settings; inclusion and ordering remain available in the workbench.
+- Keep review progress and an accessible sticky save action available across desktop, tablet and phone widths without a reserved bottom gap. Saving and marking facts reviewed are separate actions.
 - Preserve original extracted text for import checks. Recognizable consecutive job headers must become separate entries even without PDF paragraph spacing. Unclear or suspicious partial parses remain source text, eligible for bounded Tier 2 assistance when enabled. Extraction must preserve exact facts, source coverage and recognizable dated-entry order; failed assistance keeps the source editable and unreviewed.
 
 **Method B — Structured form:**
@@ -651,7 +651,7 @@ Integrated section workbench collecting:
 On submit, the backend validates the versioned document and renders its Markdown projection.
 
 **Management capabilities:**
-- Create base resume
+- Create base resume with a name unique within the authenticated user’s account, ignoring case and surrounding spaces. Reject duplicate uploads, creates and renames with recoverable feedback. Use the saved name in the workbench header and breadcrumb.
 - Edit base resume (section workbench)
 - Delete base resume (with warning if referenced by any application)
 - Set one as default

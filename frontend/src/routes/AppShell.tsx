@@ -20,7 +20,7 @@ function ShellContent() {
   }, [immersive]);
 
   return (
-    <div className="app-shell-root flex min-h-screen overflow-x-hidden" data-shell-mode={mode}>
+    <div className="app-shell-root flex min-h-screen overflow-x-clip" data-shell-mode={mode}>
       {/* Desktop sidebar */}
       <div className="sidebar-desktop app-shell-sidebar-desktop">
         <Sidebar />
@@ -42,8 +42,8 @@ function ShellContent() {
       >
         <TopBar onMenuToggle={immersive ? undefined : () => setMobileSidebarOpen((v) => !v)} />
 
-        <main className="app-shell-main flex-1" style={{ overflowX: "hidden" }}>
-          <div className="app-shell-content" style={{ maxWidth: "100%", overflowX: "hidden" }}>
+        <main className="app-shell-main flex-1" style={{ overflowX: "clip" }}>
+          <div className="app-shell-content" style={{ maxWidth: "100%", overflowX: "clip" }}>
             {bootstrapError ? (
               <Card variant="danger" className="mb-6">
                 <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>

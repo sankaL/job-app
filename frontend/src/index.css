@@ -278,7 +278,7 @@ body {
    Global Overflow Prevention
    ============================================================ */
 html, body, #root {
-  overflow-x: hidden;
+  overflow-x: clip;
   max-width: 100vw;
 }
 

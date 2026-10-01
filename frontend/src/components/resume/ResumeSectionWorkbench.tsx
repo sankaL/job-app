@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type TextareaHTMLAttributes } from "react";
+import { useId, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type TextareaHTMLAttributes } from "react";
 import "./resume-workbench.css";
 import { ResumeSectionPreview } from "./ResumeSectionPreview";
 import { Link } from "react-router-dom";
@@ -45,7 +45,7 @@ function GrowingTextarea({ value, ...props }: TextareaHTMLAttributes<HTMLTextAre
     function resize() {
       if (!element) return;
       element.style.height = "auto";
-      element.style.height = `${Math.min(element.scrollHeight + 2, 480)}px`;
+      element.style.height = `${element.scrollHeight + 2}px`;
     }
     resize();
     // Reflow long prose when the workbench changes width, not only when it is edited.
@@ -109,15 +109,25 @@ function EntryEditor({ entry, index, kind, disabled, onChange, onRemove, onRegen
   );
 }
 
-export function ResumeSectionWorkbench({ document, onChange, disabled = false, source = false, onRegenerate, canRegenerate, regenerationReason }: {
+export function ResumeSectionWorkbench({ document, onChange, disabled = false, source = false, onRegenerate, canRegenerate, regenerationReason, contactPanel, referencePanel }: {
+  contactPanel?: ReactNode; referencePanel?: ReactNode;
   document: ResumeDocument; onChange: (document: ResumeDocument) => void; disabled?: boolean; source?: boolean;
   onRegenerate?: (section: ResumeSection, entryId?: string) => void;
   canRegenerate?: (section: ResumeSection, entryId?: string) => boolean;
   regenerationReason?: (section: ResumeSection, entryId?: string) => string | null;
 }) {
   const workbenchId = useId();
+  const [verticalTabs, setVerticalTabs] = useState(false);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setVerticalTabs(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(contactPanel ? "contact" : null);
   const [newKind, setNewKind] = useState<ResumeSectionKind>("professional_experience");
   function updateSection(id: string, update: Partial<ResumeSection>, reviewChanged = true) {
     onChange({ ...document, sections: document.sections.map((section) => section.id === id ? {
@@ -141,39 +151,57 @@ export function ResumeSectionWorkbench({ document, onChange, disabled = false, s
   const active = document.sections.filter((section) => section.enabled && hasSectionContent(section));
   const reviewed = active.filter((section) => section.review_state === "reviewed");
   const nextReview = active.find((section) => section.review_state !== "reviewed");
-  const selectedSection = document.sections.find((section) => section.id === selectedId) ?? document.sections[0];
+  const tabs = [
+    ...(contactPanel ? [{ id: "contact", label: "Contact information" }] : []),
+    ...document.sections.map((section) => ({ id: `section:${section.id}`, label: section.heading || "Untitled section" })),
+    ...(referencePanel ? [{ id: "extracted", label: "Extracted text" }] : []),
+  ];
+  const selectedTab = tabs.find((tab) => tab.id === selectedId)?.id ?? tabs[0]?.id;
+  const selectedSection = document.sections.find((section) => `section:${section.id}` === selectedTab);
+  function selectTab(id: string) { setSelectedId(id); setEditingId(null); }
+  function handleTabKey(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number;
+    if (["ArrowDown", "ArrowRight"].includes(event.key)) next = (index + 1) % tabs.length;
+    else if (["ArrowUp", "ArrowLeft"].includes(event.key)) next = (index - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    else return;
+    event.preventDefault();
+    selectTab(tabs[next].id);
+    window.document.getElementById(`${workbenchId}-tab-${tabs[next].id}`)?.focus();
+  }
   const anchor = (id: string) => `${workbenchId}-section-${id}`;
   return (
     <div className="resume-workbench" data-testid="resume-section-workbench">
       <aside className="resume-index">
         <div className="resume-index-inner">
           <h2 className="text-sm font-semibold">{source ? "Review your resume" : "Resume sections"}</h2>
+          <div role="tablist" aria-label="Resume sections" aria-orientation={verticalTabs ? "vertical" : "horizontal"} className="resume-section-links">
+            {tabs.map((tab, index) => {
+              const section = document.sections.find((item) => `section:${item.id}` === tab.id);
+              return <button key={tab.id} id={`${workbenchId}-tab-${tab.id}`} role="tab" type="button" aria-label={tab.label} aria-selected={selectedTab === tab.id} tabIndex={selectedTab === tab.id ? 0 : -1} aria-controls={anchor(tab.id)} className={tab.id === "extracted" ? "resume-reference-tab" : undefined} onClick={() => selectTab(tab.id)} onKeyDown={(event) => handleTabKey(event, index)}>
+                <span className="resume-index-number">{tab.id === "extracted" ? "↗" : String(index + 1).padStart(2, "0")}</span>
+                <span className="min-w-0 break-words">{tab.label}</span>
+                {section && <span className={`resume-index-dot ${!section.enabled ? "excluded" : source && section.review_state !== "reviewed" ? "pending" : ""}`} aria-label={!section.enabled ? "Excluded" : source ? section.review_state === "reviewed" ? "Section reviewed" : "Section needs review" : "Included"} />}
+              </button>;
+            })}
+          </div>
           {source && <div className="mt-3">
             <p className="text-xs" aria-live="polite">{reviewed.length} of {active.length} populated sections reviewed</p>
             <progress className="resume-review-progress" aria-label="Source section review progress" max={Math.max(active.length, 1)} value={reviewed.length} />
             <p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>Check every included section against your source. Saving does not mark it reviewed.</p>
-            {nextReview && <button className="resume-next-review" type="button" onClick={() => { setSelectedId(nextReview.id); setEditingId(null); }}>Continue review <ArrowDown size={13} /></button>}
+            {nextReview && <button className="resume-next-review" type="button" onClick={() => { selectTab(`section:${nextReview.id}`); }}>Continue review <ArrowDown size={13} /></button>}
           </div>}
-          {source && document.sections.length > 0 && <label className="resume-mobile-section-select my-3 text-xs">
-            <span>Current section</span>
-            <Select className="mt-1" aria-label="Current resume section" value={selectedSection?.id ?? ""} onChange={(event) => { setSelectedId(event.target.value); setEditingId(null); }}>
-              {document.sections.map((section) => <option key={section.id} value={section.id}>{section.heading || "Untitled section"}{!section.enabled ? " · excluded" : section.review_state === "reviewed" ? " · reviewed" : " · needs review"}</option>)}
-            </Select>
-          </label>}
-          <nav aria-label="Resume section index" className="resume-section-links">
-            {document.sections.map((section, index) => <button key={section.id} type="button" aria-current={selectedSection?.id === section.id ? "true" : undefined} aria-controls={anchor(section.id)} onClick={() => { setSelectedId(section.id); setEditingId(null); if (!source) window.document.getElementById(anchor(section.id))?.scrollIntoView({ block: "start" }); }}>
-              <span className="resume-index-number">{String(index + 1).padStart(2, "0")}</span>
-              <span className="min-w-0 break-words">{section.heading || "Untitled section"}</span>
-              <span className={`resume-index-dot ${!section.enabled ? "excluded" : source && section.review_state !== "reviewed" ? "pending" : ""}`} aria-label={!section.enabled ? "Excluded" : source ? section.review_state === "reviewed" ? "Section reviewed" : "Section needs review" : "Included"} />
-            </button>)}
-          </nav>
           <p className="text-xs" style={{ color: "var(--color-ink-65)" }}>{source ? "Included sections and their order apply to new generations. Existing drafts keep their saved layout." : "Included sections and their order apply to this draft, its regeneration and exports. Excluded sections stay here so you can include them again."}</p>
         </div>
       </aside>
       <div className="resume-sheet">
+        {tabs.filter((tab) => tab.id !== selectedTab).map((tab) => <section key={tab.id} hidden role="tabpanel" id={anchor(tab.id)} aria-labelledby={`${workbenchId}-tab-${tab.id}`} />)}
+        {selectedTab === "contact" && <section id={anchor("contact")} role="tabpanel" aria-labelledby={`${workbenchId}-tab-contact`} tabIndex={0} className="resume-section">{contactPanel}</section>}
+        {selectedTab === "extracted" && <section id={anchor("extracted")} role="tabpanel" aria-labelledby={`${workbenchId}-tab-extracted`} tabIndex={0} className="resume-section">{referencePanel}</section>}
         {document.sections.length === 0 && <div className="resume-empty"><h3 className="font-display text-lg font-semibold">Build your source resume one section at a time</h3><p className="mt-2 text-sm" style={{ color: "var(--color-ink-65)" }}>Start with experience, education, projects, or skills. Add any other section you need.</p></div>}
-        {document.sections.map((section, index) => (
-          <section key={section.id} id={anchor(section.id)} className={`resume-section ${section.enabled ? "" : "resume-section-excluded"}`} hidden={source && selectedSection?.id !== section.id} data-section-id={section.id} aria-label={section.heading || "Untitled section"} tabIndex={-1} onDoubleClick={(event) => {
+        {document.sections.map((section, index) => selectedSection?.id === section.id && (
+          <section key={section.id} id={anchor(`section:${section.id}`)} className={`resume-section ${section.enabled ? "" : "resume-section-excluded"}`} role="tabpanel" aria-labelledby={`${workbenchId}-tab-section:${section.id}`} data-section-id={section.id} aria-label={section.heading || "Untitled section"} tabIndex={0} onDoubleClick={(event) => {
             if (!disabled && editingId !== section.id && !(event.target as HTMLElement).closest("button, a, input, select, textarea, summary")) setEditingId(section.id);
           }}>
             <div className="resume-section-header">
@@ -224,7 +252,7 @@ export function ResumeSectionWorkbench({ document, onChange, disabled = false, s
         <div className="resume-add-section">
           <label className="sr-only" htmlFor={`${workbenchId}-add-section-kind`}>New section type</label>
           <Select id={`${workbenchId}-add-section-kind`} disabled={disabled} value={newKind} onChange={(event) => setNewKind(event.target.value as ResumeSectionKind)}>{Object.entries(SECTION_LABELS).map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</Select>
-          <Button size="sm" type="button" variant="secondary" disabled={disabled} onClick={() => { const section = createResumeSection(newKind); onChange({ ...document, sections: [...document.sections, section] }); setSelectedId(section.id); setEditingId(section.id); }}><Plus size={14} /> Add section</Button>
+          <Button size="sm" type="button" variant="secondary" disabled={disabled} onClick={() => { const section = createResumeSection(newKind); onChange({ ...document, sections: [...document.sections, section] }); setSelectedId(`section:${section.id}`); setEditingId(section.id); }}><Plus size={14} /> Add section</Button>
         </div>
       </div>
     </div>

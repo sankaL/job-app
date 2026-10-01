@@ -72,3 +72,69 @@ def test_draft_section_layout_is_saved_atomically_without_rewriting_source(local
     assert drafts.fetch_draft(users[0], application_id).sections_snapshot == edited.sections_snapshot
     with pytest.raises(LookupError):
         drafts.update_draft_content(application_id=application_id, user_id=users[1], content_md="wrong user", document=document)
+
+
+def test_resume_names_are_unique_per_user_for_create_and_rename(local_document_db):
+    url, users, _ = local_document_db
+    bases = BaseResumeRepository(url)
+    base = bases.create_resume(user_id=users[0], name="Engineering", content_md="## Skills\nPython")
+    # Other users may use the same name; case and surrounding spaces are ignored.
+    bases.create_resume(user_id=users[1], name=" engineering ", content_md="## Skills\nSQL")
+    with pytest.raises(PermissionError, match="Choose a different name"):
+        bases.create_resume(user_id=users[0], name=" ENGINEERING ", content_md="## Skills\nSQL")
+    other = bases.create_resume(user_id=users[0], name="Operations", content_md="## Skills\nSQL")
+    with pytest.raises(PermissionError, match="Choose a different name"):
+        bases.update_resume(other.id, users[0], {"name": "engineering"}, expected_revision=1)
+    assert bases.fetch_resume(users[0], other.id).name == "Operations"
+    assert bases.fetch_resume(users[0], other.id).revision == 1
+    assert bases.update_resume(base.id, users[0], {"name": "ENGINEERING"}, expected_revision=1).name == "ENGINEERING"
+
+
+def test_concurrent_resume_creation_rejects_one_duplicate(local_document_db):
+    from concurrent.futures import ThreadPoolExecutor
+
+    url, users, _ = local_document_db
+    bases = BaseResumeRepository(url)
+
+    def create():
+        try:
+            bases.create_resume(user_id=users[0], name="Concurrent", content_md="## Skills\nPython")
+            return "created"
+        except PermissionError:
+            return "duplicate"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: create(), range(2)))
+    assert sorted(results) == ["created", "duplicate"]
+
+
+def test_name_migration_preserves_content_and_avoids_existing_suffixes(local_document_db):
+    from pathlib import Path
+
+    from psycopg.types.json import Jsonb
+
+    url, users, _ = local_document_db
+    document = parse_resume_document("## Skills\nOriginal", reviewed=True).model_dump(mode="json")
+    migration = Path("/supabase/migrations/20260930_000022_unique_resume_names.sql").read_text()
+    # Replay inside a rollback-only transaction without changing the migration ledger.
+    migration = migration.replace("begin;", "", 1).removesuffix("commit;\n")
+    with psycopg.connect(url) as connection:
+        try:
+            connection.execute("drop index public.base_resumes_user_name_unique")
+            ids = [str(uuid4()) for _ in range(4)]
+            for index, name in enumerate(["Source", " source ", "SOURCE", "Source (2)"]):
+                connection.execute(
+                    "insert into public.base_resumes (id,user_id,name,content_md,created_at,document) values (%s,%s,%s,%s,%s,%s)",
+                    (ids[index], users[0], name, "## Skills\nOriginal", f"2026-09-30T00:00:0{index}Z", Jsonb(document)),
+                )
+            connection.execute(migration)
+            rows = connection.execute("select id::text,name,revision,content_md,document from public.base_resumes where user_id = %s", (users[0],)).fetchall()
+            indexed = {row[0]: row for row in rows}
+            assert indexed[ids[0]][1:3] == ("Source", 1)
+            assert indexed[ids[3]][1:3] == ("Source (2)", 1)
+            assert {indexed[ids[1]][1].lower(), indexed[ids[2]][1].lower()} == {"source (3)", "source (4)"}
+            assert all(indexed[id][2] == 2 for id in ids[1:3])
+            assert all(row[3] == "## Skills\nOriginal" for row in rows)
+            assert all(row[4] == {**document, "revision": row[2]} for row in rows)
+        finally:
+            connection.rollback()

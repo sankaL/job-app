@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queries";
 import { Trash2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAppContext } from "@/components/layout/AppContext";
@@ -20,6 +21,7 @@ export function BaseResumeEditorPage() {
   const { resumeId } = useParams<{ resumeId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { bootstrap } = useAppContext();
   const { toast } = useToast();
   const savingRef = useRef(false);
@@ -49,7 +51,7 @@ export function BaseResumeEditorPage() {
     setError(null); setSaved(false); setSavedSnapshot("");
     if (isNew || !resumeId) { setLoading(false); return; }
     setLoading(true);
-    fetchBaseResume(resumeId).then((response) => {
+    queryClient.fetchQuery({ queryKey: queryKeys.baseResume(resumeId), queryFn: () => fetchBaseResume(resumeId) }).then((response) => {
       if (cancelled) return;
       setResume(response); setName(response.name);
       const nextDocument = response.document ?? documentFromMarkdown(response.content_md);
@@ -59,7 +61,7 @@ export function BaseResumeEditorPage() {
       if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load resume.");
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [resumeId, isNew]);
+  }, [resumeId, isNew, queryClient]);
 
   useEffect(() => {
     if (!saved) return;
@@ -79,6 +81,8 @@ export function BaseResumeEditorPage() {
     setUploading(true); setError(null);
     try {
       const response = await uploadBaseResume(file, name.trim(), classify);
+      queryClient.setQueryData(queryKeys.baseResume(response.id), response);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.baseResumes });
       setResume(response);
       const nextDocument = response.document ?? documentFromMarkdown(response.content_md);
       setName(response.name); setDocument(nextDocument);
@@ -103,6 +107,8 @@ export function BaseResumeEditorPage() {
       const response = resume ? await updateBaseResume(resume.id, {
         name: name.trim(), document, expected_revision: resume.document?.revision ?? 1,
       }) : await createBaseResume(name.trim(), content, document);
+      queryClient.setQueryData(queryKeys.baseResume(response.id), response);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.baseResumes });
       setResume(response);
       const nextDocument = response.document ?? document;
       setName(response.name); setDocument(nextDocument);
@@ -137,13 +143,13 @@ export function BaseResumeEditorPage() {
   const pendingReview = included.filter((section) => section.review_state !== "reviewed").length;
   const reviewingUpload = uploadMode && Boolean(resume);
   return (
-    <div className="resume-editor page-enter mx-auto max-w-6xl space-y-5">
-      <PageHeader title={reviewingUpload ? "Review upload" : resume?.name ?? (uploadMode ? "Upload resume" : "New resume")} subtitle={resume ? `Source resume · revision ${resume.document?.revision ?? 1}` : "Build a reviewed source for every tailored resume"} actions={resume && !isNew ? <div className="flex gap-2">{!resume.is_default && <Button size="sm" variant="secondary" disabled={settingDefault} onClick={() => void handleDefault()}>{settingDefault ? "Setting…" : "Set Default"}</Button>}<IconButton variant="danger" aria-label="Delete resume" disabled={deleting} onClick={() => setConfirmDelete(true)}><Trash2 size={16} /></IconButton></div> : undefined} />
+    <div className="resume-editor page-enter w-full space-y-5">
+      <PageHeader title={resume?.name ?? (uploadMode ? "Upload resume" : "New resume")} subtitle={resume ? `Source resume · revision ${resume.document?.revision ?? 1}` : "Build a reviewed source for every tailored resume"} actions={resume && !isNew ? <div className="flex gap-2">{!resume.is_default && <Button size="sm" variant="secondary" disabled={settingDefault} onClick={() => void handleDefault()}>{settingDefault ? "Setting…" : "Set Default"}</Button>}<IconButton variant="danger" aria-label="Delete resume" disabled={deleting} onClick={() => setConfirmDelete(true)}><Trash2 size={16} /></IconButton></div> : undefined} />
       {error && <Card variant="danger"><p className="text-sm">{error}</p><p className="mt-2 text-xs">Your unsaved edits are still here. If another tab saved this resume, reload its latest revision before trying again.</p></Card>}
       {loading ? <SkeletonCard /> : !isNew && !resume ? <Card><p className="text-sm">This resume could not be loaded.</p><Button className="mt-3" variant="secondary" onClick={() => navigate("/app/resumes")}>Back to resumes</Button></Card> : uploadMode && !resume ? (
         <div className="resume-upload"><form className="mx-auto max-w-xl space-y-5" onSubmit={handleUpload}>
           <div><h2 className="font-display text-xl font-semibold">Start with your existing resume</h2><p className="mt-2 text-sm" style={{ color: "var(--color-ink-65)" }}>Upload a PDF, then check one section at a time before tailoring.</p></div>
-          <div><Label htmlFor="resume-name">Resume Name</Label><Input id="resume-name" value={name} placeholder="e.g., Senior Engineer Resume" required disabled={uploading} onChange={(event) => setName(event.target.value)} /></div>
+          <div><Label htmlFor="resume-name">Resume Name</Label><Input id="resume-name" value={name} maxLength={200} placeholder="e.g., Senior Engineer Resume" required disabled={uploading} onChange={(event) => setName(event.target.value)} /></div>
           <div><Label htmlFor="resume-file">PDF File</Label><input id="resume-file" ref={fileInputRef} accept=".pdf,application/pdf" className="mt-2 block w-full min-w-0 text-sm" type="file" disabled={uploading} /></div>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={uploading} checked={classify} onChange={(event) => setClassify(event.target.checked)} /> Use AI to structure unclear entries</label>
           <p className="text-xs" style={{ color: "var(--color-ink-65)" }}>Contact information stays local. Unknown or uncertain sections are kept for your review.</p>
@@ -153,18 +159,15 @@ export function BaseResumeEditorPage() {
       ) : (
         <form id="base-resume-edit-form" className="space-y-5" onSubmit={handleSave}>
           {resume?.needs_review && <div className="resume-import-warning"><p className="font-semibold">Check your import before tailoring</p><p className="mt-1">{resume.import_warning ?? "Check the imported facts and section types."} Confirm that each job has its own role, employer, dates and bullets.</p></div>}
-          <div className="max-w-xl"><Label htmlFor="resume-name">Resume Name</Label><Input id="resume-name" value={name} required disabled={saving} onChange={(event) => { setName(event.target.value); setSaved(false); }} /></div>
-          <details className="resume-reference" open={Boolean(resume?.contact_suggestions && Object.keys(resume.contact_suggestions).length)}>
-            <summary className="cursor-pointer text-xs font-semibold">{resume?.raw_source_md ? "Profile contact and original extracted text" : "Contact information from your profile"}{resume?.contact_suggestions && Object.keys(resume.contact_suggestions).length > 0 ? " · review uploaded details" : ""}</summary>
-            <ResumeContactCard profile={bootstrap?.profile ?? null} suggestions={resume?.contact_suggestions} />
-            {resume?.raw_source_md && <div className="py-4"><h3 className="text-xs font-semibold">Original extracted text</h3><p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>Use this to check an uncertain import. Add any contact details to your profile.</p><pre className="mt-3 max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-xs">{resume.raw_source_md}</pre></div>}
-          </details>
-          {reviewingUpload && <Button type="button" variant="secondary" onClick={() => { setResume(null); setDocument(emptyResumeDocument()); setSavedSnapshot(""); setSaved(false); }}>Re-upload</Button>}
-          <ResumeSectionWorkbench document={document} onChange={changeDocument} source disabled={saving} />
-          {createPortal(<div className="resume-save-dock"><div className="resume-save-bar">
+          <div className="max-w-xl"><Label htmlFor="resume-name">Resume Name</Label><Input id="resume-name" value={name} maxLength={200} required disabled={saving} onChange={(event) => { setName(event.target.value); setSaved(false); }} /></div>
+          <ResumeSectionWorkbench key={resumeId ?? "new"} document={document} onChange={changeDocument} source disabled={saving}
+            contactPanel={<ResumeContactCard profile={bootstrap?.profile ?? null} suggestions={resume?.contact_suggestions} />}
+            referencePanel={resume?.raw_source_md || reviewingUpload ? <div><h3 className="resume-section-heading">Original extracted text</h3><p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>Check uncertain imports against this text. Add contact details to your profile.</p><pre className="mt-4 whitespace-pre-wrap break-words text-sm">{resume?.raw_source_md || "Original extracted text is unavailable."}</pre>{reviewingUpload && <Button className="mt-4" type="button" variant="secondary" onClick={() => { setResume(null); setDocument(emptyResumeDocument()); setSavedSnapshot(""); setSaved(false); }}>Re-upload</Button>}</div> : undefined}
+          />
+          <div className="resume-save-bar">
             <div><p role="status" className="text-sm font-semibold">{saving ? "Saving your edits…" : dirty ? "Unsaved changes" : !resume ? "Not saved yet" : saved ? "Changes saved" : "All changes saved"}</p><p className="mt-1 text-xs" style={{ color: "var(--color-ink-65)" }}>{pendingReview ? `${pendingReview} ${pendingReview === 1 ? "section needs" : "sections need"} review before tailoring` : included.length ? "Included sections reviewed" : "Add content to start review"}</p><p className="resume-save-hint mt-1 text-xs" style={{ color: "var(--color-ink-65)" }}>Changes apply to future generations. Existing drafts keep their source revision.</p></div>
             <Button type="submit" form="base-resume-edit-form" loading={saving} disabled={saving}>{saving ? "Saving…" : saved ? "Saved" : isNew && !resume ? "Create Resume" : "Save Changes"}</Button>
-          </div></div>, window.document.body)}
+          </div>
         </form>
       )}
       <ConfirmModal open={confirmDelete} title="Delete resume?" message={`This will permanently remove "${resume?.name ?? "this resume"}".`} confirmLabel="Delete Resume" variant="danger" loading={deleting} onConfirm={() => void handleDelete()} onCancel={() => setConfirmDelete(false)} />

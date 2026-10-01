@@ -1797,6 +1797,7 @@ describe("phase 1 applications UI", () => {
     expect(
       screen.getByDisplayValue("$170,000 - $210,000 base salary"),
     ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: /Summary/ }));
     expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit Summary" })).toBeInTheDocument();
     const actionsButton = screen.getByRole("button", { name: /actions/i });
@@ -2528,6 +2529,7 @@ describe("phase 1 applications UI", () => {
       screen.getByRole("button", { name: /upload & parse/i }),
     );
 
+    await userEvent.click(await screen.findByRole("tab", { name: "Extracted text" }));
     expect(
       await screen.findByRole("button", { name: /re-upload/i }),
     ).toBeInTheDocument();
@@ -3532,6 +3534,7 @@ describe("phase 1 applications UI", () => {
     expect(screen.getAllByText(/base summary/i).length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    await userEvent.click(screen.getByRole("tab", { name: /Summary/ }));
     expect(screen.getByText(/tailored summary/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Edit Summary" }));
     expect(screen.getByDisplayValue(/tailored summary/i)).toBeInTheDocument();
@@ -3862,6 +3865,7 @@ describe("phase 1 applications UI", () => {
     expect(
       screen.queryByRole("heading", { name: /base resume/i }),
     ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: /Summary/ }));
     expect(screen.getAllByText(/tailored summary/i).length).toBeGreaterThan(0);
   });
 
@@ -5068,6 +5072,7 @@ describe("phase 1 applications UI", () => {
       expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
     );
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
+    await userEvent.click(await screen.findByRole("tab", { name: /Summary/ }));
     await waitFor(() => {
       expect(screen.getByText("Grounded summary")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Edit Summary" })).toBeDisabled();
@@ -5148,7 +5153,8 @@ describe("phase 1 applications UI", () => {
     );
 
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
-    await user.click(await screen.findByRole("button", { name: "Edit Summary" }));
+    await user.click(await screen.findByRole("tab", { name: /Summary/ }));
+    await user.click(screen.getByRole("button", { name: "Edit Summary" }));
     expect(screen.getByDisplayValue("Grounded summary")).not.toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: /^actions$/i }));
@@ -5164,6 +5170,7 @@ describe("phase 1 applications UI", () => {
     await waitFor(() =>
       expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1),
     );
+    await user.click(screen.getByRole("tab", { name: /Summary/ }));
     expect(screen.getByText("Grounded summary")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit Summary" })).toBeDisabled();
   });
@@ -6673,6 +6680,7 @@ describe("phase 1 applications UI", () => {
     });
     api.triggerSectionRegeneration.mockResolvedValue(buildApplicationDetail({ id: "app-1", internal_state: "regenerating_section", visible_status: "in_progress" }));
     renderWithAppProvider(<Routes><Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} /></Routes>, { initialEntries: ["/app/applications/app-1"] });
+    await user.click(await screen.findByRole("tab", { name: /Experience/ }));
     await screen.findByRole("button", { name: "Regenerate role" });
     expect(api.fetchBaseResume).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Regenerate role" }));
@@ -6699,15 +6707,13 @@ describe("phase 1 applications UI", () => {
       last_generated_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z", last_exported_at: null,
     });
     renderWithAppProvider(<Routes><Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} /></Routes>, { initialEntries: ["/app/applications/app-1"] });
-    const buttons = await screen.findAllByRole("button", { name: "Regenerate section" });
-    expect(buttons).toHaveLength(3);
-    for (const button of buttons) {
+    for (const section of document.sections) {
+      await user.click(await screen.findByRole("tab", { name: new RegExp(section.heading) }));
+      const button = screen.getByRole("button", { name: "Regenerate section" });
       expect(button).toBeDisabled();
       await user.click(button);
     }
     expect(api.triggerSectionRegeneration).not.toHaveBeenCalled();
-    expect(screen.getByText(/These source facts stay fixed/)).toBeInTheDocument();
-    expect(screen.getByText(/Low tailoring keeps skills fixed/)).toBeInTheDocument();
     expect(screen.getByText(/Add this section to your base resume/)).toBeInTheDocument();
   });
 

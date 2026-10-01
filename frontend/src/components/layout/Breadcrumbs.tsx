@@ -1,5 +1,5 @@
 import { useLocation, Link } from "react-router-dom";
-import { useApplicationDetailQuery } from "@/lib/queries";
+import { useApplicationDetailQuery, useBaseResumeQuery } from "@/lib/queries";
 
 type CrumbOverride = {
   label: string;
@@ -90,5 +90,9 @@ export function AppBreadcrumbs() {
     }
   }
 
+  const resumeMatch = pathname.match(/^\/app\/resumes\/([^/]+)$/);
+  const resumeId = resumeMatch?.[1];
+  const { data: resume } = useBaseResumeQuery(resumeId);
+  if (resumeId && resumeId !== "new") overrides[resumeId] = { label: resume?.name || "Resume" };
   return <Breadcrumbs overrides={overrides} />;
 }

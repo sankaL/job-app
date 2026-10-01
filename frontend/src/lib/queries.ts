@@ -1,6 +1,7 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query";
 import {
   fetchAdminMetrics,
+  fetchBaseResume,
   fetchApplicationDetail,
   listApplicationActivity,
   fetchApplicationProgress,
@@ -29,6 +30,7 @@ export const queryKeys = {
   applicationProgress: (applicationId: string) => ["applicationProgress", applicationId] as const,
   applicationActivity: (applicationId: string) => ["applicationActivity", applicationId] as const,
   baseResumes: ["baseResumes"] as const,
+  baseResume: (resumeId: string) => ["baseResume", resumeId] as const,
   notifications: ["notifications"] as const,
   adminMetrics: ["adminMetrics"] as const,
   subscriptionTiers: ["subscriptionTiers"] as const,
@@ -93,6 +95,15 @@ export function useApplicationActivityQuery(applicationId: string | undefined, e
     queryFn: () => listApplicationActivity(applicationId!),
     staleTime: THIRTY_SECONDS_MS,
     enabled: enabled && Boolean(applicationId),
+  });
+}
+
+export function useBaseResumeQuery(resumeId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.baseResume(resumeId ?? ""),
+    queryFn: () => fetchBaseResume(resumeId!),
+    staleTime: FIVE_MINUTES_MS,
+    enabled: Boolean(resumeId) && resumeId !== "new",
   });
 }
 

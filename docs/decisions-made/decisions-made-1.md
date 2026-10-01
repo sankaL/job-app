@@ -1,3 +1,13 @@
+## 2026-09-30 real resume tabs and unique names
+
+**Decision:** Use the same contact-first tab model for source and generated workbenches, showing one panel at a time. Keep original extracted text in a distinct tab, use the full page width, and let the page own vertical scrolling. Replace the fixed source save portal and oversized bottom reserve with an in-flow sticky save bar. Use saved resume names in source headers and breadcrumbs.
+
+**Reason:** Scroll links and nested overflow containers produced multiple scrollbars and excessive empty space. Separate panels keep section review focused while the parent document preserves unsaved changes.
+
+**Name contract:** Names are unique per authenticated user after case-folding and trimming surrounding spaces, enforced atomically by migration 022. Preserve the oldest existing duplicate name and suffix later duplicates using available numbers. Advance revision counters on these renames to reject stale writes. This avoids discarding content or blocking migration on historical duplicate names.
+
+**Evidence:** All 214 frontend and 421 backend tests passed, plus the production build and final 42 tab/editor tests. Browser checks verified source and generated tabs, saved-name navigation, responsive widths and absence of nested vertical scroll regions. See `docs/task-output/2026-09-30-workbench-tabs.md`.
+
 ## 2026-09-30 focused source review and conservative job import
 
 **Decision:** Open both base and application workbenches with read-only section previews on a single document surface. Each section's Edit action or double-click opens only its editor. Retain edits across section changes and return to preview without implying a save or factual review. Keep a floating base save dock outside the shell's clipping containers. Separate role facts and bullets with divider rules; keep role collapse and section settings available without adding a second review view.

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Optional
 
 from psycopg import sql
+from psycopg.errors import UniqueViolation
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
@@ -30,6 +32,16 @@ class BaseResumeRecord(BaseModel):
     contact_suggestions: dict[str, str] = Field(default_factory=dict)
     created_at: str
     updated_at: str
+
+
+@contextmanager
+def _resume_name_conflict():
+    try:
+        yield
+    except UniqueViolation as error:
+        if error.diag.constraint_name != "base_resumes_user_name_unique":
+            raise
+        raise PermissionError("You already have a resume with this name. Choose a different name.") from error
 
 
 class BaseResumeRepository:
@@ -94,7 +106,7 @@ class BaseResumeRepository:
           updated_at::text
         """
 
-        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
+        with _resume_name_conflict(), self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (user_id, name, content_md, Jsonb(document) if document else None, raw_source_md, import_warning, Jsonb(contact_suggestions or {})))
             row = cursor.fetchone()
             connection.commit()
@@ -172,7 +184,7 @@ class BaseResumeRepository:
             """
         ).format(assignments=sql.SQL(", ").join(assignments), revision_predicate=revision_predicate)
 
-        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
+        with _resume_name_conflict(), self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             parameters = (*values, resume_id, user_id)
             if expected_revision is not None:
                 parameters += (expected_revision,)

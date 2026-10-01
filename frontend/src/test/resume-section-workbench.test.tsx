@@ -34,6 +34,7 @@ function ControlledWorkbench() {
 }
 
 function editSection(heading = "Experience") {
+  fireEvent.click(screen.getByRole("tab", { name: new RegExp(heading) }));
   fireEvent.click(screen.getByRole("button", { name: `Edit ${heading}` }));
 }
 
@@ -96,7 +97,7 @@ describe("section workbench", () => {
     await user.selectOptions(screen.getByLabelText("New section type"), "custom");
     await user.click(screen.getByRole("button", { name: "Add section" }));
     expect(screen.getByLabelText("Section heading 2")).toHaveValue("Custom section");
-    expect(within(screen.getByTestId("section-preview-experience-1")).getByText("Acme")).toBeInTheDocument();
+    expect(screen.queryByTestId("section-preview-experience-1")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Move Custom section up" }));
     expect(screen.getByLabelText("Section heading 1")).toHaveValue("Custom section");
   });
@@ -140,6 +141,7 @@ describe("section workbench", () => {
     const onSave = vi.fn().mockResolvedValue(true);
     const onRegenerate = vi.fn();
     render(<MemoryRouter><DraftSectionWorkbench draft={draft} profile={null} onSave={onSave} onRegenerate={onRegenerate} /></MemoryRouter>);
+    await user.click(screen.getByRole("tab", { name: /Experience/ }));
     await user.click(screen.getByRole("button", { name: "Regenerate role" }));
     expect(onRegenerate).toHaveBeenCalledWith(source.sections[0], "role-1");
     editSection();
@@ -176,15 +178,14 @@ describe("section workbench", () => {
     const onRegenerate = vi.fn();
     const reason = (section: ResumeDocument["sections"][number], entryId?: string) => getResumeRegenerationBlocker(section, document, "low", entryId);
     render(<MemoryRouter><DraftSectionWorkbench draft={{ ...draft, document }} profile={null} onSave={vi.fn()} onRegenerate={onRegenerate} canRegenerate={(section, entryId) => !reason(section, entryId)} regenerationReason={reason} /></MemoryRouter>);
-    const buttons = screen.getAllByRole("button", { name: "Regenerate section" });
-    expect(buttons).toHaveLength(4);
-    for (const button of buttons) {
+    for (const section of sections) {
+      await user.click(screen.getByRole("tab", { name: new RegExp(section.heading) }));
+      const button = screen.getByRole("button", { name: "Regenerate section" });
       expect(button).toBeDisabled();
       await user.click(button);
+      expect(screen.getByText(new RegExp(reason(section)!))).toBeInTheDocument();
     }
     expect(onRegenerate).not.toHaveBeenCalled();
-    expect(screen.getAllByText(/These source facts stay fixed/)).toHaveLength(2);
-    expect(screen.getByText(/Low tailoring keeps skills fixed/)).toBeInTheDocument();
     editSection("Education");
     await user.type(screen.getByLabelText("Institution"), " University");
     expect(screen.getByRole("button", { name: "Save Draft" })).not.toBeDisabled();
@@ -203,8 +204,9 @@ describe("section workbench", () => {
     expect(roles[0]).not.toBeDisabled();
     expect(roles[1]).toBeDisabled();
     for (const button of screen.getAllByRole("button", { name: "Regenerate section" })) expect(button).toBeDisabled();
-    expect(screen.getByText(/Add this section to your base resume/)).toBeInTheDocument();
     await user.click(roles[0]);
+    await user.click(screen.getByRole("tab", { name: /Volunteering/ }));
+    expect(screen.getByText(/Add this section to your base resume/)).toBeInTheDocument();
     expect(onRegenerate).toHaveBeenCalledWith(experience, "role-1");
     expect(getResumeRegenerationBlocker(experience, undefined, "medium")).toMatch(/base resume/);
   });
@@ -252,7 +254,9 @@ describe("resume-owned section structure", () => {
     const document = { ...source, sections: [...source.sections, { ...source.sections[0], id: "community", kind: "custom" as const, heading: "Community", entries: [], content_md: "Community work" }] };
     const onSave = vi.fn().mockResolvedValue(true);
     render(<MemoryRouter><DraftSectionWorkbench draft={{ ...draft, document }} profile={null} onSave={onSave} onRegenerate={vi.fn()} /></MemoryRouter>);
+    await user.click(screen.getByRole("tab", { name: /Community/ }));
     await user.click(screen.getByRole("button", { name: "Move Community up" }));
+    await user.click(screen.getByRole("tab", { name: /Experience/ }));
     await user.click(screen.getByRole("checkbox", { name: "Include Experience" }));
     await user.click(screen.getByRole("button", { name: "Save Draft" }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
@@ -302,28 +306,28 @@ describe("focused source review", () => {
       return <ResumeSectionWorkbench document={document} onChange={setDocument} source />;
     }
     render(<FocusedWorkbench />);
-    expect(screen.getByRole("region", { name: "Experience" })).toBeVisible();
-    expect(screen.queryByRole("region", { name: "Skills" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tabpanel", { name: "Experience" })).toBeVisible();
+    expect(screen.queryByRole("tabpanel", { name: "Skills" })).not.toBeInTheDocument();
     editSection();
     await user.type(screen.getByLabelText("Employer"), " Ltd");
-    const navigation = screen.getByRole("navigation", { name: "Resume section index" });
-    await user.click(within(navigation).getByRole("button", { name: /Skills/ }));
-    expect(screen.getByRole("region", { name: "Skills" })).toBeVisible();
-    expect(screen.queryByRole("region", { name: "Experience" })).not.toBeInTheDocument();
+    const navigation = screen.getByRole("tablist", { name: "Resume sections" });
+    await user.click(within(navigation).getByRole("tab", { name: /Skills/ }));
+    expect(screen.getByRole("tabpanel", { name: "Skills" })).toBeVisible();
+    expect(screen.queryByRole("tabpanel", { name: "Experience" })).not.toBeInTheDocument();
     editSection("Skills");
     await user.type(screen.getByLabelText(/Section content/), ", SQL");
     await user.click(screen.getByRole("button", { name: "Mark reviewed" }));
     expect(screen.getByText("1 of 2 populated sections reviewed")).toBeInTheDocument();
-    await user.click(within(navigation).getByRole("button", { name: /Experience/ }));
+    await user.click(within(navigation).getByRole("tab", { name: /Experience/ }));
     editSection();
     expect(screen.getByLabelText("Employer")).toHaveValue("Acme Ltd");
     await user.click(screen.getByRole("checkbox", { name: "Include Experience" }));
     expect(screen.getByText("1 of 1 populated sections reviewed")).toBeInTheDocument();
-    await user.click(within(navigation).getByRole("button", { name: /Skills/ }));
+    await user.click(within(navigation).getByRole("tab", { name: /Skills/ }));
     editSection("Skills");
     expect(screen.getByLabelText(/Section content/)).toHaveValue("Python, SQL");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Current resume section" }), "experience-1");
-    expect(screen.getByRole("region", { name: "Experience" })).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: /Experience/ }));
+    expect(screen.getByRole("tabpanel", { name: "Experience" })).toBeVisible();
     editSection();
     expect(screen.getByLabelText("Employer")).toHaveValue("Acme Ltd");
   });
@@ -359,6 +363,7 @@ describe("preview-first section editing", () => {
     expect(screen.queryByRole("textbox", { name: "Employer" })).not.toBeInTheDocument();
     expect(screen.getByTestId("section-preview-experience-1")).toHaveTextContent("Acme");
     expect(screen.getByTestId("section-preview-experience-1")).toHaveTextContent("Built services");
+    await user.click(screen.getByRole("tab", { name: /Experience/ }));
     await user.click(screen.getByRole("button", { name: "Edit Experience" }));
     expect(screen.getByRole("textbox", { name: "Employer" })).toHaveValue("Acme");
     expect(onChange).not.toHaveBeenCalled();
@@ -376,13 +381,16 @@ describe("preview-first section editing", () => {
     render(<PreviewWorkbench />);
     await user.dblClick(screen.getByTestId("section-preview-experience-1"));
     await user.type(screen.getByRole("textbox", { name: "Entry 1 bullet 1" }), " for clients");
+    await user.click(screen.getByRole("tab", { name: /Skills/ }));
     await user.click(screen.getByRole("button", { name: "Edit Skills" }));
     expect(screen.queryByRole("textbox", { name: "Employer" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("section-preview-experience-1")).toHaveTextContent("Built services for clients");
+    expect(screen.queryByTestId("section-preview-experience-1")).not.toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: /Section content/ }), ", SQL");
+    await user.click(screen.getByRole("tab", { name: /Experience/ }));
     await user.click(screen.getByRole("button", { name: "Edit Experience" }));
     expect(screen.queryByRole("textbox", { name: /Section content/ })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Entry 1 bullet 1" })).toHaveValue("Built services for clients");
+    await user.click(screen.getByRole("tab", { name: /Skills/ }));
     expect(screen.getByTestId("section-preview-skills-preview")).toHaveTextContent("Python, SQL");
   });
 
@@ -395,6 +403,7 @@ describe("preview-first section editing", () => {
     expect(screen.queryByRole("textbox", { name: "Employer" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Regenerate role" })).toBeDisabled();
     rerender(<ResumeSectionWorkbench document={source} onChange={vi.fn()} onRegenerate={onRegenerate} />);
+    await user.click(screen.getByRole("tab", { name: /Experience/ }));
     await user.click(screen.getByRole("button", { name: "Regenerate role" }));
     expect(onRegenerate).toHaveBeenCalledWith(source.sections[0], "role-1");
   });
@@ -410,4 +419,27 @@ it("keeps Markdown images from loading external resources in preview while retai
   expect(link).toHaveAttribute("href", "https://example.test/paper");
   fireEvent.doubleClick(link);
   expect(screen.queryByRole("textbox", { name: /Section content/ })).not.toBeInTheDocument();
+});
+
+it.each([true, false])("uses ordered tabs and keyboard activation for source=%s", async (isSource) => {
+  const user = userEvent.setup();
+  const skills = { ...source.sections[0], id: "contact", kind: "skills" as const, heading: "Skills", entries: [], content_md: "Python" };
+  render(<ResumeSectionWorkbench document={{ ...source, sections: [...source.sections, skills] }} onChange={vi.fn()} source={isSource} contactPanel={<p>Profile facts</p>} referencePanel={<p>Original import</p>} />);
+  const tabs = screen.getAllByRole("tab");
+  expect(tabs.map((tab) => tab.getAttribute("aria-label"))).toEqual(["Contact information", "Experience", "Skills", "Extracted text"]);
+  expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+  expect(screen.getByRole("tabpanel", { name: "Contact information" })).toHaveTextContent("Profile facts");
+  tabs[0].focus();
+  await user.keyboard("{ArrowRight}");
+  expect(tabs[1]).toHaveFocus();
+  expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+  expect(screen.queryByText("Profile facts")).not.toBeInTheDocument();
+  expect(screen.getAllByRole("tabpanel")).toHaveLength(1);
+  await user.keyboard("{End}");
+  expect(screen.getByRole("tabpanel", { name: "Extracted text" })).toHaveTextContent("Original import");
+  await user.keyboard("{Home}{ArrowLeft}");
+  expect(tabs[3]).toHaveFocus();
+  await user.click(tabs[2]);
+  // A stored section ID cannot collide with the profile contact tab.
+  expect(screen.getByRole("tabpanel", { name: "Skills" })).toHaveTextContent("Python");
 });

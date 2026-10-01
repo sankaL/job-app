@@ -194,7 +194,7 @@ Versioned section source resumes owned by a single user, with a stored Markdown 
 |---|---|---|---|---|
 | `id` | `uuid` | No | — | Primary key. |
 | `user_id` | `uuid` | No | — | Foreign key to `users.id` with `ON DELETE CASCADE`. |
-| `name` | `text` | No | — | User-defined label. Must be non-blank. |
+| `name` | `text` | No | — | User-defined label. Must be non-blank and unique per user after case-folding and trimming surrounding spaces. |
 | `content_md` | `text` | No | — | Full resume stored as Markdown. Must be non-blank. |
 | `document` | `jsonb` | Yes | `null` | Version 1 section document; null only for historical rows. |
 | `revision` | `integer` | No | `1` | Positive optimistic concurrency counter. |
@@ -208,6 +208,7 @@ Versioned section source resumes owned by a single user, with a stored Markdown 
 
 - `UNIQUE (id, user_id)` to support same-user composite foreign keys.
 - `CHECK (btrim(name) <> '')`
+- Unique expression index `base_resumes_user_name_unique (user_id, lower(btrim(name)))`. Migration 022 keeps the oldest duplicate label and gives later duplicates available numbered suffixes, advancing their revision and JSON document revision. Content, IDs and references are preserved.
 - `CHECK (btrim(content_md) <> '')`
 
 **Isolation requirements**
@@ -439,6 +440,7 @@ If implementation constraints require equivalent ownership validation outside a 
 | `profiles.extension_token_hash` unique partial index | Fast scoped extension-token lookup |
 | `base_resumes (user_id, updated_at DESC)` | Resume list ordering |
 | `base_resumes (user_id, name)` | Name-based selection and lookup |
+| `base_resumes (user_id, lower(btrim(name)))` unique index | Enforce names unique within each user, including concurrent writes |
 | `applications (user_id, updated_at DESC)` | Dashboard default sort |
 | `applications (user_id, visible_status, updated_at DESC)` | Status filtering on dashboard |
 | Search index over `applications.job_title` and `applications.company` within user scope | Dashboard search by job title or company |

@@ -3598,7 +3598,7 @@ export function ApplicationDetailPage() {
     lockInteractions?: boolean;
   }) {
     if (draft) return (
-      <Card className={`${workspaceCardClass} px-4 py-4`} style={activeWorkspaceCardStyle}>
+      <Card className="min-w-0 px-4 py-4">
         <DraftSectionWorkbench
           key={`${activeApplicationId}:${draft.id}`}
           draft={draft}

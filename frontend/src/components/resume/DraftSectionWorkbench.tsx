@@ -58,10 +58,9 @@ export function DraftSectionWorkbench({ draft, profile, locked = false, saving =
       </div>
       {error && <p role="alert" className="mt-3 text-xs" style={{ color: "var(--color-ember)" }}>{error}</p>}
       {changedElsewhere && <Card variant="warning" className="mt-3"><p className="text-xs">A newer draft is available. Your unsaved edits are preserved here. Reload the latest draft before saving.</p><Button type="button" size="sm" variant="secondary" className="mt-2" disabled={locked || saving} onClick={discardChanges}>Reload latest draft</Button></Card>}
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-4">
-        <ResumeContactCard profile={profile} />
+      <div className="space-y-4 py-4">
         {!draft.document && <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>This legacy draft will gain section IDs when you save it. To refresh source links, choose Use latest base resume during full regeneration.</p>}
-        <ResumeSectionWorkbench document={document} disabled={locked || saving} onChange={(next) => { setDocument(next); setDirty(true); }} onRegenerate={!dirty && draft.document ? onRegenerate : undefined} canRegenerate={canRegenerate} regenerationReason={regenerationReason} />
+        <ResumeSectionWorkbench contactPanel={<ResumeContactCard profile={profile} />} document={document} disabled={locked || saving} onChange={(next) => { setDocument(next); setDirty(true); }} onRegenerate={!dirty && draft.document ? onRegenerate : undefined} canRegenerate={canRegenerate} regenerationReason={regenerationReason} />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
         <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>{dirty ? "Unsaved changes. Save before regenerating or exporting." : "All changes saved"}</p>
