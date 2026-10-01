@@ -1440,6 +1440,7 @@ class ApplicationService:
             generated=generated,
         )
         if keyword_optimization_failure is not None:
+            self._release_generation_quota_for_period(user_id=record.user_id, period_start=progress.quota_period_start)
             return await self._mark_generation_failure(
                 record=record,
                 message="Keyword optimization did not preserve existing keyword coverage. Your previous draft was kept.",
@@ -1449,14 +1450,9 @@ class ApplicationService:
 
         draft = self._persist_generated_draft(record=record, generated=generated)
 
-        updated = await self._enqueue_resume_judge_for_draft(
-            record=record,
-            draft=draft,
-            application_updates=self._workflow_updates(
-                internal_state="resume_ready",
-                failure_reason=None,
-                generation_failure_details=None,
-            ),
+        updated = self.repository.update_application(
+            application_id=record.id, user_id=record.user_id,
+            updates=self._workflow_updates(internal_state="resume_ready", failure_reason=None, generation_failure_details=None),
         )
         try:
             self.notification_repository.clear_action_required(
@@ -1970,13 +1966,10 @@ class ApplicationService:
 
             draft = self._persist_generated_draft(record=record, generated=payload.generated)
 
-            updated = await self._enqueue_resume_judge_for_draft(
-                record=record,
-                draft=draft,
-                application_updates=self._workflow_updates(
-                    internal_state="resume_ready",
-                    failure_reason=None,
-                    generation_failure_details=None,
+            updated = self.repository.update_application(
+                application_id=record.id, user_id=record.user_id,
+                updates=self._workflow_updates(
+                    internal_state="resume_ready", failure_reason=None, generation_failure_details=None,
                 ),
             )
 
@@ -2706,6 +2699,7 @@ class ApplicationService:
                 completed_progress.completed_at = completed_progress.updated_at
                 await self.progress_store.set(record.id, completed_progress)
                 await self.progress_store.clear_generation_result(record.id)
+                self._release_generation_quota_for_period(user_id=record.user_id, period_start=payload.quota_period_start)
                 return await self._mark_generation_failure(
                     record=record,
                     message="Keyword optimization did not preserve existing keyword coverage. Your previous draft was kept.",
@@ -2715,13 +2709,10 @@ class ApplicationService:
 
             draft = self._persist_generated_draft(record=record, generated=payload.generated)
 
-            updated = await self._enqueue_resume_judge_for_draft(
-                record=record,
-                draft=draft,
-                application_updates=self._workflow_updates(
-                    internal_state="resume_ready",
-                    failure_reason=None,
-                    generation_failure_details=None,
+            updated = self.repository.update_application(
+                application_id=record.id, user_id=record.user_id,
+                updates=self._workflow_updates(
+                    internal_state="resume_ready", failure_reason=None, generation_failure_details=None,
                 ),
             )
 
@@ -3752,10 +3743,6 @@ class ApplicationService:
         return {
             "subscription_tier": reservation.subscription_tier,
             "quota_period_start": reservation.period_start,
-            "_generation_model": reservation.generation_model,
-            "_generation_reasoning_effort": reservation.generation_reasoning_effort,
-            "_generation_fallback_model": reservation.generation_fallback_model,
-            "_generation_fallback_reasoning_effort": reservation.generation_fallback_reasoning_effort,
         }
 
     def _require_profile_name(self, profile, *, action: str) -> None:

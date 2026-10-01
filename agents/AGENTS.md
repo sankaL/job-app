@@ -10,7 +10,7 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 - Generation must stay grounded in the user's base resume, the job description, eligible sections, section order, generation settings, and user instructions.
 - Remove personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
 - Do not rely on provider-specific prompt syntax or model-specific features. Prompts must remain portable across OpenRouter-supported models.
-- Model selection belongs in configuration, not prompt assets or code constants.
+- Model selection belongs in configuration, not prompt assets or code constants. Initial/full writing uses Tier 1; section writing, extraction, audits, repairs and requested quality scoring use Tier 2. Subscription plans govern request allowances only; models use default reasoning.
 - Every model system prompt must include the shared Unslop policy verbatim. Grounding, privacy, exact-copy, ATS, structured-output, and operation-specific resume rules take precedence over conflicting general writing advice.
 - Pydantic AI output corrections, explicit model fallback and targeted section repairs share a bounded request, token and deadline budget. Preserve validated sibling sections during repairs.
 

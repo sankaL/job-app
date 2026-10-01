@@ -254,7 +254,7 @@ def test_local_environment_defaults_disable_and_forward_langsmith():
     assert compose.count("LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}") == 2
     assert compose.count("LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-}") == 2
     assert compose.count("LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}") == 2
-    assert "GENERATION_AGENT_MODEL: ${GENERATION_AGENT_MODEL:-openai/gpt-5.6-luna}" in compose
-    assert "GENERATION_AGENT_FALLBACK_MODEL: ${GENERATION_AGENT_FALLBACK_MODEL:-google/gemini-3.7-flash}" in compose
-    assert "GENERATION_AGENT_REASONING_EFFORT: ${GENERATION_AGENT_REASONING_EFFORT:-auto}" in compose
+    assert "TIER1_MODEL: ${TIER1_MODEL:-anthropic/claude-sonnet-5.5}" in compose
+    assert "TIER1_FALLBACK_MODEL: ${TIER1_FALLBACK_MODEL:-openai/gpt-6.1-sol}" in compose
+    assert "TIER2_MODEL: ${TIER2_MODEL:-google/gemini-3.8-flash}" in compose
     assert "LANGSMITH_TRACING=false" in root_env

@@ -2929,10 +2929,6 @@ describe("phase 1 applications UI", () => {
         key: "basic",
         name: "Basic",
         monthly_resume_generation_limit: 10,
-        generation_model: "google/gemini-3-flash-preview",
-        generation_reasoning_effort: "none",
-        generation_fallback_model: "openai/gpt-5.4-mini",
-        generation_fallback_reasoning_effort: "none",
         is_active: true,
         created_at: "2026-05-23T00:00:00Z",
         updated_at: "2026-05-23T00:00:00Z",
@@ -2941,10 +2937,6 @@ describe("phase 1 applications UI", () => {
         key: "pro",
         name: "Pro",
         monthly_resume_generation_limit: 100,
-        generation_model: "openai/gpt-5.4-mini",
-        generation_reasoning_effort: "medium",
-        generation_fallback_model: "google/gemini-3.5-flash",
-        generation_fallback_reasoning_effort: "medium",
         is_active: true,
         created_at: "2026-05-23T00:00:00Z",
         updated_at: "2026-05-23T00:00:00Z",
@@ -2954,10 +2946,6 @@ describe("phase 1 applications UI", () => {
       key: "basic",
       name: "Basic",
       monthly_resume_generation_limit: 12,
-      generation_model: "google/gemini-3-flash-preview",
-      generation_reasoning_effort: "none",
-      generation_fallback_model: "openai/gpt-5.4-mini",
-      generation_fallback_reasoning_effort: "none",
       is_active: true,
       created_at: "2026-05-23T00:00:00Z",
       updated_at: "2026-05-23T12:00:00Z",
@@ -2967,6 +2955,7 @@ describe("phase 1 applications UI", () => {
 
     await screen.findByRole("heading", { name: /subscription settings/i });
     await screen.findByText("Basic");
+    expect(screen.queryByLabelText(/primary model|fallback model|reasoning/i)).not.toBeInTheDocument();
     const limitInput = screen.getByDisplayValue("10");
     await user.clear(limitInput);
     await user.type(limitInput, "12");
@@ -2980,160 +2969,27 @@ describe("phase 1 applications UI", () => {
     await waitFor(() =>
       expect(api.updateSubscriptionTier).toHaveBeenCalledWith("basic", {
         monthly_resume_generation_limit: 12,
-        generation_model: "google/gemini-3-flash-preview",
-        generation_reasoning_effort: "none",
-        generation_fallback_model: "openai/gpt-5.4-mini",
-        generation_fallback_reasoning_effort: "none",
       }),
     );
   });
 
-  it("preserves auto reasoning and new model selections from subscription tiers", async () => {
-    api.listSubscriptionTiers.mockResolvedValue([
-      {
-        key: "basic",
-        name: "Basic",
-        monthly_resume_generation_limit: 10,
-        generation_model: "openai/gpt-5.6-luna",
-        generation_reasoning_effort: "auto",
-        generation_fallback_model: "google/gemini-3.7-flash",
-        generation_fallback_reasoning_effort: "auto",
-        is_active: true,
-        created_at: "2026-08-22T00:00:00Z",
-        updated_at: "2026-08-22T00:00:00Z",
-      },
-    ]);
-
-    renderWithAppProvider(<AdminSubscriptionsPage />);
-
-    await screen.findByRole("heading", { name: /subscription settings/i });
-    await screen.findByText("Basic");
-    const form = screen
-      .getByDisplayValue("10")
-      .closest("form") as HTMLFormElement;
-
-    expect(
-      within(form).getByLabelText(/primary model/i),
-    ).toHaveValue("openai/gpt-5.6-luna");
-    expect(
-      within(form).getByLabelText(/primary reasoning/i),
-    ).toHaveValue("auto");
-    expect(
-      within(form).getByLabelText(/fallback model/i),
-    ).toHaveValue("google/gemini-3.7-flash");
-    expect(
-      within(form).getByLabelText(/fallback reasoning/i),
-    ).toHaveValue("auto");
-  });
-
-  it("validates subscription tier model fields before saving", async () => {
+  it("refreshes request allowances without overwriting unsaved edits", async () => {
     const user = userEvent.setup();
-    api.listSubscriptionTiers.mockResolvedValue([
-      {
-        key: "basic",
-        name: "Basic",
-        monthly_resume_generation_limit: 10,
-        generation_model: "google/gemini-3-flash-preview",
-        generation_reasoning_effort: "none",
-        generation_fallback_model: "openai/gpt-5.4-mini",
-        generation_fallback_reasoning_effort: "none",
-        is_active: true,
-        created_at: "2026-05-23T00:00:00Z",
-        updated_at: "2026-05-23T00:00:00Z",
-      },
-    ]);
-
+    const tier = { key: "basic" as const, name: "Basic", monthly_resume_generation_limit: 10,
+      is_active: true, created_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z" };
+    api.listSubscriptionTiers.mockResolvedValue([tier]);
     renderWithAppProvider(<AdminSubscriptionsPage />);
-
-    await screen.findByRole("heading", { name: /subscription settings/i });
-    await screen.findByText("Basic");
-    const limitInput = screen.getByDisplayValue("10");
-    const form = limitInput.closest("form") as HTMLFormElement;
-    const primaryInput = within(form).getByLabelText(/primary model/i);
-    const fallbackInput = within(form).getByLabelText(/fallback model/i);
-
-    await user.selectOptions(
-      fallbackInput,
-      (primaryInput as HTMLSelectElement).value,
-    );
-    await user.click(within(form).getByRole("button", { name: /save/i }));
-
-    expect(api.updateSubscriptionTier).not.toHaveBeenCalled();
-    expect(
-      await screen.findByText(/fallback model must be different/i),
-    ).toBeInTheDocument();
-  });
-
-  it("offers DeepSeek V4 Flash with its supported reasoning levels", async () => {
-    const user = userEvent.setup();
-    api.listSubscriptionTiers.mockResolvedValue([
-      {
-        key: "basic",
-        name: "Basic",
-        monthly_resume_generation_limit: 10,
-        generation_model: "google/gemini-3-flash-preview",
-        generation_reasoning_effort: "none",
-        generation_fallback_model: "openai/gpt-5.4-mini",
-        generation_fallback_reasoning_effort: "none",
-        is_active: true,
-        created_at: "2026-05-23T00:00:00Z",
-        updated_at: "2026-05-23T00:00:00Z",
-      },
-    ]);
-    api.updateSubscriptionTier.mockResolvedValue({
-      key: "basic",
-      name: "Basic",
-      monthly_resume_generation_limit: 10,
-      generation_model: "deepseek/deepseek-v4-flash",
-      generation_reasoning_effort: "xhigh",
-      generation_fallback_model: "openai/gpt-5.4-mini",
-      generation_fallback_reasoning_effort: "none",
-      is_active: true,
-      created_at: "2026-05-23T00:00:00Z",
-      updated_at: "2026-05-23T12:00:00Z",
-    });
-
-    renderWithAppProvider(<AdminSubscriptionsPage />);
-
-    await screen.findByRole("heading", { name: /subscription settings/i });
-    await screen.findByText("Basic");
-    const form = screen
-      .getByDisplayValue("10")
-      .closest("form") as HTMLFormElement;
-    const primaryInput = within(form).getByLabelText(/primary model/i);
-    const primaryReasoningInput =
-      within(form).getByLabelText(/primary reasoning/i);
-
-    await user.selectOptions(primaryInput, "deepseek/deepseek-v4-flash");
-
-    expect(
-      within(primaryReasoningInput).getByRole("option", { name: "None" }),
-    ).toBeInTheDocument();
-    expect(
-      within(primaryReasoningInput).getByRole("option", { name: "High" }),
-    ).toBeInTheDocument();
-    expect(
-      within(primaryReasoningInput).getByRole("option", { name: "Extra high" }),
-    ).toBeInTheDocument();
-    expect(
-      within(primaryReasoningInput).queryByRole("option", { name: "Low" }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(primaryReasoningInput).queryByRole("option", { name: "Medium" }),
-    ).not.toBeInTheDocument();
-
-    await user.selectOptions(primaryReasoningInput, "xhigh");
-    await user.click(within(form).getByRole("button", { name: /save/i }));
-
-    await waitFor(() =>
-      expect(api.updateSubscriptionTier).toHaveBeenCalledWith("basic", {
-        monthly_resume_generation_limit: 10,
-        generation_model: "deepseek/deepseek-v4-flash",
-        generation_reasoning_effort: "xhigh",
-        generation_fallback_model: "openai/gpt-5.4-mini",
-        generation_fallback_reasoning_effort: "none",
-      }),
-    );
+    const input = await screen.findByLabelText("Monthly requests");
+    await waitFor(() => expect(input).toHaveValue(10));
+    api.listSubscriptionTiers.mockResolvedValue([{ ...tier, monthly_resume_generation_limit: 20 }]);
+    await user.click(screen.getByRole("button", { name: /refresh/i }));
+    await waitFor(() => expect(input).toHaveValue(20));
+    await user.clear(input);
+    await user.type(input, "15");
+    api.listSubscriptionTiers.mockResolvedValue([{ ...tier, monthly_resume_generation_limit: 25 }]);
+    await user.click(screen.getByRole("button", { name: /refresh/i }));
+    await screen.findByText("25 requests/month");
+    expect(input).toHaveValue(15);
   });
 
   it("renders a stop icon on the detail page while extraction is active", async () => {

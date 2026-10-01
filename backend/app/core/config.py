@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Literal, Optional
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -80,14 +80,22 @@ class Settings(BaseSettings):
         default="/app/app/core/workflow-contract.json", alias="SHARED_CONTRACT_PATH"
     )
     openrouter_api_key: Optional[str] = Field(default=None, alias="OPENROUTER_API_KEY")
-    openrouter_cleanup_model: str = Field(
-        default="openai/gpt-5.6-luna", alias="OPENROUTER_CLEANUP_MODEL"
-    )
+    tier2_model: str = Field(default="google/gemini-3.8-flash", alias="TIER2_MODEL")
+    tier2_fallback_model: str = Field(default="openai/gpt-6-luna", alias="TIER2_FALLBACK_MODEL")
+
+    @field_validator("tier2_model", "tier2_fallback_model")
+    @classmethod
+    def require_routine_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Tier 2 primary and fallback models must be configured.")
+        return value
+
     openrouter_base_url: str = Field(
         default="https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL"
     )
     resume_import_classifier: Literal["local", "jev"] = Field(
-        default="local", alias="RESUME_IMPORT_CLASSIFIER"
+        default="jev", alias="RESUME_IMPORT_CLASSIFIER"
     )
     openrouter_classification_model: str = Field(
         default="typesafe/jev-1.13", alias="OPENROUTER_CLASSIFICATION_MODEL"
@@ -112,6 +120,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
         self.email
+        if self.tier2_model == self.tier2_fallback_model:
+            raise ValueError("Tier 2 requires a distinct fallback model.")
         if self.langsmith_tracing:
             if not str(self.langsmith_project or "").strip():
                 raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")

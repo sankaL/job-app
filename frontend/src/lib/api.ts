@@ -472,10 +472,6 @@ export type SubscriptionTier = {
   key: "basic" | "pro";
   name: string;
   monthly_resume_generation_limit: number;
-  generation_model: string;
-  generation_reasoning_effort: string;
-  generation_fallback_model: string;
-  generation_fallback_reasoning_effort: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -506,10 +502,6 @@ export type UpdateAdminUserPayload = {
 
 export type UpdateSubscriptionTierPayload = {
   monthly_resume_generation_limit: number;
-  generation_model: string;
-  generation_reasoning_effort: string;
-  generation_fallback_model: string;
-  generation_fallback_reasoning_effort: string;
 };
 
 type RequestOptions = Omit<RequestInit, "body"> & {

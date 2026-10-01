@@ -447,3 +447,61 @@ async def test_entry_regeneration_preserves_added_reordered_current_siblings_and
         generation_settings={'_current_document':before,'_target_entry_id':'role-one','_operation':'regeneration_section'},
         expected_ids=['experience-id'])
     assert checked['valid'],checked
+
+@pytest.mark.asyncio
+async def test_full_writer_fallback_and_repairs_audits_use_distinct_operation_tiers(monkeypatch):
+    calls = []
+    writes = 0
+    async def call(**kwargs):
+        nonlocal writes
+        calls.append((kwargs['operation'], kwargs['model_name']))
+        payload = json.loads(kwargs['prompt'][1][1])
+        if kwargs['operation'] == 'section_grounding_audit':
+            return pipeline.GroundingAudit(sections=[{'id':s['id'],'supported':True,'issues':[]} for s in payload['sections_to_verify']])
+        if kwargs['model_name'] == 'tier1-primary':
+            raise RuntimeError('Synthetic transport failure')
+        writes += 1
+        outputs = {'summary-id':summary_output(), 'experience-id':experience_output(), 'custom-id':custom_output()}
+        requested = payload['requested_sections']
+        items = {'sections':[outputs[item['id']] for item in requested]}
+        if writes == 1:
+            items['sections'][0]['paragraph'] = 'Invented +999% metric.'
+        return pipeline.SectionBatch.model_validate(items)
+    monkeypatch.setattr(pipeline,'structured_call',call)
+    result = await pipeline.generate_document(source_payload=source_document(),
+        generation_settings={'aggressiveness':'medium','_routine_model':'tier2-primary','_routine_fallback_model':'tier2-fallback'},
+        section_preferences=[],job_title='Engineer',company_name='Example',job_description='Build APIs',
+        model='tier1-primary',fallback_model='tier1-fallback',api_key='test',base_url='https://provider.invalid/v1',on_progress=None)
+    assert calls[:2] == [('section_generation','tier1-primary'),('section_generation','tier1-fallback')]
+    assert all(model == 'tier2-primary' for operation,model in calls[2:])
+    assert any(operation == 'section_repair' for operation,_ in calls)
+    assert result['document']
+
+@pytest.mark.asyncio
+async def test_repeated_semantic_rejection_supplies_feedback_and_switches_tier2_writer(monkeypatch):
+    writes = []
+    audits = 0
+    async def call(**kwargs):
+        nonlocal audits
+        kwargs['budget'].requests += 1
+        payload = json.loads(kwargs['prompt'][1][1])
+        if kwargs['operation'] == 'section_grounding_audit':
+            audits += 1
+            return pipeline.GroundingAudit(sections=[{'id':s['id'],
+                'supported':s['id'] != 'summary-id' or audits > 2,
+                'issues':['unsupported_scope'] if s['id']=='summary-id' and audits <= 2 else []}
+                for s in payload['sections_to_verify']])
+        writes.append(kwargs)
+        outputs = {'summary-id':summary_output(),'experience-id':experience_output(),'custom-id':custom_output()}
+        return pipeline.SectionBatch.model_validate({'sections':[outputs[s['id']] for s in payload['requested_sections']]})
+    monkeypatch.setattr(pipeline,'structured_call',call)
+    await pipeline.generate_document(source_payload=source_document(),generation_settings={
+        'aggressiveness':'high','_routine_model':'tier2-primary','_routine_fallback_model':'tier2-fallback'},
+        section_preferences=[],job_title='Engineer',company_name='Example',job_description='Build APIs',
+        model='tier1-primary',fallback_model='tier1-fallback',api_key='test',base_url='https://provider.invalid/v1',on_progress=None)
+    assert [write['model_name'] for write in writes] == ['tier1-primary','tier2-primary','tier2-fallback']
+    for write in writes[1:]:
+        feedback = json.loads(write['prompt'][-1][1])
+        assert feedback['repair_only_section_ids'] == ['summary-id']
+        assert feedback['rejected_outputs'][0]['id'] == 'summary-id'
+        assert feedback['repair_errors'] == {'summary-id':'unsupported_scope'}

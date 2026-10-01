@@ -118,7 +118,7 @@ Application-owned extension of `users`.
 | `is_admin` | `boolean` | No | `false` | Grants access to admin routes and screens. |
 | `is_active` | `boolean` | No | `true` | Deactivated users are blocked from application access. |
 | `onboarding_completed_at` | `timestamptz` | Yes | `null` | Set when invite signup is accepted successfully. |
-| `subscription_tier` | `text` | No | `basic` | FK to `subscription_tiers.key`. Determines monthly resume-writing quota and generation model access. |
+| `subscription_tier` | `text` | No | `basic` | FK to `subscription_tiers.key`. Determines monthly writing-request allowance only. |
 | `default_base_resume_id` | `uuid` | Yes | `null` | Canonical pointer to the user's default base resume. Composite foreign key with `id` to `base_resumes (id, user_id)` and `ON DELETE SET NULL`. |
 | `section_preferences` | `jsonb` | No | `{"summary": true, "professional_experience": true, "education": true, "skills": true, "projects": true, "certifications": true}` | See JSON contract above. |
 | `section_order` | `jsonb` | No | `["summary", "professional_experience", "education", "skills", "projects", "certifications"]` | See JSON contract above. |
@@ -141,25 +141,26 @@ Application-owned extension of `users`.
 
 ### `subscription_tiers`
 
-Admin-configurable Basic and Pro generation limits and model access.
+Admin-configurable Basic/Pro monthly writing-request allowances, seeded at 10/60 by migration 021. Both plans use operation-based model routing.
 
 | Column | Type | Null | Default | Constraints and notes |
 |---|---|---|---|---|
 | `key` | `text` | No | — | Primary key. Allowed values are `basic` and `pro`. |
 | `name` | `text` | No | — | Display label. |
-| `monthly_resume_generation_limit` | `integer` | No | — | UTC calendar-month limit for initial generation, full regeneration, and section regeneration. Must be non-negative; backend validation caps admin-entered values. |
-| `generation_model` | `text` | No | — | OpenRouter model ID used as the tier primary generation model. Must be one of the curated admin model options. |
-| `generation_reasoning_effort` | `text` | No | `none` | OpenRouter reasoning effort for the primary model. Model-aware allowed values are `none`, `low`, `medium`, `high`, and `xhigh`; DeepSeek V4 Flash allows only `none`, `high`, and `xhigh`. |
-| `generation_fallback_model` | `text` | No | — | OpenRouter model ID used as the tier fallback generation model. Must differ from `generation_model` and be one of the curated admin model options. |
-| `generation_fallback_reasoning_effort` | `text` | No | `none` | OpenRouter reasoning effort for the fallback model with the same compatibility rules as the primary reasoning field. |
+| `monthly_resume_generation_limit` | `integer` | No | — | UTC calendar-month limit for initial generation, full regeneration, and section/job regeneration and keyword optimization. Failed/cancelled actions refund reservations; internal provider calls do not add usage. Must be non-negative; backend validation caps admin-entered values. |
+| `generation_model` | `text` | No | — | Deprecated compatibility metadata, ignored by current APIs, quota reservations and workers. Historical constraints remain for rollback. |
+| `generation_reasoning_effort` | `text` | No | `none` | Deprecated compatibility metadata, ignored by current APIs, quota reservations and workers. Historical constraints remain for rollback. |
+| `generation_fallback_model` | `text` | No | — | Deprecated compatibility metadata, ignored by current APIs, quota reservations and workers. Historical constraints remain for rollback. |
+| `generation_fallback_reasoning_effort` | `text` | No | `none` | Deprecated compatibility metadata, ignored by current APIs, quota reservations and workers. Historical constraints remain for rollback. |
 | `is_active` | `boolean` | No | `true` | Inactive tiers cannot reserve generation quota. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
 
 **Seed values**
 
-- `basic`: limit `10`, primary `google/gemini-3-flash-preview` with reasoning `none`, fallback `openai/gpt-5.4-mini` with reasoning `none`
-- `pro`: limit `100`, primary `openai/gpt-5.4-mini` with reasoning `medium`, fallback `google/gemini-3.5-flash` with reasoning `medium`
+- `basic`: 10 monthly writing requests
+- `pro`: 60 monthly writing requests
+- Historical model/effort metadata is retained for rollback only; operation-based configuration governs both plans.
 
 ### `resume_generation_usage`
 

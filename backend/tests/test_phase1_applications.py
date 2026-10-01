@@ -876,13 +876,14 @@ async def test_keyword_optimization_queues_missing_and_preserved_keywords():
     assert settings["keyword_optimization"]["target_keywords"] == ["Kubernetes", "CI/CD"]
     assert settings["keyword_optimization"]["preserve_keywords"] == ["React Native"]
     assert settings["keyword_optimization"]["starting_match"]["matched_count"] == 1
-    assert settings["_generation_model"] == "basic-primary-model"
+    assert "_generation_model" not in settings
     assert "_current_draft_snapshot_content" in settings
 
 
 @pytest.mark.asyncio
 async def test_keyword_optimization_callback_keeps_old_draft_when_coverage_regresses():
     service, repository, _, progress_store, _, _, drafts = build_service()
+    service.subscription_repository.count_by_user["user-1"] = 2
     record = repository.create_application(
         user_id="user-1",
         job_url="https://example.com/jobs/keyword-regression",
@@ -962,6 +963,8 @@ async def test_keyword_optimization_callback_keeps_old_draft_when_coverage_regre
     assert updated.generation_failure_details["failure_stage"] == "keyword_optimization"
     assert drafts.fetch_draft("user-1", record.id).content_md == "# Resume\n\nBuilt React Native apps."
 
+
+    assert service.subscription_repository.count_by_user["user-1"] == 1
 
 @pytest.mark.asyncio
 async def test_keyword_optimization_callback_keeps_old_draft_when_preserved_keyword_is_removed():
@@ -3624,12 +3627,10 @@ async def test_generation_success_callback_persists_draft_marks_resume_ready_and
     assert updated.failure_reason is None
     assert drafts.fetch_draft("user-1", created.id) is not None
     assert drafts.fetch_draft("user-1", created.id).content_md == "# Resume\n"
-    assert updated.resume_judge_result is not None
-    assert updated.resume_judge_result["status"] == "queued"
+    assert updated.resume_judge_result is None
     assert (await progress_store.get(created.id)).state == "resume_ready"
     assert notifications.notifications[-1]["notification_type"] == "success"
-    assert len(service.generation_job_queue.judge_jobs) == 1
-    assert service.generation_job_queue.judge_jobs[0]["generated_resume_content"] == "# Resume\n"
+    assert not service.generation_job_queue.judge_jobs
     draft = drafts.fetch_draft("user-1", created.id)
     assert draft is not None
     assert "attempts" not in draft.generation_params
@@ -3787,11 +3788,9 @@ async def test_regeneration_success_callback_queues_resume_judge_for_updated_ful
     )
 
     assert updated.internal_state == "resume_ready"
-    assert updated.resume_judge_result is not None
-    assert updated.resume_judge_result["status"] == "queued"
+    assert updated.resume_judge_result is None
     assert drafts.fetch_draft("user-1", created.id).content_md.startswith("# New Resume")
-    assert len(service.generation_job_queue.judge_jobs) == 1
-    assert service.generation_job_queue.judge_jobs[0]["generated_resume_content"].startswith("# New Resume")
+    assert not service.generation_job_queue.judge_jobs
     assert notifications.notifications[-1]["notification_type"] == "success"
 
 
@@ -4565,10 +4564,10 @@ async def test_trigger_generation_consumes_subscription_quota_and_passes_tier_mo
     assert service.subscription_repository.count_by_user["user-1"] == 1
     assert queued_settings["subscription_tier"] == "basic"
     assert queued_settings["quota_period_start"] == "2026-04-01"
-    assert queued_settings["_generation_model"] == "basic-primary-model"
-    assert queued_settings["_generation_reasoning_effort"] == "medium"
-    assert queued_settings["_generation_fallback_model"] == "basic-fallback-model"
-    assert queued_settings["_generation_fallback_reasoning_effort"] == "high"
+    assert "_generation_model" not in queued_settings
+    assert "_generation_reasoning_effort" not in queued_settings
+    assert "_generation_fallback_model" not in queued_settings
+    assert "_generation_fallback_reasoning_effort" not in queued_settings
 
 
 @pytest.mark.asyncio
@@ -4803,10 +4802,10 @@ async def test_section_regeneration_consumes_subscription_quota_and_passes_tier_
     assert service.subscription_repository.count_by_user["user-1"] == 1
     assert queued_settings["subscription_tier"] == "basic"
     assert queued_settings["quota_period_start"] == "2026-04-01"
-    assert queued_settings["_generation_model"] == "basic-primary-model"
-    assert queued_settings["_generation_reasoning_effort"] == "medium"
-    assert queued_settings["_generation_fallback_model"] == "basic-fallback-model"
-    assert queued_settings["_generation_fallback_reasoning_effort"] == "high"
+    assert "_generation_model" not in queued_settings
+    assert "_generation_reasoning_effort" not in queued_settings
+    assert "_generation_fallback_model" not in queued_settings
+    assert "_generation_fallback_reasoning_effort" not in queued_settings
 
 
 @pytest.mark.asyncio
@@ -6118,9 +6117,8 @@ async def test_generation_success_cache_recovery_consumes_cached_payload_once_ac
 
     updated = repository.fetch_application("user-1", created.id)
     assert updated is not None
-    assert updated.resume_judge_result is not None
-    assert updated.resume_judge_result["status"] == "queued"
-    assert len(generation_queue.judge_jobs) == 1
+    assert updated.resume_judge_result is None
+    assert not generation_queue.judge_jobs
     assert created.id not in progress_store.generation_results
     draft = draft_repository.fetch_draft("user-1", created.id)
     assert draft is not None

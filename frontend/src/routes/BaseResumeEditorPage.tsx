@@ -133,7 +133,7 @@ export function BaseResumeEditorPage() {
         <Card><form className="space-y-4" onSubmit={handleUpload}>
           <div><Label htmlFor="resume-name">Resume Name</Label><Input id="resume-name" value={name} placeholder="e.g., Senior Engineer Resume" required onChange={(event) => setName(event.target.value)} /></div>
           <div><Label htmlFor="resume-file">PDF File</Label><input id="resume-file" ref={fileInputRef} accept=".pdf,application/pdf" className="mt-2 block w-full text-sm" type="file" /></div>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={classify} onChange={(event) => setClassify(event.target.checked)} /> Use AI to classify and extract sections</label>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={classify} onChange={(event) => setClassify(event.target.checked)} /> Use AI to structure unclear entries</label>
           <p className="text-xs" style={{ color: "var(--color-ink-65)" }}>Contact information stays local. Unknown or uncertain sections are kept for your review.</p>
           <Button type="submit" loading={uploading}>{uploading ? "Extracting and classifying sections…" : "Upload & Parse"}</Button>
         </form></Card>

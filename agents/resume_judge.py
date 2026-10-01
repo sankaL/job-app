@@ -726,6 +726,8 @@ async def judge_resume(
                 "deterministic_observations": deterministic_observations,
             }
         except Exception as error:
+            if not getattr(error, "can_fallback", True):
+                raise
             last_error = error
 
     if _is_timeout_error(last_error):

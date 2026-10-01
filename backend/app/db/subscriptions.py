@@ -15,10 +15,6 @@ class SubscriptionTierRecord(BaseModel):
     key: str
     name: str
     monthly_resume_generation_limit: int
-    generation_model: str
-    generation_reasoning_effort: str = "none"
-    generation_fallback_model: str
-    generation_fallback_reasoning_effort: str = "none"
     is_active: bool
     created_at: str
     updated_at: str
@@ -27,10 +23,6 @@ class SubscriptionTierRecord(BaseModel):
 class QuotaReservationRecord(BaseModel):
     subscription_tier: str
     monthly_resume_generation_limit: int
-    generation_model: str
-    generation_reasoning_effort: str = "none"
-    generation_fallback_model: str
-    generation_fallback_reasoning_effort: str = "none"
     period_start: str
     generation_count: int
 
@@ -57,10 +49,6 @@ class SubscriptionRepository:
           key,
           name,
           monthly_resume_generation_limit,
-          generation_model,
-          generation_reasoning_effort,
-          generation_fallback_model,
-          generation_fallback_reasoning_effort,
           is_active,
           created_at::text,
           updated_at::text
@@ -79,10 +67,6 @@ class SubscriptionRepository:
           key,
           name,
           monthly_resume_generation_limit,
-          generation_model,
-          generation_reasoning_effort,
-          generation_fallback_model,
-          generation_fallback_reasoning_effort,
           is_active,
           created_at::text,
           updated_at::text
@@ -99,19 +83,11 @@ class SubscriptionRepository:
         *,
         tier_key: str,
         monthly_resume_generation_limit: int,
-        generation_model: str,
-        generation_reasoning_effort: str,
-        generation_fallback_model: str,
-        generation_fallback_reasoning_effort: str,
     ) -> SubscriptionTierRecord:
         query = """
         update public.subscription_tiers
         set
-          monthly_resume_generation_limit = %s,
-          generation_model = %s,
-          generation_reasoning_effort = %s,
-          generation_fallback_model = %s,
-          generation_fallback_reasoning_effort = %s
+          monthly_resume_generation_limit = %s
         where key = %s
         returning key
         """
@@ -120,10 +96,6 @@ class SubscriptionRepository:
                 query,
                 (
                     monthly_resume_generation_limit,
-                    generation_model,
-                    generation_reasoning_effort,
-                    generation_fallback_model,
-                    generation_fallback_reasoning_effort,
                     tier_key,
                 ),
             )
@@ -148,9 +120,6 @@ class SubscriptionRepository:
                     select
                       p.subscription_tier,
                       st.monthly_resume_generation_limit,
-                      st.generation_model,
-                      st.generation_reasoning_effort,
-                      st.generation_fallback_model,
                       st.generation_fallback_reasoning_effort
                     from public.profiles p
                     join public.subscription_tiers st on st.key = p.subscription_tier
@@ -211,10 +180,6 @@ class SubscriptionRepository:
         return QuotaReservationRecord(
             subscription_tier=str(tier_row["subscription_tier"]),
             monthly_resume_generation_limit=limit,
-            generation_model=str(tier_row["generation_model"]),
-            generation_reasoning_effort=str(tier_row["generation_reasoning_effort"]),
-            generation_fallback_model=str(tier_row["generation_fallback_model"]),
-            generation_fallback_reasoning_effort=str(tier_row["generation_fallback_reasoning_effort"]),
             period_start=period_start.isoformat(),
             generation_count=int(updated_row["generation_count"]),
         )

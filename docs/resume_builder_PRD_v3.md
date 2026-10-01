@@ -46,17 +46,20 @@ The product should enable a user to:
 
 ### 3.1 OpenRouter / LLM Integration
 
-All LLM calls are routed through **OpenRouter** through Pydantic AI typed agents. Resume generation model and reasoning access are configurable per subscription tier in admin settings; environment model settings remain the worker fallback for legacy queued jobs or missing tier configuration. Prompt construction must not rely on any provider-specific syntax or features.
+All generative calls use **Pydantic AI + OpenRouter**. Model routing is determined by operation, independent of Basic/Pro subscriptions:
 
-LangSmith tracing is opt-in through `LANGSMITH_TRACING`. When enabled, `LANGSMITH_PROJECT` and `LANGSMITH_API_KEY` are required and the backend and worker send traces to the same project. Local development defaults to tracing off. Traces may include contact-stripped model prompts and outputs, but must remove user ids, profile fields, contact details, credentials, URL query secrets, raw callbacks, and unsanitized provider payloads. Trace delivery failures must not change user-visible AI workflow results after configuration has validated.
+- Tier 1: `anthropic/claude-sonnet-5.5`, fallback `openai/gpt-6.1-sol`, for initial full generation and full regeneration.
+- Tier 2: `google/gemini-3.8-flash`, fallback `openai/gpt-6-luna`, for section/individual-job regeneration, keyword optimization, extraction, factual audits, targeted repairs and manually requested Resume Judge scoring.
+- Classification: `typesafe/jev-1.13` through Decisions; unavailable or uncertain classification preserves local parser results for review. Classification does not extract facts or approve source content.
+- Local tools handle document parsing, contact information, schema/factual-field validation, keyword matching, comparison, assembly and export.
 
-A fallback model is configurable per subscription tier. Typed output correction, transport failures and targeted section repairs share explicit request, output-token and wall-clock budgets. SDK retries are disabled. Resume jobs allow at most six provider requests and 24,000 output tokens within the existing 240s full/120s section windows; import assistance shares a 30s upload deadline.
+All generative models use provider-default reasoning. Do not apply subscription-specific effort overrides, including overrides in older queued jobs. Keep prompts portable and retain the shared Unslop writing policy. Current models use native JSON-schema output rather than forced output tools; strict local validation remains authoritative.
 
-Current admin-selectable generation models are GPT 5.6 Luna (`openai/gpt-5.6-luna`), Gemini 3.7 Flash (`google/gemini-3.7-flash`), Gemini 3 Flash (`google/gemini-3-flash-preview`), GPT 5.4 Mini (`openai/gpt-5.4-mini`), DeepSeek V4 Flash (`deepseek/deepseek-v4-flash`), and Gemini 3.5 Flash (`google/gemini-3.5-flash`). Reasoning choices are model-aware: Luna and GPT 5.4 Mini support `auto`, `none`, `low`, `medium`, `high`, and `xhigh` / Extra high; Gemini models support `auto`, `none`, `low`, `medium`, and `high`; DeepSeek V4 Flash supports `auto`, `none`, `high`, and `xhigh` / Extra high.
-- Basic primary: `google/gemini-3-flash-preview` with reasoning `none`
-- Basic fallback: `openai/gpt-5.4-mini` with reasoning `none`
-- Pro primary: `openai/gpt-5.4-mini` with reasoning `medium`
-- Pro fallback: `google/gemini-3.5-flash` with reasoning `medium`
+Basic includes 10 monthly writing requests and Pro includes 60. Both use the same models. Admins may change request allowances only. Initial generation, full regeneration, section/job regeneration and keyword optimization each reserve one request. Internal retries, fallbacks and validation do not consume additional requests; failed or cancelled operations refund their reservation. Imports, local edits and manually requested quality scoring do not consume writing requests.
+
+Typed output correction, model fallback and targeted repairs share explicit request, output-token and wall-clock budgets. SDK retries are disabled. Resume jobs allow at most six provider requests and 24,000 output tokens within the existing 240s full/120s section windows. Authentication/billing rejection stops model fallback. The first full-writing request may fall back within Tier 1 on provider/schema failure; subsequent semantic repairs and all factual audits use Tier 2. Repairs include typed, privacy-masked rejected output and rule codes; repeated semantic rejection switches the final repair writer to the Tier 2 fallback. Import assistance shares a 30s upload deadline and skips generative cleanup for locally parsed content.
+
+LangSmith tracing remains opt-in, sanitized and best-effort. Tracing availability must not change workflow outcomes. Automatic Resume Judge runs after generation are removed; scoring remains an explicit user action.
 
 ---
 
@@ -115,7 +118,7 @@ The app must provide meaningful loading, progress, success, error, and attention
 7. User resolves any duplicate warning
 8. User selects a base resume and generation settings
 9. System generates a tailored Markdown resume
-10. System computes exact ATS keyword coverage for the draft and runs Resume Judge in the background
+10. System computes exact ATS keyword coverage locally; the user may request Resume Judge scoring
 11. User reviews, edits, regenerates sections or the full resume as needed
 12. User exports the resume as a PDF
 13. User may continue editing after export — doing so returns the status to **In Progress**
@@ -419,7 +422,7 @@ Custom sections are supported now through the `custom` kind, with user-defined h
 - Medium may lightly reframe Professional Experience titles only when the new title stays grounded in the same core role family and seniority as the source title
 - High should actively attempt target-aligned Professional Experience retitles when the new title still matches the demonstrated work and preserves seniority; leave the source title unchanged when no truthful adjacent title is supported
 - Medium and High may use truthful job-description phrasing for role fit, but must fail closed on unsupported technologies, skills, employers, dates, institutions, credentials, awards, scope or outcomes.
-- When ATS keywords are available, generation should prefer exact keyword phrasing where truthful and natural. Coverage targets are minimum goals only: Low 45%, Medium 65%, High 80%. There is no upper limit, and missing the target is a warn-only visibility metric, not a validation failure or repair trigger. Targeted keyword optimization uses the user's tier-selected generation model to minimally edit the current draft for missing keywords while preserving already matched phrases and grounding rules. It must keep the previous draft if the optimized candidate lowers the matched keyword count or drops an already matched keyword phrase.
+- When ATS keywords are available, generation should prefer exact keyword phrasing where truthful and natural. Coverage targets are minimum goals only: Low 45%, Medium 65%, High 80%. There is no upper limit, and missing the target is a warn-only visibility metric, not a validation failure or repair trigger. Targeted keyword optimization uses the shared Tier 2 model pair to minimally edit the current draft for missing keywords while preserving already matched phrases and grounding rules. It must keep the previous draft if the optimized candidate lowers the matched keyword count or drops an already matched keyword phrase.
 - When Professional Experience is enabled, medium and high must visibly tailor it instead of leaving the first up to 2 roles with bullets effectively source-identical while spending nearly all rewrite effort on Summary or Skills
 - Company and date range for every Professional Experience role are deterministic invariants and must remain source-exact for all aggressiveness levels
 - Education bullets are optional and allowed only for grounded details already present in the source material
@@ -430,7 +433,7 @@ Custom sections are supported now through the `custom` kind, with user-defined h
 - Every LLM system prompt must include the shared Unslop instruction verbatim. Operation-specific grounding, privacy, exact-copy, ATS, structured-output, and resume rules take precedence when they conflict with general writing guidance.
 - Additional requests cover the required claim audit, provider failure, typed output correction and targeted repair, within the shared deadline and usage budget.
 - Final persisted draft output remains Markdown, but Markdown is rendered locally from the semantic JSON object rather than authored directly by the LLM
-- Model called via OpenRouter; model names come from the user's subscription tier, with environment settings retained only as worker fallback for legacy or incomplete queued jobs (see §3.1)
+- Model called via OpenRouter; models come from the operation-based Tier 1/Tier 2 configuration (see §3.1)
 
 **ATS guidance for generation prompts:**
 - Standard, recognizable section headings
@@ -627,7 +630,7 @@ Users can edit section Markdown and structured entries in one workbench when gen
 **Method A — File upload:**
 - User uploads an existing `.docx` or `.pdf` resume file
 - Backend parses the file (`python-docx`, `pdfplumber`, or equivalent) and converts to Markdown
-- Consider an optional LLM cleanup pass to improve parse quality before presenting to the user
+- Parse sections locally, classify with Jev, and use optional Tier 2 extraction only for ambiguous nested entries; preserve source text on failure
 - User reviews section classifications and extracted entry facts in the workbench before generation
 
 **Method B — Structured form:**
@@ -766,11 +769,8 @@ Admin has three product responsibilities in MVP:
 
 - view Basic and Pro tier settings
 - edit each tier's monthly resume-writing quota
-- edit each tier's OpenRouter primary generation model
-- edit each tier's OpenRouter primary reasoning level
-- edit each tier's OpenRouter fallback generation model
-- edit each tier's OpenRouter fallback reasoning level
-- reject negative or excessive monthly limits, unsupported model IDs, unsupported reasoning levels for the selected model, and fallback models that match the primary model
+- reject negative, fractional or excessive monthly limits
+- show that Basic and Pro use the same models; do not expose model or reasoning selectors
 
 ---
 
@@ -790,7 +790,7 @@ Admin has three product responsibilities in MVP:
 | is_admin | boolean | default false |
 | is_active | boolean | default true; false blocks application access |
 | onboarding_completed_at | timestamp | nullable; set after invite signup completion |
-| subscription_tier | string | `basic` or `pro`; default `basic`; controls monthly resume-writing quota and generation model access |
+| subscription_tier | string | `basic` or `pro`; default `basic`; controls monthly writing-request allowance only |
 | default_base_resume_id | UUID FK | nullable |
 | section_preferences | JSONB | Map of section_id → enabled boolean |
 | section_order | JSONB | Ordered array of section identifiers |

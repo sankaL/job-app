@@ -48,14 +48,6 @@ if root_logger.level > logging.INFO:
     root_logger.setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
-OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS: dict[str, set[str]] = {
-    "openai/gpt-5.6-luna": {"auto", "none", "low", "medium", "high", "xhigh"},
-    "google/gemini-3.7-flash": {"auto", "none", "low", "medium", "high"},
-    "google/gemini-3-flash-preview": {"auto", "none", "low", "medium", "high"},
-    "openai/gpt-5.4-mini": {"auto", "none", "low", "medium", "high", "xhigh"},
-    "deepseek/deepseek-v4-flash": {"auto", "none", "high", "xhigh"},
-    "google/gemini-3.5-flash": {"auto", "none", "low", "medium", "high"},
-}
 logger.setLevel(logging.INFO)
 
 CALLBACK_REQUEST_TIMEOUT_SECONDS = 5.0
@@ -109,49 +101,21 @@ class WorkerSettingsEnv(BaseSettings):
     shared_contract_path: str = "/workspace/shared/workflow-contract.json"
     openrouter_api_key: Optional[str] = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    extraction_agent_model: Optional[str] = "openai/gpt-5.6-luna"
-    extraction_agent_fallback_model: Optional[str] = "google/gemini-3.7-flash"
-    keyword_extraction_agent_model: Optional[str] = "openai/gpt-5.6-luna"
-    keyword_extraction_agent_fallback_model: Optional[str] = "google/gemini-3.7-flash"
-    generation_agent_model: Optional[str] = "google/gemini-3.7-flash"
-    generation_agent_fallback_model: Optional[str] = "openai/gpt-5.6-luna"
-    generation_agent_reasoning_effort: Literal["auto", "none", "low", "medium", "high", "xhigh"] = "auto"
-    resume_judge_agent_model: Optional[str] = "google/gemini-3.7-flash"
-    resume_judge_agent_fallback_model: Optional[str] = "openai/gpt-5.6-luna"
-    resume_judge_agent_reasoning_effort: Literal["auto", "none", "low", "medium", "high", "xhigh"] = "auto"
-    validation_agent_model: Optional[str] = "openai/gpt-5.6-luna"
-    validation_agent_fallback_model: Optional[str] = "google/gemini-3.7-flash"
+    tier1_model: str = "anthropic/claude-sonnet-5.5"
+    tier1_fallback_model: str = "openai/gpt-6.1-sol"
+    tier2_model: str = "google/gemini-3.8-flash"
+    tier2_fallback_model: str = "openai/gpt-6-luna"
     langsmith_tracing: bool = False
     langsmith_project: Optional[str] = None
     langsmith_api_key: Optional[str] = None
 
-    @field_validator("generation_agent_reasoning_effort", mode="before")
+    @field_validator("tier1_model", "tier1_fallback_model", "tier2_model", "tier2_fallback_model")
     @classmethod
-    def normalize_generation_agent_reasoning_effort(cls, value: Any) -> str:
-        normalized = str(value or "auto").strip().lower()
-        if normalized in {"default", "auto"}:
-            return "auto"
-        allowed = {"auto", "none", "low", "medium", "high", "xhigh"}
-        if normalized not in allowed:
-            allowed_display = ", ".join(sorted(allowed))
-            raise ValueError(
-                f"generation_agent_reasoning_effort must be one of: {allowed_display}."
-            )
-        return normalized
-
-    @field_validator("resume_judge_agent_reasoning_effort", mode="before")
-    @classmethod
-    def normalize_resume_judge_agent_reasoning_effort(cls, value: Any) -> str:
-        normalized = str(value or "auto").strip().lower()
-        if normalized in {"default", "auto"}:
-            return "auto"
-        allowed = {"auto", "none", "low", "medium", "high", "xhigh"}
-        if normalized not in allowed:
-            allowed_display = ", ".join(sorted(allowed))
-            raise ValueError(
-                f"resume_judge_agent_reasoning_effort must be one of: {allowed_display}."
-            )
-        return normalized
+    def require_model(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Both model tiers require configured primary and fallback models.")
+        return value
 
     @model_validator(mode="after")
     def validate_distinct_llm_fallbacks(self) -> "WorkerSettingsEnv":
@@ -160,92 +124,25 @@ class WorkerSettingsEnv(BaseSettings):
                 raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")
             if not str(self.langsmith_api_key or "").strip():
                 raise ValueError("LANGSMITH_API_KEY is required when LANGSMITH_TRACING=true.")
-        if (
-            self.generation_agent_model
-            and self.generation_agent_fallback_model
-            and self.generation_agent_model == self.generation_agent_fallback_model
-        ):
-            raise ValueError(
-                "generation_agent_fallback_model must differ from generation_agent_model to enable fallback."
-            )
-        if (
-            self.resume_judge_agent_model
-            and self.resume_judge_agent_fallback_model
-            and self.resume_judge_agent_model == self.resume_judge_agent_fallback_model
-        ):
-            raise ValueError(
-                "resume_judge_agent_fallback_model must differ from resume_judge_agent_model to enable fallback."
-            )
+        if self.tier1_model == self.tier1_fallback_model or self.tier2_model == self.tier2_fallback_model:
+            raise ValueError("Each model tier needs a distinct fallback model.")
         return self
 
 
 def _resolve_generation_models(
-    generation_settings: dict[str, Any],
-    settings: WorkerSettingsEnv,
+    generation_settings: dict[str, Any], settings: WorkerSettingsEnv,
+    *, operation: str = "generation",
 ) -> tuple[str, str]:
-    has_tier_primary = "_generation_model" in generation_settings
-    has_tier_fallback = "_generation_fallback_model" in generation_settings
-    primary_value = generation_settings.get("_generation_model") if has_tier_primary else settings.generation_agent_model
-    fallback_value = (
-        generation_settings.get("_generation_fallback_model")
-        if has_tier_fallback
-        else settings.generation_agent_fallback_model
-    )
-    primary_model = str(primary_value or "").strip()
-    fallback_model = str(fallback_value or "").strip()
-    if not primary_model:
-        if has_tier_primary:
-            raise RuntimeError("Tier generation model is blank.")
-        raise RuntimeError("GENERATION_AGENT_MODEL is not configured.")
-    if not fallback_model:
-        if has_tier_fallback:
-            raise RuntimeError("Tier fallback generation model is blank.")
-        raise RuntimeError("GENERATION_AGENT_FALLBACK_MODEL is not configured.")
-    if primary_model == fallback_model:
-        raise RuntimeError("Generation fallback model must differ from generation model.")
-    if has_tier_primary and primary_model not in OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS:
-        raise RuntimeError("Tier generation model is not supported.")
-    if has_tier_fallback and fallback_model not in OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS:
-        raise RuntimeError("Tier fallback generation model is not supported.")
-    return primary_model, fallback_model
+    # Ignore legacy subscription overrides even for already-queued jobs.
+    if operation in {"generation", "full", "regeneration_full"}:
+        return settings.tier1_model, settings.tier1_fallback_model
+    return settings.tier2_model, settings.tier2_fallback_model
 
 
 def _resolve_generation_reasoning_efforts(
-    generation_settings: dict[str, Any],
-    settings: WorkerSettingsEnv,
+    generation_settings: dict[str, Any], settings: WorkerSettingsEnv,
 ) -> tuple[str, str]:
-    primary_raw = str(
-        generation_settings.get(
-            "_generation_reasoning_effort",
-            settings.generation_agent_reasoning_effort,
-        )
-        or "auto"
-    ).strip().lower()
-    fallback_raw = str(
-        generation_settings.get(
-            "_generation_fallback_reasoning_effort",
-            primary_raw,
-        )
-        or primary_raw
-    ).strip().lower()
-    primary_reasoning = "auto" if primary_raw in {"default", "auto"} else primary_raw
-    fallback_reasoning = "auto" if fallback_raw in {"default", "auto"} else fallback_raw
-    allowed = {"auto", "none", "low", "medium", "high", "xhigh"}
-    if primary_reasoning not in allowed:
-        raise RuntimeError("Tier generation reasoning effort is invalid.")
-    if fallback_reasoning not in allowed:
-        raise RuntimeError("Tier fallback generation reasoning effort is invalid.")
-    primary_model = str(generation_settings.get("_generation_model") or "").strip()
-    fallback_model = str(generation_settings.get("_generation_fallback_model") or "").strip()
-    if primary_model:
-        model_efforts = OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS.get(primary_model)
-        if model_efforts is None or primary_reasoning not in model_efforts:
-            raise RuntimeError("Tier generation reasoning effort is not supported by the generation model.")
-    if fallback_model:
-        fallback_efforts = OPENROUTER_GENERATION_MODEL_REASONING_EFFORTS.get(fallback_model)
-        if fallback_efforts is None or fallback_reasoning not in fallback_efforts:
-            raise RuntimeError("Tier fallback reasoning effort is not supported by the fallback generation model.")
-    return primary_reasoning, fallback_reasoning
+    return "auto", "auto"
 
 
 def _stored_generation_settings(
@@ -262,6 +159,8 @@ def _stored_generation_settings(
             "_generation_reasoning_effort",
             "_generation_fallback_model",
             "_generation_fallback_reasoning_effort",
+            "_routine_model",
+            "_routine_fallback_model",
             "_base_resume_snapshot_content",
             "_current_draft_snapshot_content",
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
@@ -895,20 +794,22 @@ class OpenRouterExtractionAgent:
     async def extract(self, context: PageContext) -> tuple[ExtractedJobPosting, str]:
         if not self._settings.openrouter_api_key:
             raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-        if not self._settings.extraction_agent_model:
-            raise RuntimeError("EXTRACTION_AGENT_MODEL is not configured.")
-        if not self._settings.extraction_agent_fallback_model:
-            raise RuntimeError("EXTRACTION_AGENT_FALLBACK_MODEL is not configured.")
+        if not self._settings.tier2_model:
+            raise RuntimeError("TIER2_MODEL is not configured.")
+        if not self._settings.tier2_fallback_model:
+            raise RuntimeError("TIER2_FALLBACK_MODEL is not configured.")
 
         last_error: Optional[Exception] = None
         for model_name in (
-            self._settings.extraction_agent_model,
-            self._settings.extraction_agent_fallback_model,
+            self._settings.tier2_model,
+            self._settings.tier2_fallback_model,
         ):
             try:
                 res = await self._extract_with_model(model_name, context)
                 return res, model_name
             except Exception as error:
+                if not getattr(error, "can_fallback", True):
+                    raise
                 last_error = error
         raise RuntimeError("Extraction agent failed on both primary and fallback models.") from last_error
 
@@ -979,7 +880,7 @@ class OpenRouterExtractionAgent:
                 operation="job_extraction",
                 model=model_name,
                 transport_mode="structured",
-                is_fallback=model_name == self._settings.extraction_agent_fallback_model,
+                is_fallback=model_name == self._settings.tier2_fallback_model,
             ),
         )
 
@@ -989,14 +890,13 @@ class OpenRouterKeywordExtractionAgent:
         self._settings = settings
 
     def _models(self) -> tuple[str, str]:
-        primary = str(self._settings.keyword_extraction_agent_model or self._settings.extraction_agent_model or "").strip()
+        primary = str(self._settings.tier2_model or "").strip()
         fallback = str(
-            self._settings.keyword_extraction_agent_fallback_model
-            or self._settings.extraction_agent_fallback_model
+            self._settings.tier2_fallback_model
             or primary
         ).strip()
         if not primary:
-            raise RuntimeError("KEYWORD_EXTRACTION_AGENT_MODEL or EXTRACTION_AGENT_MODEL is not configured.")
+            raise RuntimeError("KEYWORD_TIER2_MODEL or TIER2_MODEL is not configured.")
         if not fallback:
             raise RuntimeError("Keyword extraction fallback model is not configured.")
         return primary, fallback
@@ -1018,6 +918,8 @@ class OpenRouterKeywordExtractionAgent:
                     model_used=model_name,
                 ), model_name
             except Exception as error:
+                if not getattr(error, "can_fallback", True):
+                    raise
                 last_error = error
         raise RuntimeError("Keyword extraction failed on both primary and fallback models.") from last_error
 
@@ -1842,6 +1744,10 @@ async def _validate_generated_sections_with_repair(
         return generated_sections, validation_result, attempt_diagnostics, None
 
     await on_progress(88, "Validation failed. Attempting one repair pass")
+    routine_settings = WorkerSettingsEnv()
+    model, fallback_model = routine_settings.tier2_model, routine_settings.tier2_fallback_model
+    model_used = model
+    reasoning_effort = fallback_reasoning_effort = "auto"
     remaining_timeout_seconds = max(0.0, repair_deadline - perf_counter())
     repaired_payload, repair_model, repair_attempts, repair_error = await repair_generated_response(
         prompt=prompt,
@@ -1966,6 +1872,10 @@ async def _validate_regenerated_section_with_repair(
         return regenerated_section, validation_result, attempt_diagnostics, None
 
     await on_progress(78, f"Validation failed for {section_name}. Attempting one repair pass")
+    routine_settings = WorkerSettingsEnv()
+    model, fallback_model = routine_settings.tier2_model, routine_settings.tier2_fallback_model
+    model_used = model
+    reasoning_effort = fallback_reasoning_effort = "auto"
     remaining_timeout_seconds = max(0.0, repair_deadline - perf_counter())
     repaired_payload, repair_model, repair_attempts, repair_error = await repair_generated_response(
         prompt=prompt,
@@ -2070,6 +1980,7 @@ async def run_generation_job(
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
+    public_generation_settings.update({"_routine_model": settings.tier2_model, "_routine_fallback_model": settings.tier2_fallback_model})
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
 
@@ -2487,7 +2398,7 @@ async def run_regeneration_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings)
+    generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings, operation=regeneration_target)
     generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts(
         generation_settings,
         settings,
@@ -2498,6 +2409,7 @@ async def run_regeneration_job(
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
+    public_generation_settings.update({"_routine_model": settings.tier2_model, "_routine_fallback_model": settings.tier2_fallback_model})
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
 
@@ -3069,10 +2981,10 @@ async def run_resume_judge_job(
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-    if not settings.resume_judge_agent_model:
-        raise RuntimeError("RESUME_JUDGE_AGENT_MODEL is not configured.")
-    if not settings.resume_judge_agent_fallback_model:
-        raise RuntimeError("RESUME_JUDGE_AGENT_FALLBACK_MODEL is not configured.")
+    if not settings.tier2_model:
+        raise RuntimeError("TIER2_MODEL is not configured.")
+    if not settings.tier2_fallback_model:
+        raise RuntimeError("TIER2_FALLBACK_MODEL is not configured.")
 
     await post_callback_best_effort(
         callback,
@@ -3098,8 +3010,8 @@ async def run_resume_judge_job(
             application_id=application_id,
             user_id=user_id,
             job_id=job_id,
-            model=settings.resume_judge_agent_model,
-            fallback_model=settings.resume_judge_agent_fallback_model,
+            model=settings.tier2_model,
+            fallback_model=settings.tier2_fallback_model,
             target_length=generation_settings.get("page_length"),
             aggressiveness=generation_settings.get("aggressiveness"),
         )
@@ -3112,11 +3024,11 @@ async def run_resume_judge_job(
                 generated_resume_content=generated_resume_content,
                 aggressiveness=str(generation_settings.get("aggressiveness") or "medium"),
                 target_length=str(generation_settings.get("page_length") or "1_page"),
-                model=settings.resume_judge_agent_model,
-                fallback_model=settings.resume_judge_agent_fallback_model,
+                model=settings.tier2_model,
+                fallback_model=settings.tier2_fallback_model,
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
-                reasoning_effort=settings.resume_judge_agent_reasoning_effort,
+                reasoning_effort="auto",
                 evaluated_draft_updated_at=evaluated_draft_updated_at,
                 scored_at=now_iso(),
                 timeout=RESUME_JUDGE_TIMEOUT_SECONDS,
@@ -3172,8 +3084,8 @@ async def run_resume_judge_job(
             "input_signature": input_signature,
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.resume_judge_agent_model,
-                fallback_model=settings.resume_judge_agent_fallback_model,
+                primary_model=settings.tier2_model,
+                fallback_model=settings.tier2_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -3213,8 +3125,8 @@ async def run_resume_judge_job(
             "input_signature": input_signature,
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.resume_judge_agent_model,
-                fallback_model=settings.resume_judge_agent_fallback_model,
+                primary_model=settings.tier2_model,
+                fallback_model=settings.tier2_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,

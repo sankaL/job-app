@@ -25,6 +25,10 @@ async def mock_import_provider(monkeypatch, outputs, requests):
     async def respond(request):
         payload = json.loads(request.content)
         requests.append(payload)
+        if 'tools' not in payload:
+            return httpx.Response(200,json={'id':'synthetic','object':'chat.completion','created':1,'provider':'Synthetic','model':payload['model'],
+                'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':json.dumps(outputs.pop(0))}}],
+                'usage':{'prompt_tokens':12,'completion_tokens':8,'total_tokens':20}})
         assert all(tool["function"].get("strict") is not True for tool in payload["tools"])
         name = payload["tools"][0]["function"]["name"]
         return httpx.Response(200, json={
@@ -50,7 +54,7 @@ async def mock_import_provider(monkeypatch, outputs, requests):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_output", ["type", "extra_key", "invented_fact", "omitted_fact"])
-@pytest.mark.parametrize("model_name", ["~google/gemini-3-flash-preview", "openai/gpt-4o-mini"])
+@pytest.mark.parametrize("model_name", ["~google/gemini-3-flash-preview", "openai/gpt-4o-mini", "google/gemini-3.8-flash", "openai/gpt-6-luna"])
 async def test_real_import_transport_keeps_flexible_schema_and_local_corrections(monkeypatch, invalid_output, model_name):
     valid = {"sections": [{"section_id": "experience", "entries": [{
         "fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"},
@@ -73,7 +77,7 @@ async def test_real_import_transport_keeps_flexible_schema_and_local_corrections
         await ResumeParserService(openrouter_api_key="test-only", openrouter_model=model_name,
             openrouter_base_url="https://provider.invalid/v1")._extract_nested_entries([source], timeout_seconds=3)
     assert len(requests) == 2
-    schema = requests[0]["tools"][0]["function"]["parameters"]
+    schema = requests[0]["tools"][0]["function"]["parameters"] if "tools" in requests[0] else requests[0]["response_format"]["json_schema"]["schema"]
     if model_name.removeprefix("~").startswith("google/"):
         imported_entry = schema["properties"]["sections"]["items"]["properties"]["entries"]["items"]
         encoded = json.dumps(schema)
@@ -88,7 +92,9 @@ async def test_real_import_transport_keeps_flexible_schema_and_local_corrections
     assert imported_entry["properties"]["fields"]["type"] == "object"
     assert source.entries[0].fields == valid["sections"][0]["entries"][0]["fields"]
     assert source.entries[0].bullets[0].text == "Built C++ APIs with +20.5% lower latency."
-    assert any(message["role"] == "tool" for message in requests[1]["messages"])
+    correction_role = "tool" if "tools" in requests[0] else "user"
+    assert requests[1]["messages"][-1]["role"] == correction_role
+    assert "Fix the errors" in requests[1]["messages"][-1]["content"]
 
 
 @pytest.mark.asyncio

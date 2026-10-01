@@ -408,3 +408,14 @@ Local validation uses Makefile test targets and local Docker Postgres/Redis. `te
   - `resume_judge_result` never changes `visible_status`, `failure_reason`, or export availability
   - manual `POST /api/applications/{id}/judge` enqueues a fresh run for an existing ready draft
   - manual `POST /api/applications/{id}/judge` stops accepting reruns after three queued attempts for the same semantic input signature
+
+
+## Current Change: Operation Routing and Request Allowances (021)
+
+Migration `20260930_000021_subscription_request_allowances.sql` seeds Basic 10 / Pro 60 monthly writing requests. Existing usage counters and UTC reset periods are preserved. Historical model/effort columns and constraints remain compatibility metadata; current APIs and quota reservations no longer read them, and workers ignore legacy queued overrides.
+
+Rollout: snapshot current plan limits for rollback; apply migration 021, configure the two shared model pairs, deploy backend and worker together, then deploy the quota-only admin UI. Old admin clients sending model fields receive validation errors and must refresh. No resume backfill or provider call occurs during migration. Existing drafts/source snapshots and flat resumes are unchanged.
+
+Verification: confirm 10/60 allowances, preserved usage counts/RLS, quota-only API updates, identical routing for Basic/Pro, Tier 1 only for initial/full writing, Tier 2 repairs/audits/section operations, default reasoning, native structured-output compatibility, and refunds for failed/cancelled requests. Confirm generation callbacks/cache recovery do not enqueue quality scoring, while manual scoring still works. Run local Makefile tests before deployment. Local verification must use local Postgres/Auth only.
+
+Rollback: restore saved plan limits and prior backend/worker/UI together. No destructive schema reversal is required; old model metadata remains available. Do not reset user usage counters or overwrite source documents. Production deployment is a separate action.

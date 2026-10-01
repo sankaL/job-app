@@ -1,3 +1,13 @@
+## 2026-09-30 — Operation-based model pairs and quota-only subscriptions
+
+**Decision:** Use Sonnet 5.5 / GPT 6.1 Sol for first initial/full writing attempts, and Gemini 3.8 Flash / GPT 6 Luna for section/job writing, extraction, audits, repairs and requested scoring. Use provider-default reasoning throughout. Enable Jev section classification with local parser fallback. Basic and Pro share routing and differ only in monthly writing allowances, seeded at 10/60.
+
+**Reason:** Subscription-selected models and separate capability configurations complicated routing without reducing calls. Local validation plus one factual audit retains the safety boundary. Remove standalone import cleanup and automatic quality scoring, and keep repairs targeted and informed by rejected candidates. After repeated semantic rejection, switch the final repair writer within Tier 2 rather than repeating the same model.
+
+**Compatibility:** Migration 021 preserves usage counters, resume documents/snapshots and deprecated tier-model columns. Current APIs expose quota-only administration; older clients must refresh. Workers ignore old queued model/effort overrides. Invalid AI output fails closed, authentication/billing rejection stops fallback, and failed user writing actions refund their reservation. Writing practices and privacy/grounding rules remain authoritative.
+
+**Evidence:** Local tests/build and synthetic transport/routing checks passed. Live fictional full-low, role and keyword workflows passed; aggressive generation initially failed on unsupported scope, followed by a fresh pass after recovery changes. The latter needed no repair, so it does not independently establish recovery efficacy. Larger representative quality/reliability samples are still needed. See `docs/task-output/2026-09-30-operation-model-routing.md`.
+
 ## 2026-09-30 — Versioned resume sections and bounded Pydantic AI recovery
 
 **Decision:** Make reviewed section documents the source for resume operations while retaining Markdown content and export projections. Give sections, entries and bullets stable IDs, preserve an immutable source snapshot per draft, keep contact in the profile, and permit custom section types without a schema migration.

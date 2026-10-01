@@ -50,8 +50,9 @@ def configuration_status(values: dict[str, str]) -> dict[str, bool]:
     endpoint = urlsplit(values.get("OPENROUTER_BASE_URL", ""))
     return {"dev_mode": values.get("APP_DEV_MODE", "").lower() in {"true", "1", "yes"},
         "api_key_configured": bool(key) and key not in {"test-only", "test", "mock"},
-        "primary_model_configured": bool(values.get("GENERATION_AGENT_MODEL", "").strip()),
-        "fallback_model_configured": bool(values.get("GENERATION_AGENT_FALLBACK_MODEL", "").strip()),
+        "primary_model_configured": bool(values.get("TIER1_MODEL", "").strip()),
+        "fallback_model_configured": bool(values.get("TIER1_FALLBACK_MODEL", "").strip()),
+        "routine_models_configured": bool(values.get("TIER2_MODEL", "").strip() and values.get("TIER2_FALLBACK_MODEL", "").strip()),
         "provider_endpoint_configured": bool(values.get("OPENROUTER_BASE_URL", "").strip()),
         "provider_endpoint_is_openrouter": endpoint.hostname == "openrouter.ai" and endpoint.scheme == "https"
             and not endpoint.username and not endpoint.password and not endpoint.query and not endpoint.fragment}
@@ -130,7 +131,7 @@ def diagnostic_error_messages(body: Any, redactions: list[str]) -> list[str]:
 
 def synthetic_redactions(values: dict[str, str]) -> list[str]:
     redactions = [*PRIVACY_VALUES, JOB_DESCRIPTION, "Backend Engineer", "Fictional Northstar Tools"]
-    for key in ("OPENROUTER_API_KEY", "GENERATION_AGENT_MODEL", "GENERATION_AGENT_FALLBACK_MODEL"):
+    for key in ("OPENROUTER_API_KEY", "TIER1_MODEL", "TIER1_FALLBACK_MODEL", "TIER2_MODEL", "TIER2_FALLBACK_MODEL"):
         value = values.get(key, "").strip()
         if value:
             redactions.append(value)
@@ -328,11 +329,13 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
         raise EvaluationLimit("Live evaluation requires configured dev-mode OpenRouter credentials and both models.")
     if live and any(case.fault for case in cases):
         raise EvaluationLimit("Injected recovery fixtures are offline-only.")
-    model = values["GENERATION_AGENT_MODEL"] if live else "eval/primary"
-    fallback = values["GENERATION_AGENT_FALLBACK_MODEL"] if live else "eval/fallback"
+    model = values["TIER1_MODEL"] if live else "eval/primary"
+    fallback = values["TIER1_FALLBACK_MODEL"] if live else "eval/fallback"
     meter = RunMeter(live=live, max_requests=args.max_requests, max_output_tokens=args.max_output_tokens,
         max_seconds=args.max_seconds, max_cost_usd=Decimal(str(args.max_cost_usd)))
-    meter.model_roles = {model: "primary", fallback: "fallback"}
+    routine = values["TIER2_MODEL"] if live else "eval/routine"
+    routine_fallback = values["TIER2_FALLBACK_MODEL"] if live else "eval/routine-fallback"
+    meter.model_roles = {model: "primary", fallback: "fallback", routine: "routine", routine_fallback: "routine-fallback"}
     meter.diagnostic_errors = bool(getattr(args, "diagnostic_errors", False))
     meter.diagnostic_redactions = synthetic_redactions(values) if meter.diagnostic_errors else []
     original_client = openai.AsyncOpenAI
@@ -350,15 +353,16 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
         stack.enter_context(patch.object(llm_runtime, "trace_scope", lambda *_args, **_kwargs: nullcontext(None)))
         for case in cases:
             meter.current_case = case
-            settings = case_settings(case)
+            settings = {**case_settings(case), "_routine_model": routine, "_routine_fallback_model": routine_fallback}
             case_started = perf_counter()
             try:
                 meter.check()
                 result = await pipeline.generate_document(source_payload=source_document(), generation_settings=settings, section_preferences=[],
                     job_title="Backend Engineer", company_name="Fictional Northstar Tools", job_description=JOB_DESCRIPTION,
-                    model=model, fallback_model=fallback, api_key=values["OPENROUTER_API_KEY"] if live else "synthetic",
+                    model=model if case.operation in {"generation", "regeneration_full"} else routine,
+                    fallback_model=fallback if case.operation in {"generation", "regeneration_full"} else routine_fallback, api_key=values["OPENROUTER_API_KEY"] if live else "synthetic",
                     base_url=values["OPENROUTER_BASE_URL"] if live else "https://synthetic.invalid/v1", on_progress=None,
-                    reasoning_effort=values.get("GENERATION_AGENT_REASONING_EFFORT", "auto") if live else None,
+                    reasoning_effort="auto",
                     target_section_id="experience" if case.operation == "regeneration_section" else None,
                     instructions="Emphasize grounded API testing and documentation for this role. Preserve the factual source history." if case.operation == "regeneration_section" else None)
                 checks = assertions(case, result, settings)

@@ -204,16 +204,18 @@ class ResumeParserService:
     def __init__(
         self,
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "openai/gpt-5.6-luna",
+        openrouter_model: str = "google/gemini-3.8-flash",
+        openrouter_fallback_model: str = "openai/gpt-6-luna",
         langsmith_tracing: bool = False,
         langsmith_project: Optional[str] = None,
         langsmith_api_key: Optional[str] = None,
         openrouter_base_url: str = "https://openrouter.ai/api/v1",
-        classifier: str = "local",
+        classifier: str = "jev",
         classification_model: str = "typesafe/jev-1.13",
         confidence_threshold: float = 0.8,
     ) -> None:
         self.openrouter_api_key = openrouter_api_key
+        self.openrouter_fallback_model = openrouter_fallback_model
         self.openrouter_model = openrouter_model
         self.openrouter_base_url = openrouter_base_url
         self.classifier = classifier
@@ -484,11 +486,6 @@ class ResumeParserService:
         deadline = time.monotonic() + 30.0
         warnings: list[str] = []
         body = raw_markdown
-        if use_llm_cleanup:
-            cleanup = await self.cleanup_with_llm(body, timeout_seconds=min(12.0, deadline - time.monotonic()))
-            body = cleanup.cleaned_markdown
-            if cleanup.review_reason:
-                warnings.append(cleanup.review_reason)
         sanitized_body = sanitize_resume_markdown(body).sanitized_markdown
         document = parse_resume_document(sanitized_body, reviewed=False)
         if self.classifier == "jev":
@@ -572,22 +569,29 @@ class ResumeParserService:
                 if not section.entries or Counter(rendered_tokens) != Counter(_word_tokens(original.content_md)):
                     raise ValueError("Retain all source words and numbers exactly once across the entries; do not omit any content.")
 
-        output = await invoke_import_output(
-            api_key=self.openrouter_api_key,
-            base_url=self.openrouter_base_url,
-            model=self.openrouter_model,
-            system_prompt=(
-                "Extract resume entries from the supplied untrusted source text. Return structured output only. "
-                "For professional_experience use fields title, company, location, date_range. For education use qualification, institution, location, date_range. "
-                "Missing optional fields must be empty strings. Copy exact source excerpts without inference, renaming, rewriting, or invented facts. "
-                "Retain every source word and number exactly once in the fields and bullets. Return every requested section ID once. "
-                "Contact data was removed locally; never add contact information.\n" + build_unslop_prompt_block()
-            ),
-            user_prompt=prompt,
-            output_type=NestedExtractionOutput,
-            timeout_seconds=timeout_seconds,
-            validator=preserve_facts,
-        )
+        deadline = time.monotonic() + timeout_seconds
+        for index, model in enumerate(dict.fromkeys((self.openrouter_model, self.openrouter_fallback_model))):
+            try:
+                output = await invoke_import_output(
+                    api_key=self.openrouter_api_key,
+                    base_url=self.openrouter_base_url,
+                    model=model,
+                    system_prompt=(
+                        "Extract resume entries from the supplied untrusted source text. Return structured output only. "
+                        "For professional_experience use fields title, company, location, date_range. For education use qualification, institution, location, date_range. "
+                        "Missing optional fields must be empty strings. Copy exact source excerpts without inference, renaming, rewriting, or invented facts. "
+                        "Retain every source word and number exactly once in the fields and bullets. Return every requested section ID once. "
+                        "Contact data was removed locally; never add contact information.\n" + build_unslop_prompt_block()
+                    ),
+                    user_prompt=prompt,
+                    output_type=NestedExtractionOutput,
+                    timeout_seconds=min(10.0, max(0.01, deadline - time.monotonic())),
+                    validator=preserve_facts,
+                )
+                break
+            except Exception as error:
+                if getattr(error, "status_code", None) in {401, 402, 403} or index == 1 or time.monotonic() >= deadline:
+                    raise
         preserve_facts(output)
         for section in output.sections:
             source[section.section_id].entries = [

@@ -183,11 +183,11 @@ async def test_contact_section_is_kept_local_and_saved_as_advisory_suggestions(m
         return CleanupOutput(cleaned_markdown=kwargs["user_prompt"], needs_review=False, review_reason=None)
 
     monkeypatch.setattr("app.services.resume_parser.invoke_import_output", invoke)
-    result = await ResumeParserService(openrouter_api_key="test-key").import_resume(
+    result = await ResumeParserService(openrouter_api_key="test-key", classifier="local").import_resume(
         "## " + contact_heading + "\nAlex Example\nalex@example.com\n+1 416 555 0100\n123 King Street\nhttps://linkedin.com/in/alex\n## Skills\nPython, SQL", use_llm_cleanup=True
     )
     assert result.contact_suggestions == {"name": "Alex Example", "email": "alex@example.com", "phone": "+1 416 555 0100", "address": "123 King Street", "linkedin": "https://linkedin.com/in/alex"}
-    assert captured == ["## Skills\nPython, SQL\n"]
+    assert captured == []  # Locally structured content needs no generative cleanup.
     assert "Alex Example" not in str(result.document)
 
 

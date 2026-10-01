@@ -98,7 +98,8 @@ async def test_live_requires_dev_mode_credentials_models_and_explicit_endpoint()
     with pytest.raises(EvaluationLimit):
         await run_cases(CASES[:1], {}, args)
     status = configuration_status({"OPENROUTER_API_KEY": "private-secret-value", "APP_DEV_MODE": "true",
-        "GENERATION_AGENT_MODEL": "private-primary-value", "GENERATION_AGENT_FALLBACK_MODEL": "private-fallback-value",
+        "TIER1_MODEL": "private-primary-value", "TIER1_FALLBACK_MODEL": "private-fallback-value",
+        "TIER2_MODEL": "private-routine-value", "TIER2_FALLBACK_MODEL": "private-routine-fallback-value",
         "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"})
     assert all(status.values())
     assert all(isinstance(value, bool) for value in status.values())

@@ -94,10 +94,6 @@ class StubAdminService(AdminService):
                 key="basic",
                 name="Basic",
                 monthly_resume_generation_limit=10,
-                generation_model="google/gemini-3-flash-preview",
-                generation_reasoning_effort="none",
-                generation_fallback_model="openai/gpt-5.4-mini",
-                generation_fallback_reasoning_effort="none",
                 is_active=True,
                 created_at="2026-05-23T00:00:00+00:00",
                 updated_at="2026-05-23T00:00:00+00:00",
@@ -109,10 +105,6 @@ class StubAdminService(AdminService):
         *,
         tier_key: str,
         monthly_resume_generation_limit: int,
-        generation_model: str,
-        generation_reasoning_effort: str,
-        generation_fallback_model: str,
-        generation_fallback_reasoning_effort: str,
     ):
         from app.db.subscriptions import SubscriptionTierRecord
 
@@ -120,10 +112,6 @@ class StubAdminService(AdminService):
             key=tier_key,
             name=tier_key.title(),
             monthly_resume_generation_limit=monthly_resume_generation_limit,
-            generation_model=generation_model,
-            generation_reasoning_effort=generation_reasoning_effort,
-            generation_fallback_model=generation_fallback_model,
-            generation_fallback_reasoning_effort=generation_fallback_reasoning_effort,
             is_active=True,
             created_at="2026-05-23T00:00:00+00:00",
             updated_at="2026-05-23T12:00:00+00:00",
@@ -230,10 +218,6 @@ def test_admin_subscription_tier_update_returns_payload():
         headers={"Authorization": "Bearer valid-admin-token"},
         json={
             "monthly_resume_generation_limit": 12,
-            "generation_model": "openai/gpt-5.4-mini",
-            "generation_reasoning_effort": "medium",
-            "generation_fallback_model": "google/gemini-3.5-flash",
-            "generation_fallback_reasoning_effort": "high",
         },
     )
 
@@ -252,10 +236,6 @@ def test_admin_subscription_tier_update_requires_admin_permissions():
         headers={"Authorization": "Bearer valid-admin-token"},
         json={
             "monthly_resume_generation_limit": 12,
-            "generation_model": "openai/gpt-5.4-mini",
-            "generation_reasoning_effort": "medium",
-            "generation_fallback_model": "google/gemini-3.5-flash",
-            "generation_fallback_reasoning_effort": "high",
         },
     )
 
@@ -273,11 +253,16 @@ def test_admin_subscription_tier_update_rejects_negative_limit():
         headers={"Authorization": "Bearer valid-admin-token"},
         json={
             "monthly_resume_generation_limit": -1,
-            "generation_model": "openai/gpt-5.4-mini",
-            "generation_reasoning_effort": "medium",
-            "generation_fallback_model": "google/gemini-3.5-flash",
-            "generation_fallback_reasoning_effort": "high",
         },
     )
 
+    assert response.status_code == 422
+
+@pytest.mark.parametrize('extra', [{'generation_model':'openai/gpt-6.1-sol'}, {'monthly_resume_generation_limit':1.5}])
+def test_subscription_update_rejects_model_selection_and_fractional_allowances(extra):
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_profile_repository] = lambda: StubProfileRepository(is_admin=True)
+    app.dependency_overrides[get_admin_service] = lambda: StubAdminService()
+    response = TestClient(app).patch('/api/admin/subscription-tiers/basic',headers={'Authorization':'Bearer valid-admin-token'},
+        json={'monthly_resume_generation_limit':10,**extra})
     assert response.status_code == 422

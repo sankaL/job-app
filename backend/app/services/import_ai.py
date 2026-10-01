@@ -50,7 +50,7 @@ async def invoke_import_output(
 ) -> Output:
     # Import lazily: purely local PDF parsing does not initialize a provider.
     from openai import AsyncOpenAI
-    from pydantic_ai import Agent, ModelRetry, ToolOutput
+    from pydantic_ai import Agent, ModelRetry, ToolOutput, NativeOutput
     from pydantic_ai.models.openrouter import OpenRouterModel
     from pydantic_ai.providers.openrouter import OpenRouterProvider
     from pydantic_ai.usage import UsageLimits
@@ -69,9 +69,9 @@ async def invoke_import_output(
             system_prompt=system_prompt,
             # Provider strict schemas cannot represent the flexible factual
             # field maps. Pydantic and source validators stay strict locally.
-            output_type=ToolOutput(output_type, strict=False),
+            output_type=NativeOutput(output_type, strict=False) if model in {"google/gemini-3.8-flash", "openai/gpt-6-luna"} else ToolOutput(output_type, strict=False),
             retries=1,
-            model_settings={"temperature": 0.0, "max_tokens": 16000, "timeout": timeout_seconds},
+            model_settings={"openrouter_reasoning": {"exclude": True}, "max_tokens": 16000, "timeout": timeout_seconds},
         )
         if validator is not None:
             @agent.output_validator

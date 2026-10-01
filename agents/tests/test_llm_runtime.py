@@ -30,6 +30,11 @@ def mock_provider(monkeypatch, outputs):
             raise item
         if isinstance(item, httpx.Response):
             return item
+        if 'tools' not in data:
+            return httpx.Response(200, json={
+                'id':'test-completion','object':'chat.completion','created':1,'provider':'Synthetic','model':data['model'],
+                'choices':[{'index':0,'finish_reason':'stop','message':{'role':'assistant','content':json.dumps(item)}}],
+                'usage':{'prompt_tokens':12,'completion_tokens':8,'total_tokens':20}})
         name = data['tools'][0]['function']['name']
         return httpx.Response(200, json={
             'id': 'test-completion', 'object': 'chat.completion', 'created': 1,
@@ -282,3 +287,30 @@ async def test_optional_trace_setup_failure_does_not_fail_provider_call(monkeypa
     result=await structured_call(prompt=[('human','Count.')],output_type=ExampleOutput,
         model_name='test/provider',api_key='test',base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3))
     assert result.count==7
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_name', ['anthropic/claude-sonnet-5.5','openai/gpt-6.1-sol','google/gemini-3.8-flash','openai/gpt-6-luna'])
+async def test_current_models_use_native_json_default_reasoning_and_bounded_correction(monkeypatch, model_name):
+    requests = mock_provider(monkeypatch, [{'count':'invalid'}, {'count':2}])
+    budget = CallBudget.for_seconds(3,max_requests=2)
+    output = await structured_call(prompt=[('human','Return count 2.')],output_type=ExampleOutput,
+        model_name=model_name,api_key='test',base_url='https://provider.invalid/v1',budget=budget,
+        reasoning={'effort':'none'})
+    assert output.count == 2
+    assert budget.requests == len(requests) == 2
+    for request in requests:
+        assert request['response_format']['type'] == 'json_schema'
+        assert 'tools' not in request and 'tool_choice' not in request
+        assert 'temperature' not in request
+        assert 'effort' not in request.get('reasoning',{})
+
+
+@pytest.mark.asyncio
+async def test_authentication_failure_is_not_eligible_for_model_fallback(monkeypatch):
+    from llm_runtime import AIRequestError
+    mock_provider(monkeypatch,[httpx.Response(401,json={'error':{'message':'Invalid credentials'}})])
+    with pytest.raises(AIRequestError) as caught:
+        await structured_call(prompt=[('human','Return count.')],output_type=ExampleOutput,
+            model_name='test/primary',api_key='test',base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3))
+    assert caught.value.can_fallback is False

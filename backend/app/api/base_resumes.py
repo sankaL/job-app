@@ -35,7 +35,8 @@ def get_resume_parser() -> ResumeParserService:
     settings = get_settings()
     return ResumeParserService(
         openrouter_api_key=settings.openrouter_api_key,
-        openrouter_model=settings.openrouter_cleanup_model,
+        openrouter_model=settings.tier2_model,
+        openrouter_fallback_model=settings.tier2_fallback_model,
         openrouter_base_url=settings.openrouter_base_url,
         classifier=settings.resume_import_classifier,
         classification_model=settings.openrouter_classification_model,

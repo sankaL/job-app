@@ -2,7 +2,7 @@
 
 `run_sections.py` uses the production section pipeline and Pydantic AI runtime. Every fixture is hand-written and fictional. It does not connect to Postgres, Supabase Auth, Redis, or application callbacks. LangSmith tracing is disabled inside the evaluator so its results stay local.
 
-Default execution is offline. An `httpx.MockTransport` returns typed tool responses, including controlled failures. No real provider request is possible in this mode. Live mode requires `--live`, dev mode, a non-placeholder provider key, both configured generation models, and the HTTPS OpenRouter endpoint. Model names come from the current worker environment. This standalone runner does not load application subscription-tier overrides, so its model pair can differ from a user's Basic or Pro application workflow. Configuration checks print availability booleans only.
+Default execution is offline. An `httpx.MockTransport` returns typed tool responses, including controlled failures. No real provider request is possible in this mode. Live mode requires `--live`, dev mode, a non-placeholder provider key, both configured generation models, and the HTTPS OpenRouter endpoint. Model names come from the same operation-based Tier 1/Tier 2 settings as application jobs. Basic/Pro subscriptions affect allowances only. Configuration checks print availability booleans only.
 
 | Case | What it checks | Live eligible |
 | --- | --- | --- |

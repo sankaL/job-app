@@ -10,7 +10,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation, ValidationError, field_validator
 
-from llm_runtime import CallBudget, structured_call
+from llm_runtime import AIRequestError, CallBudget, structured_call
 from privacy import EMAIL_RE, PHONE_RE, CONTACT_URL_RE
 from resume_document import (
     ResumeDocument, ResumeSection, document_ready, render_resume_document,
@@ -380,9 +380,22 @@ def build_section_prompt(
     return [("system", system), ("human", json.dumps(outbound, ensure_ascii=True))]
 
 
+async def call_with_fallback(*, models: tuple[str, str], **kwargs):
+    """One explicit fallback; corrections and both attempts share the budget."""
+    for index, candidate in enumerate(dict.fromkeys(models)):
+        try:
+            return await structured_call(model_name=candidate, **kwargs), candidate
+        except Exception as error:
+            if isinstance(error, AIRequestError) and not error.can_fallback:
+                raise
+            kwargs["budget"].remaining_seconds()
+            if index == len(set(models)) - 1:
+                raise
+
+
 async def audit_section_grounding(
     *, sections: list[ResumeSection], source: ResumeDocument,
-    generation_settings: dict[str, Any], model: str, api_key: str, base_url: str, budget: CallBudget,
+    generation_settings: dict[str, Any], model: str, fallback_model: Optional[str] = None, api_key: str, base_url: str, budget: CallBudget,
 ) -> dict[str, str]:
     if not sections:
         return {}
@@ -408,12 +421,14 @@ async def audit_section_grounding(
         }, generation_settings.get("_privacy_values") or [], _ids(source) | _ids(ResumeDocument(sections=sections))), ensure_ascii=True)),
     ]
     try:
-        response = await structured_call(
-            prompt=prompt, output_type=GroundingAudit, model_name=model, api_key=api_key, base_url=base_url,
+        response, _ = await call_with_fallback(
+            models=(model, fallback_model or model), prompt=prompt, output_type=GroundingAudit, api_key=api_key, base_url=base_url,
             budget=budget, timeout=30, temperature=0, output_validator=verify, operation="section_grounding_audit",
         )
         response = verify(response)
-    except Exception:
+    except Exception as error:
+        if isinstance(error, AIRequestError) and not error.can_fallback:
+            raise
         budget.remaining_seconds()
         return {identifier: "grounding_audit_unavailable" for identifier in requested_ids}
     return {assessment.id: ",".join(assessment.issues) for assessment in response.sections if not assessment.supported}
@@ -443,6 +458,8 @@ async def generate_document(
             job_title=job_title, company_name=company_name, job_description=job_description,
             model=model, fallback_model=fallback_model, api_key=api_key, base_url=base_url, on_progress=on_progress,
         )
+    routine_model = str(generation_settings.get("_routine_model") or fallback_model or model)
+    routine_fallback = str(generation_settings.get("_routine_fallback_model") or routine_model)
     target_entry_id = generation_settings.get("_target_entry_id")
     aggressiveness = str(generation_settings.get("aggressiveness") or "medium").lower()
     preferences = {str(item.get("name")): bool(item.get("enabled")) for item in section_preferences}
@@ -476,6 +493,7 @@ async def generate_document(
     used_model = model
     errors: dict[str, str] = {}
     last_prompt: list[tuple[str, str]] = []
+    rejected_outputs: dict[str, dict[str, Any]] = {}
     for round_index in range(3):
         if not pending:
             break
@@ -487,21 +505,33 @@ async def generate_document(
             instructions=instructions, current=current, target_entry_id=target_entry_id,
         )
         if errors:
-            prompt.append(("human", json.dumps({"repair_errors": errors, "repair_only_section_ids": [section.id for section in pending]})))
+            feedback = {
+                "repair_errors": errors,
+                "repair_only_section_ids": [section.id for section in pending],
+                "rejected_outputs": [rejected_outputs[section.id] for section in pending if section.id in rejected_outputs],
+                "repair_guidance": "Correct the rejected claims rather than repeating them. Remove unsupported scope, technologies and outcomes, or cite the specific supplied source IDs that actually support each claim. Never invent evidence. Preserve all source facts and the existing writing rules.",
+            }
+            prompt.append(("human", json.dumps(_outbound_private_copy(feedback, generation_settings.get("_privacy_values") or [], _ids(source)))))
         last_prompt = prompt
-        candidate = model if round_index == 0 else (fallback_model or model)
-        used_model = candidate
+        if round_index == 0:
+            pair = (model, fallback_model)
+        elif round_index == 1:
+            pair = (routine_model, routine_fallback)
+        else:
+            # Repeated semantic rejection needs a different Tier 2 writer,
+            # rather than another identical request to the same model.
+            pair = (routine_fallback, routine_fallback)
         try:
-            payload = await structured_call(
-                prompt=prompt, output_type=SectionBatch, model_name=candidate,
+            payload, used_model = await call_with_fallback(
+                models=pair, prompt=prompt, output_type=SectionBatch,
                 api_key=api_key, base_url=base_url, budget=budget,
                 timeout=45 if round_index == 0 else (60 if target_section_id else 90),
                 temperature={"low": 0.2, "medium": 0.35, "high": 0.5}.get(aggressiveness, 0.35),
-                reasoning={"effort": (reasoning_effort if round_index == 0 else fallback_reasoning_effort), "exclude": True}
-                if (reasoning_effort if round_index == 0 else fallback_reasoning_effort) not in {None, "auto"} else None,
                 operation="section_repair" if round_index else "section_generation",
             )
-        except Exception:
+        except Exception as error:
+            if isinstance(error, AIRequestError) and not error.can_fallback:
+                raise
             try:
                 budget.remaining_seconds()  # Stop immediately on an exhausted shared budget.
             except Exception as terminal:
@@ -523,6 +553,10 @@ async def generate_document(
                     raise SectionValidationError("unexpected_section_id")
                 if len(items.get(section.id, [])) != 1:
                     raise SectionValidationError("missing_or_duplicate_section")
+                try:
+                    rejected_outputs[section.id] = RewrittenSection.model_validate(items[section.id][0]).model_dump(mode="json")
+                except ValidationError:
+                    rejected_outputs.pop(section.id, None)
                 existing = next((s for s in output.sections if s.id == section.id), None)
                 retained[section.id] = apply_section_rewrite(
                     source=section, rewrite=items[section.id][0], document=source,
@@ -539,7 +573,7 @@ async def generate_document(
                 candidate.content_md = ""
         audit_errors = await audit_section_grounding(
             sections=candidates, source=source, generation_settings=generation_settings,
-            model=fallback_model or model, api_key=api_key, base_url=base_url, budget=budget,
+            model=routine_model, fallback_model=routine_fallback, api_key=api_key, base_url=base_url, budget=budget,
         )
         for section in pending:
             if section.id in audit_errors:
@@ -837,10 +871,12 @@ async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDo
         last_prompt = prompt
         used_model = model if not round_index else (fallback_model or model)
         try:
-            response = await structured_call(prompt=prompt, output_type=KeywordSectionBatch, model_name=used_model,
+            response, used_model = await call_with_fallback(models=(used_model, fallback_model or model), prompt=prompt, output_type=KeywordSectionBatch,
                 api_key=api_key, base_url=base_url, budget=budget, timeout=45 if not round_index else 60,
                 temperature=0.2, operation="keyword_patch")
-        except Exception:
+        except Exception as error:
+            if isinstance(error, AIRequestError) and not error.can_fallback:
+                raise
             budget.remaining_seconds()
             errors = {section.id: "provider_or_schema_failure" for section in pending}
             continue
@@ -874,7 +910,7 @@ async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDo
             except ValueError as error:
                 errors[section.id] = getattr(error, 'code', 'invalid_keyword_patch')
         errors.update(await audit_section_grounding(sections=audit_views, source=source,
-            generation_settings=generation_settings, model=fallback_model or model,
+            generation_settings=generation_settings, model=model, fallback_model=fallback_model,
             api_key=api_key, base_url=base_url, budget=budget))
         for index, section in enumerate(output.sections):
             if section.id in replacements and section.id not in errors:

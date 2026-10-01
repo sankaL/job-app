@@ -202,8 +202,8 @@ def test_build_job_keywords_payload_uses_ordered_keyword_objects():
 async def test_keyword_extraction_falls_back_after_primary_timeout(monkeypatch):
     settings = WorkerSettingsEnv(
         openrouter_api_key="test-key",
-        keyword_extraction_agent_model="primary-keyword-model",
-        keyword_extraction_agent_fallback_model="fallback-keyword-model",
+        tier2_model="primary-keyword-model",
+        tier2_fallback_model="fallback-keyword-model",
     )
     agent = worker.OpenRouterKeywordExtractionAgent(settings)
     attempts: list[str] = []
@@ -269,146 +269,20 @@ def test_normalize_origin_from_url_maps_common_sources():
     assert normalize_origin_from_url("https://boards.greenhouse.io/acme/jobs/123") == "company_website"
 
 
-def test_resolve_generation_models_reports_blank_tier_model():
-    settings = WorkerSettingsEnv(
-        openrouter_api_key="test-key",
-        generation_agent_model="env-primary-model",
-        generation_agent_fallback_model="env-fallback-model",
-    )
-
-    with pytest.raises(RuntimeError, match="Tier generation model is blank"):
-        worker._resolve_generation_models(
-            {
-                "_generation_model": " ",
-                "_generation_fallback_model": "openai/gpt-5.4-mini",
-            },
-            settings,
-        )
-
-
-def test_resolve_generation_models_reports_none_tier_model():
-    settings = WorkerSettingsEnv(
-        openrouter_api_key="test-key",
-        generation_agent_model="env-primary-model",
-        generation_agent_fallback_model="env-fallback-model",
-    )
-
-    with pytest.raises(RuntimeError, match="Tier generation model is blank"):
-        worker._resolve_generation_models(
-            {
-                "_generation_model": None,
-                "_generation_fallback_model": "google/gemini-3.5-flash",
-            },
-            settings,
-        )
-
-
-def test_resolve_generation_models_rejects_same_model():
-    settings = WorkerSettingsEnv(
-        openrouter_api_key="test-key",
-        generation_agent_model="env-primary-model",
-        generation_agent_fallback_model="env-fallback-model",
-    )
-
-    with pytest.raises(RuntimeError, match="fallback model must differ"):
-        worker._resolve_generation_models(
-            {
-                "_generation_model": "google/gemini-3-flash-preview",
-                "_generation_fallback_model": "google/gemini-3-flash-preview",
-            },
-            settings,
-        )
-
-
-def test_resolve_generation_models_rejects_unknown_tier_model():
-    settings = WorkerSettingsEnv(
-        openrouter_api_key="test-key",
-        generation_agent_model="env-primary-model",
-        generation_agent_fallback_model="env-fallback-model",
-    )
-
-    with pytest.raises(RuntimeError, match="Tier generation model is not supported"):
-        worker._resolve_generation_models(
-            {
-                "_generation_model": "unknown/provider",
-                "_generation_fallback_model": "google/gemini-3.5-flash",
-            },
-            settings,
-        )
-
-
-def test_resolve_generation_models_accepts_deepseek_tier_model():
-    settings = WorkerSettingsEnv(
-        openrouter_api_key="test-key",
-        generation_agent_model="env-primary-model",
-        generation_agent_fallback_model="env-fallback-model",
-    )
-
-    primary_model, fallback_model = worker._resolve_generation_models(
-        {
-            "_generation_model": "deepseek/deepseek-v4-flash",
-            "_generation_fallback_model": "openai/gpt-5.4-mini",
-        },
-        settings,
-    )
-
-    assert primary_model == "deepseek/deepseek-v4-flash"
-    assert fallback_model == "openai/gpt-5.4-mini"
-
-
-def test_resolve_generation_reasoning_efforts_rejects_invalid_value():
-    settings = WorkerSettingsEnv(openrouter_api_key="test-key")
-
-    with pytest.raises(RuntimeError, match="reasoning effort is invalid"):
-        worker._resolve_generation_reasoning_efforts(
-            {"_generation_reasoning_effort": "enormous"},
-            settings,
-        )
-
-
-def test_resolve_generation_reasoning_efforts_rejects_unsupported_model_tier():
-    settings = WorkerSettingsEnv(openrouter_api_key="test-key")
-
-    with pytest.raises(RuntimeError, match="not supported by the generation model"):
-        worker._resolve_generation_reasoning_efforts(
-            {
-                "_generation_model": "google/gemini-3-flash-preview",
-                "_generation_reasoning_effort": "xhigh",
-            },
-            settings,
-        )
-
-
-@pytest.mark.parametrize("reasoning_effort", ["none", "high", "xhigh"])
-def test_resolve_generation_reasoning_efforts_accepts_deepseek_supported_values(reasoning_effort: str):
-    settings = WorkerSettingsEnv(openrouter_api_key="test-key")
-
-    primary_reasoning, fallback_reasoning = worker._resolve_generation_reasoning_efforts(
-        {
-            "_generation_model": "deepseek/deepseek-v4-flash",
-            "_generation_reasoning_effort": reasoning_effort,
-            "_generation_fallback_model": "openai/gpt-5.4-mini",
-            "_generation_fallback_reasoning_effort": "none",
-        },
-        settings,
-    )
-
-    assert primary_reasoning == reasoning_effort
-    assert fallback_reasoning == "none"
-
-
-@pytest.mark.parametrize("reasoning_effort", ["low", "medium"])
-def test_resolve_generation_reasoning_efforts_rejects_deepseek_unsupported_values(reasoning_effort: str):
-    settings = WorkerSettingsEnv(openrouter_api_key="test-key")
-
-    with pytest.raises(RuntimeError, match="not supported by the generation model"):
-        worker._resolve_generation_reasoning_efforts(
-            {
-                "_generation_model": "deepseek/deepseek-v4-flash",
-                "_generation_reasoning_effort": reasoning_effort,
-            },
-            settings,
-        )
+@pytest.mark.parametrize("operation,expected", [
+    ("generation", ("tier1-primary", "tier1-fallback")),
+    ("full", ("tier1-primary", "tier1-fallback")),
+    ("summary", ("tier2-primary", "tier2-fallback")),
+    ("keyword_optimization", ("tier2-primary", "tier2-fallback")),
+])
+@pytest.mark.parametrize("subscription", ["basic", "pro"])
+def test_operation_routing_ignores_subscription_and_legacy_model_overrides(operation, expected, subscription):
+    settings = WorkerSettingsEnv(tier1_model="tier1-primary", tier1_fallback_model="tier1-fallback",
+        tier2_model="tier2-primary", tier2_fallback_model="tier2-fallback")
+    legacy = {"subscription_tier": subscription, "_generation_model": "legacy", "_generation_fallback_model": "legacy",
+        "_generation_reasoning_effort": "none", "_generation_fallback_reasoning_effort": "high"}
+    assert worker._resolve_generation_models(legacy, settings, operation=operation) == expected
+    assert worker._resolve_generation_reasoning_efforts(legacy, settings) == ("auto", "auto")
 
 
 def test_build_generation_failure_payload_includes_quota_period_start():
@@ -542,52 +416,29 @@ def test_build_page_context_from_capture_preserves_longer_source_text_up_to_new_
     assert context.visible_text.startswith("Qualifications")
 
 
-def test_worker_settings_normalizes_generation_reasoning_effort():
-    settings = WorkerSettingsEnv(generation_agent_reasoning_effort="HIGH")
-
-    assert settings.generation_agent_reasoning_effort == "high"
-
-
-def test_local_compose_forwards_generation_and_judge_reasoning_effort_envs():
-    compose_text = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text()
-
-    assert "GENERATION_AGENT_REASONING_EFFORT: ${GENERATION_AGENT_REASONING_EFFORT:-auto}" in compose_text
-    assert "RESUME_JUDGE_AGENT_REASONING_EFFORT: ${RESUME_JUDGE_AGENT_REASONING_EFFORT:-auto}" in compose_text
+def test_worker_settings_require_both_distinct_pairs():
+    with pytest.raises(ValueError, match="distinct fallback"):
+        WorkerSettingsEnv(tier1_model="same", tier1_fallback_model="same")
+    with pytest.raises(ValueError, match="distinct fallback"):
+        WorkerSettingsEnv(tier2_model="same", tier2_fallback_model="same")
+    with pytest.raises(ValueError, match="configured"):
+        WorkerSettingsEnv(tier2_model=" ")
 
 
-def test_worker_settings_rejects_invalid_generation_reasoning_effort():
-    with pytest.raises(ValueError, match="generation_agent_reasoning_effort must be one of"):
-        WorkerSettingsEnv(generation_agent_reasoning_effort="turbo")
-
-
-def test_worker_settings_rejects_duplicate_generation_fallback_model():
-    with pytest.raises(ValueError, match="generation_agent_fallback_model must differ"):
-        WorkerSettingsEnv(
-            generation_agent_model="openai/gpt-5-mini",
-            generation_agent_fallback_model="openai/gpt-5-mini",
-        )
-
-
-def test_worker_settings_normalizes_resume_judge_reasoning_effort():
-    settings = WorkerSettingsEnv(resume_judge_agent_reasoning_effort="NONE")
-
-    assert settings.resume_judge_agent_reasoning_effort == "none"
-
-
-def test_worker_settings_rejects_duplicate_resume_judge_fallback_model():
-    with pytest.raises(ValueError, match="resume_judge_agent_fallback_model must differ"):
-        WorkerSettingsEnv(
-            resume_judge_agent_model="google/gemini-3-flash-preview",
-            resume_judge_agent_fallback_model="google/gemini-3-flash-preview",
-        )
+def test_local_compose_exposes_only_two_model_pairs():
+    compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text()
+    for name in ("TIER1_MODEL", "TIER1_FALLBACK_MODEL", "TIER2_MODEL", "TIER2_FALLBACK_MODEL"):
+        assert name + ":" in compose
+    assert "GENERATION_AGENT_REASONING_EFFORT:" not in compose
+    assert "RESUME_JUDGE_AGENT_MODEL:" not in compose
 
 
 class FakeExtractionAgent(OpenRouterExtractionAgent):
     def __init__(self) -> None:
         settings = WorkerSettingsEnv(
             openrouter_api_key="test",
-            extraction_agent_model="primary-model",
-            extraction_agent_fallback_model="fallback-model",
+            tier2_model="primary-model",
+            tier2_fallback_model="fallback-model",
         )
         super().__init__(settings)
         self.calls: list[str] = []
@@ -1238,8 +1089,8 @@ async def test_run_generation_job_completes_and_caches_result_when_callbacks_fai
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
@@ -1316,7 +1167,7 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
         return {
             **build_generation_result(),
             "model_used": "google/gemini-3-flash-preview",
-            "attempt_diagnostics": [{"model": "google/gemini-3-flash-preview", "outcome": "success"}],
+            "attempt_diagnostics": [{"model": "env-primary-model", "outcome": "success"}],
         }
 
     async def fake_validate_with_repair(**kwargs):
@@ -1329,8 +1180,8 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="env-primary-model",
-            generation_agent_fallback_model="env-fallback-model",
+            tier1_model="env-primary-model",
+            tier1_fallback_model="env-fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
@@ -1364,10 +1215,10 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
 
     generated = fake_writer.generated_by_app["app-tier"]["generated"]
     assert observed_models == {
-        "model": "google/gemini-3-flash-preview",
-        "fallback_model": "openai/gpt-5.4-mini",
-        "reasoning_effort": "medium",
-        "fallback_reasoning_effort": "high",
+        "model": "env-primary-model",
+        "fallback_model": "env-fallback-model",
+        "reasoning_effort": "auto",
+        "fallback_reasoning_effort": "auto",
     }
     assert generated["generation_params"]["model_used"] == "google/gemini-3-flash-preview"
     assert "_generation_model" not in generated["generation_params"]
@@ -1375,7 +1226,7 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
     assert "_generation_fallback_model" not in generated["generation_params"]
     assert "_generation_fallback_reasoning_effort" not in generated["generation_params"]
     assert "attempts" not in generated["generation_params"]
-    assert generated["attempts"][0]["model"] == "google/gemini-3-flash-preview"
+    assert generated["attempts"][0]["model"] == "env-primary-model"
 
 
 @pytest.mark.asyncio
@@ -1445,8 +1296,8 @@ async def test_run_generation_job_validation_failure_does_not_crash_when_callbac
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
@@ -1536,8 +1387,8 @@ async def test_run_generation_job_completes_when_generation_cache_write_fails(mo
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
@@ -1625,8 +1476,8 @@ async def test_run_generation_job_uses_prd_full_timeout(monkeypatch):
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: FakeWriter())
@@ -1664,7 +1515,7 @@ async def test_run_resume_judge_job_posts_started_and_succeeded_callbacks(monkey
     async def fake_judge_resume(**kwargs):
         assert kwargs["model"] == "judge-primary"
         assert kwargs["fallback_model"] == "judge-fallback"
-        assert kwargs["reasoning_effort"] == "none"
+        assert kwargs["reasoning_effort"] == "auto"
         return {
             "resume_judge_result": {
                 "status": "succeeded",
@@ -1688,8 +1539,8 @@ async def test_run_resume_judge_job_posts_started_and_succeeded_callbacks(monkey
         "worker.WorkerSettingsEnv",
         lambda: WorkerSettingsEnv(
             openrouter_api_key="test-key",
-            resume_judge_agent_model="judge-primary",
-            resume_judge_agent_fallback_model="judge-fallback",
+            tier2_model="judge-primary",
+            tier2_fallback_model="judge-fallback",
             resume_judge_agent_reasoning_effort="none",
         ),
     )
@@ -1737,8 +1588,8 @@ async def test_run_resume_judge_job_posts_failure_payload_on_error(monkeypatch):
         "worker.WorkerSettingsEnv",
         lambda: WorkerSettingsEnv(
             openrouter_api_key="test-key",
-            resume_judge_agent_model="judge-primary",
-            resume_judge_agent_fallback_model="judge-fallback",
+            tier2_model="judge-primary",
+            tier2_fallback_model="judge-fallback",
             resume_judge_agent_reasoning_effort="none",
         ),
     )
@@ -1827,8 +1678,8 @@ async def test_run_regeneration_job_success(monkeypatch):
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
@@ -1866,10 +1717,10 @@ async def test_run_regeneration_job_success(monkeypatch):
         regeneration_instructions="Make the summary more direct.",
     )
 
-    assert observed_regen_kwargs["model"] == "google/gemini-3-flash-preview"
-    assert observed_regen_kwargs["fallback_model"] == "openai/gpt-5.4-mini"
-    assert observed_regen_kwargs["reasoning_effort"] == "medium"
-    assert observed_regen_kwargs["fallback_reasoning_effort"] == "high"
+    assert observed_regen_kwargs["model"] == "google/gemini-3.8-flash"
+    assert observed_regen_kwargs["fallback_model"] == "openai/gpt-6-luna"
+    assert observed_regen_kwargs["reasoning_effort"] == "auto"
+    assert observed_regen_kwargs["fallback_reasoning_effort"] == "auto"
     assert len(callback_payloads) == 1
     success_payload = callback_payloads[0]
     assert success_payload["event"] == "succeeded"
@@ -1951,8 +1802,8 @@ async def test_run_regeneration_job_full_success(monkeypatch):
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: FakeWriter())
@@ -2045,8 +1896,8 @@ async def test_run_regeneration_job_validation_failure_includes_regeneration_tar
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: FakeWriter())
@@ -2122,8 +1973,8 @@ async def test_run_regeneration_job_timeout_includes_regeneration_target(monkeyp
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: FakeWriter())
@@ -2197,8 +2048,8 @@ async def test_run_regeneration_job_error_includes_regeneration_target(monkeypat
         lambda: WorkerSettingsEnv(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
-            generation_agent_model="primary-model",
-            generation_agent_fallback_model="fallback-model",
+            tier1_model="primary-model",
+            tier1_fallback_model="fallback-model",
         ),
     )
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: FakeWriter())

@@ -123,7 +123,8 @@ def portable_openrouter_profile(model_name: str) -> Any:
 
 class AIRequestError(RuntimeError):
     """Safe exception boundary: provider payloads never reach worker logs."""
-    def __init__(self, error_type: str, *, reasoning_rejected: bool = False) -> None:
+    def __init__(self, error_type: str, *, reasoning_rejected: bool = False, can_fallback: bool = True) -> None:
+        self.can_fallback = can_fallback
         self.error_type = error_type
         self.reasoning_rejected = reasoning_rejected
         super().__init__("AI provider rejected unsupported reasoning." if reasoning_rejected else "AI provider request failed.")
@@ -191,7 +192,7 @@ async def structured_call(
     # Lazy imports allow the deterministic document/validation code to run on its
     # own. A missing runtime dependency still fails closed at the call boundary.
     from openai import AsyncOpenAI
-    from pydantic_ai import Agent, ModelRetry, ToolOutput
+    from pydantic_ai import Agent, ModelRetry, ToolOutput, NativeOutput
     from pydantic_ai.models.openrouter import OpenRouterModel
     from pydantic_ai.providers.openrouter import OpenRouterProvider
     from pydantic_ai.usage import RunUsage, UsageLimits
@@ -206,9 +207,13 @@ async def structured_call(
     user = "\n\n".join(content for role, content in prompt if role != "system")
     started = perf_counter()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=call_timeout)
-    settings: dict[str, Any] = {"temperature": temperature, "max_tokens": min(8000, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": {"require_parameters": True}}
-    if reasoning:
-        settings["openrouter_reasoning"] = reasoning
+    native_output = model_name.removeprefix("~") in {"anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "openai/gpt-6-luna"}
+    settings: dict[str, Any] = { "max_tokens": min(8000, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": {"require_parameters": True}}
+    if not native_output:
+        settings["temperature"] = temperature
+    settings["openrouter_reasoning"] = {"exclude": True} if native_output else reasoning
+    if settings["openrouter_reasoning"] is None:
+        settings.pop("openrouter_reasoning")
     safe_operation = operation if operation in SAFE_AI_OPERATIONS else "structured_call"
     trace_manager = None
     run_trace = None
@@ -231,7 +236,7 @@ async def structured_call(
             # Gateway profiles may incorrectly auto-enable native strict tools
             # for portable nullable/default/dictionary schemas. Local typed and
             # per-section validation remains strict and fail closed.
-            output_type=ToolOutput(output_type, strict=False),
+            output_type=NativeOutput(output_type, strict=False) if native_output else ToolOutput(output_type, strict=False),
             system_prompt=system,
             retries=1 if remaining_requests > 1 else 0,
         )
@@ -280,7 +285,8 @@ async def structured_call(
             raise asyncio.TimeoutError("AI provider request timed out.") from None
         message = str(error).lower()
         reasoning_rejected = "reasoning" in message and any(word in message for word in ("unknown", "unsupported", "invalid", "mandatory"))
-        raise AIRequestError(type(error).__name__, reasoning_rejected=reasoning_rejected) from None
+        raise AIRequestError(type(error).__name__, reasoning_rejected=reasoning_rejected,
+            can_fallback=getattr(error, "status_code", None) not in {401, 402, 403}) from None
     finally:
         # Failed HTTP requests may not have a usage record. They still consume
         # a workflow request, preventing retries from multiplying invisibly.

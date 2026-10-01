@@ -29,6 +29,18 @@ The browser walkthrough verified source review, custom sections, saved edits, fi
 
 Confirmed local import classification uses rules, with Jev opt-in; AI cleanup/nested extraction uses GPT 5.6 Luna. Local Basic generation uses Gemini 3 Flash Preview with GPT 5.4 Mini fallback; Pro uses GPT 5.4 Mini with Gemini 3 Flash Preview fallback. Tier reservations override worker environment defaults, including regeneration and role actions. The standalone live evaluator does not apply these tier overrides. Restored the API from isolated browser-test credentials to its configured local development credentials and verified service health. The generation worker remains stopped; no queued AI work was dispatched. Ambiguous Experience imports can still retain Markdown instead of job entries.
 
+### Local background processing restored
+
+**Status:** Complete (2026-09-30 19:37:47 EDT).
+
+Verified the local API uses configured credentials, checked the empty ARQ queue, and restored the local Compose generation worker. Worker credentials and Redis heartbeat passed checks; Makefile health checks passed for the API and frontend. No queued AI jobs were dispatched. Existing flat resumes remain unchanged. The proposed operation-based model routing and subscription quota changes have not been implemented.
+
+## Operation-based models and request allowances
+
+**Status:** Complete; code review fixes and local checks passed (2026-09-30 20:09:01 EDT).
+
+Implemented two shared model pairs with default reasoning: Tier 1 Sonnet 5.5 → GPT 6.1 Sol for initial/full writing, Tier 2 Gemini 3.8 Flash → GPT 6 Luna for other generative tasks, audits and repairs. Jev classification defaults on with local parsing fallback. Basic/Pro now govern request allowances only (10/60); admin model selectors, standalone import cleanup and automatic quality scoring are removed. Fixed legacy repair routing, keyword-failure refunds, informed targeted repair/final fallback and admin refresh state. Migration 021 applied locally; API/worker configuration and service health verified. Passed 391 backend, 223 worker, 197 frontend and 15 environment tests plus production build. All four model protocol probes and Jev fictional labels passed. Workflow samples passed full-low, role and keyword cases; an initial aggressive case failed closed, followed by a fresh pass after recovery changes. These samples do not establish a reliability rate. See [implementation and review evidence](task-output/2026-09-30-operation-model-routing.md).
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.

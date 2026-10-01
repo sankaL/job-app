@@ -1872,6 +1872,8 @@ async def _call_json_with_fallback(
             )
             return payload, model_name, attempts
         except Exception as exc:
+            if not getattr(exc, "can_fallback", True):
+                raise
             last_error = exc
 
     if _is_timeout_error(last_error):
