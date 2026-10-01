@@ -10,9 +10,9 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Main merge and Railway release preparation
 
-**Status:** Merge prepared; production deployment awaiting migrations (2026-09-30 23:50:39 EDT).
+**Status:** Production prerequisites applied and verified; deployment in progress (2026-09-30).
 
-Merged `origin/main` into `v1.2` without conflicts at `21b326d` and pushed the branch. Makefile-managed checks passed 440 backend, 231 agents, 227 frontend and 15 environment tests plus the frontend production build. Railway CLI authentication and production project access work. Read-only production checks confirm migrations 019–022 are absent from the ledger and schema. The new document/contact columns and unique resume-name index are absent; Basic/Pro allowances remain 40/100. The user owns production migrations and environment configuration. Hold the push to remote `main`, which triggers all three service deployments, until prerequisites are satisfied. See [release preparation evidence](task-output/2026-09-30-main-railway-release.md).
+Merged main into v1.2 without conflicts and verified 913 local tests plus the frontend production build. The user authorized production rollout through the CLI. Backed up labels, applied and atomically recorded migrations 019–022, verified the new schema/index and 10/60 request allowances, and configured explicit operation models plus Jev import settings without early deploys. Production had zero queued or active jobs before rollout. See [release evidence](task-output/2026-09-30-main-railway-release.md).
 
 ## Section resume reliability upgrade
 

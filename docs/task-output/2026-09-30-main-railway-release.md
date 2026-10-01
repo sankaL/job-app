@@ -1,7 +1,7 @@
 # Main merge and Railway release preparation
 
 **Checked:** 2026-09-30 23:50:39 EDT
-**Status:** Prepared; production deployment pending user-managed prerequisites.
+**Status:** Production prerequisites applied and verified; deployment in progress.
 
 Merged `origin/main` at `e0473d2` into `v1.2` at `21b326d` without conflicts. Pushed `v1.2` to origin. Local main can fast-forward to the verified merge. Remote main remains unchanged because its push workflow automatically deploys backend, frontend and agents.
 
@@ -25,3 +25,9 @@ The agents Tier 1/Tier 2 variables and backend Tier 2/import-classification vari
 ## Remaining release steps
 
 After the user applies the migrations, verify the ledger/schema and configuration, follow the runbook's queued-job drain guidance, push the prepared main branch and monitor all three deployments. The existing GitHub Actions workflow invokes Railway CLI from the pushed main commit. Confirm successful deployment identities and public frontend/backend health before reporting the release complete.
+
+## CLI rollout
+
+The user subsequently authorized handling production prerequisites through the CLI. Backed up resume labels privately outside the repository; the duplicate-label count was zero. Applied migrations 019–022 via the production backend database connection with connection, lock and statement timeouts. Each migration and its ledger insert committed in the same transaction. Verified ledger entries, document/contact/source columns, the unique name index, and Basic/Pro allowances of 10/60.
+
+Set explicit Tier 1/Tier 2 pairs on agents and Tier 2 plus Jev import configuration on backend using `--skip-deploys`. No provider secrets were printed or changed. Production queue checks found zero queued and zero active jobs before rollout. Push main to deploy the validated code through the existing Railway CLI workflow.

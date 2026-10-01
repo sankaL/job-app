@@ -7,6 +7,10 @@
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
 
+## 2026-09-30 Railway release rollout
+
+Production migrations 019–022 were applied via Railway CLI after an empty queue/active-job check and a private label backup. The duplicate-label count was zero. Each migration and ledger insertion committed atomically with bounded database timeouts. Verified the ledger, document/contact/source columns, unique name index and 10/60 plan allowances. Explicit operation models and Jev configuration were set without triggering early deployment. Deploy backend, agents and frontend from the merged main commit, then verify deployment identities and health.
+
 ## 2026-09-30 unique resume names
 
 - Apply `20260930_000022_unique_resume_names.sql` before deploying the API conflict handling and updated workbench. The unique index enforces `(user_id, lower(btrim(name)))`; separate users can retain identical labels.
