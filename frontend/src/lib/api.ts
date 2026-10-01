@@ -1192,6 +1192,7 @@ export async function triggerFullRegeneration(
     aggressiveness: string;
     additional_instructions?: string;
     use_judge_feedback?: boolean;
+    use_latest_base?: boolean;
   },
 ): Promise<ApplicationDetail> {
   return authenticatedRequest<ApplicationDetail>(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.resume_document import parse_resume_document
+from app.services.resume_document import parse_resume_document, render_resume_document, validate_resume_document
 
 import asyncio
 import copy
@@ -863,15 +863,17 @@ async def test_keyword_optimization_queues_missing_and_preserved_keywords():
         sections_snapshot={"enabled_sections": ["summary", "skills"], "section_order": ["summary", "skills"]},
     )
 
+    saved_draft = service.draft_repository.fetch_draft("user-1", record.id)
+    base = service.base_resume_repository.fetch_resume("user-1", "resume-1")
+    saved_draft.document = parse_resume_document(saved_draft.content_md, reviewed=True, previous=base.document).model_dump(mode="json")
+    saved_draft.source_snapshot = {"base_resume_id": "resume-1", "revision": 1, "document": base.document, "content_md": base.content_md}
+
     detail = await service.trigger_keyword_optimization(user_id="user-1", application_id=record.id)
 
     assert detail.application.internal_state == "regenerating_full"
     queued = service.generation_job_queue.regenerations[-1]  # type: ignore[attr-defined]
     assert queued["regeneration_target"] == "keyword_optimization"
-    assert queued["section_preferences"] == [
-        {"name": "summary", "enabled": True, "order": 0},
-        {"name": "skills", "enabled": True, "order": 1},
-    ]
+    assert queued["section_preferences"] == service._document_section_preferences(saved_draft.document)
     settings = queued["generation_settings"]
     assert settings["keyword_optimization"]["target_keywords"] == ["Kubernetes", "CI/CD"]
     assert settings["keyword_optimization"]["preserve_keywords"] == ["React Native"]
@@ -3451,6 +3453,7 @@ def test_full_regeneration_endpoint_returns_409_when_limit_is_reached():
         headers={"Authorization": "Bearer valid-token"},
         json={
             "target_length": "1_page",
+            "use_latest_base": True,
             "aggressiveness": "medium",
             "additional_instructions": None,
         },
@@ -3501,6 +3504,7 @@ def test_full_regeneration_endpoint_returns_409_when_quota_reservation_is_busy()
         headers={"Authorization": "Bearer valid-token"},
         json={
             "target_length": "1_page",
+            "use_latest_base": True,
             "aggressiveness": "medium",
             "additional_instructions": None,
         },
@@ -4416,6 +4420,7 @@ async def test_full_regeneration_routes_blocked_placeholder_back_to_manual_entry
     )
 
     detail = await service.trigger_full_regeneration(
+        use_latest_base=True,
         user_id="user-1",
         application_id=created.id,
         target_length="1_page",
@@ -4471,6 +4476,7 @@ async def test_full_regeneration_appends_structured_judge_feedback_server_side()
     )
 
     await service.trigger_full_regeneration(
+        use_latest_base=True,
         user_id="user-1",
         application_id=created.id,
         target_length="2_page",
@@ -4791,6 +4797,11 @@ async def test_section_regeneration_consumes_subscription_quota_and_passes_tier_
         sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
     )
 
+    saved_draft = service.draft_repository.fetch_draft("user-1", created.id)
+    base = service.base_resume_repository.fetch_resume("user-1", "resume-1")
+    saved_draft.document = parse_resume_document(saved_draft.content_md, reviewed=True, previous=base.document).model_dump(mode="json")
+    saved_draft.source_snapshot = {"base_resume_id": "resume-1", "revision": 1, "document": base.document, "content_md": base.content_md}
+
     await service.trigger_section_regeneration(
         user_id="user-1",
         application_id=created.id,
@@ -4845,6 +4856,11 @@ async def test_section_regeneration_queue_failure_does_not_consume_slot():
 
     service.generation_job_queue.enqueue_regeneration = fail_queue  # type: ignore[method-assign]
 
+    saved_draft = service.draft_repository.fetch_draft("user-1", created.id)
+    base = service.base_resume_repository.fetch_resume("user-1", "resume-1")
+    saved_draft.document = parse_resume_document(saved_draft.content_md, reviewed=True, previous=base.document).model_dump(mode="json")
+    saved_draft.source_snapshot = {"base_resume_id": "resume-1", "revision": 1, "document": base.document, "content_md": base.content_md}
+
     detail = await service.trigger_section_regeneration(
         user_id="user-1",
         application_id=created.id,
@@ -4892,6 +4908,7 @@ async def test_full_regeneration_requires_profile_name():
 
     with pytest.raises(ValueError, match="Complete your profile name before regenerating the full resume."):
         await service.trigger_full_regeneration(
+        use_latest_base=True,
             user_id="user-1",
             application_id=created.id,
             target_length="1_page",
@@ -4936,6 +4953,7 @@ async def test_full_regeneration_consumes_subscription_quota_when_queued():
     )
 
     detail = await service.trigger_full_regeneration(
+        use_latest_base=True,
         user_id="user-1",
         application_id=created.id,
         target_length="1_page",
@@ -4988,6 +5006,7 @@ async def test_full_regeneration_blocks_when_monthly_subscription_quota_reached(
 
     with pytest.raises(PermissionError, match="Monthly resume generation limit reached"):
         await service.trigger_full_regeneration(
+        use_latest_base=True,
             user_id="user-1",
             application_id=created.id,
             target_length="1_page",
@@ -5036,6 +5055,7 @@ async def test_full_regeneration_does_not_use_legacy_admin_bypass_for_subscripti
 
     with pytest.raises(PermissionError, match="Monthly resume generation limit reached"):
         await service.trigger_full_regeneration(
+        use_latest_base=True,
             user_id="user-1",
             application_id=created.id,
             target_length="1_page",
@@ -5085,6 +5105,7 @@ async def test_full_regeneration_queue_failure_does_not_consume_slot():
     service.generation_job_queue.enqueue_regeneration = fail_queue  # type: ignore[method-assign]
 
     detail = await service.trigger_full_regeneration(
+        use_latest_base=True,
         user_id="user-1",
         application_id=created.id,
         target_length="1_page",
@@ -6464,3 +6485,141 @@ async def test_structured_keyword_optimization_uses_frozen_source_and_current_do
     assert settings["_source_snapshot"] == snapshot
     assert settings["_current_document"] == document
     assert settings["keyword_optimization"]["target_keywords"] == ["reliable APIs"]
+
+
+def test_draft_document_overrides_stale_snapshot_and_profile_section_preferences():
+    service, *_ = build_service()
+    document = parse_resume_document("## Volunteering\nCommunity work\n\n## Skills\nPython\n", reviewed=True).model_dump(mode="json")
+    document['sections'][1]['enabled'] = False
+    draft = type('Draft', (), {'document': document, 'sections_snapshot': {'section_order': ['skills']}})()
+    assert service._section_preferences_for_existing_draft(draft=draft, fallback=[{'name': 'custom', 'enabled': False}]) == [
+        {'name': document['sections'][0]['id'], 'enabled': True, 'order': 0},
+        {'name': document['sections'][1]['id'], 'enabled': False, 'order': 1},
+    ]
+    legacy = type('Draft', (), {'document': None, 'sections_snapshot': {'section_order': ['projects', 'summary']}})()
+    assert [p['name'] for p in service._section_preferences_for_existing_draft(draft=legacy, fallback=[])] == ['projects', 'summary']
+
+
+@pytest.mark.asyncio
+async def test_initial_generation_queues_base_structure_despite_conflicting_profile_preferences():
+    service, repository, *_ = build_service()
+    service.base_resume_repository.add_resume(user_id='user-1', resume_id='base-1', content_md='## Volunteering\nCommunity work\n\n## Skills\nPython\n')
+    base = service.base_resume_repository.fetch_resume('user-1', 'base-1')
+    base.document['sections'][1]['enabled'] = False
+    profile = service.profile_repository.fetch_profile('user-1')
+    profile.section_preferences = {'custom': False, 'skills': True}
+    profile.section_order = ['skills']
+    service.profile_repository.fetch_profile = lambda user_id: profile if user_id == 'user-1' else None
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/1', visible_status='draft', internal_state='generation_pending')
+    repository.update_application(application_id=record.id, user_id='user-1', updates={'job_title': 'Engineer', 'job_description': 'Build APIs.'})
+    await service.trigger_generation(user_id='user-1', application_id=record.id, base_resume_id='base-1', target_length='1_page', aggressiveness='medium')
+    queued = service.generation_job_queue.enqueued[-1]
+    assert queued['section_preferences'] == service._document_section_preferences(base.document)
+    assert queued['generation_settings']['_source_document'] == base.document
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_uses_frozen_source_after_base_deleted_and_keeps_layout():
+    from copy import deepcopy
+    service, repository, _, _, _, _, drafts = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/1', visible_status='in_progress', internal_state='resume_ready')
+    repository.update_application(application_id=record.id, user_id='user-1', updates={'job_title': 'Engineer', 'job_description': 'Build APIs.'})
+    source = parse_resume_document('## Summary\nBuilt APIs.\n\n## Volunteering\nCommunity work\n', reviewed=True).model_dump(mode='json')
+    current = deepcopy(source)
+    current['sections'].reverse()
+    current['sections'][1]['enabled'] = False
+    snapshot = {'base_resume_id': 'deleted-source', 'revision': 1, 'document': source, 'content_md': render_resume_document(source)}
+    drafts.upsert_draft(application_id=record.id, user_id='user-1', content_md=render_resume_document(current), generation_params={}, sections_snapshot={'section_order': ['summary']}, document=current, source_snapshot=snapshot)
+    await service.trigger_full_regeneration(user_id='user-1', application_id=record.id, target_length='1_page', aggressiveness='medium')
+    queued = service.generation_job_queue.regenerations[-1]
+    assert queued['generation_settings']['_source_snapshot'] == snapshot
+    assert queued['generation_settings']['_current_document'] == validate_resume_document(current).model_dump(mode='json')
+    assert queued['section_preferences'] == service._document_section_preferences(current)
+
+
+@pytest.mark.asyncio
+async def test_legacy_regeneration_requires_explicit_source_refresh_and_failure_keeps_draft():
+    service, repository, _, _, _, _, drafts = build_service()
+    service.base_resume_repository.add_resume(user_id='user-1', resume_id='base-1', content_md='## Summary\nBuilt APIs.\n')
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/1', visible_status='in_progress', internal_state='resume_ready')
+    repository.update_application(application_id=record.id, user_id='user-1', updates={'base_resume_id': 'base-1', 'job_title': 'Engineer', 'job_description': 'Build APIs.'})
+    draft = drafts.upsert_draft(application_id=record.id, user_id='user-1', content_md='## Summary\nMy saved edit.\n', generation_params={}, sections_snapshot={'section_order': ['summary']})
+    with pytest.raises(PermissionError, match='no frozen source links'):
+        await service.trigger_full_regeneration(user_id='user-1', application_id=record.id, target_length='1_page', aggressiveness='medium')
+    with pytest.raises(PermissionError, match='no frozen source links'):
+        await service.trigger_section_regeneration(user_id='user-1', application_id=record.id, section_name='summary', instructions='Rewrite')
+    assert service.subscription_repository.reservations == []
+    async def fail_queue(**kwargs):
+        assert '_current_document' not in kwargs['generation_settings']
+        raise RuntimeError('queue unavailable')
+    service.generation_job_queue.enqueue_regeneration = fail_queue
+    result = await service.trigger_full_regeneration(user_id='user-1', application_id=record.id, target_length='1_page', aggressiveness='medium', use_latest_base=True)
+    assert result.application.failure_reason == 'regeneration_failed'
+    assert drafts.fetch_draft('user-1', record.id) == draft
+    assert service.subscription_repository.count_by_user['user-1'] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('format', ['pdf', 'docx'])
+async def test_exports_use_latest_document_order_and_exclusions_even_if_projection_is_stale(monkeypatch, format):
+    service, repository, _, _, _, _, drafts = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/1', visible_status='in_progress', internal_state='resume_ready')
+    source = parse_resume_document('## Summary\nOld summary.\n\n## Volunteering\nCommunity work\n\n## Skills\nPython\n', reviewed=True).model_dump(mode='json')
+    document = {**source, 'sections': [source['sections'][2], source['sections'][1], {**source['sections'][0], 'enabled': False}]}
+    draft = drafts.upsert_draft(application_id=record.id, user_id='user-1', content_md='## Summary\nStale projection.\n', generation_params={}, sections_snapshot={}, document=document)
+    captured = []
+    async def export(**kwargs):
+        captured.append(kwargs['markdown_content'])
+        return b'export'
+    monkeypatch.setattr('app.services.application_manager.generate_' + format, export)
+    body, _ = await getattr(service, 'export_' + format)(user_id='user-1', application_id=record.id)
+    assert body == b'export'
+    assert captured[0].index('## Skills') < captured[0].index('## Volunteering')
+    assert '## Summary' not in captured[0] and 'Stale projection' not in captured[0]
+    assert draft.document['sections'][2]['content_md'] == 'Old summary.'
+
+
+@pytest.mark.asyncio
+async def test_reincluded_unreviewed_source_is_blocked_before_full_regeneration_quota():
+    from copy import deepcopy
+    service, repository, _, _, _, _, drafts = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/1', visible_status='in_progress', internal_state='resume_ready')
+    repository.update_application(application_id=record.id, user_id='user-1', updates={'job_title': 'Engineer', 'job_description': 'Build APIs.'})
+    source = parse_resume_document('## Summary\nBuilt APIs.\n\n## Volunteering\nCommunity work\n', reviewed=True).model_dump(mode='json')
+    source['sections'][1].update(enabled=False, review_state='needs_review')
+    current = deepcopy(source)
+    current['sections'][1]['enabled'] = True
+    snapshot = {'base_resume_id': 'deleted-source', 'revision': 1, 'document': source}
+    drafts.upsert_draft(application_id=record.id, user_id='user-1', content_md=render_resume_document(current), generation_params={}, sections_snapshot={}, document=current, source_snapshot=snapshot)
+    with pytest.raises(PermissionError, match='newly included source'):
+        await service.trigger_full_regeneration(user_id='user-1', application_id=record.id, target_length='1_page', aggressiveness='medium')
+    assert service.subscription_repository.reservations == []
+
+
+@pytest.mark.asyncio
+async def test_removed_or_reordered_roles_cannot_be_silently_restored_by_whole_section_regeneration():
+    from copy import deepcopy
+    service, repository, _, _, _, _, drafts = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/1', visible_status='in_progress', internal_state='resume_ready')
+    repository.update_application(application_id=record.id, user_id='user-1', updates={'job_title': 'Engineer', 'job_description': 'Build APIs.'})
+    source = parse_resume_document('## Professional Experience\nAcme\nEngineer | 2020 - 2024\n- Built APIs.\n\nExample\nEngineer | 2018 - 2020\n- Built tools.\n', reviewed=True).model_dump(mode='json')
+    current = deepcopy(source)
+    current['sections'][0]['entries'].reverse()
+    snapshot = {'base_resume_id': 'deleted-source', 'revision': 1, 'document': source}
+    drafts.upsert_draft(application_id=record.id, user_id='user-1', content_md=render_resume_document(current), generation_params={}, sections_snapshot={}, document=current, source_snapshot=snapshot)
+    with pytest.raises(ValueError, match='removed or reordered'):
+        await service.trigger_section_regeneration(user_id='user-1', application_id=record.id, section_name=current['sections'][0]['id'], instructions='Rewrite')
+    assert service.subscription_repository.reservations == []
+
+
+@pytest.mark.parametrize('damage', ['revision', 'base_resume_id'])
+def test_invalid_frozen_source_links_are_not_silently_repaired_from_current_base(damage):
+    service, *_ = build_service()
+    service.base_resume_repository.add_resume(user_id='user-1', resume_id='base-1', content_md='## Summary\nBuilt APIs.\n')
+    base = service.base_resume_repository.fetch_resume('user-1', 'base-1')
+    source = service._source_settings(base_resume=base, profile=service.profile_repository.fetch_profile('user-1'))
+    snapshot = source['_source_snapshot']
+    snapshot[damage] = 99 if damage == 'revision' else ''
+    draft = type('Draft', (), {'document': base.document, 'source_snapshot': snapshot})()
+    with pytest.raises(PermissionError, match='source links are invalid'):
+        service._source_settings(base_resume=base, profile=service.profile_repository.fetch_profile('user-1'), draft=draft, use_snapshot=True)

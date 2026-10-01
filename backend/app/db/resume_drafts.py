@@ -142,7 +142,8 @@ class ResumeDraftRepository:
     ) -> ResumeDraftRecord:
         query = """
         update public.resume_drafts
-        set content_md = %s, document = case when %s::jsonb is null then null else jsonb_set(%s::jsonb, '{revision}', to_jsonb(revision + 1)) end, revision = revision + 1
+        set content_md = %s, document = case when %s::jsonb is null then null else jsonb_set(%s::jsonb, '{revision}', to_jsonb(revision + 1)) end, revision = revision + 1,
+            sections_snapshot = coalesce(%s::jsonb, sections_snapshot)
         where application_id = %s and user_id = %s
           and (%s::integer is null or revision = %s)
         returning
@@ -162,7 +163,12 @@ class ResumeDraftRepository:
 
         with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             serialized = json.dumps(document) if document is not None else None
-            cursor.execute(query, (content_md, serialized, serialized, application_id, user_id, expected_revision, expected_revision))
+            structure = None
+            if document is not None:
+                from app.services.resume_document import validate_resume_document
+                enabled = [section.id for section in validate_resume_document(document).sections if section.enabled]
+                structure = json.dumps({"enabled_sections": enabled, "section_order": enabled})
+            cursor.execute(query, (content_md, serialized, serialized, structure, application_id, user_id, expected_revision, expected_revision))
             row = cursor.fetchone()
             connection.commit()
 

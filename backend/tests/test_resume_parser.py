@@ -347,3 +347,87 @@ async def test_jev_reclassification_keeps_nested_ids_unique_across_sections(monk
     assert len({bullet.id for section in parsed.sections for entry in section.entries for bullet in entry.bullets}) == 3
     assert first.document == second.document
     assert first.warning is None
+
+@pytest.mark.asyncio
+async def test_multi_job_import_uses_local_boundaries_before_ai_assistance(monkeypatch):
+    async def unexpected(**_kwargs):
+        raise AssertionError('Recognizable headers should need no generative call.')
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', unexpected)
+    body = 'Acme | Toronto\nEngineer | 2022 - Present\n- Built APIs.\nBeta | Remote\nDeveloper | 2019 - 2022\n- Built C++ tools.'
+    result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=True)
+    section = result.document['sections'][0]
+    assert [entry['fields']['company'] for entry in section['entries']] == ['Acme', 'Beta']
+    assert section['review_state'] == 'needs_review'
+    assert section['content_md'] == body
+
+
+@pytest.mark.asyncio
+async def test_suspicious_single_entry_is_eligible_for_nested_extraction_and_safe_fallback(monkeypatch):
+    from app.services.resume_document import parse_resume_document
+    body = 'Acme\nEngineer | 2022 - Present\n- Built APIs.\nBeta\nDeveloper\n2019 - 2022\n- Built tools.'
+    partial = parse_resume_document('## Experience\nAcme\nEngineer | 2022 - Present\n- Built APIs.')
+    partial.sections[0].content_md = body
+    partial.sections[0].entries[0].bullets[0].text += '\nBeta\nDeveloper\n2019 - 2022\nBuilt tools.'
+    monkeypatch.setattr('app.services.resume_parser.parse_resume_document', lambda *args, **kwargs: partial.model_copy(deep=True))
+    calls = []
+    async def unavailable(**kwargs):
+        calls.append(kwargs['model'])
+        raise RuntimeError('private provider detail')
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', unavailable)
+    result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=True)
+    assert len(calls) == 2
+    assert result.document['sections'][0]['entries'] == []
+    assert result.document['sections'][0]['content_md'] == body
+    assert result.document['sections'][0]['review_state'] == 'needs_review'
+    assert 'could not be structured safely' in result.warning
+    assert 'private' not in result.warning
+
+
+@pytest.mark.asyncio
+async def test_nested_extraction_rejects_merged_jobs_even_when_all_words_are_retained(monkeypatch):
+    import json
+    body = 'Acme\nEngineer\n2022 - Present\n- Built APIs.\nBeta\nDeveloper\n2019 - 2022\n- Built tools.'
+    async def merged(**kwargs):
+        section_id = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
+        return NestedExtractionOutput(sections=[{'section_id': section_id, 'entries': [{'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': ['Built APIs.', 'Beta', 'Developer', '2019 - 2022', 'Built tools.']}]}])
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', merged)
+    result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=True)
+    assert result.document['sections'][0]['entries'] == []
+    assert result.document['sections'][0]['content_md'] == body
+    assert 'could not be structured safely' in result.warning
+
+
+@pytest.mark.asyncio
+async def test_nested_extraction_keeps_each_opaque_job_separate(monkeypatch):
+    import json
+    body = 'Acme\nEngineer\n2022 - Present\n- Built APIs.\nBeta\nDeveloper\n2019 - 2022\n- Built tools.'
+    async def extract(**kwargs):
+        section_id = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
+        output = NestedExtractionOutput(sections=[{'section_id': section_id, 'entries': [
+            {'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': ['Built APIs.']},
+            {'fields': {'company': 'Beta', 'title': 'Developer', 'date_range': '2019 - 2022'}, 'bullets': ['Built tools.']},
+        ]}])
+        kwargs['validator'](output)
+        return output
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', extract)
+    result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=True)
+    section = result.document['sections'][0]
+    assert [entry['fields']['company'] for entry in section['entries']] == ['Acme', 'Beta']
+    assert section['content_md'] == body
+    assert section['review_state'] == 'needs_review'
+
+@pytest.mark.asyncio
+async def test_nested_extraction_rejects_reordered_job_dates_with_complete_word_coverage(monkeypatch):
+    import json
+    body = 'Acme\nEngineer\n2022 - Present\n- Built APIs.\nBeta\nDeveloper\n2019 - 2022\n- Built tools.'
+    async def reversed_jobs(**kwargs):
+        section_id = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
+        return NestedExtractionOutput(sections=[{'section_id': section_id, 'entries': [
+            {'fields': {'company': 'Beta', 'title': 'Developer', 'date_range': '2019 - 2022'}, 'bullets': ['Built tools.']},
+            {'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': ['Built APIs.']},
+        ]}])
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', reversed_jobs)
+    result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=True)
+    assert result.document['sections'][0]['entries'] == []
+    assert result.document['sections'][0]['content_md'] == body
+    assert 'could not be structured safely' in result.warning

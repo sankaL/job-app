@@ -2146,6 +2146,7 @@ export function ApplicationDetailPage() {
     useState(false);
   const [showFullRegenConfirm, setShowFullRegenConfirm] = useState(false);
   const [fullRegenInstructions, setFullRegenInstructions] = useState("");
+  const [fullRegenUseLatestBase, setFullRegenUseLatestBase] = useState(false);
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
   const [showResumeJudgeDialog, setShowResumeJudgeDialog] = useState(false);
   const [expandedResumeJudgeDimension, setExpandedResumeJudgeDimension] =
@@ -3108,6 +3109,7 @@ export function ApplicationDetailPage() {
   async function handleFullRegeneration(
     overrideInstructions?: string,
     useJudgeFeedback?: boolean,
+    useLatestBase = false,
   ): Promise<boolean> {
     if (draftDirty) { setError("Save or discard your section edits before regenerating."); return false; }
     if (fullRegenerationBlocker) {
@@ -3143,6 +3145,7 @@ export function ApplicationDetailPage() {
         aggressiveness,
         additional_instructions: finalInstructions,
         use_judge_feedback: useJudgeFeedback,
+        ...(useLatestBase ? { use_latest_base: true } : {}),
       });
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
@@ -3949,6 +3952,7 @@ export function ApplicationDetailPage() {
                           onClick={() => {
                             setActionsMenuOpen(false);
                             setFullRegenInstructions("");
+                            setFullRegenUseLatestBase(false);
                             setShowFullRegenConfirm(true);
                           }}
                         >
@@ -4974,10 +4978,15 @@ export function ApplicationDetailPage() {
             message={
               <div className="flex flex-col gap-3">
                 <p style={{ margin: 0 }}>
-                  This will fully regenerate the resume based on your current
-                  settings (base resume, page length, and aggressiveness). This
-                  may take up to a minute.
+                  Regenerate source-backed sections using your saved section inclusion,
+                  order and headings. Fixed sections and sections with added or reordered
+                  entries keep their current content. This may take up to four minutes.
                 </p>
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={fullRegenUseLatestBase} onChange={(event) => setFullRegenUseLatestBase(event.target.checked)} />
+                  <span>Use latest base resume. Replace draft content and layout with the linked base's reviewed sections. This also refreshes source links for comparison and future regeneration.</span>
+                </label>
+                {(!draft?.document || !draft?.source_snapshot) && <p className="text-xs">This legacy draft has no frozen source links. Select Use latest base resume to replace it. The existing draft stays available if generation fails.</p>}
                 <div className="flex flex-col gap-1.5 mt-2">
                   <label
                     htmlFor="full-regen-instr"
@@ -5001,16 +5010,20 @@ export function ApplicationDetailPage() {
             onConfirm={async () => {
               const started = await handleFullRegeneration(
                 fullRegenInstructions || undefined,
+                undefined,
+                fullRegenUseLatestBase,
               );
               if (started) {
                 setShowFullRegenConfirm(false);
                 setFullRegenInstructions("");
+                setFullRegenUseLatestBase(false);
               }
             }}
             onCancel={() => {
               if (!isRegenerating) {
                 setShowFullRegenConfirm(false);
                 setFullRegenInstructions("");
+                setFullRegenUseLatestBase(false);
               }
             }}
           />

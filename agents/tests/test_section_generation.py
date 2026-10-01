@@ -505,3 +505,157 @@ async def test_repeated_semantic_rejection_supplies_feedback_and_switches_tier2_
         assert feedback['repair_only_section_ids'] == ['summary-id']
         assert feedback['rejected_outputs'][0]['id'] == 'summary-id'
         assert feedback['repair_errors'] == {'summary-id':'unsupported_scope'}
+
+
+@pytest.mark.asyncio
+async def test_initial_structure_ignores_legacy_profile_preferences(monkeypatch):
+    calls = []
+    async def call(**kwargs):
+        calls.append(kwargs)
+        if kwargs['output_type'] is pipeline.GroundingAudit:
+            payload = json.loads(kwargs['prompt'][1][1])
+            return pipeline.GroundingAudit(sections=[pipeline.GroundingAssessment(id=s['id'], supported=True, issues=[]) for s in payload['sections_to_verify']])
+        return pipeline.SectionBatch(sections=[custom_output(), summary_output(), experience_output()])
+    monkeypatch.setattr(pipeline, 'structured_call', call)
+    source = source_document()
+    source['sections'] = [source['sections'][3], *source['sections'][:3]]
+    source['sections'][3]['enabled'] = False
+    result = await pipeline.generate_document(source_payload=source, generation_settings={},
+        section_preferences=[{'name': 'custom', 'enabled': False, 'order': 9}, {'name': 'summary', 'enabled': False, 'order': 0}],
+        job_title='Engineer', company_name='Acme', job_description='Build APIs.', model='primary', fallback_model='fallback',
+        api_key='test', base_url='https://provider.invalid/v1', on_progress=None)
+    assert result['section_ids'] == ['custom-id', 'summary-id', 'experience-id']
+    assert [s['id'] for s in result['document']['sections']] == [s['id'] for s in source['sections']]
+    assert result['document']['sections'][3]['enabled'] is False
+    assert 'education-id' not in [s['id'] for s in json.loads(calls[0]['prompt'][1][1])['reviewed_source']['sections']]
+    assert 'University' not in calls[1]['prompt'][1][1]
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_preserves_saved_layout_and_local_sections(monkeypatch):
+    current = deepcopy(source_document())
+    current['sections'][0]['enabled'] = False
+    current['sections'][0]['content_md'] = 'Keep this excluded edit.'
+    current['sections'][2]['entries'][0]['fields']['qualification'] = 'Manually corrected qualification'
+    current['sections'][3]['heading'] = 'Community work'
+    current['sections'].append({'id': 'draft-only', 'kind': 'custom', 'heading': 'Awards', 'enabled': True,
+        'review_state': 'needs_review', 'content_md': 'User-entered award.'})
+    current['sections'] = [current['sections'][3], current['sections'][4], *current['sections'][:3]]
+    result, calls = await run_pipeline(monkeypatch, [{'sections': [custom_output(), experience_output()]}],
+        generation_settings={'_operation': 'regeneration_full', '_current_document': current})
+    output = result['document']
+    assert [s['id'] for s in output['sections']] == [s['id'] for s in current['sections']]
+    assert output['sections'][0]['heading'] == 'Community work'
+    for index in [1, 2, 4]:
+        assert validate_resume_document(output).sections[index] == validate_resume_document(current).sections[index]
+    payload = json.loads(calls[0]['prompt'][1][1])
+    assert [s['id'] for s in payload['requested_sections']] == ['custom-id', 'experience-id']
+    assert 'Keep this excluded edit' not in json.dumps(payload)
+    assert 'User-entered award' not in json.dumps(payload)
+    checked = pipeline.validate_document_sections(generated_sections=result['sections'], source_payload=source_document(),
+        generation_settings={'_operation': 'regeneration_full', '_current_document': current}, expected_ids=result['section_ids'])
+    assert checked['valid'], checked
+    result['sections'][1]['_canonical_section']['content_md'] = 'Unexpected rewrite'
+    checked = pipeline.validate_document_sections(generated_sections=result['sections'], source_payload=source_document(),
+        generation_settings={'_operation': 'regeneration_full', '_current_document': current}, expected_ids=result['section_ids'])
+    assert not checked['valid']
+
+
+@pytest.mark.asyncio
+async def test_full_regeneration_does_not_restore_removed_roles_or_drop_added_roles(monkeypatch):
+    current = deepcopy(source_document())
+    current['sections'][1]['entries'] = [current['sections'][1]['entries'][1]]
+    current['sections'][1]['entries'].append({'id': 'local-role', 'fields': {'company': 'User company', 'title': 'Engineer'}, 'bullets': []})
+    result, calls = await run_pipeline(monkeypatch, [{'sections': [summary_output(), custom_output()]}],
+        generation_settings={'_operation': 'regeneration_full', '_current_document': current})
+    assert validate_resume_document(result['document']).sections[1] == validate_resume_document(current).sections[1]
+    assert 'experience-id' not in [s['id'] for s in json.loads(calls[0]['prompt'][1][1])['requested_sections']]
+
+
+@pytest.mark.asyncio
+async def test_section_regeneration_can_use_reviewed_previously_excluded_source(monkeypatch):
+    source = source_document()
+    source['sections'][3]['enabled'] = False
+    current = deepcopy(source)
+    current['sections'][3]['enabled'] = True
+    current['sections'][3]['heading'] = 'Community work'
+    async def call(**kwargs):
+        if kwargs['output_type'] is pipeline.GroundingAudit:
+            return pipeline.GroundingAudit(sections=[pipeline.GroundingAssessment(id='custom-id', supported=True, issues=[])])
+        return pipeline.SectionBatch(sections=[custom_output()])
+    monkeypatch.setattr(pipeline, 'structured_call', call)
+    result = await pipeline.generate_document(source_payload=source, generation_settings={'_current_document': current},
+        section_preferences=[{'name': 'custom', 'enabled': False}], target_section_id='custom-id', instructions='Keep community work.',
+        job_title='Engineer', company_name='Acme', job_description='Build APIs.', model='primary', fallback_model='fallback',
+        api_key='test', base_url='https://provider.invalid/v1', on_progress=None)
+    assert result['document']['sections'][3]['enabled']
+    assert result['document']['sections'][3]['heading'] == 'Community work'
+    source['sections'][3]['review_state'] = 'needs_review'
+    with pytest.raises(ValueError, match='Review the source'):
+        await pipeline.generate_document(source_payload=source, generation_settings={'_current_document': current},
+            section_preferences=[], target_section_id='custom-id', instructions='Keep community work.',
+            job_title='Engineer', company_name='Acme', job_description='Build APIs.', model='primary', fallback_model='fallback',
+            api_key='test', base_url='https://provider.invalid/v1', on_progress=None)
+
+
+@pytest.mark.asyncio
+async def test_keyword_regeneration_preserves_custom_order_exclusions_and_local_edits(monkeypatch):
+    current = deepcopy(source_document())
+    current['sections'][0]['enabled'] = False
+    current['sections'][0]['content_md'] = 'Excluded private edit'
+    current['sections'] = [current['sections'][3], *current['sections'][:3]]
+    result, calls = await run_pipeline(monkeypatch, [{'sections': []}],
+        generation_settings={'_operation': 'keyword_optimization', '_current_document': current})
+    assert validate_resume_document(result['document']).sections == validate_resume_document(current).sections
+    assert result['section_ids'] == ['custom-id', 'experience-id', 'education-id']
+    assert 'Excluded private edit' not in json.dumps(calls[0]['prompt'])
+    assert result['source_snapshot']['document'] == validate_resume_document(source_document()).model_dump(mode='json')
+
+
+@pytest.mark.asyncio
+async def test_whole_section_regeneration_rejects_removed_or_reordered_entries_before_provider(monkeypatch):
+    current = deepcopy(source_document())
+    current['sections'][1]['entries'].reverse()
+    with pytest.raises(ValueError, match='entry structure changed'):
+        await run_pipeline(monkeypatch, [], target_section_id='experience-id', instructions='Rewrite', generation_settings={'_current_document': current})
+
+
+@pytest.mark.asyncio
+async def test_grounding_context_keeps_included_cross_section_citations_and_omits_excluded_source(monkeypatch):
+    calls = []
+    async def call(**kwargs):
+        payload = json.loads(kwargs['prompt'][1][1])
+        calls.append(payload)
+        if kwargs['output_type'] is pipeline.GroundingAudit:
+            assert [s['id'] for s in payload['reviewed_source']['sections']] == ['summary-id', 'experience-id']
+            return pipeline.GroundingAudit(sections=[pipeline.GroundingAssessment(id='summary-id', supported=True, issues=[])])
+        assert [s['id'] for s in payload['reviewed_source']['sections']] == ['summary-id', 'experience-id', 'education-id']
+        return pipeline.SectionBatch(sections=[{'id': 'summary-id', 'paragraph': 'Built Python APIs with 35% lower latency.', 'source_ids': ['bullet-one'], 'entries': []}])
+    monkeypatch.setattr(pipeline, 'structured_call', call)
+    source = source_document()
+    current = deepcopy(source)
+    current['sections'][3]['enabled'] = False
+    result = await pipeline.generate_document(source_payload=source, generation_settings={'_current_document': current},
+        section_preferences=[], target_section_id='summary-id', instructions='Use the source API metric.',
+        job_title='Engineer', company_name='Acme', job_description='Build APIs.', model='primary', fallback_model='fallback',
+        api_key='test', base_url='https://provider.invalid/v1', on_progress=None)
+    assert result['document']['sections'][0]['source_ids'] == ['bullet-one']
+    assert all('custom-id' not in [s['id'] for s in payload['reviewed_source']['sections']] for payload in calls)
+
+
+@pytest.mark.asyncio
+async def test_worker_full_validation_carries_operation_into_canonical_boundary(monkeypatch):
+    from time import monotonic
+    from worker import _validate_generated_sections_with_repair
+    current = deepcopy(source_document())
+    current['sections'][3]['heading'] = 'Community work'
+    current['sections'].append({'id': 'local-awards', 'kind': 'custom', 'heading': 'Awards', 'enabled': True,
+        'review_state': 'needs_review', 'content_md': 'User-entered award'})
+    settings = {'aggressiveness': 'medium', '_source_document': source_document(), '_current_document': current}
+    result, _ = await run_pipeline(monkeypatch, [{'sections': [summary_output(), experience_output(), custom_output()]}], generation_settings={**settings, '_operation': 'regeneration_full'})
+    _, validation, _, _ = await _validate_generated_sections_with_repair(
+        generated_sections=result['sections'], base_resume_content='', section_preferences=[], generation_settings=settings,
+        professional_experience_anchors=[], prompt=result['prompt'], section_ids=result['section_ids'], operation='regeneration_full',
+        model='primary', fallback_model='fallback', model_used='primary', attempt_diagnostics=[], api_key='test',
+        base_url='https://provider.invalid/v1', repair_deadline=monotonic()+240, on_progress=None)
+    assert validation['valid'], validation

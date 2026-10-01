@@ -55,7 +55,10 @@ export function CompareWorkspace({
   // Compute structured diff
   const summary = useMemo(() => {
     const source = draft?.source_snapshot;
-    const baseDoc = source?.document ? parseResumeDocument(source.document, source.content_md) : parseResume(baseResume?.content_md ?? "");
+    const includedDraftIds = new Set(draft?.document?.sections.filter((section) => section.enabled).map((section) => section.id));
+    // Re-included sections still compare with their frozen source content.
+    const comparisonSource = source?.document ? { ...source.document, sections: source.document.sections.map((section) => ({ ...section, enabled: section.enabled || includedDraftIds.has(section.id) })) } : null;
+    const baseDoc = comparisonSource ? parseResumeDocument(comparisonSource, source?.content_md) : parseResume(baseResume?.content_md ?? "");
     const tailoredDoc = draft?.document ? parseResumeDocument(draft.document, draft.content_md) : parseResume(draft?.content_md ?? "", draft?.render_model);
     return compareResumeDocs(baseDoc, tailoredDoc);
   }, [baseResume?.content_md, draft?.content_md, draft?.render_model, draft?.document, draft?.source_snapshot]);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -10,24 +11,6 @@ import { SkeletonCard } from "@/components/ui/skeleton";
 import { updateProfile, type ProfileData } from "@/lib/api";
 import { updateBootstrapProfile } from "@/lib/queries";
 
-const SECTION_LABELS: Record<string, string> = {
-  summary: "Summary",
-  professional_experience: "Professional Experience",
-  education: "Education",
-  skills: "Skills",
-  projects: "Projects",
-  certifications: "Certifications",
-};
-
-const DEFAULT_SECTIONS = [
-  "summary",
-  "professional_experience",
-  "education",
-  "skills",
-  "projects",
-  "certifications",
-];
-
 type EditableProfileState = ReturnType<typeof getEditableProfileState>;
 
 const EMPTY_PROFILE_STATE: EditableProfileState = {
@@ -35,8 +18,6 @@ const EMPTY_PROFILE_STATE: EditableProfileState = {
   phone: "",
   address: "",
   linkedinUrl: "",
-  sectionPreferences: {},
-  sectionOrder: [],
 };
 
 function getEditableProfileState(profile: ProfileData) {
@@ -45,10 +26,6 @@ function getEditableProfileState(profile: ProfileData) {
     phone: profile.phone ?? "",
     address: profile.address ?? "",
     linkedinUrl: profile.linkedin_url ?? "",
-    sectionPreferences: profile.section_preferences ?? {},
-    sectionOrder: profile.section_order?.length
-      ? profile.section_order
-      : DEFAULT_SECTIONS,
   };
 }
 
@@ -72,7 +49,7 @@ function ProfileUnavailable({ error }: { error: string | null }) {
     <div className="page-enter space-y-5">
       <PageHeader
         title="Profile & Preferences"
-        subtitle="Manage your personal information and resume section preferences"
+        subtitle="Manage your personal information and resume settings"
       />
       <Card variant="danger" density="compact">
         <p className="text-sm font-semibold text-[var(--color-ember)]">
@@ -169,102 +146,6 @@ function PersonalInformationCard({
   );
 }
 
-function SectionPreferencesCard({
-  order,
-  preferences,
-  onToggle,
-  onMoveUp,
-  onMoveDown,
-}: {
-  order: string[];
-  preferences: Record<string, boolean>;
-  onToggle: (key: string) => void;
-  onMoveUp: (index: number) => void;
-  onMoveDown: (index: number) => void;
-}) {
-  return (
-    <Card density="compact">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-40)]">
-        Section Preferences
-      </h3>
-      <p className="mt-1 text-xs text-[var(--color-ink-40)]">
-        Changes apply to future generations only.
-      </p>
-      <div className="mt-4 space-y-1">
-        {order.map((sectionKey, index) => {
-          const label = SECTION_LABELS[sectionKey] ?? sectionKey;
-          return (
-            <div
-              key={sectionKey}
-              className="flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors"
-              style={{
-                borderBottom:
-                  index < order.length - 1
-                    ? "1px solid var(--color-border)"
-                    : "none",
-              }}
-            >
-              <label className="inline-flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={preferences[sectionKey] !== false}
-                  onChange={() => onToggle(sectionKey)}
-                  style={{ accentColor: "var(--color-spruce)" }}
-                />
-                <span className="text-sm text-[var(--color-ink)]">{label}</span>
-              </label>
-              <div className="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => onMoveUp(index)}
-                  disabled={index === 0}
-                  className="rounded p-1 text-[var(--color-ink-40)] transition-colors disabled:opacity-30"
-                  aria-label={`Move ${label} up`}
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M5 15l7-7 7 7"
-                    />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onMoveDown(index)}
-                  disabled={index === order.length - 1}
-                  className="rounded p-1 text-[var(--color-ink-40)] transition-colors disabled:opacity-30"
-                  aria-label={`Move ${label} down`}
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
 function isProfileDirty(
   current: EditableProfileState,
   original: EditableProfileState | null,
@@ -274,20 +155,8 @@ function isProfileDirty(
     current.name !== original.name ||
     current.phone !== original.phone ||
     current.address !== original.address ||
-    current.linkedinUrl !== original.linkedinUrl ||
-    JSON.stringify(current.sectionPreferences) !==
-      JSON.stringify(original.sectionPreferences) ||
-    JSON.stringify(current.sectionOrder) !==
-      JSON.stringify(original.sectionOrder)
+    current.linkedinUrl !== original.linkedinUrl
   );
-}
-
-function moveSection(order: string[], index: number, offset: -1 | 1) {
-  const destination = index + offset;
-  if (destination < 0 || destination >= order.length) return order;
-  const next = [...order];
-  [next[index], next[destination]] = [next[destination], next[index]];
-  return next;
 }
 
 function useProfileEditor() {
@@ -348,8 +217,6 @@ function useProfileEditor() {
         phone: fields.phone || null,
         address: fields.address || null,
         linkedin_url: fields.linkedinUrl || null,
-        section_preferences: fields.sectionPreferences,
-        section_order: fields.sectionOrder,
       });
       updateBootstrapProfile(queryClient, () => response);
       syncProfile(response);
@@ -396,7 +263,7 @@ export function ProfilePage() {
     <div className="page-enter space-y-5">
       <PageHeader
         title="Profile & Preferences"
-        subtitle="Manage your personal information and resume section preferences"
+        subtitle="Manage your personal information and resume settings"
         actions={
           <div className="flex items-center gap-3">
             {saveState === "saved" && (
@@ -444,28 +311,11 @@ export function ProfilePage() {
           onAddressChange={(value) => updateField("address", value)}
           onLinkedinChange={(value) => updateField("linkedinUrl", value)}
         />
-        <SectionPreferencesCard
-          order={fields.sectionOrder}
-          preferences={fields.sectionPreferences}
-          onToggle={(key) =>
-            updateField("sectionPreferences", {
-              ...fields.sectionPreferences,
-              [key]: !fields.sectionPreferences[key],
-            })
-          }
-          onMoveUp={(index) =>
-            updateField(
-              "sectionOrder",
-              moveSection(fields.sectionOrder, index, -1),
-            )
-          }
-          onMoveDown={(index) =>
-            updateField(
-              "sectionOrder",
-              moveSection(fields.sectionOrder, index, 1),
-            )
-          }
-        />
+        <Card density="compact">
+          <h3 className="text-sm font-semibold">Resume sections</h3>
+          <p className="mt-2 text-sm text-[var(--color-ink-65)]">Choose sections and their order in each resume workbench, including custom sections. Base resume changes apply to new generations. Generated resumes keep their own saved layout.</p>
+          <Link to="/app/resumes" className="mt-3 inline-block text-sm font-semibold underline text-[var(--color-spruce)]">Manage base resumes</Link>
+        </Card>
       </div>
     </div>
   );

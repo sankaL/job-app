@@ -13,7 +13,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
   - new application flow
   - application detail workspace
   - base resume management
-  - profile and section preferences
+  - profile and resume workbench structure
   - notifications
   - PDF export initiation
 - Keep client-side status labels and attention indicators aligned with the PRD's visible status model.
@@ -23,7 +23,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Provide meaningful progress messaging during extraction, generation, regeneration, and export flows. A spinner alone is not sufficient.
 - Show clear transient success and error feedback.
 - Surface action-required states prominently on dashboard and detail views.
-- Use one section workbench with inline Markdown and entry editing, section controls and section/entry regeneration. Contact information is managed through the profile.
+- Open base and application section workbenches in preview. Use each section's Edit action or double-click to open only that section's inline Markdown/entry editor. Preserve unsaved edits, section controls and section/entry regeneration. Contact information is managed through the profile.
 - Use optimistic UI only where the operation is low-risk and can be rolled back cleanly, such as toggling the `applied` flag.
 - Preserve clear empty states and next-step calls to action for first use and failure recovery.
 
@@ -33,7 +33,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Show duplicate-review attention before generation when unresolved.
 - After editing or regenerating a previously exported draft, the UI must reflect the status return to `In Progress`.
 - The workbench edits the latest versioned section document. Compare against its stored source snapshot using stable IDs and provenance; the deterministic Markdown projection feeds export.
-- Preference changes for enabled sections and section order apply to future generations unless the user explicitly regenerates.
+- Base document inclusion/order controls initial generation. Saved drafts own their structure for editing, regeneration and export; refresh the frozen source only through an explicit latest-base reset.
 
 ## Frontend Security Rules
 - Do not store auth tokens in `localStorage`.

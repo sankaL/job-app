@@ -1684,9 +1684,13 @@ class ApplicationService:
 
     def _source_settings(self, *, base_resume, profile, draft=None, use_snapshot: bool = False) -> dict[str, Any]:
         snapshot = getattr(draft, "source_snapshot", None) if use_snapshot else None
+        if use_snapshot and draft is not None and (not getattr(draft, "document", None) or not isinstance(snapshot, dict) or not snapshot.get("document")):
+            raise PermissionError("This draft has no frozen source links. Choose Use latest base resume during full regeneration to replace it from a reviewed source. Your existing draft stays unchanged until regeneration succeeds.")
         if isinstance(snapshot, dict) and snapshot.get("document") is not None:
             document = validate_resume_document(snapshot["document"])
-            base_resume_id = str(snapshot.get("base_resume_id") or base_resume.id)
+            if snapshot.get("revision") != document.revision or not str(snapshot.get("base_resume_id") or "").strip():
+                raise PermissionError("This draft's source links are invalid. Choose Use latest base resume during full regeneration to recover it.")
+            base_resume_id = str(snapshot["base_resume_id"])
         else:
             raw_document = getattr(base_resume, "document", None)
             document = validate_resume_document(raw_document) if raw_document is not None else parse_resume_document(sanitize_resume_markdown(base_resume.content_md).sanitized_markdown, reviewed=False)
@@ -1759,8 +1763,8 @@ class ApplicationService:
         self._require_profile_name(profile, action="generating a resume")
         personal_info = self._build_personal_info(profile)
 
-        section_prefs = self._build_section_preferences(profile)
         source_settings = self._source_settings(base_resume=base_resume, profile=profile)
+        section_prefs = self._document_section_preferences(source_settings["_source_document"])
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
 
         generation_settings = {
@@ -2042,6 +2046,7 @@ class ApplicationService:
         aggressiveness: str,
         additional_instructions: Optional[str] = None,
         use_judge_feedback: bool = False,
+        use_latest_base: bool = False,
     ) -> ApplicationDetailPayload:
         record = self._require_application(user_id=user_id, application_id=application_id)
 
@@ -2058,20 +2063,29 @@ class ApplicationService:
         if self._looks_like_blocked_source_placeholder(record):
             return await self._route_blocked_job_data_to_manual_entry(record)
 
-        base_resume_id = record.base_resume_id
+        base_resume_id = record.base_resume_id if use_latest_base else (draft.source_snapshot or {}).get("base_resume_id") or record.base_resume_id
         if not base_resume_id:
             raise ValueError("A base resume must be linked to the application for regeneration.")
 
         base_resume = self.base_resume_repository.fetch_resume(user_id, base_resume_id)
         if base_resume is None:
-            raise LookupError("Linked base resume not found.")
+            if use_latest_base or not draft.source_snapshot:
+                raise LookupError("Linked base resume not found.")
+            from types import SimpleNamespace
+            base_resume = SimpleNamespace(id=base_resume_id, content_md=draft.source_snapshot.get("content_md", ""))
 
         profile = self._require_profile(user_id=user_id, action="regenerating the full resume")
         self._require_profile_name(profile, action="regenerating the full resume")
         personal_info = self._build_personal_info(profile)
 
-        section_prefs = self._build_section_preferences(profile)
-        source_settings = self._source_settings(base_resume=base_resume, profile=profile, draft=draft)
+        source_settings = self._source_settings(base_resume=base_resume, profile=profile, draft=None if use_latest_base else draft, use_snapshot=not use_latest_base)
+        section_prefs = self._document_section_preferences(source_settings.get("_current_document") or source_settings["_source_document"])
+        if not use_latest_base:
+            source = validate_resume_document(source_settings["_source_document"])
+            current = validate_resume_document(source_settings["_current_document"])
+            included = {section.id for section in current.sections if section.enabled}
+            if any(section.id in included and section.review_state != "reviewed" for section in source.sections):
+                raise PermissionError("Review the newly included source sections in the base workbench, then choose Use latest base resume to refresh the source.")
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
         judge_instructions = self._get_judge_instructions(record.resume_judge_result)
         effective_additional_instructions = additional_instructions
@@ -2086,6 +2100,7 @@ class ApplicationService:
             "aggressiveness": aggressiveness,
             "additional_instructions": effective_additional_instructions,
             "use_judge_feedback": use_judge_feedback,
+            "use_latest_base": use_latest_base,
             "base_resume_id": base_resume_id,
             **self._keyword_generation_settings(record=record, aggressiveness=aggressiveness),
             **source_settings,
@@ -2170,6 +2185,7 @@ class ApplicationService:
                     "aggressiveness": aggressiveness,
                     "additional_instructions": additional_instructions or None,
                     "use_judge_feedback": use_judge_feedback,
+                    "use_latest_base": use_latest_base,
                     "regeneration_instructions": judge_instructions or None,
                 },
             )
@@ -2438,7 +2454,7 @@ class ApplicationService:
 
         personal_info = self._build_personal_info(profile)
 
-        section_prefs = self._build_section_preferences(profile)
+        section_prefs = self._section_preferences_for_existing_draft(draft=draft, fallback=self._build_section_preferences(profile))
         if getattr(draft, "document", None) is not None:
             current_document = validate_resume_document(draft.document)
             target = next((section for section in current_document.sections if section.id == section_name or section.heading == section_name or section.kind == section_name), None)
@@ -2454,11 +2470,15 @@ class ApplicationService:
             source_document = validate_resume_document(source_settings["_source_document"])
             source_target = next((section for section in source_document.sections if section.id == section_name), None)
             if source_target is None or (entry_id is not None and not any(entry.id == entry_id for entry in source_target.entries)):
-                raise ValueError("This content was added to the draft. Add it to the base resume and regenerate the full resume before tailoring it.")
+                raise ValueError("This content was added to the draft. Add it to the base resume, review it, then choose Use latest base resume during full regeneration before tailoring it.")
+            if source_target.review_state != "reviewed":
+                raise PermissionError("Review this source section in the base workbench, then use the latest base during full regeneration.")
             if source_target.kind != target.kind:
-                raise ValueError("This section type changed in the draft. Edit it directly, or update the base resume and regenerate the full resume.")
+                raise ValueError("This section type changed in the draft. Edit it directly, or update and review the base resume, then choose Use latest base resume during full regeneration.")
             if entry_id is None and any(entry.id not in {source_entry.id for source_entry in source_target.entries} for entry in target.entries):
-                raise ValueError("This section contains entries added to the draft. Add them to the base resume and regenerate the full resume before tailoring the whole section.")
+                raise ValueError("This section contains entries added to the draft. Add them to the base resume, review them, then choose Use latest base resume during full regeneration before tailoring the whole section.")
+            if entry_id is None and [entry.id for entry in source_target.entries] != [entry.id for entry in target.entries]:
+                raise ValueError("This section's entries were removed or reordered. Regenerate individual roles, edit directly, or use the latest base during full regeneration to reset the section.")
             if source_target.kind in {"education", "certifications"} or (source_target.kind == "skills" and draft.generation_params.get("aggressiveness") == "low") or (source_target.kind == "professional_experience" and not source_target.entries):
                 raise ValueError("This section contains fixed source facts. Edit it directly in the workbench.")
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
@@ -3307,7 +3327,7 @@ class ApplicationService:
 
         try:
             export_bytes = await generator(
-                markdown_content=self._normalize_draft_content(draft.content_md),
+                markdown_content=self._normalize_draft_content(self._document_content(document=draft.document, user_id=user_id) if draft.document is not None else draft.content_md),
                 personal_info=personal_info,
                 page_length=str(draft.generation_params.get("page_length") or "1_page"),
             )
@@ -3813,11 +3833,18 @@ class ApplicationService:
         return result
 
     @staticmethod
+    def _document_section_preferences(document: Any) -> list[dict[str, Any]]:
+        return [{"name": section.id, "enabled": section.enabled, "order": index}
+                for index, section in enumerate(validate_resume_document(document).sections)]
+
+    @staticmethod
     def _section_preferences_for_existing_draft(
         *,
         draft: ResumeDraftRecord,
         fallback: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        if getattr(draft, "document", None) is not None:
+            return ApplicationService._document_section_preferences(draft.document)
         snapshot = draft.sections_snapshot if isinstance(draft.sections_snapshot, dict) else {}
         raw_order = snapshot.get("section_order") or snapshot.get("enabled_sections") or []
         section_order: list[str] = []

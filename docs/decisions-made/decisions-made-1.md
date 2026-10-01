@@ -1,3 +1,23 @@
+## 2026-09-30 focused source review and conservative job import
+
+**Decision:** Open both base and application workbenches with read-only section previews on a single document surface. Each section's Edit action or double-click opens only its editor. Retain edits across section changes and return to preview without implying a save or factual review. Keep a floating base save dock outside the shell's clipping containers. Separate role facts and bullets with divider rules; keep role collapse and section settings available without adding a second review view.
+
+**Reason:** Stacked metadata, section and role cards hid the resume hierarchy and made narrow layouts harder to use. Source review needs an explicit path through sections, while save state must remain reachable during long edits.
+
+**Import behavior:** Recognize complete adjacent source job headers before attaching bullet continuations. Preserve uncertain text rather than accepting a partial merged entry. Optional nested extraction can repair suspicious parses, but must retain exact source facts/words and the count/order of recognizable dated headers. Every import still requires the user's review. No automatic correction/backfill applies to already saved imports.
+
+**Scope:** Preserve existing stable IDs, inclusion/order controls, regeneration callbacks, draft comparison/export contracts, privacy and user scoping. No schema change or deployment. See `docs/task-output/2026-09-30-base-resume-workbench.md` for verification and limitations.
+
+## 2026-09-30 resume-owned section structure
+
+**Decision:** Initial generation follows the saved, reviewed base document inclusion/order, including custom sections. Saved drafts own their structure and use frozen source links for default full, section and keyword regeneration. Keep fixed/manual sections and sections with changed entry structure locally. Offer an explicit latest-base reset to adopt new source facts or legacy drafts without trustworthy links.
+
+**Reason:** Profile's fixed section list conflicted with the workbench and could silently exclude reviewed sections. Rebuilding every full regeneration from today's base also discarded draft-specific inclusion/order and weakened comparison provenance. A separate reset makes that replacement deliberate.
+
+**Compatibility:** Retain old Profile JSON, legacy Markdown, excluded content and source snapshots without a backfill or new SQL migration. Draft saves synchronize the enabled-ID snapshot under the same owner/revision fence. Invalid or absent source links block default regeneration before quota reservation. Export renders the saved document; comparison can include re-enabled frozen sections without rewriting the stored snapshot. Model routing, reasoning defaults, request allowances, privacy and grounding remain unchanged.
+
+**Evidence:** Local Makefile Docker regression checks cover conflicting Profile choices, custom sections, draft layout, deleted bases, explicit legacy recovery, malformed snapshots, removed/reordered roles, cross-section citations, canonical worker validation and export ordering. See `docs/task-output/2026-09-30-resume-section-preferences.md` for results and parallel-task boundaries.
+
 ## 2026-09-30 — Operation-based model pairs and quota-only subscriptions
 
 **Decision:** Use Sonnet 5.5 / GPT 6.1 Sol for first initial/full writing attempts, and Gemini 3.8 Flash / GPT 6 Luna for section/job writing, extraction, audits, repairs and requested scoring. Use provider-default reasoning throughout. Enable Jev section classification with local parser fallback. Basic and Pro share routing and differ only in monthly writing allowances, seeded at 10/60.

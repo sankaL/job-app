@@ -106,13 +106,15 @@ export function hasSectionContent(section: ResumeSection): boolean {
 
 export function getResumeRegenerationBlocker(section: ResumeSection, source: ResumeDocument | null | undefined, aggressiveness: unknown, entryId?: string): string | null {
   if (!section.enabled) return "Include this section before regenerating it.";
-  const sourceSection = source?.sections.find((item) => item.id === section.id && item.enabled);
-  if (!sourceSection || sourceSection.kind !== section.kind) return "Add this section to your base resume, review it, then regenerate the full resume to tailor it.";
+  const sourceSection = source?.sections.find((item) => item.id === section.id);
+  if (!sourceSection || sourceSection.kind !== section.kind) return "Add this section to your base resume, review it, then choose Use latest base resume during full regeneration to tailor it.";
+  if (sourceSection.review_state !== "reviewed") return "Review this source section in the base workbench, then use the latest base during full regeneration.";
   if (sourceSection.kind === "education" || sourceSection.kind === "certifications") return "These source facts stay fixed during tailoring. Edit this section directly.";
   if (sourceSection.kind === "skills" && aggressiveness === "low") return "Low tailoring keeps skills fixed. Edit them directly, or choose a higher tailoring level and regenerate the full resume.";
   if (sourceSection.kind === "professional_experience" && (!sourceSection.entries.length || !section.entries.length)) return "Edit this experience section directly, or organize its roles in your base resume and regenerate the full resume.";
   const sourceEntryIds = new Set(sourceSection.entries.map((entry) => entry.id));
-  if (entryId ? !sourceEntryIds.has(entryId) : section.entries.some((entry) => !sourceEntryIds.has(entry.id))) return "Add this entry to your base resume, review it, then regenerate the full resume to tailor it.";
+  if (entryId ? !sourceEntryIds.has(entryId) : section.entries.some((entry) => !sourceEntryIds.has(entry.id))) return "Add this entry to your base resume, review it, then choose Use latest base resume during full regeneration to tailor it.";
+  if (!entryId && JSON.stringify(section.entries.map((entry) => entry.id)) !== JSON.stringify(sourceSection.entries.map((entry) => entry.id))) return "This section's entries were removed or reordered. Regenerate individual roles, edit directly, or use the latest base during full regeneration to reset it.";
   return null;
 }
 

@@ -44,6 +44,7 @@ def test_source_and_draft_jsonb_are_scoped_and_revision_fenced(local_document_db
     assert draft.revision == draft.document["revision"] == 1
     edited = drafts.update_draft_content(application_id=application_id, user_id=users[0], content_md=body + "\n", document=draft.document, expected_revision=1)
     assert edited.revision == edited.document["revision"] == 2
+    assert edited.sections_snapshot == {"enabled_sections": [source.sections[0].id], "section_order": [source.sections[0].id]}
     with pytest.raises(PermissionError, match="changed"):
         drafts.update_draft_content(application_id=application_id, user_id=users[0], content_md="stale", document=draft.document, expected_revision=1)
     updated_base = bases.update_resume(base.id, users[0], {"name": "New source"}, expected_revision=1)
@@ -51,3 +52,23 @@ def test_source_and_draft_jsonb_are_scoped_and_revision_fenced(local_document_db
     assert drafts.fetch_draft(users[0], application_id).source_snapshot == snapshot
     regenerated = drafts.upsert_draft(application_id=application_id, user_id=users[0], content_md=body, generation_params={}, sections_snapshot={}, document=source.model_dump(mode="json"), source_snapshot=snapshot)
     assert regenerated.revision == regenerated.document["revision"] == 3
+
+
+def test_draft_section_layout_is_saved_atomically_without_rewriting_source(local_document_db):
+    url, users, application_id = local_document_db
+    drafts = ResumeDraftRepository(url)
+    source = parse_resume_document("## Skills\nPython\n\n## Volunteering\nCommunity work\n", reviewed=True)
+    document = source.model_dump(mode="json")
+    snapshot = {"base_resume_id": str(uuid4()), "revision": 1, "document": document, "content_md": render_resume_document(source)}
+    draft = drafts.upsert_draft(application_id=application_id, user_id=users[0], content_md=snapshot["content_md"], generation_params={}, sections_snapshot={}, document=document, source_snapshot=snapshot)
+    edited_document = {**draft.document, "sections": list(reversed(draft.document["sections"]))}
+    edited_document["sections"][1] = {**edited_document["sections"][1], "enabled": False}
+    edited = drafts.update_draft_content(application_id=application_id, user_id=users[0], content_md=render_resume_document(edited_document), document=edited_document, expected_revision=1)
+    assert edited.sections_snapshot == {"enabled_sections": [source.sections[1].id], "section_order": [source.sections[1].id]}
+    assert edited.source_snapshot == snapshot
+    assert edited.document["sections"][1]["content_md"] == "Python"
+    with pytest.raises(PermissionError):
+        drafts.update_draft_content(application_id=application_id, user_id=users[0], content_md="stale", document=document, expected_revision=1)
+    assert drafts.fetch_draft(users[0], application_id).sections_snapshot == edited.sections_snapshot
+    with pytest.raises(LookupError):
+        drafts.update_draft_content(application_id=application_id, user_id=users[1], content_md="wrong user", document=document)

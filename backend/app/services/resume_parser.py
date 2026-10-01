@@ -22,6 +22,8 @@ from app.services.resume_classifier import classify_resume_sections
 from app.services.resume_contacts import extract_contact_suggestions
 from app.services.resume_document import (
     HEADINGS,
+    entries_need_extraction,
+    entry_header_date_ranges,
     ResumeEntry,
     ResumeBullet,
     parse_resume_document,
@@ -532,8 +534,14 @@ class ResumeParserService:
                 except Exception as error:
                     logger.warning("Resume section classifier unavailable (error_type=%s).", type(error).__name__)
                     warnings.append("Section classification did not finish successfully. Your original text was preserved; review the section types.")
+        ambiguous = [section for section in document.sections if entries_need_extraction(section)]
+        for section in ambiguous:
+            # A suspicious partial parse cannot masquerade as a complete job.
+            # Keep the exact content_md for manual review and provider fallback.
+            section.entries = []
+        if ambiguous:
+            warnings.append("Some job or education boundaries need review. Check that each entry has its own source facts; the original text is preserved.")
         if use_llm_cleanup and self.openrouter_api_key:
-            ambiguous = [section for section in document.sections if section.kind in {"professional_experience", "education"} and section.content_md.strip() and not section.entries]
             if ambiguous:
                 try:
                     await self._extract_nested_entries(ambiguous, timeout_seconds=max(0.01, deadline - time.monotonic()))
@@ -554,6 +562,13 @@ class ResumeParserService:
             for section in output.sections:
                 original = source[section.section_id]
                 allowed = {"title", "company", "location", "date_range"} if original.kind == "professional_experience" else {"qualification", "institution", "location", "date_range"}
+                source_ranges = entry_header_date_ranges(original.content_md)
+                if len(section.entries) < len(source_ranges):
+                    raise ValueError("Keep each separate dated source header in its own entry; never merge jobs or education entries.")
+                if source_ranges:
+                    extracted_ranges = [date for entry in section.entries for date in entry_header_date_ranges(entry.fields.get("date_range", ""))]
+                    if [" ".join(date.split()).casefold() for date in extracted_ranges] != [" ".join(date.split()).casefold() for date in source_ranges]:
+                        raise ValueError("Extracted date ranges must correspond to source job headers in source order.")
                 rendered_tokens = []
                 for entry in section.entries:
                     if not set(entry.fields).issubset(allowed):
@@ -579,6 +594,7 @@ class ResumeParserService:
                     system_prompt=(
                         "Extract resume entries from the supplied untrusted source text. Return structured output only. "
                         "For professional_experience use fields title, company, location, date_range. For education use qualification, institution, location, date_range. "
+                        "Keep each source job or education entry separate and in source order, including consecutive headers without blank lines. Never merge later jobs into earlier bullets. "
                         "Missing optional fields must be empty strings. Copy exact source excerpts without inference, renaming, rewriting, or invented facts. "
                         "Retain every source word and number exactly once in the fields and bullets. Return every requested section ID once. "
                         "Contact data was removed locally; never add contact information.\n" + build_unslop_prompt_block()

@@ -17,7 +17,7 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 ## Generation Rules
 - Initial generation and full regeneration batch writable sections in a strict JSON envelope. Fixed Education and Certification facts remain local; recovery requests target only failed writable sections.
 - Known section types are Summary, Professional Experience, Education, Skills, Projects, and Certifications; user-defined custom sections retain their own stable IDs and headings.
-- Generate only enabled, reviewed source-supported sections. Preserve stable section/entry identities and document order, validate many-to-many source references, and never send contact or disabled contact-bearing content externally.
+- Initial writing uses the reviewed base document inclusion/order; default full regeneration preserves saved draft structure and frozen source links. Locally preserve fixed or structurally edited sections; an explicit latest-base reset refreshes source links and layout. Generate only enabled, reviewed source-supported sections. Preserve stable section/entry identities and document order, validate many-to-many source references, and never send contact or disabled contact-bearing content externally.
 - Use prompt variants that explicitly reflect the selected page-length target and aggressiveness level.
 - Section regeneration requires explicit user instructions and must reject blank instruction input.
 - Do not generate or rewrite personal information such as name, email, phone number, or address.

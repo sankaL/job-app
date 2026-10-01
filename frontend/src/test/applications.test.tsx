@@ -428,6 +428,9 @@ describe("phase 1 applications UI", () => {
 
     expect(await screen.findByDisplayValue("Alex Example")).toBeInTheDocument();
     expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Section Preferences")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Manage base resumes" })).toHaveAttribute("href", "/app/resumes");
   });
 
   it("shows a recoverable error on the profile page when bootstrap fails", async () => {
@@ -1794,7 +1797,8 @@ describe("phase 1 applications UI", () => {
     expect(
       screen.getByDisplayValue("$170,000 - $210,000 base salary"),
     ).toBeInTheDocument();
-    expect(screen.getByDisplayValue(/grounded summary/i)).toBeInTheDocument();
+    expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Summary" })).toBeInTheDocument();
     const actionsButton = screen.getByRole("button", { name: /actions/i });
     expect(actionsButton).toHaveAttribute("aria-haspopup", "menu");
     expect(actionsButton).toHaveAttribute("aria-expanded", "false");
@@ -2440,6 +2444,9 @@ describe("phase 1 applications UI", () => {
         }),
       ),
     );
+    const payload = api.updateProfile.mock.calls.at(-1)?.[0];
+    expect(payload).not.toHaveProperty("section_preferences");
+    expect(payload).not.toHaveProperty("section_order");
   });
 
   it("filters resumes by search term on the resumes page", async () => {
@@ -3525,6 +3532,8 @@ describe("phase 1 applications UI", () => {
     expect(screen.getAllByText(/base summary/i).length).toBeGreaterThan(0);
 
     await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    expect(screen.getByText(/tailored summary/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Summary" }));
     expect(screen.getByDisplayValue(/tailored summary/i)).toBeInTheDocument();
     expect(screen.getByTestId("draft-section-workbench")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /base resume/i })).not.toBeInTheDocument();
@@ -4584,6 +4593,10 @@ describe("phase 1 applications UI", () => {
       await screen.findByLabelText(/custom instructions/i),
       "Also emphasize senior leadership scope.",
     );
+    expect(screen.getByText(/This legacy draft has no frozen source links/)).toBeInTheDocument();
+    const reset = screen.getByRole("checkbox", { name: /Use latest base resume/ });
+    expect(reset).not.toBeChecked();
+    await user.click(reset);
     await user.click(screen.getByRole("button", { name: /^regenerate$/i }));
 
     await waitFor(() =>
@@ -4593,6 +4606,7 @@ describe("phase 1 applications UI", () => {
         additional_instructions:
           "Keep infrastructure metrics prominent.\n\nAlso emphasize senior leadership scope.",
         use_judge_feedback: undefined,
+        use_latest_base: true,
       }),
     );
     expect(
@@ -5055,7 +5069,8 @@ describe("phase 1 applications UI", () => {
     );
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
     await waitFor(() => {
-      expect(screen.getByDisplayValue("Grounded summary")).toBeDisabled();
+      expect(screen.getByText("Grounded summary")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Summary" })).toBeDisabled();
     });
     expect(
       screen.getByText(/refreshing experience bullets/i),
@@ -5133,7 +5148,7 @@ describe("phase 1 applications UI", () => {
     );
 
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledWith("app-1"));
-    await screen.findByDisplayValue(/grounded summary/i);
+    await user.click(await screen.findByRole("button", { name: "Edit Summary" }));
     expect(screen.getByDisplayValue("Grounded summary")).not.toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: /^actions$/i }));
@@ -5149,7 +5164,8 @@ describe("phase 1 applications UI", () => {
     await waitFor(() =>
       expect(api.triggerFullRegeneration).toHaveBeenCalledTimes(1),
     );
-    expect(screen.getByDisplayValue("Grounded summary")).toBeDisabled();
+    expect(screen.getByText("Grounded summary")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Summary" })).toBeDisabled();
   });
 
   it("hydrates saved generation settings from the latest draft", async () => {

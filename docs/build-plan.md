@@ -41,6 +41,37 @@ Verified the local API uses configured credentials, checked the empty ARQ queue,
 
 Implemented two shared model pairs with default reasoning: Tier 1 Sonnet 5.5 → GPT 6.1 Sol for initial/full writing, Tier 2 Gemini 3.8 Flash → GPT 6 Luna for other generative tasks, audits and repairs. Jev classification defaults on with local parsing fallback. Basic/Pro now govern request allowances only (10/60); admin model selectors, standalone import cleanup and automatic quality scoring are removed. Fixed legacy repair routing, keyword-failure refunds, informed targeted repair/final fallback and admin refresh state. Migration 021 applied locally; API/worker configuration and service health verified. Passed 391 backend, 223 worker, 197 frontend and 15 environment tests plus production build. All four model protocol probes and Jev fictional labels passed. Workflow samples passed full-low, role and keyword cases; an initial aggressive case failed closed, followed by a fresh pass after recovery changes. These samples do not establish a reliability rate. See [implementation and review evidence](task-output/2026-09-30-operation-model-routing.md).
 
+## Follow-up: section preferences in the resume workbench
+
+**Status:** Complete; implementation and local review checks passed (2026-09-30 20:53:36 EDT). Combined review and verification passed; included in the coordinating commit (2026-09-30 21:17 EDT).
+
+- Move section inclusion and ordering from Profile into the base resume workbench, including custom sections. Keep personal information and general writing preferences on Profile.
+- Make the reviewed base resume document the source of truth for initial generation structure; remove conflicting profile toggles. Allow generated resumes to retain their own section inclusion and order for editing and regeneration.
+- Define compatibility handling for existing profile preferences and draft snapshots before rollout. Add regression coverage for inclusion, ordering, custom sections and regeneration, and update the relevant product, prompt and migration documentation during implementation.
+
+Initial writing follows the reviewed base document, including custom sections. Saved drafts keep their inclusion/order and frozen source links during regeneration. An explicit latest-base reset adopts new facts or legacy drafts. Local review fixed role restoration, canonical worker operation propagation, re-included source comparison and document-authoritative export. Deprecated Profile JSON and old snapshots remain stored without backfill or a new migration. Verification passed 402 backend, 231 worker, 200 frontend and 15 guard tests, plus the final 29 workbench/comparison tests and production build. Parallel workbench/import changes are preserved for combined review. See [implementation evidence](task-output/2026-09-30-resume-section-preferences.md).
+
+### Implementation plan
+
+1. Remove Profile section controls and make initial structured generation follow the reviewed base document, including custom sections.
+2. Use saved draft inclusion/order and frozen sources for regeneration. Preserve fixed/manual or structurally edited sections; add an explicit latest-base reset for source refresh and legacy recovery.
+3. Keep deprecated Profile JSON and old documents/snapshots intact. Synchronize draft snapshot projections under owner/revision fences; verify comparison and export projections.
+4. Add regression coverage, run the Makefile local Docker suites/build, review the diff and update product/prompt/schema/rollout documentation.
+
+## Base resume review and job-boundary repair
+
+**Status:** Complete; preview-by-default follow-up, 210 frontend tests, production build, static responsive verification and review fixes passed (2026-09-30 21:17 EDT). Combined review and verification passed; included in the coordinating commit (2026-09-30 21:17 EDT).
+
+- Replace nested section/entry cards with a document workbench, section-focused source navigation, collapsible roles, secondary settings, review progress and a floating save dock. Both base and application workbenches open in preview; Edit or double-click opens just one section and retains unsaved content.
+- Separate adjacent jobs without relying on PDF blank lines. Preserve ambiguous source text and allow bounded nested extraction for suspicious partial parses. Reject merged/reordered dated-entry output; retain explicit review gates and source grounding.
+- Preserve the concurrent resume-owned inclusion/order work. No service restart, production test flow, push or deploy is part of this task.
+
+## Combined workbench completion review
+
+**Status:** Complete; reviewed, valid findings fixed, and included in the branch commit (2026-09-30 21:17 EDT).
+
+Both tasks and the preview follow-up finished before commit. Combined validation passed 418 backend, 231 worker, 210 frontend and 15 environment tests (874 total), plus the frontend type check/production build and whitespace checks. Review fixes cover job boundaries/date order, frozen-source regeneration and role preservation, document-authoritative exports, comparison of re-included sections, floating-save form association and suppression of external Markdown images. Static synthetic layouts passed five widths from 320 to 1440 pixels. Live-origin/browser and actual failing PDF verification remain unperformed; existing merged imports require re-upload or manual correction. See [combined review evidence](task-output/2026-09-30-combined-workbench-review.md).
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.

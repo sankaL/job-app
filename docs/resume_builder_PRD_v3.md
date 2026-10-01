@@ -401,8 +401,8 @@ Custom sections are supported now through the `custom` kind, with user-defined h
 - Selected reviewed base section document, sanitized to remove personal and contact information before the LLM call
 - Job description
 - Extracted exact job-description keyword phrases when available, plus the selected aggressiveness coverage target
-- Enabled sections (from user preferences)
-- Stable section and entry IDs, document order and enabled section preferences
+- Enabled populated sections from the reviewed base resume document
+- Stable section and entry IDs, saved document order and section enabled flags
 - Page target
 - Aggressiveness level
 - Any additional user instructions
@@ -558,10 +558,10 @@ The main working page for a single application.
 **Flow:**
 1. User opens full regeneration
 2. Existing generation settings are pre-filled
-3. User may update: page length, aggressiveness, additional instructions
+3. User may update page length, aggressiveness and additional instructions. Default regeneration keeps the saved draft structure and frozen source. The explicit `Use latest base resume` option replaces content/layout and refreshes source links on success.
 4. System enforces the user's monthly subscription quota before queueing regeneration
 5. Full batched generation pipeline reruns (§10.7 → §10.8 → §10.9)
-6. Latest draft is overwritten
+6. Latest draft is replaced on success; failures preserve its previous content. Default regeneration retains fixed, draft-only and structurally edited sections locally.
 
 When the subscription quota is reached, the API returns a sanitized `quota_exhausted` response with user-safe guidance to contact an administrator or upgrade the subscription tier.
 
@@ -573,7 +573,7 @@ When the subscription quota is reached, the API returns a sanitized `quota_exhau
 
 Users can edit section Markdown and structured entries in one workbench when generation is idle. Saves use revision checks to reject stale writes.
 
-- Saving persists the latest draft to `resume_drafts.content_md`
+- Saving persists the versioned document, its deterministic `resume_drafts.content_md` projection and enabled-ID snapshot under an owner/revision fence
 - Editing after export changes visible status from **Complete** back to **In Progress**
 - This same status rollback applies after any regeneration
 
@@ -584,7 +584,7 @@ Users can edit section Markdown and structured entries in one workbench when gen
 **Trigger:** User clicks **Export PDF** or **Export DOCX**
 
 **Process:**
-1. Take the latest `resume_drafts.content_md` at the moment of export (not cached; always fresh)
+1. Render the latest saved draft document at request time, respecting inclusion and order. Legacy drafts use their saved `content_md`. No cached or persistent PDF is used.
 2. Inject user personal information if not already present
 3. Convert Markdown into the requested output format using the committed renderer for that format
 4. Stream the file directly to the browser as a download
@@ -599,7 +599,7 @@ Users can edit section Markdown and structured entries in one workbench when gen
 - Standard fonts (e.g., Georgia, Calibri, or equivalent)
 - Margins: 0.75–1 inch
 - Section headings as bold text with visibly larger size than body copy
-- Sections in the order defined by user's `section_order` preferences
+- Sections in the saved resume document order, respecting its enabled flags
 - Professional Experience and Education must use the same deterministic two-row layout as preview:
   - row 1 left-aligned organization/school
   - row 1 right-aligned location when available
@@ -633,8 +633,15 @@ Users can edit section Markdown and structured entries in one workbench when gen
 - Parse sections locally, classify with Jev, and use optional Tier 2 extraction only for ambiguous nested entries; preserve source text on failure
 - User reviews section classifications and extracted entry facts in the workbench before generation
 
+**Review workbench:**
+- Base and application workbenches open with read-only section previews. An accessible Edit button on each section, or double-clicking its preview, opens only that section for editing. Returning to Preview does not save or mark facts reviewed.
+- Review source sections one at a time using the section index. Keep unsaved edits when switching sections or editors.
+- Use a single document surface with divider-separated, collapsible entries. Section type controls are secondary settings; inclusion and ordering remain available in the workbench.
+- Keep review progress and an accessible floating save action visible across desktop, tablet and phone widths. Saving and marking facts reviewed are separate actions.
+- Preserve original extracted text for import checks. Recognizable consecutive job headers must become separate entries even without PDF paragraph spacing. Unclear or suspicious partial parses remain source text, eligible for bounded Tier 2 assistance when enabled. Extraction must preserve exact facts, source coverage and recognizable dated-entry order; failed assistance keeps the source editable and unreviewed.
+
 **Method B — Structured form:**
-Multi-step form collecting:
+Integrated section workbench collecting:
 - Summary
 - Work experience (company, title, dates, bullet points — repeatable)
 - Education (institution, degree, dates — repeatable)
@@ -659,12 +666,13 @@ On submit, the backend validates the versioned document and renders its Markdown
 - Phone number
 - Address
 
-**Resume section preferences:**
-- Toggle each section on or off
-- Reorder sections via drag-and-drop
-- Default order: Summary → Professional Experience → Education → Skills
+**Resume structure:** Section inclusion and ordering belong in each resume workbench, including custom sections. Profile keeps personal information and general account preferences. Historical Profile section fields remain stored for compatibility and do not control structured generation.
 
-**Preference behavior:** Changes apply to future resume generations only. Existing drafts are not affected unless the user explicitly regenerates.
+**Base behavior:** The saved, reviewed base document controls inclusion and order for initial generation. Changing it does not change existing drafts or their source snapshots. Legacy base Markdown must be reviewed and saved before generation. No automatic migration applies old Profile choices to base documents.
+
+**Draft behavior:** Save inclusion and order in the generated resume workbench. Exclusion retains content and stable nested IDs for recovery. Saving changes updates exports and comparison immediately. Comparison includes frozen source content for re-included sections without changing the stored snapshot. Subsequent regeneration uses the saved draft structure. Full regeneration uses the frozen source snapshot, keeps headings and order, and rewrites only reviewed source-backed sections. Fixed sections, draft-only sections, changed section types and sections whose entry IDs/order differ from the source keep their current content. Section/entry regeneration and keyword optimization also use the frozen source; re-included source sections require reviewed source content.
+
+**Source refresh:** Full regeneration offers an explicit `Use latest base resume` option. It replaces content and structure from the linked, reviewed base and records a fresh source snapshot only on success. This is required to adopt legacy drafts without source links or to tailor newly added base content. The default never fabricates historical links from the current base. Failures preserve the existing draft, and legacy drafts remain editable/exportable.
 
 **Default base resume:** Selectable from the user's base resumes.
 
@@ -1007,4 +1015,4 @@ The MVP is successful if a user can:
 - [ ] Admin can view invite and workflow metrics from an admin dashboard
 - [ ] Admin can manage users (search/filter, edit, deactivate/reactivate, delete, invite)
 - [ ] Manage base resumes (create via file upload or form, edit, delete, set default)
-- [ ] Configure section preferences (toggle and reorder) in their profile
+- [ ] Configure section inclusion and order, including custom sections, in each resume workbench

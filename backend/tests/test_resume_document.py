@@ -122,3 +122,38 @@ def test_separately_deployed_document_contracts_match():
     backend = Path(__file__).resolve().parents[1] / "app/services/resume_document.py"
     worker = Path(__file__).resolve().parents[2] / "agents/resume_document.py"
     assert backend.read_bytes() == worker.read_bytes()
+
+@pytest.mark.parametrize('separator', ['', '\n', '\n\n'])
+@pytest.mark.parametrize('header_style', ['rows', 'single', 'reverse'])
+def test_adjacent_roles_have_separate_facts_and_bullets_without_pdf_spacing(separator, header_style):
+    headers = {
+        'rows': ('Acme | Toronto\nEngineer | 2022 - Present', 'Beta | Remote\nDeveloper | 2019 - 2022'),
+        'single': ('Engineer | Acme | 2022 - Present', 'Developer | Beta | 2019 - 2022'),
+        'reverse': ('Engineer | 2022 - Present\nAcme | Toronto', 'Developer | 2019 - 2022\nBeta | Remote'),
+    }[header_style]
+    body = headers[0] + '\n- Built APIs.\n  Kept them reliable.\n' + separator + headers[1] + '\n- Built C++ tools with +20.5% improvement.'
+    document = parse_resume_document('## Experience\n' + body)
+    section = document.sections[0]
+    assert section.content_md == body
+    assert [entry.fields['company'] for entry in section.entries] == ['Acme', 'Beta']
+    assert [entry.fields['date_range'] for entry in section.entries] == ['2022 - Present', '2019 - 2022']
+    assert [entry.bullets[0].text for entry in section.entries] == ['Built APIs.\nKept them reliable.', 'Built C++ tools with +20.5% improvement.']
+    assert section.review_state == 'needs_review'
+    reparsed = parse_resume_document('## Experience\n' + body, previous=document)
+    assert reparsed.model_dump() == document.model_dump()
+    validate_resume_document(document.model_dump())
+
+
+def test_unsupported_later_role_headers_preserve_the_entire_source_for_review():
+    body = 'Acme\nEngineer | 2022 - Present\n- Built APIs.\nBeta\nDeveloper\n2019 - 2022\n- Built tools.'
+    section = parse_resume_document('## Experience\n' + body).sections[0]
+    assert section.entries == []
+    assert section.content_md == body
+    assert section.review_state == 'needs_review'
+
+
+def test_blank_lines_in_wrapped_bullets_do_not_erase_jobs():
+    body = 'Acme\nEngineer | 2022 - Present\n\n- Built APIs.\n\n- Maintained systems in 2020 and 2021.\n  Continued supporting them.'
+    section = parse_resume_document('## Experience\n' + body).sections[0]
+    assert len(section.entries) == 1
+    assert [b.text for b in section.entries[0].bullets] == ['Built APIs.', 'Maintained systems in 2020 and 2021.\nContinued supporting them.']

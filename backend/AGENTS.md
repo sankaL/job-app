@@ -13,7 +13,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
   - base resumes
   - resume drafts
   - notifications
-  - profile and section preferences
+  - profile and resume workbench structure
   - extraction
   - generation and regeneration
   - PDF export
@@ -45,7 +45,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 
 ## Generation and Validation Boundaries
 - Initial generation and full regeneration batch writable sections in one structured request, copy fixed facts locally, and repair only failed sections within the shared budget.
-- Respect the user's enabled sections, source-supported section eligibility, section order, target length, aggressiveness setting, and additional instructions where applicable.
+- Respect saved document inclusion/order, reviewed source-supported eligibility, target length, aggressiveness setting, and additional instructions where applicable.
 - Strip personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
 - Never generate personal information or invent credentials, employers, dates, or educational institutions. Low aggressiveness keeps Professional Experience role titles source-exact. Medium may lightly reframe them only when the title stays grounded in the same core role family and seniority. High may retitle more freely only when the new title still matches the demonstrated work and keeps employer and dates unchanged.
 - Initial generation, full regeneration, and section regeneration must consume the user's subscription quota. The legacy `full_regeneration_count` field is retained for compatibility only.

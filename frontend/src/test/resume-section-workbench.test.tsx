@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -33,6 +33,10 @@ function ControlledWorkbench() {
   return <ResumeSectionWorkbench document={document} onChange={setDocument} source />;
 }
 
+function editSection(heading = "Experience") {
+  fireEvent.click(screen.getByRole("button", { name: `Edit ${heading}` }));
+}
+
 describe("section workbench", () => {
   it.each([
     ["professional_experience", ["title", "company", "location", "date_range"]],
@@ -44,6 +48,7 @@ describe("section workbench", () => {
     const section = { ...source.sections[0], kind, entries: [{ ...source.sections[0].entries[0], fields, bullets: [] }] };
     const document = { ...source, sections: [section] };
     const { rerender } = render(<ResumeSectionWorkbench document={document} onChange={vi.fn()} />);
+    editSection();
     const values = () => screen.getAllByRole("textbox").map((input) => (input as HTMLInputElement).value);
     expect(values()).toEqual([section.heading, ...order, "first extra", "last extra"]);
     const persisted = { ...document, sections: [{ ...section, entries: [{ ...section.entries[0], fields: Object.fromEntries(Object.entries(fields).sort(([left], [right]) => left.localeCompare(right))) }] }] };
@@ -59,6 +64,7 @@ describe("section workbench", () => {
   it("preserves IDs while editing facts and asks for review again", async () => {
     const user = userEvent.setup();
     render(<ControlledWorkbench />);
+    editSection();
     await user.clear(screen.getByLabelText("Employer"));
     await user.type(screen.getByLabelText("Employer"), "Acme Ltd");
     expect(screen.getByText("Needs review")).toBeInTheDocument();
@@ -76,6 +82,7 @@ describe("section workbench", () => {
       return <ResumeSectionWorkbench document={document} onChange={setDocument} source />;
     }
     render(<IncompleteWorkbench />);
+    editSection();
     expect(screen.getByRole("button", { name: /mark reviewed/i })).toBeDisabled();
     await user.type(screen.getByLabelText("Employer"), "Acme");
     expect(screen.getByRole("button", { name: /mark reviewed/i })).not.toBeDisabled();
@@ -89,7 +96,7 @@ describe("section workbench", () => {
     await user.selectOptions(screen.getByLabelText("New section type"), "custom");
     await user.click(screen.getByRole("button", { name: "Add section" }));
     expect(screen.getByLabelText("Section heading 2")).toHaveValue("Custom section");
-    expect(screen.getByLabelText("Employer")).toHaveValue("Acme");
+    expect(within(screen.getByTestId("section-preview-experience-1")).getByText("Acme")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Move Custom section up" }));
     expect(screen.getByLabelText("Section heading 1")).toHaveValue("Custom section");
   });
@@ -135,6 +142,7 @@ describe("section workbench", () => {
     render(<MemoryRouter><DraftSectionWorkbench draft={draft} profile={null} onSave={onSave} onRegenerate={onRegenerate} /></MemoryRouter>);
     await user.click(screen.getByRole("button", { name: "Regenerate role" }));
     expect(onRegenerate).toHaveBeenCalledWith(source.sections[0], "role-1");
+    editSection();
     await user.type(screen.getByLabelText("Entry 1 bullet 1"), " for customers");
     expect(screen.queryByRole("button", { name: "Regenerate role" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save Draft" }));
@@ -147,6 +155,7 @@ describe("section workbench", () => {
     const onSave = vi.fn().mockResolvedValue(false);
     const props = { profile: null, onSave, onRegenerate: vi.fn() };
     const { rerender } = render(<MemoryRouter><DraftSectionWorkbench draft={draft} {...props} /></MemoryRouter>);
+    editSection();
     await user.type(screen.getByLabelText("Entry 1 bullet 1"), " locally");
     rerender(<MemoryRouter><DraftSectionWorkbench draft={{ ...draft, document: { ...source, revision: 5 }, updated_at: "2026-09-30T00:01:00Z" }} {...props} /></MemoryRouter>);
     expect(screen.getByLabelText("Entry 1 bullet 1")).toHaveValue("Built services locally");
@@ -176,6 +185,7 @@ describe("section workbench", () => {
     expect(onRegenerate).not.toHaveBeenCalled();
     expect(screen.getAllByText(/These source facts stay fixed/)).toHaveLength(2);
     expect(screen.getByText(/Low tailoring keeps skills fixed/)).toBeInTheDocument();
+    editSection("Education");
     await user.type(screen.getByLabelText("Institution"), " University");
     expect(screen.getByRole("button", { name: "Save Draft" })).not.toBeDisabled();
   });
@@ -234,4 +244,170 @@ describe("canonical comparison", () => {
     expect(screen.queryByText(/Different Employer/)).not.toBeInTheDocument();
     expect(within(screen.getByTestId("diff-section-professional_experience")).getByText("Acme")).toBeInTheDocument();
   });
+});
+
+describe("resume-owned section structure", () => {
+  it("saves custom ordering and exclusions without losing section, entry or bullet IDs", async () => {
+    const user = userEvent.setup();
+    const document = { ...source, sections: [...source.sections, { ...source.sections[0], id: "community", kind: "custom" as const, heading: "Community", entries: [], content_md: "Community work" }] };
+    const onSave = vi.fn().mockResolvedValue(true);
+    render(<MemoryRouter><DraftSectionWorkbench draft={{ ...draft, document }} profile={null} onSave={onSave} onRegenerate={vi.fn()} /></MemoryRouter>);
+    await user.click(screen.getByRole("button", { name: "Move Community up" }));
+    await user.click(screen.getByRole("checkbox", { name: "Include Experience" }));
+    await user.click(screen.getByRole("button", { name: "Save Draft" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const saved = onSave.mock.calls[0][0] as ResumeDocument;
+    expect(saved.sections.map((s) => s.id)).toEqual(["community", "experience-1"]);
+    expect(saved.sections[1].enabled).toBe(false);
+    expect(saved.sections[1].entries).toEqual(source.sections[0].entries);
+    expect(renderSectionContent(saved.sections[1])).toContain("Built services");
+  });
+
+  it("allows reviewed source sections to be included again and blocks unreviewed source", () => {
+    const section = source.sections[0];
+    const excludedSource = { ...source, sections: [{ ...section, enabled: false }] };
+    expect(getResumeRegenerationBlocker(section, excludedSource, "medium")).toBeNull();
+    expect(getResumeRegenerationBlocker(section, { ...excludedSource, sections: [{ ...section, enabled: false, review_state: "needs_review" }] }, "medium")).toMatch(/Review this source section/);
+  });
+});
+
+
+it("comparison keeps custom IDs and saved order while showing excluded source sections as removed", () => {
+  const custom = { ...source.sections[0], id: "community", kind: "custom" as const, heading: "Community", entries: [], content_md: "Community work" };
+  const base = { ...source, sections: [...source.sections, custom] };
+  const current = { ...source, sections: [custom, { ...source.sections[0], enabled: false }] };
+  expect(parseResumeDocument(current).sections.map((section) => section.id)).toEqual(["community"]);
+  const comparison = compareResumeDocs(parseResumeDocument(base), parseResumeDocument(current));
+  expect(comparison.sections[0].heading).toBe("Community");
+  expect(comparison.sections[1].status).toBe("removed");
+});
+
+it("compares a re-included section with its frozen source rather than labeling it newly added", () => {
+  const custom = { ...source.sections[0], id: "community", kind: "custom" as const, heading: "Community", entries: [], content_md: "Community work", enabled: false };
+  const frozen = { ...source, sections: [...source.sections, custom] };
+  const current = { ...source, sections: [...source.sections, { ...custom, enabled: true }] };
+  render(<CompareWorkspace baseResume={null} draft={{ ...draft, document: current, source_snapshot: { base_resume_id: "base-1", revision: 4, document: frozen, content_md: "" } }} editMode={false} editContent="" isSavingDraft={false} onEnterEdit={vi.fn()} onCancelEdit={vi.fn()} onContentChange={vi.fn()} onSaveDraft={vi.fn()} onCloseCompare={vi.fn()} />);
+  const card = screen.getByTestId("diff-section-custom");
+  expect(within(card).queryByText("Added")).not.toBeInTheDocument();
+  expect(card).toHaveTextContent("Community work");
+  expect(frozen.sections[1].enabled).toBe(false);
+});
+
+describe("focused source review", () => {
+  it("shows one section at a time and keeps edits, inclusion and review progress when switching", async () => {
+    const user = userEvent.setup();
+    const initial = { ...source, sections: [...source.sections, { ...source.sections[0], id: "skills-focus", kind: "skills" as const, heading: "Skills", entries: [], content_md: "Python", review_state: "needs_review" as const }] };
+    function FocusedWorkbench() {
+      const [document, setDocument] = useState(initial);
+      return <ResumeSectionWorkbench document={document} onChange={setDocument} source />;
+    }
+    render(<FocusedWorkbench />);
+    expect(screen.getByRole("region", { name: "Experience" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Skills" })).not.toBeInTheDocument();
+    editSection();
+    await user.type(screen.getByLabelText("Employer"), " Ltd");
+    const navigation = screen.getByRole("navigation", { name: "Resume section index" });
+    await user.click(within(navigation).getByRole("button", { name: /Skills/ }));
+    expect(screen.getByRole("region", { name: "Skills" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Experience" })).not.toBeInTheDocument();
+    editSection("Skills");
+    await user.type(screen.getByLabelText(/Section content/), ", SQL");
+    await user.click(screen.getByRole("button", { name: "Mark reviewed" }));
+    expect(screen.getByText("1 of 2 populated sections reviewed")).toBeInTheDocument();
+    await user.click(within(navigation).getByRole("button", { name: /Experience/ }));
+    editSection();
+    expect(screen.getByLabelText("Employer")).toHaveValue("Acme Ltd");
+    await user.click(screen.getByRole("checkbox", { name: "Include Experience" }));
+    expect(screen.getByText("1 of 1 populated sections reviewed")).toBeInTheDocument();
+    await user.click(within(navigation).getByRole("button", { name: /Skills/ }));
+    editSection("Skills");
+    expect(screen.getByLabelText(/Section content/)).toHaveValue("Python, SQL");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Current resume section" }), "experience-1");
+    expect(screen.getByRole("region", { name: "Experience" })).toBeVisible();
+    editSection();
+    expect(screen.getByLabelText("Employer")).toHaveValue("Acme Ltd");
+  });
+
+  it("keeps multiple roles independent when collapsed, edited and reviewed", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const second = { ...source.sections[0].entries[0], id: "role-two", fields: { title: "Developer", company: "Beta", location: "Remote", date_range: "2019 - 2022" }, bullets: [{ id: "beta-bullet", text: "Built tools", source_ids: [] }] };
+    function MultipleRoles() {
+      const [document, setDocument] = useState({ ...source, sections: [{ ...source.sections[0], entries: [...source.sections[0].entries, second] }] });
+      return <ResumeSectionWorkbench document={document} onChange={(next) => { setDocument(next); onChange(next); }} source />;
+    }
+    render(<MultipleRoles />);
+    editSection();
+    await user.click(screen.getByRole("button", { name: "Collapse role 1" }));
+    expect(screen.queryByRole("textbox", { name: "Entry 1 bullet 1" })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Entry 2 bullet 1"), " for users");
+    await user.click(screen.getByRole("button", { name: "Expand role 1" }));
+    expect(screen.getByLabelText("Entry 1 bullet 1")).toHaveValue("Built services");
+    const updated = onChange.mock.calls.at(-1)?.[0] as ResumeDocument;
+    expect(updated.sections[0].entries[0]).toEqual(source.sections[0].entries[0]);
+    expect(updated.sections[0].entries[1].id).toBe("role-two");
+    expect(updated.sections[0].entries[1].bullets[0]).toEqual({ id: "beta-bullet", text: "Built tools for users", source_ids: [] });
+    expect(updated.sections[0].review_state).toBe("needs_review");
+  });
+});
+
+describe("preview-first section editing", () => {
+  it.each([true, false])("starts with read-only content for source=%s and opens the chosen section from its Edit button", async (isSource) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<ResumeSectionWorkbench document={source} onChange={onChange} source={isSource} />);
+    expect(screen.queryByRole("textbox", { name: "Employer" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("section-preview-experience-1")).toHaveTextContent("Acme");
+    expect(screen.getByTestId("section-preview-experience-1")).toHaveTextContent("Built services");
+    await user.click(screen.getByRole("button", { name: "Edit Experience" }));
+    expect(screen.getByRole("textbox", { name: "Employer" })).toHaveValue("Acme");
+    expect(onChange).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Preview Experience" }));
+    expect(screen.queryByRole("textbox", { name: "Employer" })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("double-clicks into just one section and retains edits when another section opens", async () => {
+    const user = userEvent.setup();
+    function PreviewWorkbench() {
+      const [document, setDocument] = useState({ ...source, sections: [...source.sections, { ...source.sections[0], id: "skills-preview", kind: "skills" as const, heading: "Skills", entries: [], content_md: "Python" }] });
+      return <ResumeSectionWorkbench document={document} onChange={setDocument} />;
+    }
+    render(<PreviewWorkbench />);
+    await user.dblClick(screen.getByTestId("section-preview-experience-1"));
+    await user.type(screen.getByRole("textbox", { name: "Entry 1 bullet 1" }), " for clients");
+    await user.click(screen.getByRole("button", { name: "Edit Skills" }));
+    expect(screen.queryByRole("textbox", { name: "Employer" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("section-preview-experience-1")).toHaveTextContent("Built services for clients");
+    await user.type(screen.getByRole("textbox", { name: /Section content/ }), ", SQL");
+    await user.click(screen.getByRole("button", { name: "Edit Experience" }));
+    expect(screen.queryByRole("textbox", { name: /Section content/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Entry 1 bullet 1" })).toHaveValue("Built services for clients");
+    expect(screen.getByTestId("section-preview-skills-preview")).toHaveTextContent("Python, SQL");
+  });
+
+  it("blocks both Edit and double-click editing while locked and keeps regeneration available in preview", async () => {
+    const user = userEvent.setup();
+    const onRegenerate = vi.fn();
+    const { rerender } = render(<ResumeSectionWorkbench document={source} onChange={vi.fn()} disabled onRegenerate={onRegenerate} />);
+    expect(screen.getByRole("button", { name: "Edit Experience" })).toBeDisabled();
+    await user.dblClick(screen.getByTestId("section-preview-experience-1"));
+    expect(screen.queryByRole("textbox", { name: "Employer" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Regenerate role" })).toBeDisabled();
+    rerender(<ResumeSectionWorkbench document={source} onChange={vi.fn()} onRegenerate={onRegenerate} />);
+    await user.click(screen.getByRole("button", { name: "Regenerate role" }));
+    expect(onRegenerate).toHaveBeenCalledWith(source.sections[0], "role-1");
+  });
+});
+
+it("keeps Markdown images from loading external resources in preview while retaining text and safe links", () => {
+  const document = { ...source, sections: [{ ...source.sections[0], kind: "custom" as const, heading: "Research", entries: [], content_md: "Research notes\n\n![Research figure](https://tracking.example.test/private-source)\n\n[Published paper](https://example.test/paper)" }] };
+  const { container } = render(<ResumeSectionWorkbench document={document} onChange={vi.fn()} />);
+  expect(container.querySelector("img")).toBeNull();
+  expect(screen.getByText("Research figure")).toBeInTheDocument();
+  expect(screen.getByText("Research notes")).toBeInTheDocument();
+  const link = screen.getByRole("link", { name: "Published paper" });
+  expect(link).toHaveAttribute("href", "https://example.test/paper");
+  fireEvent.doubleClick(link);
+  expect(screen.queryByRole("textbox", { name: /Section content/ })).not.toBeInTheDocument();
 });

@@ -7,6 +7,16 @@
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
 
+## 2026-09-30 resume-owned inclusion and order
+
+- No new SQL migration or backfill. Keep Profile `section_preferences`/`section_order`, legacy Markdown, excluded section content, and existing source snapshots. Do not copy Profile preferences into reviewed documents automatically.
+- Deploy API, worker and frontend together. Drain earlier queued writing jobs before the switch: their queued section preferences may describe the old behavior. Existing Markdown worker envelopes remain compatible for drained jobs; new requests use reviewed section documents.
+- New initial writing uses the base document's enabled flags and order. Default full, section and keyword regeneration use frozen source links and saved draft structure. A legacy draft with no document/source links must explicitly choose `use_latest_base=true` for full regeneration; failure leaves its previous content intact. Structured saves without links do not manufacture a source snapshot.
+- `use_latest_base=true` is a deliberate reset to the linked reviewed base's content and layout. Successful regeneration stores a new snapshot; default regeneration can continue after the original base is deleted. Existing snapshots must never be silently rewritten on reads, Profile updates or base edits.
+- Draft document edits atomically update `sections_snapshot` with enabled IDs in draft order under the existing revision/owner fence. Export projections omit excluded sections; comparison reads the frozen source and saved current document.
+- Verify conflicting legacy Profile choices, repeated kinds/custom sections, exclusions/re-inclusion, reordered drafts, stale saves and owner isolation. Confirm regeneration keeps fixed/local sections and entry structure edits, blocks unreviewed re-inclusion before charging quota, and supports explicit legacy refresh. Confirm the latest PDF/DOCX ordering matches the draft and excluded content stays recoverable.
+- Rollback requires draining new workers and reverting application code together. Older workers may restore base layout or apply Profile preferences; retain documents/snapshots and require review before writing again. No schema rollback is needed.
+
 ## 2026-09-30 section documents and import review
 
 1. Apply `20260930_000019_resume_section_documents.sql`, then `20260930_000020_resume_contact_suggestions.sql` before deploying new readers or writers. Both are additive; RLS and same-user ownership remain in force.

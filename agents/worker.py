@@ -1718,7 +1718,7 @@ async def _validate_generated_sections_with_repair(
         else:
             checked = validate_document_sections(
                 generated_sections=generated_sections, source_payload=generation_settings["_source_document"],
-                generation_settings=generation_settings, expected_ids=section_ids,
+                generation_settings={**generation_settings, "_operation": operation}, expected_ids=section_ids,
             )
         return generated_sections, checked, attempt_diagnostics, None
     aggressiveness = str(generation_settings.get("aggressiveness", "medium")).lower()

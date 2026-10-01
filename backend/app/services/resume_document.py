@@ -90,49 +90,102 @@ def _clean(value: str) -> str:
     return re.sub(r'^[#*\s]+|[*\s]+$', '', value).strip()
 
 
+def _entry_fields(headers: list[str], kind: str) -> dict[str, str] | None:
+    if len(headers) == 1:
+        parts = [part.strip() for part in headers[0].split('|')]
+        if len(parts) != 3 or not DATE_RE.search(parts[-1]):
+            return None
+        title, organization, dates = parts
+        location = ''
+    elif len(headers) == 2:
+        first = [part.strip() for part in headers[0].split('|')]
+        second = [part.strip() for part in headers[1].split('|')]
+        if len(first) > 2 or len(second) > 2:
+            return None
+        if len(first) == 2 and DATE_RE.search(first[1]):
+            first, second = second, first
+        if len(second) != 2 or not DATE_RE.search(second[1]):
+            return None
+        organization, location = first[0], first[1] if len(first) > 1 else ''
+        title, dates = second
+    else:
+        return None
+    if not title or not organization or not dates:
+        return None
+    return dict(title=title, company=organization, location=location, date_range=dates) if kind == 'professional_experience' else dict(qualification=title, institution=organization, location=location, date_range=dates)
+
+
+# A separate dated header inside prose is evidence that a local entry may have
+# swallowed another job. Years in ordinary bullet accomplishments are not headers.
+ENTRY_DATE_RANGE_RE = re.compile(r'(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+)?(?:19|20)\d{2}\s*(?:[-–—]|to)\s*(?:(?:[A-Za-z]+\.?\s+)?(?:19|20)\d{2}|present|current)', re.I)
+
+
+def entry_header_date_ranges(body: str) -> list[str]:
+    dates = []
+    for raw in body.splitlines():
+        line = _clean(raw)
+        if re.match(r'^[-*+]\s+', raw.strip()):
+            continue
+        match = ENTRY_DATE_RANGE_RE.search(line)
+        if match and ('|' in line or ENTRY_DATE_RANGE_RE.fullmatch(line)):
+            dates.append(match.group(0))
+    return dates
+
+
+def entries_need_extraction(section: ResumeSection) -> bool:
+    if section.kind not in {'professional_experience', 'education'} or not section.content_md.strip():
+        return False
+    return not section.entries or len(entry_header_date_ranges(section.content_md)) > len(section.entries)
+
+
+def _entry_header_at(lines: list[str], index: int, kind: str) -> tuple[dict[str, str] | None, int]:
+    for size in (1, 2):
+        headers = lines[index:index + size]
+        if len(headers) != size or any(re.match(r'^[-*+]\s+', line) for line in headers):
+            continue
+        fields = _entry_fields([_clean(line) for line in headers], kind)
+        if fields:
+            return fields, size
+    return None, 0
+
+
 def _entries(body: str, kind: str, previous: list[ResumeEntry], seed: str) -> list[ResumeEntry]:
     if kind not in {'professional_experience', 'education'}:
         return []
-    blocks = re.split(r'\n\s*\n|(?=^###\s)', body.strip(), flags=re.M)
-    result = []
-    for block in blocks:
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        if not lines:
-            continue
-        headers = []
-        bullets = []
-        for line in lines:
-            match = re.match(r'^[-*+]\s+(.+)', line)
-            if match:
-                bullets.append(match.group(1))
-            elif bullets:
-                bullets[-1] += '\n' + line
-            else:
-                headers.append(_clean(line))
-        # Ambiguous imports stay in content_md for review; no guessed facts.
-        if len(headers) == 1:
-            parts = [part.strip() for part in headers[0].split('|')]
-            if len(parts) != 3 or not DATE_RE.search(parts[-1]):
-                return []
-            if kind == 'professional_experience':
-                fields = dict(title=parts[0], company=parts[1], location='', date_range=parts[2])
-            else:
-                fields = dict(qualification=parts[0], institution=parts[1], location='', date_range=parts[2])
-        elif len(headers) == 2:
-            first = [part.strip() for part in headers[0].split('|')]
-            second = [part.strip() for part in headers[1].split('|')]
-            if len(first) > 2 or len(second) > 2:
-                return []
-            if len(first) == 2 and DATE_RE.search(first[1]):
-                first, second = second, first
-            if len(second) != 2 or not DATE_RE.search(second[1]):
-                return []
-            if kind == 'professional_experience':
-                fields = dict(company=first[0], location=first[1] if len(first) > 1 else '', title=second[0], date_range=second[1])
-            else:
-                fields = dict(institution=first[0], location=first[1] if len(first) > 1 else '', qualification=second[0], date_range=second[1])
-        else:
+    # PDFs commonly omit blank lines between jobs. Recognize complete source
+    # header rows before attaching any continuation to the previous bullet.
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    groups: list[tuple[dict[str, str], list[str]]] = []
+    index = 0
+    while index < len(lines):
+        fields, header_length = _entry_header_at(lines, index, kind)
+        if not fields:
             return []
+        index += header_length
+        bullets: list[str] = []
+        while index < len(lines):
+            line = lines[index]
+            bullet = re.match(r'^[-*+]\s+(.+)', line)
+            if bullet:
+                bullets.append(bullet.group(1))
+                index += 1
+                continue
+            # A source header starts a sibling, even without a paragraph break.
+            next_header, _ = _entry_header_at(lines, index, kind)
+            following_header, _ = _entry_header_at(lines, index + 1, kind)
+            # A wrapped sentence before a date-first header is still prose.
+            # Otherwise it can be mistaken for the next employer's name.
+            continuation_before_header = bullets and '|' not in line and not line.startswith('### ') and following_header
+            if next_header and not continuation_before_header:
+                break
+            # Unrecognized dated rows must never disappear into the prior role.
+            if not bullets or entry_header_date_ranges(line) or line.startswith('### '):
+                return []
+            bullets[-1] += '\n' + line
+            index += 1
+        groups.append((fields, bullets))
+    result = []
+    for fields, bullets in groups:
         fact_key = 'company' if kind == 'professional_experience' else 'institution'
         used_entry_ids = {entry.id for entry in result}
         old = next((e for e in previous if e.id not in used_entry_ids and e.fields.get(fact_key) == fields.get(fact_key) and e.fields.get('date_range') == fields.get('date_range') and e.fields.get('title', e.fields.get('qualification')) == fields.get('title', fields.get('qualification'))), None)
