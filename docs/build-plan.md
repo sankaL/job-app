@@ -10,7 +10,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Main merge and Railway release preparation
 
-**Status:** Production prerequisites applied and verified; deployment in progress (2026-09-30).
+**Status:** Complete; all three production deployments and health checks passed (2026-09-30 23:56:35 EDT).
 
 Merged main into v1.2 without conflicts and verified 913 local tests plus the frontend production build. The user authorized production rollout through the CLI. Backed up labels, applied and atomically recorded migrations 019–022, verified the new schema/index and 10/60 request allowances, and configured explicit operation models plus Jev import settings without early deploys. Production had zero queued or active jobs before rollout. See [release evidence](task-output/2026-09-30-main-railway-release.md).
 

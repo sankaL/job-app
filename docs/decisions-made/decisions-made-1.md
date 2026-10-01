@@ -1,3 +1,7 @@
+## 2026-09-30: Release section resumes to Railway
+
+The user authorized merging the release and completing migrations/configuration through the CLI. Apply migrations 019–022 before the coordinated API, worker and frontend rollout. Back up labels, check an empty work queue, use bounded database calls, and commit each migration with its ledger entry. Explicit operation models and Jev settings match committed defaults. Verified all three deployments from merged main, public health and auth rejection, running modules/configuration, and 913 local tests plus the production build. See `docs/task-output/2026-09-30-main-railway-release.md`.
+
 ## 2026-09-30: Simplify upload and unify contact section styling
 
 The user requested a plain upload form and consistent contact presentation. Replace the preview column and upload card with one full-width PDF drop zone, name field, AI checkbox and submit action. Picker and drop paths share file validation and preserve the selected file after recoverable failures. Import feedback remains below the form without a card.

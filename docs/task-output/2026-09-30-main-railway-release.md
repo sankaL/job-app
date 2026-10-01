@@ -1,7 +1,7 @@
 # Main merge and Railway release preparation
 
 **Checked:** 2026-09-30 23:50:39 EDT
-**Status:** Production prerequisites applied and verified; deployment in progress.
+**Status:** Complete; deployed and verified (2026-09-30 23:56:35 EDT).
 
 Merged `origin/main` at `e0473d2` into `v1.2` at `21b326d` without conflicts. Pushed `v1.2` to origin. Local main can fast-forward to the verified merge. Remote main remains unchanged because its push workflow automatically deploys backend, frontend and agents.
 
@@ -31,3 +31,15 @@ After the user applies the migrations, verify the ledger/schema and configuratio
 The user subsequently authorized handling production prerequisites through the CLI. Backed up resume labels privately outside the repository; the duplicate-label count was zero. Applied migrations 019–022 via the production backend database connection with connection, lock and statement timeouts. Each migration and its ledger insert committed in the same transaction. Verified ledger entries, document/contact/source columns, the unique name index, and Basic/Pro allowances of 10/60.
 
 Set explicit Tier 1/Tier 2 pairs on agents and Tier 2 plus Jev import configuration on backend using `--skip-deploys`. No provider secrets were printed or changed. Production queue checks found zero queued and zero active jobs before rollout. Push main to deploy the validated code through the existing Railway CLI workflow.
+
+## Production result
+
+All three deployments of `c893e5c6d0ba351d6d5827454630fa3c2e07f8b3` succeeded. [Release workflow](https://github.com/sankaL/job-app/actions/runs/36812563001) completed successfully.
+
+- Backend: `80450153-e516-44d0-8f7e-60211449f6d2`
+- Frontend: `6430a1e7-23ef-44f2-9b97-f56356f92921`
+- Agents: `abb44ec3-e1a7-447d-97f5-b8c4c4a7056b`
+
+Backend `/healthz` and the public site return HTTP 200. Proxied unauthenticated application access returns HTTP 401. The running backend imports the new document module and reports the expected Tier 2/Jev settings. The worker starts all six functions and connects to Redis with the expected four model settings. No private resumes were submitted to providers as a production smoke test.
+
+A final documentation commit records completion. Deploy that exact commit through the CLI to keep the running services aligned with main; application files are unchanged from the tested release.
