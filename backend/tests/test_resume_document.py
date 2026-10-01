@@ -157,3 +157,8 @@ def test_blank_lines_in_wrapped_bullets_do_not_erase_jobs():
     section = parse_resume_document('## Experience\n' + body).sections[0]
     assert len(section.entries) == 1
     assert [b.text for b in section.entries[0].bullets] == ['Built APIs.', 'Maintained systems in 2020 and 2021.\nContinued supporting them.']
+
+
+def test_plain_title_date_headers_are_counted_without_treating_bullet_dates_as_roles():
+    from app.services.resume_document import entry_header_date_ranges
+    assert entry_header_date_ranges('Manager, Quality Engineering Jan 2022 - Present\n- Supported releases in 2019 - 2022\nConsultant Jan 2016 - Dec 2018') == ['Jan 2022 - Present', 'Jan 2016 - Dec 2018']

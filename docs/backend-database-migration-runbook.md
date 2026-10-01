@@ -437,3 +437,12 @@ Rollout: snapshot current plan limits for rollback; apply migration 021, configu
 Verification: confirm 10/60 allowances, preserved usage counts/RLS, quota-only API updates, identical routing for Basic/Pro, Tier 1 only for initial/full writing, Tier 2 repairs/audits/section operations, default reasoning, native structured-output compatibility, and refunds for failed/cancelled requests. Confirm generation callbacks/cache recovery do not enqueue quality scoring, while manual scoring still works. Run local Makefile tests before deployment. Local verification must use local Postgres/Auth only.
 
 Rollback: restore saved plan limits and prior backend/worker/UI together. No destructive schema reversal is required; old model metadata remains available. Do not reset user usage counters or overwrite source documents. Production deployment is a separate action.
+
+
+## Tier 2 resume entry import follow-up
+
+No SQL migration or persisted document schema change is required. Source-line spans are transient provider output; persisted entries retain the existing fields, bullets and IDs contract. Uploads default to Tier 2 entry extraction. Explicit `use_llm_cleanup=false` clients retain local-only entry parsing; existing saved imports and frozen generation snapshots are not automatically rewritten.
+
+Deploy backend and the upload-label frontend change together. Check a synthetic resume with repeated employers, plain company/location and title/date rows, wrapped bullets, and a single graduation year. Verify separate roles, exact duties, blank missing optional facts, preserved extracted text and the unreviewed gate. Provider failure must retain editable source with sanitized guidance. Use the Makefile local stack for these checks.
+
+To repair a known local import, read its owner-scoped raw source, run the same validated import pipeline, preserve section IDs/headings/inclusion, and save through the owner-scoped service with the current expected revision. Stop if review or edits have changed the source. This task repaired only the reported local unreviewed import; there is no bulk backfill. Existing generated drafts keep their frozen source snapshots. Rollback restores prior backend/UI behavior without touching stored resumes.

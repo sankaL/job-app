@@ -84,6 +84,14 @@ Source and generated workbenches use contact-first real tabs, ordered sections a
 
 Resume names edit inline in the header. Desktop source and application workbenches keep tabs and save controls in place while selected content scrolls. Application resumes appear on the left, with Judge, ATS, job description, settings and notes in a separate right scroll area. Narrow and short screens retain accessible page flow. Review fixed duplicate name fields on re-upload, supporting-card overflow extending the page, and progress/empty-state sizing. Passed 218 frontend tests, production build and browser scroll/responsive checks. See [implementation and review evidence](task-output/2026-09-30-sticky-workbenches.md).
 
+## Tier 2 base resume role extraction repair
+
+**Status:** Complete; self-review findings fixed, reported local import repaired and browser-verified, local stack refreshed with existing ports, and validation passed (2026-09-30 22:57:20 EDT).
+
+Default Tier 2 extraction now receives numbered source lines and returns explicit employment/education facts plus role and duty spans. Duty text is copied locally, preserving PDF wraps and metrics without model transcription. Per-entry validation rejects merged/reordered roles, wrong-role facts, merged duty bullets, gaps and overlaps. Optional dates/locations remain blank when absent; education accepts a single graduation year. Source text and mandatory review remain intact. No SQL migration or bulk backfill.
+
+The reported upload contained three roles at the same employer plus an internship. The final span-based primary Tier 2 call completed in 11.60s, and total import took 11.89s. Saved only this unreviewed local import with an owner/revision fence as revision 2; browser confirmed four separate roles and preserved duties. Full suites passed 438 backend, 231 worker and 218 frontend tests, plus type check/production build. Final focused import/upload/document checks passed 101 tests after two more review regressions. Makefile health checks passed at the original API/frontend ports. See [implementation and review evidence](task-output/2026-09-30-base-resume-role-extraction.md).
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.

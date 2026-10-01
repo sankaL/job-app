@@ -173,7 +173,7 @@ async def upload_base_resume(
     current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
     parser: Annotated[ResumeParserService, Depends(get_resume_parser)],
-    use_llm_cleanup: Annotated[bool, Form()] = False,
+    use_llm_cleanup: Annotated[bool, Form()] = True,
 ) -> BaseResumeDetail:
     clean_name = name.strip()
     started_at = time.monotonic()

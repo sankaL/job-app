@@ -153,7 +153,7 @@ export function BaseResumeEditorPage() {
           <div><h2 className="font-display text-xl font-semibold">Start with your existing resume</h2><p className="mt-2 text-sm" style={{ color: "var(--color-ink-65)" }}>Upload a PDF, then check one section at a time before tailoring.</p></div>
           <div><Label htmlFor="resume-name">Resume Name</Label><Input id="resume-name" value={name} maxLength={200} placeholder="e.g., Senior Engineer Resume" required disabled={uploading} onChange={(event) => setName(event.target.value)} /></div>
           <div><Label htmlFor="resume-file">PDF File</Label><input id="resume-file" ref={fileInputRef} accept=".pdf,application/pdf" className="mt-2 block w-full min-w-0 text-sm" type="file" disabled={uploading} /></div>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={uploading} checked={classify} onChange={(event) => setClassify(event.target.checked)} /> Use AI to structure unclear entries</label>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={uploading} checked={classify} onChange={(event) => setClassify(event.target.checked)} /> Use AI to extract roles, education and their details</label>
           <p className="text-xs" style={{ color: "var(--color-ink-65)" }}>Contact information stays local. Unknown or uncertain sections are kept for your review.</p>
           <Button type="submit" loading={uploading}>{uploading ? "Extracting and classifying sections…" : "Upload & Parse"}</Button>
           {uploading && <p role="status" className="text-sm" style={{ color: "var(--color-spruce)" }}>Reading your PDF and identifying sections. You can review the original text after import.</p>}

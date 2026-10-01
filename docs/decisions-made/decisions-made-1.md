@@ -1,3 +1,11 @@
+## 2026-09-30: Use Tier 2 source spans for resume role extraction
+
+The reported local upload kept work experience as Markdown because plain company/location and role/date lines did not match the local adapter. Live reproduction showed both Tier 2 calls failed correction within their 10s slices. Their output schema exposed opaque factual dictionaries and required the model to copy every duty exactly.
+
+Use Tier 2 for all populated Experience/Education sections by default. Return explicit typed factual fields plus contiguous entry and duty source-line spans. Copy duty text locally and validate facts/coverage inside each entry, preventing cross-role swaps and unnecessary model transcription. Keep the original source and mandatory review gate. Preserve an explicit local-only opt-out and the 30s upload deadline, allocating 65% of remaining extraction time to the primary and the rest to fallback. No new stored schema or bulk backfill is needed.
+
+The reported source contains three roles at one employer plus an internship at another. All four must remain separate. Synthetic regression fixtures reproduce that layout without storing private resume content in the repository.
+
 ## 2026-09-30 sticky workbench navigation and inline names
 
 **Decision:** Fit source and generated workbenches to sufficiently tall desktop viewports, keeping section tabs and save actions outside the selected panel’s scroll area. Put the generated resume before supporting cards in both DOM and visual order; on wide screens those cards occupy a separate scrollable right column. Keep the base name editor in the header and associate it with the existing save form. Escape cancels the pending name edit, retaining section changes.

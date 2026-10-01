@@ -127,7 +127,7 @@ def entry_header_date_ranges(body: str) -> list[str]:
         if re.match(r'^[-*+]\s+', raw.strip()):
             continue
         match = ENTRY_DATE_RANGE_RE.search(line)
-        if match and ('|' in line or ENTRY_DATE_RANGE_RE.fullmatch(line)):
+        if match and ('|' in line or match.end() == len(line)):
             dates.append(match.group(0))
     return dates
 

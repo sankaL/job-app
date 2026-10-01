@@ -55,10 +55,11 @@ async def mock_import_provider(monkeypatch, outputs, requests):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_output", ["type", "extra_key", "invented_fact", "omitted_fact"])
 @pytest.mark.parametrize("model_name", ["~google/gemini-3-flash-preview", "openai/gpt-4o-mini", "google/gemini-3.8-flash", "openai/gpt-6-luna"])
-async def test_real_import_transport_keeps_flexible_schema_and_local_corrections(monkeypatch, invalid_output, model_name):
+async def test_real_import_transport_exposes_fields_and_spans_with_local_corrections(monkeypatch, invalid_output, model_name):
     valid = {"sections": [{"section_id": "experience", "entries": [{
+        "source_start_line": 1, "source_end_line": 4,
         "fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"},
-        "bullets": ["Built C++ APIs with +20.5% lower latency."],
+        "bullets": [{"source_start_line": 4, "source_end_line": 4}],
     }]}]}
     invalid = deepcopy(valid)
     entry = invalid["sections"][0]["entries"][0]
@@ -67,7 +68,7 @@ async def test_real_import_transport_keeps_flexible_schema_and_local_corrections
     elif invalid_output == "extra_key":
         entry["employer"] = "Acme"
     elif invalid_output == "invented_fact":
-        entry["bullets"][0] = "Built C++ APIs with +95% lower latency."
+        entry["fields"]["company"] = "Invented employer"
     else:
         entry["bullets"] = []
     source = ResumeSection(id="experience", kind="professional_experience", heading="Experience",
@@ -80,18 +81,25 @@ async def test_real_import_transport_keeps_flexible_schema_and_local_corrections
     schema = requests[0]["tools"][0]["function"]["parameters"] if "tools" in requests[0] else requests[0]["response_format"]["json_schema"]["schema"]
     if model_name.removeprefix("~").startswith("google/"):
         imported_entry = schema["properties"]["sections"]["items"]["properties"]["entries"]["items"]
-        encoded = json.dumps(schema)
-        for attribute in ["default", "title", "additionalProperties", "minLength", "maxLength", "minItems", "maxItems"]:
-            assert f'"{attribute}":' not in encoded
+        def check_nodes(node):
+            assert not {"default", "title", "additionalProperties", "minLength", "maxLength", "minItems", "maxItems"}.intersection(node)
+            for child in node.get("properties", {}).values():
+                check_nodes(child)
+            if "items" in node:
+                check_nodes(node["items"])
+            for child in node.get("anyOf", []):
+                check_nodes(child)
+        check_nodes(schema)
         assert "additionalProperties" not in imported_entry["properties"]["fields"]
     else:
         imported_entry = schema["$defs"]["ImportedEntry"]
         assert imported_entry["additionalProperties"] is False
-        assert imported_entry["properties"]["fields"]["additionalProperties"] == {"type": "string"}
-    assert set(imported_entry["properties"]) == {"fields", "bullets"}
-    assert imported_entry["properties"]["fields"]["type"] == "object"
-    assert source.entries[0].fields == valid["sections"][0]["entries"][0]["fields"]
+        assert len(imported_entry["properties"]["fields"]["anyOf"]) == 2
+    assert set(imported_entry["properties"]) == {"fields", "bullets", "source_start_line", "source_end_line"}
+    assert "anyOf" in imported_entry["properties"]["fields"]
+    assert source.entries[0].fields == {"location": "", **valid["sections"][0]["entries"][0]["fields"]}
     assert source.entries[0].bullets[0].text == "Built C++ APIs with +20.5% lower latency."
+    assert "items" in imported_entry["properties"]["bullets"]
     correction_role = "tool" if "tools" in requests[0] else "user"
     assert requests[1]["messages"][-1]["role"] == correction_role
     assert "Fix the errors" in requests[1]["messages"][-1]["content"]

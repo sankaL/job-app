@@ -67,8 +67,8 @@ async def invoke_import_output(
         agent = Agent(
             OpenRouterModel(model, provider=provider, profile=_portable_openrouter_import_profile(model)),
             system_prompt=system_prompt,
-            # Provider strict schemas cannot represent the flexible factual
-            # field maps. Pydantic and source validators stay strict locally.
+            # Provider transport constraints vary. Pydantic and source
+            # validators enforce the complete contract locally.
             output_type=NativeOutput(output_type, strict=False) if model in {"google/gemini-3.8-flash", "openai/gpt-6-luna"} else ToolOutput(output_type, strict=False),
             retries=1,
             model_settings={"openrouter_reasoning": {"exclude": True}, "max_tokens": 16000, "timeout": timeout_seconds},

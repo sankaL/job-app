@@ -253,7 +253,7 @@ async def test_nested_extraction_accepts_only_complete_exact_source_entries(monk
         payload = json.loads(kwargs["user_prompt"])
         result = NestedExtractionOutput(sections=[{
             "section_id": payload["sections"][0]["section_id"],
-            "entries": [{"fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"}, "bullets": ["Built APIs."]}],
+            "entries": [{"source_start_line": 1, "source_end_line": 4, "fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"}, "bullets": [{"source_start_line": 4, "source_end_line": 4}]}],
         }])
         kwargs["validator"](result)
         return result
@@ -277,7 +277,7 @@ async def test_nested_extraction_cannot_omit_unparsed_source_words(monkeypatch):
         payload = json.loads(kwargs["user_prompt"])
         return NestedExtractionOutput(sections=[{
             "section_id": payload["sections"][0]["section_id"],
-            "entries": [{"fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"}, "bullets": []}],
+            "entries": [{"source_start_line": 1, "source_end_line": 4, "fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"}, "bullets": []}],
         }])
 
     monkeypatch.setattr("app.services.resume_parser.invoke_import_output", invoke)
@@ -294,7 +294,7 @@ async def test_nested_extraction_cannot_omit_unparsed_source_words(monkeypatch):
     ("Built C++", "Built C"),
     ("Improved uptime 35%", "Improved uptime 35"),
 ])
-async def test_nested_extraction_cannot_omit_technology_or_metric_suffixes(monkeypatch, source_fact, truncated_fact):
+async def test_nested_extraction_cannot_replace_source_bullet_text(monkeypatch, source_fact, truncated_fact):
     async def invoke(**kwargs):
         if kwargs["output_type"] is CleanupOutput:
             return CleanupOutput(cleaned_markdown=kwargs["user_prompt"], needs_review=False, review_reason=None)
@@ -302,7 +302,7 @@ async def test_nested_extraction_cannot_omit_technology_or_metric_suffixes(monke
         payload = json.loads(kwargs["user_prompt"])
         return NestedExtractionOutput(sections=[{
             "section_id": payload["sections"][0]["section_id"],
-            "entries": [{"fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"}, "bullets": [truncated_fact]}],
+            "entries": [{"source_start_line": 1, "source_end_line": 4, "fields": {"company": "Acme", "title": "Engineer", "date_range": "2020 - 2024"}, "bullets": [truncated_fact]}],
         }])
 
     monkeypatch.setattr("app.services.resume_parser.invoke_import_output", invoke)
@@ -339,8 +339,8 @@ async def test_jev_reclassification_keeps_nested_ids_unique_across_sections(monk
     monkeypatch.setattr("app.services.resume_parser.classify_resume_sections", classify)
     source = "## Professional Experience\nAcme\nEngineer | 2020 - 2024\n- Built APIs.\n\n## Internships\nBeta\nIntern | 2019 - 2020\n- Built tests.\n\n## Earlier Work\nGamma\nDeveloper | 2017 - 2019\n- Built tools."
     parser = ResumeParserService(openrouter_api_key="test-key", classifier="jev")
-    first = await parser.import_resume(source)
-    second = await parser.import_resume(source)
+    first = await parser.import_resume(source, use_llm_cleanup=False)
+    second = await parser.import_resume(source, use_llm_cleanup=False)
     parsed = validate_resume_document(first.document)
     assert [section.kind for section in parsed.sections] == ["professional_experience"] * 3
     assert len({entry.id for section in parsed.sections for entry in section.entries}) == 3
@@ -349,12 +349,12 @@ async def test_jev_reclassification_keeps_nested_ids_unique_across_sections(monk
     assert first.warning is None
 
 @pytest.mark.asyncio
-async def test_multi_job_import_uses_local_boundaries_before_ai_assistance(monkeypatch):
+async def test_multi_job_import_supports_explicit_local_only_mode(monkeypatch):
     async def unexpected(**_kwargs):
         raise AssertionError('Recognizable headers should need no generative call.')
     monkeypatch.setattr('app.services.resume_parser.invoke_import_output', unexpected)
     body = 'Acme | Toronto\nEngineer | 2022 - Present\n- Built APIs.\nBeta | Remote\nDeveloper | 2019 - 2022\n- Built C++ tools.'
-    result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=True)
+    result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=False)
     section = result.document['sections'][0]
     assert [entry['fields']['company'] for entry in section['entries']] == ['Acme', 'Beta']
     assert section['review_state'] == 'needs_review'
@@ -389,7 +389,7 @@ async def test_nested_extraction_rejects_merged_jobs_even_when_all_words_are_ret
     body = 'Acme\nEngineer\n2022 - Present\n- Built APIs.\nBeta\nDeveloper\n2019 - 2022\n- Built tools.'
     async def merged(**kwargs):
         section_id = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
-        return NestedExtractionOutput(sections=[{'section_id': section_id, 'entries': [{'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': ['Built APIs.', 'Beta', 'Developer', '2019 - 2022', 'Built tools.']}]}])
+        return NestedExtractionOutput(sections=[{'section_id': section_id, 'entries': [{'source_start_line': 1, 'source_end_line': 8, 'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': [{'source_start_line': 4, 'source_end_line': 8}]}]}])
     monkeypatch.setattr('app.services.resume_parser.invoke_import_output', merged)
     result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=True)
     assert result.document['sections'][0]['entries'] == []
@@ -404,8 +404,8 @@ async def test_nested_extraction_keeps_each_opaque_job_separate(monkeypatch):
     async def extract(**kwargs):
         section_id = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
         output = NestedExtractionOutput(sections=[{'section_id': section_id, 'entries': [
-            {'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': ['Built APIs.']},
-            {'fields': {'company': 'Beta', 'title': 'Developer', 'date_range': '2019 - 2022'}, 'bullets': ['Built tools.']},
+            {'source_start_line': 1, 'source_end_line': 4, 'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': [{'source_start_line': 4, 'source_end_line': 4}]},
+            {'source_start_line': 5, 'source_end_line': 8, 'fields': {'company': 'Beta', 'title': 'Developer', 'date_range': '2019 - 2022'}, 'bullets': [{'source_start_line': 8, 'source_end_line': 8}]},
         ]}])
         kwargs['validator'](output)
         return output
@@ -423,11 +423,245 @@ async def test_nested_extraction_rejects_reordered_job_dates_with_complete_word_
     async def reversed_jobs(**kwargs):
         section_id = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
         return NestedExtractionOutput(sections=[{'section_id': section_id, 'entries': [
-            {'fields': {'company': 'Beta', 'title': 'Developer', 'date_range': '2019 - 2022'}, 'bullets': ['Built tools.']},
-            {'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': ['Built APIs.']},
+            {'source_start_line': 5, 'source_end_line': 8, 'fields': {'company': 'Beta', 'title': 'Developer', 'date_range': '2019 - 2022'}, 'bullets': [{'source_start_line': 8, 'source_end_line': 8}]},
+            {'source_start_line': 1, 'source_end_line': 4, 'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2022 - Present'}, 'bullets': [{'source_start_line': 4, 'source_end_line': 4}]},
         ]}])
     monkeypatch.setattr('app.services.resume_parser.invoke_import_output', reversed_jobs)
     result = await ResumeParserService(openrouter_api_key='test-key', classifier='local').import_resume('## Experience\n' + body, use_llm_cleanup=True)
     assert result.document['sections'][0]['entries'] == []
     assert result.document['sections'][0]['content_md'] == body
     assert 'could not be structured safely' in result.warning
+
+
+def _three_role_source():
+    return (
+        'Acme Canada Toronto, ON\n'
+        'Manager, Quality Engineering Jan 2022 - Present\n'
+        '- Managed 15+ engineers and built C++ tools with 35%\n'
+        'less overhead across per-\n'
+        'project workflows.\n'
+        'Acme Canada Toronto, ON\n'
+        'Senior Consultant, Quality Engineering Jan 2019 - Dec 2021\n'
+        '- Led automation for analytics.\n'
+        'Acme Canada Toronto, ON\n'
+        'Consultant, Quality Engineering Jan 2016 - Dec 2018\n'
+        '- Built Selenium suites.'
+    )
+
+
+def _three_role_output(section_id):
+    return {'section_id': section_id, 'entries': [
+        {'source_start_line': 1, 'source_end_line': 5,
+         'fields': {'company': 'Acme Canada', 'location': 'Toronto, ON', 'title': 'Manager, Quality Engineering', 'date_range': 'Jan 2022 - Present'},
+         'bullets': [{'source_start_line': 3, 'source_end_line': 5}]},
+        {'source_start_line': 6, 'source_end_line': 8,
+         'fields': {'company': 'Acme Canada', 'location': 'Toronto, ON', 'title': 'Senior Consultant, Quality Engineering', 'date_range': 'Jan 2019 - Dec 2021'},
+         'bullets': [{'source_start_line': 8, 'source_end_line': 8}]},
+        {'source_start_line': 9, 'source_end_line': 11,
+         'fields': {'company': 'Acme Canada', 'location': 'Toronto, ON', 'title': 'Consultant, Quality Engineering', 'date_range': 'Jan 2016 - Dec 2018'},
+         'bullets': [{'source_start_line': 11, 'source_end_line': 11}]},
+    ]}
+
+
+@pytest.mark.asyncio
+async def test_default_import_extracts_repeated_employer_roles_and_copies_wrapped_duties(monkeypatch):
+    import json
+    calls = []
+
+    async def extract(**kwargs):
+        calls.append(kwargs)
+        sections = json.loads(kwargs['user_prompt'])['sections']
+        experience, education = sections
+        assert [row['line'] for row in experience['source_lines']] == list(range(1, 12))
+        assert 'alex@example.com' not in kwargs['user_prompt']
+        result = NestedExtractionOutput(sections=[_three_role_output(experience['section_id']), {
+            'section_id': education['section_id'], 'entries': [{
+                'source_start_line': 1, 'source_end_line': 2,
+                'fields': {'institution': 'Example University', 'qualification': 'Bachelor of Science', 'location': 'Toronto, ON', 'date_range': '2016'}, 'bullets': []
+            }]
+        }])
+        kwargs['validator'](result)
+        return result
+
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', extract)
+    source = 'Alex Example\nalex@example.com\n## Experience\n' + _three_role_source() + '\n## Education\nExample University Toronto, ON\nBachelor of Science 2016'
+    parser = ResumeParserService(openrouter_api_key='test-only', classifier='local', openrouter_model='configured-tier2')
+    result = await parser.import_resume(source)
+    experience, education = result.document['sections']
+    assert len(calls) == 1
+    assert calls[0]['model'] == 'configured-tier2'
+    assert result.warning is None
+    assert [entry['fields']['title'] for entry in experience['entries']] == ['Manager, Quality Engineering', 'Senior Consultant, Quality Engineering', 'Consultant, Quality Engineering']
+    assert experience['entries'][0]['bullets'][0]['text'] == 'Managed 15+ engineers and built C++ tools with 35% less overhead across per- project workflows.'
+    assert education['entries'][0]['fields']['date_range'] == '2016'
+    assert all(section['review_state'] == 'needs_review' for section in result.document['sections'])
+    assert experience['content_md'] == _three_role_source()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('damage', ['swapped_duties', 'swapped_titles', 'swapped_dates', 'overlap', 'gap', 'merged_headers', 'wrong_field_kind'])
+async def test_nested_extraction_rejects_cross_role_facts_and_invalid_spans(monkeypatch, damage):
+    import json
+    from app.services.resume_document import ResumeSection
+    section = ResumeSection(id='experience', kind='professional_experience', heading='Experience', content_md=_three_role_source())
+    calls = []
+
+    async def extract(**kwargs):
+        calls.append(kwargs['model'])
+        output = _three_role_output(json.loads(kwargs['user_prompt'])['sections'][0]['section_id'])
+        first, second, third = output['entries']
+        if damage == 'swapped_duties':
+            first['bullets'], second['bullets'] = second['bullets'], first['bullets']
+        elif damage == 'swapped_titles':
+            first['fields']['title'], second['fields']['title'] = second['fields']['title'], first['fields']['title']
+        elif damage == 'swapped_dates':
+            first['fields']['date_range'], second['fields']['date_range'] = second['fields']['date_range'], first['fields']['date_range']
+        elif damage == 'overlap':
+            second['source_start_line'] = 5
+        elif damage == 'gap':
+            second['source_start_line'] = 7
+        elif damage == 'merged_headers':
+            first['source_end_line'] = 8
+            first['bullets'] += [{'source_start_line': 6, 'source_end_line': 8}]
+            output['entries'] = [first, third]
+        else:
+            first['fields'] = {'institution': 'Acme Canada', 'qualification': 'Manager, Quality Engineering', 'location': 'Toronto, ON', 'date_range': 'Jan 2022 - Present'}
+        return NestedExtractionOutput(sections=[output])
+
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', extract)
+    with pytest.raises(ValueError):
+        await ResumeParserService(openrouter_api_key='test-only')._extract_nested_entries([section], timeout_seconds=3)
+    assert len(calls) == 2
+    assert section.entries == []
+    assert section.content_md == _three_role_source()
+
+
+@pytest.mark.asyncio
+async def test_ai_extraction_runs_for_locally_recognizable_roles_by_default(monkeypatch):
+    import json
+    calls = []
+
+    async def extract(**kwargs):
+        calls.append(kwargs['model'])
+        identifier = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
+        return NestedExtractionOutput(sections=[{'section_id': identifier, 'entries': [{
+            'source_start_line': 1, 'source_end_line': 3,
+            'fields': {'company': 'Acme', 'title': 'Engineer', 'location': 'Toronto', 'date_range': '2022 - Present'},
+            'bullets': [{'source_start_line': 3, 'source_end_line': 3}]
+        }]}])
+
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', extract)
+    result = await ResumeParserService(openrouter_api_key='test-only', classifier='local').import_resume('## Experience\nAcme | Toronto\nEngineer | 2022 - Present\n- Built APIs.')
+    assert len(calls) == 1
+    assert result.warning is None
+    assert result.document['sections'][0]['entries'][0]['fields']['company'] == 'Acme'
+
+
+@pytest.mark.asyncio
+async def test_missing_dates_remain_empty_without_inventing_an_employment_range(monkeypatch):
+    import json
+
+    async def extract(**kwargs):
+        identifier = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
+        return NestedExtractionOutput(sections=[{'section_id': identifier, 'entries': [{
+            'source_start_line': 1, 'source_end_line': 3,
+            'fields': {'company': 'Acme', 'title': 'Engineer', 'location': '', 'date_range': ''},
+            'bullets': [{'source_start_line': 3, 'source_end_line': 3}]
+        }]}])
+
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', extract)
+    result = await ResumeParserService(openrouter_api_key='test-only', classifier='local').import_resume('## Experience\nAcme\nEngineer\n- Built APIs.')
+    assert result.warning is None
+    assert result.document['sections'][0]['entries'][0]['fields']['date_range'] == ''
+
+
+@pytest.mark.asyncio
+async def test_authentication_rejection_stops_import_fallback(monkeypatch):
+    calls = []
+
+    class Rejected(Exception):
+        status_code = 401
+
+    async def reject(**kwargs):
+        calls.append(kwargs['model'])
+        raise Rejected()
+
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', reject)
+    result = await ResumeParserService(openrouter_api_key='test-only', classifier='local').import_resume('## Experience\nAcme\nEngineer\n- Built APIs.')
+    assert len(calls) == 1
+    assert result.document['sections'][0]['entries'] == []
+    assert 'could not be structured safely' in result.warning
+
+
+@pytest.mark.asyncio
+async def test_distinct_duty_bullets_cannot_be_collapsed_by_source_references(monkeypatch):
+    import json
+
+    async def merged(**kwargs):
+        identifier = json.loads(kwargs['user_prompt'])['sections'][0]['section_id']
+        return NestedExtractionOutput(sections=[{'section_id': identifier, 'entries': [{
+            'source_start_line': 1, 'source_end_line': 4,
+            'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2020 - 2024'},
+            'bullets': [{'source_start_line': 3, 'source_end_line': 4}]
+        }]}])
+
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', merged)
+    result = await ResumeParserService(openrouter_api_key='test-only', classifier='local').import_resume('## Experience\nAcme\nEngineer 2020 - 2024\n- Built APIs.\n- Built tools.')
+    assert result.document['sections'][0]['entries'] == []
+    assert result.warning
+
+
+def test_timeout_local_import_discards_suspicious_partial_projection(monkeypatch):
+    from app.services.resume_document import parse_resume_document
+    partial = parse_resume_document('## Experience\nAcme\nEngineer | 2022 - Present\n- Built APIs.')
+    partial.sections[0].content_md += '\nBeta\nDeveloper 2019 - 2022\n- Built tools.'
+    monkeypatch.setattr('app.services.resume_parser.parse_resume_document', lambda *args, **kwargs: partial.model_copy(deep=True))
+    result = ResumeParserService().local_import('## Experience\n' + partial.sections[0].content_md, warning='Import assistance timed out.')
+    assert result.document['sections'][0]['entries'] == []
+    assert result.document['sections'][0]['content_md'] == partial.sections[0].content_md
+    assert result.warning == 'Import assistance timed out.'
+
+
+@pytest.mark.asyncio
+async def test_duplicate_model_configuration_attempts_only_one_invocation(monkeypatch):
+    from app.services.resume_document import ResumeSection
+    calls = []
+
+    async def unavailable(**kwargs):
+        calls.append(kwargs)
+        raise RuntimeError('Provider unavailable')
+
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', unavailable)
+    section = ResumeSection(id='experience', kind='professional_experience', heading='Experience', content_md='Acme\nEngineer\n- Built APIs.')
+    with pytest.raises(RuntimeError):
+        await ResumeParserService(openrouter_api_key='test-only', openrouter_model='same-model', openrouter_fallback_model='same-model')._extract_nested_entries([section], timeout_seconds=3)
+    assert len(calls) == 1
+    assert 2.5 < calls[0]['timeout_seconds'] <= 3
+    assert section.entries == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_sibling_section_never_partially_replaces_valid_entries(monkeypatch):
+    import json
+    from app.services.resume_document import parse_resume_document
+    document = parse_resume_document('## Experience\nAcme\nEngineer | 2020 - 2024\n- Built APIs.\n## Education\nExample University\nBachelor of Science 2016')
+    original = document.model_dump()
+
+    async def extract(**kwargs):
+        experience, education = json.loads(kwargs['user_prompt'])['sections']
+        return NestedExtractionOutput(sections=[
+            {'section_id': experience['section_id'], 'entries': [{
+                'source_start_line': 1, 'source_end_line': 3,
+                'fields': {'company': 'Acme', 'title': 'Engineer', 'date_range': '2020 - 2024'},
+                'bullets': [{'source_start_line': 3, 'source_end_line': 3}]
+            }]},
+            {'section_id': education['section_id'], 'entries': [{
+                'source_start_line': 1, 'source_end_line': 2,
+                'fields': {'institution': 'Example University', 'qualification': 'Bachelor of Science'}, 'bullets': []
+            }]}
+        ])
+
+    monkeypatch.setattr('app.services.resume_parser.invoke_import_output', extract)
+    with pytest.raises(ValueError, match='Retain all source words'):
+        await ResumeParserService(openrouter_api_key='test-only')._extract_nested_entries(document.sections, timeout_seconds=3)
+    assert document.model_dump() == original
