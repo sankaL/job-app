@@ -11,7 +11,7 @@ import * as api from "@/lib/api";
 
 vi.mock("@/lib/api", async (original) => ({
   ...await original<typeof import("@/lib/api")>(),
-  fetchSessionBootstrap: vi.fn(), fetchBaseResume: vi.fn(), updateBaseResume: vi.fn(),
+  fetchSessionBootstrap: vi.fn(), fetchBaseResume: vi.fn(), updateBaseResume: vi.fn(), uploadBaseResume: vi.fn(),
 }));
 
 const document: api.ResumeDocument = { schema_version: 1, revision: 3, sections: [
@@ -22,8 +22,8 @@ const document: api.ResumeDocument = { schema_version: 1, revision: 3, sections:
 ] };
 const resume: api.BaseResumeDetail = { id: "base", name: "Source resume", document, content_md: "", is_default: false, created_at: "", updated_at: "" };
 
-function renderEditor() {
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={["/app/resumes/base"]}><AppProvider><ToastProvider><AppBreadcrumbs /><Routes><Route path="/app/resumes/:resumeId" element={<BaseResumeEditorPage />} /></Routes></ToastProvider></AppProvider></MemoryRouter></QueryClientProvider>);
+function renderEditor(path = "/app/resumes/base") {
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[path]}><AppProvider><ToastProvider><AppBreadcrumbs /><Routes><Route path="/app/resumes/:resumeId" element={<BaseResumeEditorPage />} /></Routes></ToastProvider></AppProvider></MemoryRouter></QueryClientProvider>);
 }
 
 beforeEach(() => {
@@ -78,7 +78,10 @@ it("shows saved resume names in the header and breadcrumb after a rename", async
   vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, name: payload.name!, document: { ...payload.document!, revision: 4 } }));
   renderEditor();
   expect(await screen.findByRole("heading", { name: "Source resume", level: 1 })).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Resume Name" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Edit resume name" }));
   const input = screen.getByRole("textbox", { name: "Resume Name" });
+  expect(input).toHaveAttribute("form", "base-resume-edit-form");
   await user.clear(input);
   await user.type(input, "Engineering resume");
   await user.click(screen.getByRole("button", { name: "Save Changes" }));
@@ -97,4 +100,58 @@ it("preserves edits when a duplicate name is rejected", async () => {
   expect(await screen.findByText(/Choose a different name/)).toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: /Section content/ })).toHaveValue("Python, SQL");
   expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+});
+
+it("cancels a header rename without discarding section edits", async () => {
+  const user = userEvent.setup();
+  renderEditor();
+  await user.click(await screen.findByRole("tab", { name: "Skills" }));
+  await user.click(screen.getByRole("button", { name: "Edit Skills" }));
+  await user.type(screen.getByRole("textbox", { name: /Section content/ }), ", SQL");
+  await user.click(screen.getByRole("button", { name: "Edit resume name" }));
+  const input = screen.getByRole("textbox", { name: "Resume Name" });
+  await user.clear(input);
+  await user.type(input, "Cancelled name{Escape}");
+  expect(screen.getByRole("heading", { name: "Source resume", level: 1 })).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Resume Name" })).not.toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: /Section content/ })).toHaveValue("Python, SQL");
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  expect(api.updateBaseResume).not.toHaveBeenCalled();
+});
+
+it("submits a header rename with Enter through its associated save form", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, name: payload.name!, document: { ...payload.document!, revision: 4 } }));
+  renderEditor();
+  await user.click(await screen.findByRole("button", { name: "Edit resume name" }));
+  const input = screen.getByRole("textbox", { name: "Resume Name" });
+  await user.clear(input);
+  await user.type(input, "Renamed source{Enter}");
+  await waitFor(() => expect(api.updateBaseResume).toHaveBeenCalledWith("base", expect.objectContaining({ name: "Renamed source", expected_revision: 3 })));
+  expect(await screen.findByRole("heading", { name: "Renamed source", level: 1 })).toBeInTheDocument();
+});
+
+it("starts a new source resume with one focused header name field", () => {
+  renderEditor("/app/resumes/new");
+  const input = screen.getByRole("textbox", { name: "Resume Name" });
+  expect(input).toHaveFocus();
+  expect(input).toHaveAttribute("form", "base-resume-edit-form");
+  expect(screen.getAllByRole("textbox", { name: "Resume Name" })).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Create Resume" })).toBeInTheDocument();
+});
+
+it("closes header-name editing when returning an imported resume to upload", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.uploadBaseResume).mockResolvedValue({ ...resume, raw_source_md: "Imported source text" });
+  renderEditor("/app/resumes/new?mode=upload");
+  await user.type(screen.getByRole("textbox", { name: "Resume Name" }), "Import name");
+  await user.upload(screen.getByLabelText("PDF File"), new File(["synthetic"], "resume.pdf", { type: "application/pdf" }));
+  await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
+  await user.click(await screen.findByRole("button", { name: "Edit resume name" }));
+  await user.click(screen.getByRole("tab", { name: /Extracted text/ }));
+  await user.click(screen.getByRole("button", { name: "Re-upload" }));
+  expect(screen.getByRole("heading", { name: "Upload resume", level: 1 })).toBeInTheDocument();
+  const input = screen.getByRole("textbox", { name: "Resume Name" });
+  expect(input).not.toHaveAttribute("form", "base-resume-edit-form");
+  expect(screen.getAllByRole("textbox", { name: "Resume Name" })).toHaveLength(1);
 });

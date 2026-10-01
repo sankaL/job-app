@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -31,6 +31,8 @@ export function BaseResumeEditorPage() {
   const uploadMode = isNew && searchParams.get("mode") === "upload";
   const [resume, setResume] = useState<BaseResumeDetail | null>(null);
   const [name, setName] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const nameBeforeEdit = useRef("");
   const [document, setDocument] = useState<ResumeDocument>(emptyResumeDocument);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(!isNew);
@@ -46,7 +48,7 @@ export function BaseResumeEditorPage() {
   useEffect(() => {
     let cancelled = false;
     setResume(null);
-    setName("");
+    setName(""); setEditingName(isNew && !uploadMode);
     setDocument(emptyResumeDocument());
     setError(null); setSaved(false); setSavedSnapshot("");
     if (isNew || !resumeId) { setLoading(false); return; }
@@ -61,7 +63,7 @@ export function BaseResumeEditorPage() {
       if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load resume.");
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [resumeId, isNew, queryClient]);
+  }, [resumeId, isNew, uploadMode, queryClient]);
 
   useEffect(() => {
     if (!saved) return;
@@ -113,7 +115,7 @@ export function BaseResumeEditorPage() {
       const nextDocument = response.document ?? document;
       setName(response.name); setDocument(nextDocument);
       setSavedSnapshot(JSON.stringify({ name: response.name, document: nextDocument }));
-      setSaved(true);
+      setSaved(true); setEditingName(false);
       toast("Resume saved");
       if (isNew) navigate(`/app/resumes/${response.id}`);
     } catch (cause) {
@@ -143,8 +145,8 @@ export function BaseResumeEditorPage() {
   const pendingReview = included.filter((section) => section.review_state !== "reviewed").length;
   const reviewingUpload = uploadMode && Boolean(resume);
   return (
-    <div className="resume-editor page-enter w-full space-y-5">
-      <PageHeader title={resume?.name ?? (uploadMode ? "Upload resume" : "New resume")} subtitle={resume ? `Source resume · revision ${resume.document?.revision ?? 1}` : "Build a reviewed source for every tailored resume"} actions={resume && !isNew ? <div className="flex gap-2">{!resume.is_default && <Button size="sm" variant="secondary" disabled={settingDefault} onClick={() => void handleDefault()}>{settingDefault ? "Setting…" : "Set Default"}</Button>}<IconButton variant="danger" aria-label="Delete resume" disabled={deleting} onClick={() => setConfirmDelete(true)}><Trash2 size={16} /></IconButton></div> : undefined} />
+    <div className={`resume-editor page-enter w-full ${!loading && (resume || !uploadMode && isNew) ? "resume-editor--workbench" : "space-y-5"}`}>
+      <PageHeader title={resume?.name ?? (uploadMode ? "Upload resume" : "New resume")} titleContent={editingName ? <><Label className="sr-only" htmlFor="resume-name">Resume Name</Label><Input id="resume-name" className="resume-name-input" form="base-resume-edit-form" autoFocus value={name} maxLength={200} required disabled={saving} placeholder="Name your resume" onChange={(event) => { setName(event.target.value); setSaved(false); }} onKeyDown={(event) => { if (event.key === "Escape" && resume) { setName(nameBeforeEdit.current); setEditingName(false); } }} /></> : undefined} titleAction={!editingName && !loading && (resume || !uploadMode && isNew) ? <IconButton aria-label="Edit resume name" disabled={saving} onClick={() => { nameBeforeEdit.current = name; setEditingName(true); }}><Pencil size={16} /></IconButton> : undefined} subtitle={resume ? `Source resume · revision ${resume.document?.revision ?? 1}` : "Build a reviewed source for every tailored resume"} actions={resume && !isNew ? <div className="flex gap-2">{!resume.is_default && <Button size="sm" variant="secondary" disabled={settingDefault} onClick={() => void handleDefault()}>{settingDefault ? "Setting…" : "Set Default"}</Button>}<IconButton variant="danger" aria-label="Delete resume" disabled={deleting} onClick={() => setConfirmDelete(true)}><Trash2 size={16} /></IconButton></div> : undefined} />
       {error && <Card variant="danger"><p className="text-sm">{error}</p><p className="mt-2 text-xs">Your unsaved edits are still here. If another tab saved this resume, reload its latest revision before trying again.</p></Card>}
       {loading ? <SkeletonCard /> : !isNew && !resume ? <Card><p className="text-sm">This resume could not be loaded.</p><Button className="mt-3" variant="secondary" onClick={() => navigate("/app/resumes")}>Back to resumes</Button></Card> : uploadMode && !resume ? (
         <div className="resume-upload"><form className="mx-auto max-w-xl space-y-5" onSubmit={handleUpload}>
@@ -157,12 +159,11 @@ export function BaseResumeEditorPage() {
           {uploading && <p role="status" className="text-sm" style={{ color: "var(--color-spruce)" }}>Reading your PDF and identifying sections. You can review the original text after import.</p>}
         </form></div>
       ) : (
-        <form id="base-resume-edit-form" className="space-y-5" onSubmit={handleSave}>
+        <form id="base-resume-edit-form" className="resume-editor-form" onSubmit={handleSave}>
           {resume?.needs_review && <div className="resume-import-warning"><p className="font-semibold">Check your import before tailoring</p><p className="mt-1">{resume.import_warning ?? "Check the imported facts and section types."} Confirm that each job has its own role, employer, dates and bullets.</p></div>}
-          <div className="max-w-xl"><Label htmlFor="resume-name">Resume Name</Label><Input id="resume-name" value={name} maxLength={200} required disabled={saving} onChange={(event) => { setName(event.target.value); setSaved(false); }} /></div>
           <ResumeSectionWorkbench key={resumeId ?? "new"} document={document} onChange={changeDocument} source disabled={saving}
             contactPanel={<ResumeContactCard profile={bootstrap?.profile ?? null} suggestions={resume?.contact_suggestions} />}
-            referencePanel={resume?.raw_source_md || reviewingUpload ? <div><h3 className="resume-section-heading">Original extracted text</h3><p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>Check uncertain imports against this text. Add contact details to your profile.</p><pre className="mt-4 whitespace-pre-wrap break-words text-sm">{resume?.raw_source_md || "Original extracted text is unavailable."}</pre>{reviewingUpload && <Button className="mt-4" type="button" variant="secondary" onClick={() => { setResume(null); setDocument(emptyResumeDocument()); setSavedSnapshot(""); setSaved(false); }}>Re-upload</Button>}</div> : undefined}
+            referencePanel={resume?.raw_source_md || reviewingUpload ? <div><h3 className="resume-section-heading">Original extracted text</h3><p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>Check uncertain imports against this text. Add contact details to your profile.</p><pre className="mt-4 whitespace-pre-wrap break-words text-sm">{resume?.raw_source_md || "Original extracted text is unavailable."}</pre>{reviewingUpload && <Button className="mt-4" type="button" variant="secondary" onClick={() => { setResume(null); setEditingName(false); setDocument(emptyResumeDocument()); setSavedSnapshot(""); setSaved(false); }}>Re-upload</Button>}</div> : undefined}
           />
           <div className="resume-save-bar">
             <div><p role="status" className="text-sm font-semibold">{saving ? "Saving your edits…" : dirty ? "Unsaved changes" : !resume ? "Not saved yet" : saved ? "Changes saved" : "All changes saved"}</p><p className="mt-1 text-xs" style={{ color: "var(--color-ink-65)" }}>{pendingReview ? `${pendingReview} ${pendingReview === 1 ? "section needs" : "sections need"} review before tailoring` : included.length ? "Included sections reviewed" : "Add content to start review"}</p><p className="resume-save-hint mt-1 text-xs" style={{ color: "var(--color-ink-65)" }}>Changes apply to future generations. Existing drafts keep their source revision.</p></div>

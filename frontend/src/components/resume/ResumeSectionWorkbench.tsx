@@ -120,7 +120,7 @@ export function ResumeSectionWorkbench({ document, onChange, disabled = false, s
   const [verticalTabs, setVerticalTabs] = useState(false);
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia("(min-width: 1024px)");
+    const media = window.matchMedia("(min-width: 768px)");
     const update = () => setVerticalTabs(media.matches);
     update();
     media.addEventListener("change", update);

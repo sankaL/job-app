@@ -78,6 +78,12 @@ Both tasks and the preview follow-up finished before commit. Combined validation
 
 Source and generated workbenches use contact-first real tabs, ordered sections and a distinct extracted-text reference. The source workspace uses the full width beneath its name/banners, with saved-name breadcrumbs. Removed nested workbench/shell scrolling, height matching and the fixed-save bottom reserve; growing text editors share page scrolling. Migration 022 enforces names unique per user with collision-safe duplicate-label suffixes and sanitized conflicts. Passed 214 frontend and 421 backend tests, final 42 tab/editor tests, the production build and browser checks. See [implementation and review evidence](task-output/2026-09-30-workbench-tabs.md).
 
+## Sticky workbench navigation and header name editing
+
+**Status:** Complete; review fixes and local verification passed (2026-09-30 22:20:23 EDT).
+
+Resume names edit inline in the header. Desktop source and application workbenches keep tabs and save controls in place while selected content scrolls. Application resumes appear on the left, with Judge, ATS, job description, settings and notes in a separate right scroll area. Narrow and short screens retain accessible page flow. Review fixed duplicate name fields on re-upload, supporting-card overflow extending the page, and progress/empty-state sizing. Passed 218 frontend tests, production build and browser scroll/responsive checks. See [implementation and review evidence](task-output/2026-09-30-sticky-workbenches.md).
+
 ## Planning Defaults
 
 - Build the MVP as a private, invite-only product with authenticated access only.

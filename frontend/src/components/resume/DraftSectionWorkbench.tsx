@@ -51,14 +51,14 @@ export function DraftSectionWorkbench({ draft, profile, locked = false, saving =
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="draft-section-workbench">
+    <div className="draft-workbench flex min-h-0 flex-1 flex-col" data-testid="draft-section-workbench">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-3" style={{ borderColor: "var(--color-border)" }}>
         <div><h3 className="text-sm font-semibold">Generated resume</h3><p className="mt-1 text-xs" style={{ color: "var(--color-ink-50)" }}>Preview your resume. Double-click a section or choose Edit to change it.</p></div>
         <div className="space-y-1 text-right text-[11px]" style={{ color: "var(--color-ink-40)" }}><p>Generated {new Date(draft.last_generated_at).toLocaleString()}</p>{draft.last_exported_at && <p>Exported {new Date(draft.last_exported_at).toLocaleString()}</p>}<p>Revision {draft.document?.revision ?? 1}</p></div>
       </div>
       {error && <p role="alert" className="mt-3 text-xs" style={{ color: "var(--color-ember)" }}>{error}</p>}
       {changedElsewhere && <Card variant="warning" className="mt-3"><p className="text-xs">A newer draft is available. Your unsaved edits are preserved here. Reload the latest draft before saving.</p><Button type="button" size="sm" variant="secondary" className="mt-2" disabled={locked || saving} onClick={discardChanges}>Reload latest draft</Button></Card>}
-      <div className="space-y-4 py-4">
+      <div className="draft-workbench-content flex min-h-0 flex-1 flex-col gap-4 py-4">
         {!draft.document && <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>This legacy draft will gain section IDs when you save it. To refresh source links, choose Use latest base resume during full regeneration.</p>}
         <ResumeSectionWorkbench contactPanel={<ResumeContactCard profile={profile} />} document={document} disabled={locked || saving} onChange={(next) => { setDocument(next); setDirty(true); }} onRegenerate={!dirty && draft.document ? onRegenerate : undefined} canRegenerate={canRegenerate} regenerationReason={regenerationReason} />
       </div>

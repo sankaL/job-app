@@ -2,12 +2,14 @@ import type { ReactNode } from "react";
 
 type PageHeaderProps = {
   title: string;
+  titleContent?: ReactNode;
+  titleAction?: ReactNode;
   subtitle?: string;
   badge?: ReactNode;
   actions?: ReactNode;
 };
 
-export function PageHeader({ title, subtitle, badge, actions }: PageHeaderProps) {
+export function PageHeader({ title, titleContent, titleAction, subtitle, badge, actions }: PageHeaderProps) {
   return (
     <div className="page-header-mobile animate-fadeIn flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-start sm:justify-between" style={{ maxWidth: "100%" }}>
       <div className="min-w-0 flex-1" style={{ maxWidth: "100%" }}>
@@ -17,8 +19,9 @@ export function PageHeader({ title, subtitle, badge, actions }: PageHeaderProps)
             style={{ color: "var(--color-ink)", maxWidth: "100%" }}
             title={title}
           >
-            {title}
+            {titleContent ?? title}
           </h1>
+          {titleAction}
           {badge && <span className="flex-shrink-0">{badge}</span>}
         </div>
         {subtitle && (

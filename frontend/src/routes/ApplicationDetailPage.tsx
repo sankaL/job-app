@@ -1,7 +1,6 @@
 import {
   FormEvent,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -1969,7 +1968,6 @@ function GeneratedDraftPreview({
 
 type GeneratedWorkspacePaneProps = {
   className: string;
-  style: React.CSSProperties | undefined;
   compareMode: boolean;
   lockInteractions: boolean;
   generatedTimestamp: string | null;
@@ -1992,7 +1990,6 @@ function GeneratedWorkspacePane(props: GeneratedWorkspacePaneProps) {
   return (
     <Card
       className={`${props.className} ${props.compareMode ? "compare-pane-card compare-generated-pane" : ""} px-4 pb-4 pt-2`}
-      style={props.style}
     >
       <GeneratedWorkspaceHeader
         generated={props.generatedTimestamp}
@@ -2165,9 +2162,7 @@ export function ApplicationDetailPage() {
   const lastDraftSyncDetailRef = useRef<string | null>(null);
   const lastKeywordSignatureRef = useRef<string | null>(null);
   const previousDetailRef = useRef<ApplicationDetail | null>(null);
-  const leftColumnRef = useRef<HTMLDivElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
-  const [leftColumnHeight, setLeftColumnHeight] = useState<number | null>(null);
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
   const [showKeywordDialog, setShowKeywordDialog] = useState(false);
   const [manualKeywordInput, setManualKeywordInput] = useState("");
@@ -3428,67 +3423,6 @@ export function ApplicationDetailPage() {
     ? ACTIVE_GENERATION_STATES.includes(detail.internal_state)
     : false;
   const workspaceCardClass = "flex min-h-[32rem] flex-col overflow-hidden";
-  const workspaceCardStyle = leftColumnHeight
-    ? { height: `${leftColumnHeight}px` }
-    : undefined;
-
-  useLayoutEffect(() => {
-    const leftColumn = leftColumnRef.current;
-    if (!leftColumn || !isPastExtraction || compareMode) {
-      setLeftColumnHeight(null);
-      return;
-    }
-
-    const updateHeight = () => {
-      if (window.innerWidth < 1280) {
-        setLeftColumnHeight(null);
-        return;
-      }
-
-      const height = leftColumn.getBoundingClientRect().height;
-      setLeftColumnHeight(height > 0 ? Math.ceil(height) : null);
-    };
-
-    updateHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateHeight);
-      return () => window.removeEventListener("resize", updateHeight);
-    }
-
-    const resizeObserver = new ResizeObserver(() => {
-      updateHeight();
-    });
-
-    resizeObserver.observe(leftColumn);
-    window.addEventListener("resize", updateHeight);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", updateHeight);
-    };
-  }, [
-    isPastExtraction,
-    compareMode,
-    detail?.internal_state,
-    draft,
-    editMode,
-    notesDraft,
-    additionalInstructions,
-    pageLength,
-    aggressiveness,
-    selectedResumeId,
-    baseResumes.length,
-    jobForm.job_description,
-    jobForm.job_location_text,
-    jobForm.compensation_text,
-    jobForm.job_posting_origin,
-    jobForm.job_posting_origin_other_text,
-    jobForm.job_title,
-    jobForm.company,
-  ]);
-
-  const activeWorkspaceCardStyle = compareMode ? undefined : workspaceCardStyle;
   const generatedTimestampLabel = draft
     ? `Generated ${new Date(draft.last_generated_at).toLocaleString()}`
     : null;
@@ -3598,7 +3532,7 @@ export function ApplicationDetailPage() {
     lockInteractions?: boolean;
   }) {
     if (draft) return (
-      <Card className="min-w-0 px-4 py-4">
+      <Card className="draft-workbench-card flex min-h-0 min-w-0 flex-col px-4 py-4">
         <DraftSectionWorkbench
           key={`${activeApplicationId}:${draft.id}`}
           draft={draft}
@@ -3616,7 +3550,6 @@ export function ApplicationDetailPage() {
     return (
       <GeneratedWorkspacePane
         className={workspaceCardClass}
-        style={activeWorkspaceCardStyle}
         compareMode={compareMode}
         lockInteractions={options?.lockInteractions ?? false}
         generatedTimestamp={generatedTimestampLabel}
@@ -3670,7 +3603,7 @@ export function ApplicationDetailPage() {
   }
 
   return (
-    <div className="page-enter space-y-4">
+    <div className={`application-detail-page page-enter ${isPastExtraction && detail?.internal_state !== "manual_entry_required" && !compareMode ? "application-detail-page--workspace" : "space-y-4"}`}>
       {/* Error banner */}
       <ErrorBanner
         error={error}
@@ -4453,17 +4386,132 @@ export function ApplicationDetailPage() {
                 className={
                   compareMode
                     ? "space-y-4"
-                    : "grid gap-4 xl:items-start xl:[grid-template-columns:minmax(300px,340px)_minmax(0,1fr)] 2xl:[grid-template-columns:minmax(320px,340px)_minmax(0,1fr)]"
+                    : "application-workspace grid gap-4 xl:items-start xl:[grid-template-columns:minmax(0,1fr)_minmax(300px,340px)]"
                 }
                 data-compare-mode={compareMode ? "open" : "closed"}
               >
-                {/* LEFT COLUMN - Settings & Controls (shown second on mobile via order) */}
+                {/* Resume tabs and content occupy the left side of the workspace. */}
                 <div
-                  ref={leftColumnRef}
+                  className={
+                    compareMode ? "min-w-0" : "application-resume-column min-w-0"
+                  }
+                >
+                  {/* Resume Content Area */}
+                  {generationActive || showOptimisticProgress ? (
+                    draft ? (
+                      <div className="relative h-full min-h-0">
+                        <div
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-0 z-[1] rounded-[1.5rem]"
+                          style={{
+                            background: "rgba(255, 255, 255, 0.45)",
+                            backdropFilter: "blur(1px)",
+                          }}
+                        />
+                        {renderGeneratedWorkspacePane({
+                          lockInteractions: true,
+                        })}
+                        <GenerationProgress
+                          progress={generationProgress}
+                          isOptimistic={showOptimisticProgress}
+                          isActive={generationActive}
+                          isCancelling={isCancelling}
+                          onCancel={() => void handleCancelGeneration()}
+                        />
+                      </div>
+                    ) : (
+                      /* Resume Skeleton during first-time generation */
+                      <Card
+                        className={`${workspaceCardClass} application-resume-placeholder relative p-0`}
+                      >
+                        <div className="flex-1 h-full overflow-hidden">
+                          <ResumeSkeleton />
+                        </div>
+                        <GenerationProgress
+                          progress={generationProgress}
+                          isOptimistic={showOptimisticProgress}
+                          isActive={generationActive}
+                          isCancelling={isCancelling}
+                          onCancel={() => void handleCancelGeneration()}
+                        />
+                      </Card>
+                    )
+                  ) : draft ? (
+                    compareMode ? (
+                      <CompareWorkspace
+                        baseResume={compareBaseline}
+                        draft={draft}
+                        editMode={editMode}
+                        editContent={editContent}
+                        isSavingDraft={isSavingDraft}
+                        onEnterEdit={() => setCompareMode(false)}
+                        onCancelEdit={handleCancelEdit}
+                        onContentChange={setEditContent}
+                        onSaveDraft={() => void handleSaveDraft()}
+                        onCloseCompare={handleToggleCompareMode}
+                        onExportPdf={() => void handleExport("pdf")}
+                        isExporting={exportingFormat === "pdf"}
+                        pageLength={pageLength}
+                        aggressiveness={aggressiveness}
+                      />
+                    ) : (
+                      renderGeneratedWorkspacePane()
+                    )
+                  ) : (
+                    /* Empty State - No resume generated yet */
+                    <Card
+                      className={`${workspaceCardClass} application-resume-placeholder items-center justify-center p-8 text-center`}
+                    >
+                      <div
+                        className="rounded-full p-4 mb-4"
+                        style={{ background: "var(--color-ink-05)" }}
+                      >
+                        <FileText
+                          size={32}
+                          style={{ color: "var(--color-ink-40)" }}
+                        />
+                      </div>
+                      <h3
+                        className="text-lg font-semibold mb-2"
+                        style={{ color: "var(--color-ink)" }}
+                      >
+                        No Resume Generated Yet
+                      </h3>
+                      <p
+                        className="text-sm mb-4"
+                        style={{ color: "var(--color-ink-50)" }}
+                      >
+                        Configure your settings and click "Generate Resume" to
+                        get started.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={generationStartBlocker !== null}
+                        className="ai-button inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => void handleTriggerGeneration()}
+                      >
+                        <Sparkles size={16} />
+                        Generate Resume
+                      </button>
+                      {generationStartBlocker ? (
+                        <p
+                          className="mt-3 text-xs"
+                          style={{ color: "var(--color-ink-50)" }}
+                        >
+                          {generationStartBlocker}
+                        </p>
+                      ) : null}
+                    </Card>
+                  )}
+                </div>
+                {/* Supporting panels follow the resume and sit on its right on desktop. */}
+                <aside
+                  aria-label="Application details"
+                  tabIndex={compareMode ? -1 : 0}
                   className={
                     compareMode
                       ? "hidden"
-                      : "order-2 min-w-0 space-y-4 xl:order-1 xl:sticky xl:top-[calc(var(--topbar-height)+1.5rem)] xl:self-start"
+                      : "application-support-column min-w-0 space-y-4"
                   }
                   aria-hidden={compareMode}
                 >
@@ -4804,124 +4852,8 @@ export function ApplicationDetailPage() {
                       setNotesState("idle");
                     }}
                   />
-                </div>
+                </aside>
 
-                {/* RIGHT COLUMN - Resume Preview (shown first on mobile via order) */}
-                <div
-                  className={
-                    compareMode ? "min-w-0" : "order-1 min-w-0 xl:order-2"
-                  }
-                >
-                  {/* Resume Content Area */}
-                  {generationActive || showOptimisticProgress ? (
-                    draft ? (
-                      <div className="relative">
-                        <div
-                          aria-hidden="true"
-                          className="pointer-events-none absolute inset-0 z-[1] rounded-[1.5rem]"
-                          style={{
-                            background: "rgba(255, 255, 255, 0.45)",
-                            backdropFilter: "blur(1px)",
-                          }}
-                        />
-                        {renderGeneratedWorkspacePane({
-                          lockInteractions: true,
-                        })}
-                        <GenerationProgress
-                          progress={generationProgress}
-                          isOptimistic={showOptimisticProgress}
-                          isActive={generationActive}
-                          isCancelling={isCancelling}
-                          onCancel={() => void handleCancelGeneration()}
-                        />
-                      </div>
-                    ) : (
-                      /* Resume Skeleton during first-time generation */
-                      <Card
-                        className={`${workspaceCardClass} relative p-0`}
-                        style={activeWorkspaceCardStyle}
-                      >
-                        <div className="flex-1 h-full overflow-hidden">
-                          <ResumeSkeleton />
-                        </div>
-                        <GenerationProgress
-                          progress={generationProgress}
-                          isOptimistic={showOptimisticProgress}
-                          isActive={generationActive}
-                          isCancelling={isCancelling}
-                          onCancel={() => void handleCancelGeneration()}
-                        />
-                      </Card>
-                    )
-                  ) : draft ? (
-                    compareMode ? (
-                      <CompareWorkspace
-                        baseResume={compareBaseline}
-                        draft={draft}
-                        editMode={editMode}
-                        editContent={editContent}
-                        isSavingDraft={isSavingDraft}
-                        onEnterEdit={() => setCompareMode(false)}
-                        onCancelEdit={handleCancelEdit}
-                        onContentChange={setEditContent}
-                        onSaveDraft={() => void handleSaveDraft()}
-                        onCloseCompare={handleToggleCompareMode}
-                        onExportPdf={() => void handleExport("pdf")}
-                        isExporting={exportingFormat === "pdf"}
-                        pageLength={pageLength}
-                        aggressiveness={aggressiveness}
-                      />
-                    ) : (
-                      renderGeneratedWorkspacePane()
-                    )
-                  ) : (
-                    /* Empty State - No resume generated yet */
-                    <Card
-                      className={`${workspaceCardClass} items-center justify-center p-8 text-center`}
-                      style={activeWorkspaceCardStyle}
-                    >
-                      <div
-                        className="rounded-full p-4 mb-4"
-                        style={{ background: "var(--color-ink-05)" }}
-                      >
-                        <FileText
-                          size={32}
-                          style={{ color: "var(--color-ink-40)" }}
-                        />
-                      </div>
-                      <h3
-                        className="text-lg font-semibold mb-2"
-                        style={{ color: "var(--color-ink)" }}
-                      >
-                        No Resume Generated Yet
-                      </h3>
-                      <p
-                        className="text-sm mb-4"
-                        style={{ color: "var(--color-ink-50)" }}
-                      >
-                        Configure your settings and click "Generate Resume" to
-                        get started.
-                      </p>
-                      <button
-                        type="button"
-                        disabled={generationStartBlocker !== null}
-                        className="ai-button inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={() => void handleTriggerGeneration()}
-                      >
-                        <Sparkles size={16} />
-                        Generate Resume
-                      </button>
-                      {generationStartBlocker ? (
-                        <p
-                          className="mt-3 text-xs"
-                          style={{ color: "var(--color-ink-50)" }}
-                        >
-                          {generationStartBlocker}
-                        </p>
-                      ) : null}
-                    </Card>
-                  )}
-                </div>
               </div>
             )}
 

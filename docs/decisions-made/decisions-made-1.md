@@ -1,3 +1,11 @@
+## 2026-09-30 sticky workbench navigation and inline names
+
+**Decision:** Fit source and generated workbenches to sufficiently tall desktop viewports, keeping section tabs and save actions outside the selected panel’s scroll area. Put the generated resume before supporting cards in both DOM and visual order; on wide screens those cards occupy a separate scrollable right column. Keep the base name editor in the header and associate it with the existing save form. Escape cancels the pending name edit, retaining section changes.
+
+**Reason:** The follow-up requests stable navigation while reading or editing long sections and puts resume content first on application pages. This replaces the earlier page-scroll-only workbench choice. Short/narrow screens retain page flow instead of clipping navigation or controls. Comparison keeps its immersive full-width layout.
+
+**Evidence:** 218 local frontend tests and the production build passed. Browser checks confirmed no outer scrollbar in fitted source/application layouts, content/support scrolling without moving resume tabs, and stacked narrow-screen content with no horizontal overflow. No schema or AI behavior changed. See `docs/task-output/2026-09-30-sticky-workbenches.md`.
+
 ## 2026-09-30 real resume tabs and unique names
 
 **Decision:** Use the same contact-first tab model for source and generated workbenches, showing one panel at a time. Keep original extracted text in a distinct tab, use the full page width, and let the page own vertical scrolling. Replace the fixed source save portal and oversized bottom reserve with an in-flow sticky save bar. Use saved resume names in source headers and breadcrumbs.

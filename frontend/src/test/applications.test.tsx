@@ -3538,7 +3538,12 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText(/tailored summary/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Edit Summary" }));
     expect(screen.getByDisplayValue(/tailored summary/i)).toBeInTheDocument();
-    expect(screen.getByTestId("draft-section-workbench")).toBeInTheDocument();
+    const workbench = screen.getByTestId("draft-section-workbench");
+    const support = screen.getByRole("complementary", { name: "Application details" });
+    expect(workbench.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(support).getByRole("heading", { name: /job description/i })).toBeInTheDocument();
+    expect(within(support).getByRole("heading", { name: /generation settings/i })).toBeInTheDocument();
+    expect(within(support).getByRole("heading", { name: /notes/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /base resume/i })).not.toBeInTheDocument();
 
     await userEvent.click(
