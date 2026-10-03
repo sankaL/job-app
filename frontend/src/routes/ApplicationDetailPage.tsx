@@ -3647,11 +3647,12 @@ export function ApplicationDetailPage() {
         <>
           {/* ── Page Header ── */}
           <PageHeader
+            hasBodyHeading
             title={detail.job_title ?? "Awaiting extracted title"}
             subtitle={detail.company ?? "Company pending extraction"}
-            badge={<StatusBadge status={detail.visible_status} size="md" />}
-            actions={
+            badge={
               <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={detail.visible_status} size="md" />
                 {detail.has_action_required_notification &&
                   detail.visible_status !== "needs_action" && (
                     <span
@@ -3682,6 +3683,10 @@ export function ApplicationDetailPage() {
                     Applied
                   </span>
                 )}
+              </div>
+            }
+            actions={
+              <div className="flex flex-wrap items-center gap-2">
                 {compareMode && (
                   <Button size="sm" onClick={handleToggleCompareMode}>
                     Close Comparison
@@ -3710,7 +3715,7 @@ export function ApplicationDetailPage() {
                   {actionsMenuOpen && (
                     <PopoverSurface
                       id="application-actions-menu"
-                      className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border py-1 shadow-[var(--shadow-high)]"
+                      className="animate-scaleIn absolute right-0 bottom-full z-30 mb-2 w-56 overflow-hidden rounded-xl border py-1 shadow-[var(--shadow-high)]"
                       style={{
                         maxHeight: "calc(100vh - 200px)",
                         overflowY: "auto",

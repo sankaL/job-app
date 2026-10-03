@@ -1,5 +1,17 @@
 # Astryx template redesign
 
+## Floating page actions follow-up
+
+Completed 2026-10-03 16:54:00 EDT. Authenticated pages now rely on the top bar for page identity. Their accessible page heading remains, while the duplicate visible title and introduction are removed. Individual applications retain the full job title, company and status in the body.
+
+The existing shared PageHeader adapter portals page actions into a neutral-theme floating group at the bottom right. Multiple actions stay together and wrap on narrow screens. Source name editing, save/upload submission and extension connection controls use the group. Section controls and unsaved/review feedback remain beside their content. A ResizeObserver measures the group for content clearance, fitted workbench height and toast placement; cleanup restores the prior measurement. Application menus open above their trigger. Removed old inline-header action rules and unused source save-button styles.
+
+Review caught a broken Enter submission path for the relocated source name input. Its handler now uses the associated native form's requestSubmit, preserving validation and composition input. Escape still cancels the name edit without discarding section changes. Updated regression coverage verifies save/import submission, rename behavior, action callbacks/group cleanup and the full application body title.
+
+All 238 frontend tests across 18 files passed through the Makefile-managed local Docker stack. The TypeScript/Vite production build passed. Browser checks verified dashboard floating navigation, application body title and upward menu, source name editing/Escape, resume multi-action navigation, upload form, narrow extension controls and mobile drawer route selection. Public pages and data/AI contracts are unchanged.
+
+## Original template conversion
+
 Completed 2026-10-03 16:35:00 EDT on `astryx-ui`.
 
 The user authorized changes to orientation, typography and icons, with a clean, minimal result and sparse card use. This follow-up builds on the committed Astryx installation, neutral theme, CLI initialization and flat-section migration.

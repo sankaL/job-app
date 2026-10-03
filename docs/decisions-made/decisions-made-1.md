@@ -1,3 +1,9 @@
+## 2026-10-03: Use the top bar for page identity and float page actions
+
+The user requested removal of repeated body page titles and introductions. The shared top bar identifies authenticated routes, with an accessible hidden page heading retained. Individual applications keep their full job title and company in the body to accommodate long titles.
+
+Page actions use a shared bottom-right floating group. Source naming, save/upload and extension connection actions move into that group; section controls remain beside their content. Preserve form association, Enter submission, Escape cancellation and pending feedback. Measure wrapped group height to reserve content space and place notifications above actions. Menus anchored to floating buttons open upward. See `docs/task-output/2026-10-03-astryx-template-redesign.md` for verification.
+
 ## 2026-10-03: Use Astryx templates for a minimal app layout
 
 The user expanded the design-system task to permit orientation, typography and icon changes, and requested template-based layouts with fewer cards. This supersedes the placement restriction in the earlier Astryx decision. Adapt the official Shell Nav, Searchable Table, Analytics Dashboard, Settings Form and Page Editor patterns around the existing product flows.

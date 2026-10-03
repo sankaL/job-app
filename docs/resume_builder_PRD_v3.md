@@ -935,6 +935,8 @@ Admin has three product responsibilities in MVP:
 
 Authenticated routes, including admin, use one shared Astryx neutral theme. Tables, buttons, sections, menus, filters and form controls use shared adapters and semantic tokens. Use flat sections with spacing and dividers for page regions, forms, metrics and lists; keep a distinct resume paper surface and raised overlays. Avoid nested card frames. Follow Astryx shell, searchable table, dashboard, settings and editor templates. Preserve screen content and actions while allowing orientation changes that improve reading and use. Settings use a readable single column; resume lists use rows; authenticated typography uses shared Heading/Text styles. Native form validation, field types, refs and Markdown editing contracts remain intact. The marketing, login and invite onboarding pages retain their existing public design.
 
+The shared top bar identifies each authenticated page. Remove duplicate visible body page titles and introductions, retaining an accessible page heading. Individual application pages keep the full job title and company in the body so long titles remain readable. Put page-level calls to action in a shared bottom-right floating group, with multiple actions grouped together. Keep section-specific controls beside their content. Source resume naming and save/upload controls use the floating group and remain associated with their native forms. Reserve space for wrapped groups and position notifications above them.
+
 - **Skeleton loading** on all async data fetches
 - **Step-by-step progress messages** during extraction and generation (not just a spinner)
 - **Success and error toasts** for transient feedback

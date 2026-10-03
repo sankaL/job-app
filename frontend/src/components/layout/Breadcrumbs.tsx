@@ -37,7 +37,7 @@ function Breadcrumbs({ overrides }: BreadcrumbsProps) {
           className="font-medium"
           style={{ color: "var(--color-text-primary)" }}
         >
-          Home
+          Dashboard
         </span>
       </nav>
     );

@@ -267,9 +267,6 @@
   border-top: 1px solid var(--color-border);
   margin-top: 1rem;
 }
-.resume-save-bar button {
-  min-height: 44px;
-}
 .resume-editor {
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
@@ -334,10 +331,6 @@
   }
   .resume-save-bar .resume-save-hint {
     display: none;
-  }
-  .resume-save-bar button {
-    padding-left: 0.875rem;
-    padding-right: 0.875rem;
   }
 }
 .resume-preview-copy {
@@ -431,7 +424,7 @@
   .resume-editor--workbench {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - var(--topbar-height) - 3.5rem);
+    height: calc(100dvh - var(--topbar-height) - var(--spacing-8) - var(--floating-page-actions-height, 48px) - var(--spacing-10));
     gap: 1rem;
     padding-bottom: 0;
   }
@@ -481,7 +474,7 @@
 
 @media (min-width: 1280px) and (min-height: 800px) {
   .application-detail-page--workspace {
-    height: calc(100dvh - var(--topbar-height) - 3.5rem);
+    height: calc(100dvh - var(--topbar-height) - var(--spacing-8) - var(--floating-page-actions-height, 48px) - var(--spacing-10));
   }
   .application-detail-page--workspace > * {
     flex-shrink: 0;

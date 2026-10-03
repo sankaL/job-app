@@ -10,6 +10,8 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Astryx shared app design system
 
+Floating page actions follow-up completed and reviewed (2026-10-03 16:54:00 EDT). Removed duplicate visible body page titles/introductions across authenticated routes, retaining accessible headings and the full job title/company on individual applications. Page actions share a bottom-right floating group, including source save/name/upload and extension connection controls. Review preserved native form submission, Enter/Escape naming behavior, content clearance, notification placement and upward-opening application menus; removed superseded action/save-button styles. All 238 frontend tests and the TypeScript/Vite production build passed. Browser checks covered dashboard navigation, application titles/menus, source naming, resume upload, grouped actions and mobile drawer behavior. See [follow-up verification](task-output/2026-10-03-astryx-template-redesign.md).
+
 **Status:** Complete; self-review fixes and local verification passed (2026-10-03 14:23:38 EDT).
 
 Converted authenticated and admin routes to Astryx core 0.6.5 and its neutral theme, preserving existing screens, placements and responsive layout. Shared buttons, table rows, cards, status tokens, form controls and menu frames replace scattered control styles. Marketing and login retain isolated public styling. Removed unreachable UI helpers, unused imports/exports, superseded styles and unused dependencies; TypeScript now rejects unused locals and parameters.

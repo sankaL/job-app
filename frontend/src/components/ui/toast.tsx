@@ -164,9 +164,9 @@ export function ToastProvider({ children }: PropsWithChildren) {
       {/* Toast Container */}
       {toasts.length > 0 && (
         <div
+          className="app-toast-stack"
           style={{
             position: "fixed",
-            bottom: "24px",
             right: "24px",
             zIndex: 9999,
             display: "flex",

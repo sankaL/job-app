@@ -12,9 +12,56 @@ import { DataTable } from "@/components/ui/data-table";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { ModalShell } from "@/components/ui/modal-shell";
+import { PageHeader } from "@/components/layout/PageHeader";
 
 // Exercise the contracts that must survive the Astryx migration.
 describe("shared app controls", () => {
+  it("keeps page actions usable in one floating group and cleans up on navigation", async () => {
+    const upload = vi.fn();
+    const create = vi.fn();
+    const { rerender, unmount } = render(
+      <PageHeader
+        title="Resumes"
+        subtitle="Duplicate page introduction"
+        actions={
+          <>
+            <Button onClick={upload}>Upload Resume</Button>
+            <Button onClick={create}>Start from Scratch</Button>
+          </>
+        }
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Resumes", level: 1 })).toHaveClass("sr-only");
+    expect(screen.queryByText("Duplicate page introduction")).not.toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Resumes actions" });
+    expect(group).toContainElement(screen.getByRole("button", { name: "Upload Resume" }));
+    await userEvent.click(screen.getByRole("button", { name: "Upload Resume" }));
+    await userEvent.click(screen.getByRole("button", { name: "Start from Scratch" }));
+    expect(upload).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledOnce();
+    expect(document.body.style.getPropertyValue("--floating-page-actions-height")).not.toBe("");
+    rerender(<PageHeader title="Profile" />);
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+    expect(document.body.style.getPropertyValue("--floating-page-actions-height")).toBe("");
+    unmount();
+  });
+
+  it("keeps the full application title and company in the body", () => {
+    render(
+      <PageHeader
+        hasBodyHeading
+        title="Senior Engineering Practice Lead for Enterprise Platforms"
+        subtitle="Acme"
+        actions={<Button>Activity</Button>}
+      />,
+    );
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading).not.toHaveClass("sr-only");
+    expect(heading).toHaveTextContent("Senior Engineering Practice Lead for Enterprise Platforms");
+    expect(screen.getByText("Acme")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /actions$/ })).toContainElement(screen.getByRole("button", { name: "Activity" }));
+  });
+
   it("cleans up toast removal and automatic-dismiss timers on unmount", () => {
     vi.useFakeTimers();
     try {

@@ -335,9 +335,6 @@ body,
 .app-page-header {
   margin-bottom: var(--spacing-6);
 }
-.app-page-actions {
-  flex-shrink: 0;
-}
 @media (max-width: 767px) {
   .app-shell-content {
     padding: var(--spacing-5) var(--spacing-4) var(--spacing-8);
@@ -355,9 +352,6 @@ body,
   .app-page-header {
     flex-direction: column;
     align-items: stretch;
-  }
-  .app-page-actions {
-    justify-content: flex-start;
   }
 }
 
@@ -703,4 +697,46 @@ body,
   --shadow-low: var(--shadow-sm);
   --shadow-med: var(--shadow-md);
   --shadow-high: var(--shadow-panel);
+}
+
+/* Page actions stay in the viewport, outside page transition transforms. */
+.app-floating-page-actions {
+  position: fixed;
+  inset-inline-end: var(--spacing-6);
+  bottom: calc(var(--spacing-6) + env(safe-area-inset-bottom));
+  max-width: calc(100vw - var(--spacing-6) * 2);
+  z-index: 40;
+  font-family: var(--font-family-body);
+}
+.app-floating-action-buttons,
+.app-floating-action-buttons > div {
+  max-width: 100%;
+}
+.app-floating-action-buttons .app-button:not([role="menuitem"]) {
+  min-height: var(--spacing-12);
+  min-width: var(--spacing-12);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-med);
+}
+.app-floating-name-editor {
+  width: min(100%, 20rem);
+}
+.page-enter > .app-page-heading-hidden + :not([hidden]) {
+  margin-top: 0;
+}
+body:has(.app-floating-page-actions) .app-shell-content {
+  padding-bottom: calc(var(--floating-page-actions-height, 48px) + var(--spacing-6) + var(--spacing-8) + env(safe-area-inset-bottom));
+}
+.app-toast-stack {
+  bottom: var(--spacing-6);
+}
+body:has(.app-floating-page-actions) .app-toast-stack {
+  bottom: calc(var(--floating-page-actions-height, 48px) + var(--spacing-6) * 2 + env(safe-area-inset-bottom));
+}
+@media (max-width: 767px) {
+  .app-floating-page-actions {
+    inset-inline-end: var(--spacing-4);
+    max-width: calc(100vw - var(--spacing-4) * 2);
+    bottom: calc(var(--spacing-4) + env(safe-area-inset-bottom));
+  }
 }

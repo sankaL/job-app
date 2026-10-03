@@ -33,14 +33,15 @@ beforeEach(() => {
 });
 
 describe("base resume save dock", () => {
-  it("submits the form from the sticky save bar and keeps offscreen section edits and review gates", async () => {
+  it("submits the form from the floating action group and keeps offscreen section edits and review gates", async () => {
     const user = userEvent.setup();
     vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, document: { ...payload.document!, revision: 4 } }));
     renderEditor();
     await user.click(await screen.findByRole("tab", { name: /Experience/ }));
     await user.click(screen.getByRole("button", { name: "Edit Experience" }));
     const save = screen.getByRole("button", { name: "Save Changes" });
-    expect(save.closest("form")).toHaveAttribute("id", "base-resume-edit-form");
+    expect(save.closest("form")).toBeNull();
+    expect(save.closest(".app-floating-page-actions")).not.toBeNull();
     expect(save).toHaveAttribute("form", "base-resume-edit-form");
     await user.type(screen.getByRole("textbox", { name: "Employer" }), " Ltd");
     await user.click(screen.getByRole("tab", { name: /Skills/ }));
@@ -73,7 +74,7 @@ describe("base resume save dock", () => {
   });
 });
 
-it("shows saved resume names in the header and breadcrumb after a rename", async () => {
+it("keeps the page label and breadcrumb aligned after a floating rename", async () => {
   const user = userEvent.setup();
   vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, name: payload.name!, document: { ...payload.document!, revision: 4 } }));
   renderEditor();
@@ -102,7 +103,7 @@ it("preserves edits when a duplicate name is rejected", async () => {
   expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
 });
 
-it("cancels a header rename without discarding section edits", async () => {
+it("cancels a floating rename without discarding section edits", async () => {
   const user = userEvent.setup();
   renderEditor();
   await user.click(await screen.findByRole("tab", { name: "Skills" }));
@@ -119,7 +120,7 @@ it("cancels a header rename without discarding section edits", async () => {
   expect(api.updateBaseResume).not.toHaveBeenCalled();
 });
 
-it("submits a header rename with Enter through its associated save form", async () => {
+it("submits a floating rename with Enter through its associated save form", async () => {
   const user = userEvent.setup();
   vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, name: payload.name!, document: { ...payload.document!, revision: 4 } }));
   renderEditor();
@@ -131,7 +132,7 @@ it("submits a header rename with Enter through its associated save form", async 
   expect(await screen.findByRole("heading", { name: "Renamed source", level: 1 })).toBeInTheDocument();
 });
 
-it("starts a new source resume with one focused header name field", () => {
+it("starts a new source resume with one focused floating name field", () => {
   renderEditor("/app/resumes/new");
   const input = screen.getByRole("textbox", { name: "Resume Name" });
   expect(input).toHaveFocus();
@@ -140,7 +141,7 @@ it("starts a new source resume with one focused header name field", () => {
   expect(screen.getByRole("button", { name: "Create Resume" })).toBeInTheDocument();
 });
 
-it("closes header-name editing when returning an imported resume to upload", async () => {
+it("closes floating name editing when returning an imported resume to upload", async () => {
   const user = userEvent.setup();
   vi.mocked(api.uploadBaseResume).mockResolvedValue({ ...resume, raw_source_md: "Imported source text" });
   renderEditor("/app/resumes/new?mode=upload");

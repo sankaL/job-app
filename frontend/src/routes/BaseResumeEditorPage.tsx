@@ -282,6 +282,10 @@ export function BaseResumeEditorPage() {
                   setSaved(false);
                 }}
                 onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
                   if (event.key === "Escape" && resume) {
                     setName(nameBeforeEdit.current);
                     setEditingName(false);
@@ -311,26 +315,53 @@ export function BaseResumeEditorPage() {
             : "Build a reviewed source for every tailored resume"
         }
         actions={
-          resume && !isNew ? (
-            <div className="flex gap-2">
-              {!resume.is_default && (
+          !loading && (resume || isNew) ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {resume && !isNew ? (
+                <>
+                  {!resume.is_default && (
+                    <Button
+                      variant="secondary"
+                      disabled={settingDefault}
+                      onClick={() => void handleDefault()}
+                    >
+                      {settingDefault ? "Setting…" : "Set Default"}
+                    </Button>
+                  )}
+                  <IconButton
+                    variant="danger"
+                    aria-label="Delete resume"
+                    disabled={deleting}
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 size={16} />
+                  </IconButton>
+                </>
+              ) : null}
+              {!loading && (resume || (!uploadMode && isNew)) ? (
                 <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={settingDefault}
-                  onClick={() => void handleDefault()}
+                  type="submit"
+                  form="base-resume-edit-form"
+                  loading={saving}
+                  disabled={saving}
                 >
-                  {settingDefault ? "Setting…" : "Set Default"}
+                  {saving
+                    ? "Saving…"
+                    : saved
+                      ? "Saved"
+                      : isNew && !resume
+                        ? "Create Resume"
+                        : "Save Changes"}
                 </Button>
-              )}
-              <IconButton
-                variant="danger"
-                aria-label="Delete resume"
-                disabled={deleting}
-                onClick={() => setConfirmDelete(true)}
-              >
-                <Trash2 size={16} />
-              </IconButton>
+              ) : !loading && isNew && uploadMode && !resume ? (
+                <Button
+                  type="submit"
+                  form="resume-upload-form"
+                  disabled={uploading}
+                >
+                  {uploading ? "Import in progress" : "Upload & Parse"}
+                </Button>
+              ) : null}
             </div>
           ) : undefined
         }
@@ -375,6 +406,7 @@ export function BaseResumeEditorPage() {
       ) : uploadMode && !resume ? (
         <div className="resume-upload-layout">
           <form
+            id="resume-upload-form"
             className="resume-upload-form"
             aria-busy={uploading}
             onSubmit={handleUpload}
@@ -418,9 +450,6 @@ export function BaseResumeEditorPage() {
               Contact information stays local. Unknown or uncertain sections are
               kept for your review.
             </Text>
-            <Button type="submit" disabled={uploading}>
-              {uploading ? "Import in progress" : "Upload & Parse"}
-            </Button>
           </form>
           {uploading && <ResumeImportProgress useAi={classify} />}
         </div>
@@ -533,20 +562,6 @@ export function BaseResumeEditorPage() {
                 source revision.
               </Text>
             </div>
-            <Button
-              type="submit"
-              form="base-resume-edit-form"
-              loading={saving}
-              disabled={saving}
-            >
-              {saving
-                ? "Saving…"
-                : saved
-                  ? "Saved"
-                  : isNew && !resume
-                    ? "Create Resume"
-                    : "Save Changes"}
-            </Button>
           </div>
         </form>
       )}

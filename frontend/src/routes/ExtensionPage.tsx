@@ -124,17 +124,9 @@ function LastImport({ timestamp }: { timestamp: string | null | undefined }) {
 function ExtensionStatusSection({
   status,
   bridgeDetected,
-  isConnecting,
-  isRevoking,
-  onConnect,
-  onRevoke,
 }: {
   status: ExtensionConnectionStatus | null;
   bridgeDetected: boolean;
-  isConnecting: boolean;
-  isRevoking: boolean;
-  onConnect: () => void;
-  onRevoke: () => void;
 }) {
   const tokenLabel = getTokenLabel(status);
   return (
@@ -154,19 +146,6 @@ function ExtensionStatusSection({
           disconnectedLabel="No active token"
         />
         <LastImport timestamp={status?.token_last_used_at} />
-      </div>
-      <div className="mt-auto flex justify-end gap-2 pt-4">
-        <Button size="sm" loading={isConnecting} onClick={onConnect}>
-          {status?.connected ? "Rotate Connection" : "Connect Extension"}
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          loading={isRevoking}
-          onClick={onRevoke}
-        >
-          Revoke Access
-        </Button>
       </div>
     </Section>
   );
@@ -286,6 +265,25 @@ export function ExtensionPage() {
       <PageHeader
         title="Chrome Extension"
         subtitle="Capture job postings directly from your browser"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              loading={isConnecting}
+              onClick={() => void handleConnect()}
+            >
+              {status?.connected ? "Rotate Connection" : "Connect Extension"}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={isRevoking}
+              onClick={() => void handleRevoke()}
+            >
+              Revoke Access
+            </Button>
+          </div>
+        }
       />
 
       {error && (
@@ -327,10 +325,6 @@ export function ExtensionPage() {
         <ExtensionStatusSection
           status={status}
           bridgeDetected={bridgeDetected}
-          isConnecting={isConnecting}
-          isRevoking={isRevoking}
-          onConnect={() => void handleConnect()}
-          onRevoke={() => void handleRevoke()}
         />
         <ExtensionSetupGuide />
       </div>

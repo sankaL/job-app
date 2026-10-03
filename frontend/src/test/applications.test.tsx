@@ -3740,7 +3740,7 @@ describe("phase 1 applications UI", () => {
     const actionsButton = await screen.findByRole("button", {
       name: /^actions$/i,
     });
-    const shellRoot = actionsButton.closest(".app-shell-root");
+    const shellRoot = screen.getByRole("main").closest(".app-shell-root");
     const navigation = screen.getByRole("navigation", {
       name: "Primary navigation",
     });
