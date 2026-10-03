@@ -189,7 +189,7 @@ it("keeps upload inputs for retry after failure and explains local-only import a
   await user.upload(file, new File(["synthetic"], "resume.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("checkbox", { name: /Use AI to extract/ }));
   await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
-  expect(screen.getByRole("status")).toHaveTextContent("without AI entry extraction");
+  expect(screen.getByRole("status", { name: "Resume processing status" })).toHaveTextContent("without AI entry extraction");
   expect(screen.getByText("Parse recognizable role headers")).toBeInTheDocument();
   await act(async () => { failUpload(new Error("Import unavailable. Retry your PDF.")); });
   expect(await screen.findByText("Import unavailable. Retry your PDF.")).toBeInTheDocument();

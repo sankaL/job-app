@@ -11,7 +11,7 @@ export function AdminRoute({ children }: PropsWithChildren) {
     }
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
-        <div className="rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-medium text-ink/70 shadow-panel">
+        <div className="rounded-full border border-[var(--color-border)] bg-[var(--color-background-surface)] px-5 py-3 text-sm font-medium text-[var(--color-text-secondary)] shadow-[var(--shadow-high)]">
           Checking admin access…
         </div>
       </div>

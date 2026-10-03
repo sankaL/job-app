@@ -15,7 +15,11 @@ type ConfirmModalProps = {
   onCancel: () => void;
 };
 
-function useConfirmModalLifecycle(open: boolean, onCancel: () => void) {
+function useConfirmModalLifecycle(
+  open: boolean,
+  loading: boolean | undefined,
+  onCancel: () => void,
+) {
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
@@ -28,11 +32,11 @@ function useConfirmModalLifecycle(open: boolean, onCancel: () => void) {
   useEffect(() => {
     if (!open) return;
     function handleKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onCancel();
+      if (event.key === "Escape" && !loading) onCancel();
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [open, onCancel]);
+  }, [open, loading, onCancel]);
 }
 
 function ConfirmDialog({
@@ -53,20 +57,21 @@ function ConfirmDialog({
       <button
         type="button"
         aria-label="Close confirmation"
-        onClick={onCancel}
-        className="absolute inset-0 bg-[rgba(16,24,40,0.5)] backdrop-blur-[6px]"
+        onClick={loading ? undefined : onCancel}
+        disabled={loading}
+        className="absolute inset-0 bg-[var(--color-overlay)] backdrop-blur-[6px]"
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="animate-scaleIn relative z-[1] w-[calc(100%-32px)] max-w-[420px] rounded-[var(--radius-xl)] bg-white px-7 pb-6 pt-7 shadow-[var(--shadow-panel)]"
+        className="animate-scaleIn relative z-[1] w-[calc(100%-32px)] max-w-[420px] rounded-[var(--radius-container)] bg-[var(--color-background-surface)] px-7 pb-6 pt-7 shadow-[var(--shadow-high)]"
       >
-        <h3 className="m-0 text-[17px] font-semibold leading-[1.3] text-[var(--color-ink)]">
+        <h3 className="m-0 text-[17px] font-semibold leading-[1.3] text-[var(--color-text-primary)]">
           {title}
         </h3>
         {message ? (
-          <div className="mt-2.5 text-sm leading-[1.55] text-[var(--color-ink-65)]">
+          <div className="mt-2.5 text-sm leading-[1.55] text-[var(--color-text-secondary)]">
             {message}
           </div>
         ) : null}
@@ -104,7 +109,7 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
-  useConfirmModalLifecycle(open, onCancel);
+  useConfirmModalLifecycle(open, loading, onCancel);
   if (!open) return null;
   return createPortal(
     <ConfirmDialog

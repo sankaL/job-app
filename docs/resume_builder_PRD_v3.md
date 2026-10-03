@@ -34,7 +34,7 @@ The product should enable a user to:
 
 | Layer | Technology |
 |---|---|
-| Frontend | React + Vite + Tailwind CSS + shadcn |
+| Frontend | React + Vite + Tailwind CSS + Astryx core / neutral theme |
 | Backend | FastAPI (Python) |
 | Database & Auth | Postgres + custom JWT auth |
 | AI Orchestration | Pydantic AI with local validation and bounded section recovery |
@@ -932,6 +932,8 @@ Admin has three product responsibilities in MVP:
 ---
 
 ## 12. UX Requirements
+
+Authenticated routes, including admin, use one shared Astryx neutral theme. Tables, buttons, cards, menus, filters and form controls use shared adapters and semantic tokens. Preserve existing screen content, placement, density and responsive behavior. Native form validation, field types, refs and Markdown editing contracts remain intact. The marketing and login pages retain their existing public design.
 
 - **Skeleton loading** on all async data fetches
 - **Step-by-step progress messages** during extraction and generation (not just a spinner)

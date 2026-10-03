@@ -1,22 +1,20 @@
-import type { TextareaHTMLAttributes } from "react";
+import { forwardRef, type TextareaHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export const Textarea = forwardRef<
+  HTMLTextAreaElement,
+  TextareaHTMLAttributes<HTMLTextAreaElement>
+>(function Textarea({ className, ...props }, ref) {
   return (
     <textarea
+      ref={ref}
       className={cn(
-        "w-full rounded-lg border bg-white px-4 py-3 text-sm outline-none transition",
-        "placeholder:text-[var(--color-ink-40)]",
-        "focus:ring-2",
+        className?.includes("markdown-editor-input")
+          ? undefined
+          : "app-input w-full px-4 py-3 text-sm",
         className,
       )}
-      style={{
-        borderColor: "var(--color-border)",
-        color: "var(--color-ink)",
-        // @ts-expect-error CSS custom properties
-        "--tw-ring-color": "var(--color-spruce-10)",
-      }}
       {...props}
     />
   );
-}
+});

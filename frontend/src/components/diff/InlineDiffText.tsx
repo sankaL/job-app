@@ -37,9 +37,9 @@ export function InlineDiffText({
               key={`chunk-${index}`}
               className={cn(
                 "rounded px-1 py-0.5 font-medium transition-colors",
-                "bg-[rgba(24,74,69,0.14)] text-[#133c38]",
-                "dark:bg-[rgba(40,167,69,0.2)] dark:text-[#56d364]",
-                "border-b border-[rgba(24,74,69,0.3)]",
+                "bg-[var(--color-success-muted)] text-[var(--color-success)]",
+                "dark:bg-[var(--color-success-muted)] dark:text-[var(--color-success)]",
+                "border-b border-[var(--color-success-muted)]",
               )}
               title="Tailored addition"
             >
@@ -55,8 +55,8 @@ export function InlineDiffText({
               key={`chunk-${index}`}
               className={cn(
                 "rounded px-1 py-0.5 line-through opacity-70 transition-colors",
-                "bg-[rgba(159,58,22,0.12)] text-[#822f12]",
-                "dark:bg-[rgba(248,81,73,0.15)] dark:text-[#f85149]",
+                "bg-[var(--color-error-muted)] text-[var(--color-error)]",
+                "dark:bg-[var(--color-error-muted)] dark:text-[var(--color-error)]",
               )}
               title="Base resume text omitted/replaced"
             >
@@ -65,7 +65,9 @@ export function InlineDiffText({
           );
         }
 
-        return <React.Fragment key={`chunk-${index}`}>{chunk.value}</React.Fragment>;
+        return (
+          <React.Fragment key={`chunk-${index}`}>{chunk.value}</React.Fragment>
+        );
       })}
     </span>
   );

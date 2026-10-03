@@ -12,7 +12,6 @@ import {
   listApplications,
   listBaseResumes,
   listNotifications,
-  type AdminUser,
   type ProfileData,
   type SessionBootstrapResponse,
 } from "@/lib/api";

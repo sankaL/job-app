@@ -133,12 +133,12 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
             style={{
               background:
                 variant === "danger"
-                  ? "var(--color-ember-10)"
-                  : "var(--color-amber-10)",
+                  ? "var(--color-error-muted)"
+                  : "var(--color-warning-muted)",
               color:
                 variant === "danger"
-                  ? "var(--color-ember)"
-                  : "var(--color-amber)",
+                  ? "var(--color-error)"
+                  : "var(--color-warning)",
             }}
           >
             <Icon size={18} />
@@ -147,7 +147,7 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
             <div className="flex flex-wrap items-baseline gap-x-2">
               <h3
                 className="text-sm font-semibold"
-                style={{ color: "var(--color-ink)" }}
+                style={{ color: "var(--color-text-primary)" }}
               >
                 {title}
               </h3>
@@ -157,8 +157,8 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
                   style={{
                     color:
                       variant === "danger"
-                        ? "var(--color-ember)"
-                        : "var(--color-amber)",
+                        ? "var(--color-error)"
+                        : "var(--color-warning)",
                   }}
                 >
                   · {subtitle}
@@ -167,14 +167,14 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
             </div>
             <p
               className="mt-1 text-sm leading-relaxed"
-              style={{ color: "var(--color-ink-65)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             >
               {description}
             </p>
             {description !== errorStr && (
               <p
                 className="mt-1 text-xs"
-                style={{ color: "var(--color-ink-45)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 Details: {errorStr}
               </p>
@@ -188,7 +188,7 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
               size="sm"
               variant="secondary"
               onClick={() => navigate(cta.path)}
-              className="flex items-center gap-1 hover:border-gray-300"
+              className="flex items-center gap-1 hover:border-[var(--color-border-emphasized)]"
             >
               <cta.icon size={13} />
               {cta.text}

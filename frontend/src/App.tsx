@@ -1,3 +1,5 @@
+import { Theme } from "@astryxdesign/core/theme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/routes/AppShell";
@@ -80,9 +82,30 @@ export default function App() {
       }
     >
       <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
+        <Route
+          path="/"
+          element={
+            <div className="public-design">
+              <LandingPage />
+            </div>
+          }
+        />
+        <Route
+          path="/login"
+          element={
+            <div className="public-design">
+              <LoginPage />
+            </div>
+          }
+        />
+        <Route
+          path="/signup"
+          element={
+            <Theme theme={neutralTheme} mode="light">
+              <SignupPage />
+            </Theme>
+          }
+        />
         <Route
           path="/app"
           element={

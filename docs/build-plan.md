@@ -1,12 +1,20 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-09-30
+**Last updated:** 2026-10-03
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## Astryx shared app design system
+
+**Status:** Complete; self-review fixes and local verification passed (2026-10-03 14:23:38 EDT).
+
+Converted authenticated and admin routes to Astryx core 0.6.5 and its neutral theme, preserving existing screens, placements and responsive layout. Shared buttons, table rows, cards, status tokens, form controls and menu frames replace scattered control styles. Marketing and login retain isolated public styling. Removed unreachable UI helpers, unused imports/exports, superseded styles and unused dependencies; TypeScript now rejects unused locals and parameters.
+
+Self-review fixed disabled/loading controls, table column widths, keyboard sorting/navigation, menu Escape dismissal, pending-dialog dismissal, Markdown contrast and toast timer cleanup. Passed 235 frontend tests, the TypeScript/Vite production build, 15 local environment guard tests and 11 Astryx doctor checks. Production dependency audit reports zero advisories. Browser verified app screens, menus, source editing and mobile filters; admin pages were also inspected with existing local permissions, while write operations remain covered by regression mocks. See [implementation and review evidence](task-output/2026-10-03-astryx-design-system.md).
 
 ## Main merge and Railway release preparation
 

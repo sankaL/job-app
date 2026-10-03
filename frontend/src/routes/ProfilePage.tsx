@@ -52,10 +52,10 @@ function ProfileUnavailable({ error }: { error: string | null }) {
         subtitle="Manage your personal information and resume settings"
       />
       <Card variant="danger" density="compact">
-        <p className="text-sm font-semibold text-[var(--color-ember)]">
+        <p className="text-sm font-semibold text-[var(--color-error)]">
           Profile unavailable
         </p>
-        <p className="mt-1 text-sm text-[var(--color-ink-65)]">
+        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
           {error ?? "Refresh the page or sign in again."}
         </p>
       </Card>
@@ -86,10 +86,10 @@ function PersonalInformationCard({
 }) {
   return (
     <Card density="compact">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-40)]">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
         Personal Information
       </h3>
-      <p className="mt-1 text-xs text-[var(--color-ink-40)]">
+      <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
         Used in generated resumes.
       </p>
       <div className="mt-4 space-y-3">
@@ -110,7 +110,7 @@ function PersonalInformationCard({
             disabled
             className="cursor-not-allowed opacity-60"
           />
-          <p className="mt-1 text-[10px] text-[var(--color-ink-40)]">
+          <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
             Managed through your account.
           </p>
         </div>
@@ -269,7 +269,7 @@ export function ProfilePage() {
             {saveState === "saved" && (
               <span
                 className="text-xs"
-                style={{ color: "var(--color-spruce)" }}
+                style={{ color: "var(--color-accent)" }}
               >
                 Saved
               </span>
@@ -289,11 +289,14 @@ export function ProfilePage() {
         <Card variant="danger" density="compact">
           <p
             className="text-sm font-semibold"
-            style={{ color: "var(--color-ember)" }}
+            style={{ color: "var(--color-error)" }}
           >
             Error
           </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
+          <p
+            className="mt-1 text-sm"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
             {error}
           </p>
         </Card>
@@ -313,8 +316,17 @@ export function ProfilePage() {
         />
         <Card density="compact">
           <h3 className="text-sm font-semibold">Resume sections</h3>
-          <p className="mt-2 text-sm text-[var(--color-ink-65)]">Choose sections and their order in each resume workbench, including custom sections. Base resume changes apply to new generations. Generated resumes keep their own saved layout.</p>
-          <Link to="/app/resumes" className="mt-3 inline-block text-sm font-semibold underline text-[var(--color-spruce)]">Manage base resumes</Link>
+          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+            Choose sections and their order in each resume workbench, including
+            custom sections. Base resume changes apply to new generations.
+            Generated resumes keep their own saved layout.
+          </p>
+          <Link
+            to="/app/resumes"
+            className="mt-3 inline-block text-sm font-semibold underline text-[var(--color-accent)]"
+          >
+            Manage base resumes
+          </Link>
         </Card>
       </div>
     </div>

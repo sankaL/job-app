@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, FileText, Link2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -49,28 +50,24 @@ function SourceModeSelector({
       className="grid grid-cols-2 gap-1 rounded-xl border p-1"
       style={{
         borderColor: "var(--color-border)",
-        background: "var(--color-ink-05)",
+        background: "var(--color-background-muted)",
       }}
     >
       {SOURCE_MODE_OPTIONS.map((option) => {
         const Icon = option.icon;
         const active = value === option.value;
         return (
-          <button
+          <Button
+            variant="ghost"
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition-all"
-            style={{
-              background: active ? "var(--color-white)" : "transparent",
-              color: active ? "var(--color-spruce)" : "var(--color-ink-65)",
-              boxShadow: active ? "0 1px 6px rgba(16, 24, 40, 0.08)" : "none",
-            }}
+            className="inline-flex min-h-10 items-center justify-center gap-2 px-3 text-sm transition-all"
             aria-pressed={active}
           >
             <Icon size={14} aria-hidden="true" />
             <span>{option.label}</span>
-          </button>
+          </Button>
         );
       })}
     </div>
@@ -117,14 +114,15 @@ function ApplicationSourceFields({
         />
       </div>
       {!pasteMode && !showSourceText ? (
-        <button
+        <Button
+          variant="ghost"
           type="button"
           onClick={onRevealSourceText}
-          className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--color-spruce)] transition-colors"
+          className="inline-flex items-center gap-2 text-sm transition-colors"
         >
           <FileText size={14} aria-hidden="true" />
           Add pasted description
-        </button>
+        </Button>
       ) : null}
       {textVisible ? (
         <div className="animate-fadeInUp">
@@ -138,7 +136,7 @@ function ApplicationSourceFields({
             onChange={(event) => onSourceTextChange(event.target.value)}
             required={pasteMode}
           />
-          <p className="mt-2 text-xs leading-5 text-[var(--color-ink-40)]">
+          <p className="mt-2 text-xs leading-5 text-[var(--color-text-secondary)]">
             {pasteMode
               ? "Applix will infer the job details from this text and ask for manual entry only if required fields are missing."
               : "The pasted text is used to improve extraction startup for this new application."}

@@ -6,7 +6,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Product behavior and UX contract: `docs/resume_builder_PRD_v3.md`
 
 ## Frontend Commitments
-- Follow the committed frontend stack: React, Vite, Tailwind CSS, and `shadcn`.
+- Follow the committed frontend stack: React, Vite, Tailwind CSS, and Astryx core with the neutral theme.
 - Treat the frontend as responsible for the authenticated user experience across:
   - login
   - applications dashboard
@@ -19,6 +19,8 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Keep client-side status labels and attention indicators aligned with the PRD's visible status model.
 
 ## UX Rules
+- Keep authenticated pages on the shared Astryx theme and existing UI adapters. Buttons, table rows, cards, native form controls and menu frames share semantic theme tokens. Preserve native field validation, input types and refs.
+- Keep the marketing and login pages on their isolated public styles. Preserve existing app placement, density and responsive behavior during design-system changes.
 - Use skeleton loading states for async page and list fetches.
 - Provide meaningful progress messaging during extraction, generation, regeneration, and export flows. A spinner alone is not sufficient.
 - Show clear transient success and error feedback.
@@ -31,7 +33,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Reflect the four primary statuses exactly: `Draft`, `Needs Action`, `In Progress`, and `Complete`.
 - Treat `applied` as a separate boolean flag, not a replacement for the primary status.
 - Show duplicate-review attention before generation when unresolved.
-- After editing or regenerating a previously exported draft, the UI must reflect the status return to `In Progress`.
+- After editing or regenerating a previously exported draft, the UI must reflect the status return to `Needs Action`.
 - The workbench edits the latest versioned section document. Compare against its stored source snapshot using stable IDs and provenance; the deterministic Markdown projection feeds export.
 - Base document inclusion/order controls initial generation. Saved drafts own their structure for editing, regeneration and export; refresh the frozen source only through an explicit latest-base reset.
 
@@ -40,3 +42,35 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Treat all fetched job, resume, and notification data as private to the authenticated user.
 - Do not expose hidden internal processing details as substitutes for the user-facing status model.
 - Fail safely when auth expires or required data is missing, and route the user toward re-authentication or recovery instead of masking the issue.
+
+<!-- ASTRYX:START -->
+Astryx v0.6.5 · 166 components
+CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
+
+SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
+  import "@astryxdesign/core/reset.css";
+  import "@astryxdesign/core/astryx.css";
+
+WORKFLOW — start every page from a template. Never lay out a page from scratch:
+1. `astryx build "<idea>"` — START HERE: names the [page] template to start from (always one: the closest match, or the app shell), two other templates, and the [block]s + [component]s for parts it lacks. No args = full playbook.
+2. `astryx template <name> <path>` — scaffold that template into your project. Keep its frame, gap and padding; replace its data, copy and sections; delete sections you do not need.
+3. `astryx template <Block>` for a part the template lacks; `astryx component <Name>` for props + examples before you use or change a component.
+Changing a page you already have? Keep it: skip step 2 and add blocks and components inside its sections.
+
+RULES:
+- No <div> — components do all layout/spacing, page frame included.
+- Frame first: the template you scaffold sets the page frame. Read `astryx docs layout` before you change it — region widths, breakpoint behavior.
+- Dense data = rows (Table, List/Item), never Card-wrapped list items; Card is for standalone widgets. Status = StatusDot/Token; Badge = counts only.
+- Custom styling: component props first; else Tailwind utilities backed by tokens (bg-surface, text-primary, rounded-lg) via tailwind-theme.css. No raw hex/px.
+- Tokens for every value (`astryx docs tokens`). Brand/accent belongs in the theme (`astryx theme list` / `theme add <slug>`, or `astryx theme template` for a custom one) — never override --color-* in :root.
+- SELF-CHECK before you finish: re-read the file and replace any style={{…}}, raw <div>/<span> layout, imported .css/@apply, or hardcoded/arbitrary value (e.g. bg-[#fff], p-[13px]) with the component or a token-backed utility. Confirm the page kept its template's frame, gap and padding. If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
+
+MORE CLI:
+  search "<query>"   find any component / hook / doc / template / block
+  component --list   166 components by category
+  template --list    page + block recipes
+  docs <topic>       authoring, browser-support, color, elevation, getting-started, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling-libraries, styling, theme, tokens, typography, working-with-ai
+  docs cli           commands, API reference, integration authoring (one level at a time)
+  swizzle <Name>     eject component source for deep customization
+  upgrade --from <old version> --apply   run after any Astryx or integration dependency bump
+<!-- ASTRYX:END -->

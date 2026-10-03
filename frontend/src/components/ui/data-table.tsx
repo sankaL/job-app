@@ -1,3 +1,10 @@
+import {
+  Table as AstryxTable,
+  TableRow as AstryxRow,
+  TableCell as AstryxCell,
+  TableHeaderCell as AstryxHeaderCell,
+} from "@astryxdesign/core/Table";
+import { Button } from "@/components/ui/button";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
@@ -88,6 +95,7 @@ function SortIndicator({
 }) {
   return (
     <span
+      aria-hidden="true"
       className="inline-flex flex-col gap-px transition-opacity"
       style={{ opacity: active ? 1 : 0.35 }}
     >
@@ -128,33 +136,47 @@ function TableHeader<T>({
 }) {
   return (
     <thead>
-      <tr className="border-b border-[var(--color-border)]">
+      <AstryxRow isHeaderRow className="border-b border-[var(--color-border)]">
         {columns.map((column) => {
           const active = sortKey === column.key;
           const className = `${density === "compact" ? "px-4 py-2.5 text-[11px] tracking-[0.18em]" : "px-4 py-3 text-xs tracking-wider"} text-left font-semibold uppercase${column.hiddenOnMobile ? " dt-hide-mobile" : ""}`;
           return (
-            <th
+            <AstryxHeaderCell
               key={column.key}
               className={className}
               style={{
-                color: "var(--color-ink-50)",
-                background: "var(--color-ink-05)",
+                color: "var(--color-text-secondary)",
+                background: "var(--color-background-muted)",
                 width: column.width,
+                maxWidth: column.width ?? "none",
                 cursor: column.sortable ? "pointer" : "default",
                 userSelect: column.sortable ? "none" : "auto",
               }}
-              onClick={column.sortable ? () => onSort(column.key) : undefined}
+              aria-sort={
+                column.sortable && active
+                  ? sortDir === "asc"
+                    ? "ascending"
+                    : "descending"
+                  : undefined
+              }
             >
-              <span className="flex items-center gap-1.5">
-                {column.header}
-                {column.sortable ? (
+              {column.sortable ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="app-table-sort"
+                  onClick={() => onSort(column.key)}
+                >
+                  {column.header}
                   <SortIndicator active={active} direction={sortDir} />
-                ) : null}
-              </span>
-            </th>
+                </Button>
+              ) : (
+                column.header
+              )}
+            </AstryxHeaderCell>
           );
         })}
-      </tr>
+      </AstryxRow>
     </thead>
   );
 }
@@ -179,21 +201,41 @@ function TableBody<T>({
   return (
     <tbody>
       {rows.map((row) => (
-        <tr
+        <AstryxRow
           key={getRowKey(row)}
-          className="border-b border-[var(--color-border)] transition-colors hover:bg-[var(--color-ink-05)]"
+          className="border-b border-[var(--color-border)] transition-colors hover:bg-[var(--color-background-muted)]"
           style={{ cursor: onRowClick ? "pointer" : "default" }}
+          tabIndex={onRowClick ? 0 : undefined}
           onClick={onRowClick ? () => onRowClick(row) : undefined}
+          onKeyDown={
+            onRowClick
+              ? (event) => {
+                  if (
+                    event.target === event.currentTarget &&
+                    (event.key === "Enter" || event.key === " ")
+                  ) {
+                    event.preventDefault();
+                    onRowClick(row);
+                  }
+                }
+              : undefined
+          }
         >
           {columns.map((column) => (
-            <td
+            <AstryxCell
               key={column.key}
+              style={{
+                maxWidth: "none",
+                wordBreak: "normal",
+                overflowWrap: "normal",
+                overflow: "visible",
+              }}
               className={`${cellPadding} ${alignment}${column.hiddenOnMobile ? " dt-hide-mobile" : ""}`}
             >
               {column.render(row)}
-            </td>
+            </AstryxCell>
           ))}
-        </tr>
+        </AstryxRow>
       ))}
     </tbody>
   );
@@ -228,39 +270,39 @@ function Pagination({
   if (totalPages <= 1) return null;
   return (
     <div className="mt-4 flex items-center justify-between">
-      <div className="text-xs text-[var(--color-ink-40)]">
+      <div className="text-xs text-[var(--color-text-secondary)]">
         Showing {startIndex + 1}–{Math.min(startIndex + pageSize, totalItems)}{" "}
         of {totalItems}
       </div>
       <div className="flex items-center gap-1">
-        <button
+        <Button
+          variant="ghost"
           disabled={currentPage === 1}
           onClick={() => onChange(currentPage - 1)}
-          className="rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-65)] transition-colors disabled:opacity-40"
+          className="border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-40"
         >
           Previous
-        </button>
+        </Button>
         {getPageNumbers(totalPages, currentPage).map((page) => (
-          <button
+          <Button
+            variant="ghost"
             key={page}
             onClick={() => onChange(page)}
-            className="rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
-            style={{
-              background:
-                currentPage === page ? "var(--color-ink)" : "transparent",
-              color: currentPage === page ? "#fff" : "var(--color-ink-65)",
-            }}
+            aria-current={page === currentPage ? "page" : undefined}
+            aria-pressed={page === currentPage}
+            className="px-2.5 py-1.5 text-xs transition-colors"
           >
             {page}
-          </button>
+          </Button>
         ))}
-        <button
+        <Button
+          variant="ghost"
           disabled={currentPage === totalPages}
           onClick={() => onChange(currentPage + 1)}
-          className="rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-65)] transition-colors disabled:opacity-40"
+          className="border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-40"
         >
           Next
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -316,18 +358,22 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="animate-fadeIn">
+    <div className="app-table-frame animate-fadeIn">
       <div
         className="overflow-hidden rounded-xl border"
         style={{
           borderColor: "var(--color-border)",
-          background: "var(--color-surface)",
+          background: "var(--color-background-card)",
         }}
       >
         <div className="overflow-x-auto">
-          <table
+          <AstryxTable
+            density={density === "compact" ? "compact" : "balanced"}
+            verticalAlign={verticalAlign}
+            hasHover
+            dividers="rows"
             className="w-full text-sm"
-            style={{ color: "var(--color-ink)", tableLayout }}
+            style={{ color: "var(--color-text-primary)", tableLayout }}
           >
             <TableHeader
               columns={columns}
@@ -344,7 +390,7 @@ export function DataTable<T>({
               verticalAlign={verticalAlign}
               onRowClick={onRowClick}
             />
-          </table>
+          </AstryxTable>
         </div>
       </div>
 

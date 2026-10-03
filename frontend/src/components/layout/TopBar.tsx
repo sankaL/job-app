@@ -1,3 +1,5 @@
+import { PopoverSurface } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -23,13 +25,14 @@ function AccountMenuButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
+      variant="ghost"
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-[var(--color-ink-65)] transition-colors hover:bg-[var(--color-ink-05)] hover:text-[var(--color-ink)]"
+      className="flex w-full items-center gap-2.5 px-4 py-2 text-sm transition-colors"
     >
       {icon}
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -45,23 +48,15 @@ function AccountMenu({
   onSignOut: () => void;
 }) {
   return (
-    <div
-      className="animate-scaleIn absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-xl border py-1"
-      style={{
-        background: "var(--color-white)",
-        borderColor: "var(--color-border)",
-        boxShadow: "var(--shadow-lg)",
-        transformOrigin: "top right",
-      }}
-    >
+    <PopoverSurface className="animate-scaleIn absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-xl border py-1">
       <div
         className="border-b px-4 py-3"
         style={{ borderColor: "var(--color-border)" }}
       >
-        <div className="text-sm font-medium text-[var(--color-ink)]">
+        <div className="text-sm font-medium text-[var(--color-text-primary)]">
           {userName || "User"}
         </div>
-        <div className="mt-0.5 text-xs text-[var(--color-ink-50)]">
+        <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
           {userEmail}
         </div>
       </div>
@@ -106,7 +101,7 @@ function AccountMenu({
           Sign Out
         </AccountMenuButton>
       </div>
-    </div>
+    </PopoverSurface>
   );
 }
 
@@ -124,9 +119,10 @@ function getInitials(userName: string, userEmail: string) {
 function MobileMenuToggle({ onToggle }: { onToggle?: () => void }) {
   if (!onToggle) return null;
   return (
-    <button
+    <Button
+      variant="ghost"
       onClick={onToggle}
-      className="sidebar-mobile-toggle flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-ink-50)] transition-colors hover:bg-[var(--color-ink-05)]"
+      className="sidebar-mobile-toggle flex h-9 w-9 items-center justify-center transition-colors"
       aria-label="Toggle sidebar"
     >
       <svg
@@ -140,7 +136,7 @@ function MobileMenuToggle({ onToggle }: { onToggle?: () => void }) {
       >
         <path d="M3 5h14M3 10h14M3 15h14" />
       </svg>
-    </button>
+    </Button>
   );
 }
 
@@ -171,10 +167,10 @@ function NotificationControl({
       : "No pending actions";
   return (
     <div className="relative">
-      <button
+      <Button
+        variant="ghost"
         onClick={onToggle}
-        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-[var(--color-ink-50)] transition-colors hover:bg-[var(--color-ink-05)]"
-        style={{ background: open ? "var(--color-ink-05)" : "transparent" }}
+        className="relative flex h-9 w-9 items-center justify-center transition-colors"
         aria-label="Notifications"
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -194,11 +190,11 @@ function NotificationControl({
           <path d="M8.5 16a1.5 1.5 0 0 0 3 0" />
         </svg>
         {needsActionCount > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-ember)] px-1 text-[10px] font-bold leading-none text-white">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-error)] px-1 text-[10px] font-bold leading-none text-[var(--color-on-accent)]">
             {needsActionCount}
           </span>
         ) : null}
-      </button>
+      </Button>
       {open ? (
         <NotificationPanel
           needsActionCount={needsActionCount}
@@ -233,18 +229,16 @@ function AccountControl({
 }) {
   return (
     <div className="relative">
-      <button
+      <Button
+        variant="primary"
         onClick={onToggle}
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--color-spruce)] text-xs font-bold text-white transition-all"
-        style={{
-          boxShadow: open
-            ? "0 0 0 2px var(--color-canvas), 0 0 0 4px var(--color-spruce)"
-            : "none",
-        }}
+        style={{ borderRadius: "var(--radius-full)", padding: 0 }}
+        className="flex h-9 w-9 items-center justify-center text-xs transition-all"
         aria-label="Account menu"
+        aria-expanded={open}
       >
         {initials}
-      </button>
+      </Button>
       {open ? (
         <AccountMenu
           userName={userName}
@@ -291,8 +285,18 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
         setNotificationsOpen(false);
       }
     }
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAvatarOpen(false);
+        setNotificationsOpen(false);
+      }
+    }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, []);
 
   function toggleNotifications() {
@@ -337,7 +341,7 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
       className="app-shell-header sticky top-0 z-20 flex items-center justify-between border-b"
       style={{
         height: "var(--topbar-height)",
-        background: "var(--color-canvas)",
+        background: "var(--color-background-body)",
         borderColor: "var(--color-border)",
       }}
     >

@@ -11,7 +11,14 @@ type MetricCardProps = {
   detail?: ReactNode;
 };
 
-export function MetricCard({ icon: Icon, label, value, accent, tint, detail }: MetricCardProps) {
+export function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  accent,
+  tint,
+  detail,
+}: MetricCardProps) {
   return (
     <Card density="compact" className="relative overflow-hidden">
       <span
@@ -20,15 +27,27 @@ export function MetricCard({ icon: Icon, label, value, accent, tint, detail }: M
       >
         <Icon size={18} />
       </span>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--color-ink-40)" }}>
+      <div
+        className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {label}
       </div>
-      <div className="mt-2 font-display text-3xl font-semibold tabular-nums" style={{ color: accent }}>
+      <div
+        className="mt-2 font-display text-3xl font-semibold tabular-nums"
+        style={{ color: accent }}
+      >
         {value}
       </div>
       {detail}
-      <div className="mt-3 h-1.5 w-20 rounded-full" style={{ background: tint }}>
-        <div className="h-full w-8 rounded-full" style={{ background: accent }} />
+      <div
+        className="mt-3 h-1.5 w-20 rounded-full"
+        style={{ background: tint }}
+      >
+        <div
+          className="h-full w-8 rounded-full"
+          style={{ background: accent }}
+        />
       </div>
     </Card>
   );

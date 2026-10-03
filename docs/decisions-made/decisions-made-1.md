@@ -1,3 +1,11 @@
+## 2026-10-03: Share Astryx controls across the authenticated app
+
+Use Astryx core 0.6.5 with the neutral theme for app and admin screens. Keep the existing page frame, placement, density and responsive rules. The user requested a design-system conversion without new UI or features, so retain layout containers instead of scaffolding new Astryx page templates. Marketing and login keep their existing appearance through a scoped public palette and their original form adapters.
+
+Shared UI adapters use Astryx Button, Card, Badge, Token and Table. Native input, textarea and select elements use semantic theme tokens while preserving browser validation, numeric/file types, selection refs and change-event consumers. Existing menu frames share a Card-backed popover adapter. Keep Tailwind's reset in the library's reset layer so it cannot override Astryx component treatments. Pin the core, theme and CLI together; generated CLI agent guidance is committed.
+
+Remove only code without runtime callers, along with superseded styles and packages. Keep Chrome extension manifest assets and dynamically loaded bridge helpers despite static-analysis false positives. Add TypeScript unused-symbol checks. No schema, AI orchestration, prompt or export behavior changes are needed. See `docs/task-output/2026-10-03-astryx-design-system.md` for review fixes, verification and remaining development-tool advisories.
+
 ## 2026-09-30: Release section resumes to Railway
 
 The user authorized merging the release and completing migrations/configuration through the CLI. Apply migrations 019–022 before the coordinated API, worker and frontend rollout. Back up labels, check an empty work queue, use bounded database calls, and commit each migration with its ledger entry. Explicit operation models and Jev settings match committed defaults. Verified all three deployments from merged main, public health and auth rejection, running modules/configuration, and 913 local tests plus the production build. See `docs/task-output/2026-09-30-main-railway-release.md`.

@@ -1,0 +1,101 @@
+/* Native form contracts share Astryx's input tokens, focus and state treatments. */
+.app-input,
+.app-select {
+  border: 1px solid var(--color-border-emphasized);
+  border-radius: var(--radius-element);
+  background-color: var(--color-background-surface);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-body);
+  outline: none;
+  transition:
+    border-color var(--duration-fast),
+    box-shadow var(--duration-fast);
+}
+.app-input::placeholder {
+  color: var(--color-text-disabled);
+}
+.app-input:focus-visible,
+.app-select:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+.app-input:disabled,
+.app-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.app-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+}
+.app-check {
+  accent-color: var(--color-accent);
+}
+.app-button[data-variant="ghost"][aria-selected="true"],
+.app-button[data-variant="ghost"][aria-pressed="true"] {
+  background: var(--color-accent-muted);
+  color: var(--color-text-accent);
+}
+.app-button {
+  flex-shrink: 0;
+}
+
+.app-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: inherit;
+  gap: var(--spacing-2);
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  text-align: inherit;
+}
+
+.app-button-content--block {
+  display: block;
+  width: 100%;
+}
+.app-button:has(.app-button-content--block) > span:first-child > span {
+  display: block;
+  width: 100%;
+}
+
+.app-table-sort {
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  justify-content: flex-start;
+}
+
+/* Retain the existing table frame inside parent cards without Astryx edge bleed. */
+.app-table-frame {
+  --container-padding-inline-start: 0px;
+  --container-padding-inline-end: 0px;
+  --container-padding-block-start: 0px;
+  --container-padding-block-end: 0px;
+}
+.app-button[data-size="sm"] {
+  font-size: var(--font-size-sm);
+  padding-block: calc(var(--spacing-3) / 2);
+}
+.app-button-content {
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.app-button.app-table-sort {
+  padding: 0;
+  font: inherit;
+}
+
+.app-popover .app-button, .app-button.text-left, .resume-section-links .app-button {
+  justify-content: flex-start;
+}
+.resume-section-links .app-button > span:first-child,
+.resume-section-links .app-button > span:first-child > span,
+.resume-section-links .app-button-content {
+  width: 100%;
+  justify-content: flex-start;
+}

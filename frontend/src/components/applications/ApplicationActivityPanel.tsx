@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -53,21 +54,23 @@ function ActivityPanelBody({
 }) {
   if (isLoading)
     return (
-      <p className="text-sm text-[var(--color-ink-50)]">Loading activity…</p>
+      <p className="text-sm text-[var(--color-text-secondary)]">
+        Loading activity…
+      </p>
     );
   if (errorMessage) {
     return (
       <div
         className="rounded-lg border p-3"
         style={{
-          borderColor: "var(--color-ember-10)",
-          background: "var(--color-ember-05)",
+          borderColor: "var(--color-error-muted)",
+          background: "var(--color-error-muted)",
         }}
       >
-        <p className="text-sm font-semibold text-[var(--color-ember)]">
+        <p className="text-sm font-semibold text-[var(--color-error)]">
           Activity unavailable
         </p>
-        <p className="mt-1 text-xs text-[var(--color-ink-65)]">
+        <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
           {errorMessage}
         </p>
       </div>
@@ -75,7 +78,9 @@ function ActivityPanelBody({
   }
   if (grouped.length === 0)
     return (
-      <p className="text-sm text-[var(--color-ink-50)]">No activity yet.</p>
+      <p className="text-sm text-[var(--color-text-secondary)]">
+        No activity yet.
+      </p>
     );
 
   return (
@@ -85,7 +90,7 @@ function ActivityPanelBody({
     >
       {grouped.map((group) => (
         <section key={group.label} className="space-y-4">
-          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--color-ink-40)]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--color-text-secondary)]">
             {group.label}
           </div>
           <div className="space-y-4">
@@ -187,9 +192,10 @@ export function ApplicationActivityPanel({
 
   return createPortal(
     <div className="fixed inset-0 z-50">
-      <button
+      <Button
+        variant="ghost"
         type="button"
-        className="absolute inset-0 bg-black/35"
+        className="absolute inset-0"
         aria-label="Close activity panel"
         onClick={onClose}
       />
@@ -197,7 +203,7 @@ export function ApplicationActivityPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Application activity"
-        className="absolute inset-x-0 bottom-0 top-[10%] overflow-hidden border-t bg-white shadow-2xl sm:inset-y-0 sm:left-auto sm:w-[28rem] sm:max-w-[90vw] sm:border-l sm:border-t-0"
+        className="absolute inset-x-0 bottom-0 top-[10%] overflow-hidden border-t bg-[var(--color-background-surface)] shadow-[var(--shadow-high)] sm:inset-y-0 sm:left-auto sm:w-[28rem] sm:max-w-[90vw] sm:border-l sm:border-t-0"
         style={{ borderColor: "var(--color-border)" }}
       >
         <header
@@ -205,23 +211,23 @@ export function ApplicationActivityPanel({
           style={{ borderColor: "var(--color-border)" }}
         >
           <div>
-            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
               Activity Log
             </h2>
-            <p className="mt-1 text-xs text-[var(--color-ink-50)]">
+            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
               Timeline of manual and AI actions for this application.
             </p>
           </div>
-          <button
+          <Button
+            variant="ghost"
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-[var(--color-ink-50)] transition-colors"
-            style={{ borderColor: "var(--color-border)" }}
+            className="inline-flex h-8 w-8 items-center justify-center border transition-colors"
             aria-label="Close activity panel"
           >
             <X size={14} aria-hidden="true" />
-          </button>
+          </Button>
         </header>
         <div className="h-[calc(100%-65px)] overflow-y-auto px-4 py-3">
           <ActivityPanelBody

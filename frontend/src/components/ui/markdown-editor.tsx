@@ -1,7 +1,16 @@
-import { useMemo, useRef, type TextareaHTMLAttributes, type UIEvent } from "react";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  useMemo,
+  useRef,
+  type TextareaHTMLAttributes,
+  type UIEvent,
+} from "react";
 import { cn } from "@/lib/utils";
 
-type MarkdownEditorProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value"> & {
+type MarkdownEditorProps = Omit<
+  TextareaHTMLAttributes<HTMLTextAreaElement>,
+  "value"
+> & {
   value: string;
 };
 
@@ -28,7 +37,10 @@ export function MarkdownEditor({
     return lines.map((line, index) => {
       const displayLine = line.length > 0 ? line : "\u200B";
       return (
-        <span key={`${index}-${line.length}`} className={cn("markdown-editor-line", getHeadingClass(line))}>
+        <span
+          key={`${index}-${line.length}`}
+          className={cn("markdown-editor-line", getHeadingClass(line))}
+        >
           {displayLine}
           {index < lines.length - 1 ? "\n" : ""}
         </span>
@@ -46,7 +58,11 @@ export function MarkdownEditor({
 
   return (
     <div className={cn("markdown-editor", className)}>
-      <pre ref={highlightRef} className="markdown-editor-highlight" aria-hidden="true">
+      <pre
+        ref={highlightRef}
+        className="markdown-editor-highlight"
+        aria-hidden="true"
+      >
         {highlightedLines}
       </pre>
       {!hasContent && placeholder ? (
@@ -54,7 +70,7 @@ export function MarkdownEditor({
           {placeholder}
         </div>
       ) : null}
-      <textarea
+      <Textarea
         {...props}
         value={value}
         onScroll={handleScroll}

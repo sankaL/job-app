@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Trash2 } from "lucide-react";
@@ -77,13 +77,16 @@ function ResumeCard({
   onDelete: () => void;
 }) {
   return (
-    <Card density="compact" className="transition-all hover:shadow-md">
+    <Card
+      density="compact"
+      className="transition-all hover:shadow-[var(--shadow-med)]"
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3
               className="truncate font-display text-lg font-semibold"
-              style={{ color: "var(--color-ink)" }}
+              style={{ color: "var(--color-text-primary)" }}
             >
               {resume.name}
             </h3>
@@ -91,8 +94,8 @@ function ResumeCard({
               <span
                 className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase"
                 style={{
-                  background: "var(--color-spruce-10)",
-                  color: "var(--color-spruce)",
+                  background: "var(--color-accent-muted)",
+                  color: "var(--color-accent)",
                 }}
               >
                 <svg
@@ -109,7 +112,7 @@ function ResumeCard({
           </div>
           <div
             className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs"
-            style={{ color: "var(--color-ink-40)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             <span>
               Created {new Date(resume.created_at).toLocaleDateString()}

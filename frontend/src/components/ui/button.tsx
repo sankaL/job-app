@@ -1,11 +1,36 @@
-import type { ButtonHTMLAttributes, PropsWithChildren } from "react";
+import {
+  Children,
+  isValidElement,
+  type ButtonHTMLAttributes,
+  type PropsWithChildren,
+  type ReactNode,
+  type Ref,
+} from "react";
+import { Button as AstryxButton } from "@astryxdesign/core/Button";
 import { cn } from "@/lib/utils";
 
-type ButtonProps = PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>> & {
-  variant?: "primary" | "secondary" | "danger";
+type ButtonProps = PropsWithChildren<
+  ButtonHTMLAttributes<HTMLButtonElement>
+> & {
+  variant?: "primary" | "secondary" | "danger" | "ghost";
   size?: "sm" | "md" | "lg";
   loading?: boolean;
+  contentLayout?: "inline" | "block";
+  ref?: Ref<HTMLButtonElement>;
 };
+
+function textLabel(children: ReactNode): string {
+  return Children.toArray(children)
+    .map((child): string => {
+      if (typeof child === "string" || typeof child === "number")
+        return String(child);
+      if (isValidElement<{ children?: ReactNode }>(child))
+        return textLabel(child.props.children);
+      return "";
+    })
+    .join(" ")
+    .trim();
+}
 
 export function Button({
   className,
@@ -14,57 +39,41 @@ export function Button({
   loading,
   disabled,
   children,
+  title,
+  style,
+  contentLayout = "inline",
   ...props
 }: ButtonProps) {
-  const isDisabled = disabled || loading;
-
+  const geometry: Record<string, string> = { height: "auto" };
+  for (const token of className?.split(/\s+/) ?? []) {
+    const match = token.match(/^([wh])-(\d+)$/);
+    if (match)
+      geometry[match[1] === "w" ? "width" : "height"] =
+        `${Number(match[2]) / 4}rem`;
+    if (token === "w-full") geometry.width = "100%";
+  }
   return (
-    <button
-      className={cn(
-        "inline-flex items-center justify-center rounded-lg font-semibold transition-all",
-        variant === "primary" && "text-white",
-        variant === "secondary" && "border bg-white hover:bg-gray-50",
-        variant === "danger" && "border hover:bg-red-50",
-        size === "sm" && "px-3 py-1.5 text-xs gap-1.5",
-        size === "md" && "px-4 py-2 text-sm gap-2",
-        size === "lg" && "px-5 py-2.5 text-sm gap-2",
-        isDisabled ? "cursor-not-allowed opacity-50" : "",
-        className,
-      )}
-      style={{
-        ...(variant === "primary"
-          ? { background: "var(--color-ember-light)" }
-          : variant === "secondary"
-          ? { borderColor: "var(--color-border)", color: "var(--color-ink)" }
-          : { borderColor: "var(--color-ember)", color: "var(--color-ember)" }),
-      }}
-      onMouseEnter={(e) => {
-        if (variant === "primary" && !isDisabled) {
-          (e.currentTarget as HTMLButtonElement).style.background = "var(--color-ember)";
-        }
-        if (variant === "secondary" && !isDisabled) {
-          (e.currentTarget as HTMLButtonElement).style.color = "var(--color-spruce)";
-        }
-        props.onMouseEnter?.(e);
-      }}
-      onMouseLeave={(e) => {
-        if (variant === "primary" && !isDisabled) {
-          (e.currentTarget as HTMLButtonElement).style.background = "var(--color-ember-light)";
-        }
-        if (variant === "secondary" && !isDisabled) {
-          (e.currentTarget as HTMLButtonElement).style.color = "var(--color-ink)";
-        }
-        props.onMouseLeave?.(e);
-      }}
-      disabled={isDisabled}
+    <AstryxButton
       {...props}
+      label={props["aria-label"] ?? textLabel(children)}
+      // Let complex visible children and aria-labelledby supply the accessible name.
+      aria-label={props["aria-label"]}
+      {...{ title }}
+      variant={variant === "danger" ? "destructive" : variant}
+      size={size}
+      isLoading={loading}
+      isDisabled={disabled}
+      className={cn("app-button", className)}
+      style={{ ...geometry, ...style }}
     >
-      {loading && (
-        <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="2" strokeDasharray="32" strokeDashoffset="8" strokeLinecap="round" />
-        </svg>
-      )}
-      {children}
-    </button>
+      <span
+        className={cn(
+          "app-button-content",
+          contentLayout === "block" && "app-button-content--block",
+        )}
+      >
+        {children}
+      </span>
+    </AstryxButton>
   );
 }

@@ -48,13 +48,22 @@ function getPayloadKey(item: ChartPayloadItem) {
   return "";
 }
 
-export function ChartContainer({ config, className, style, children, ...props }: ChartContainerProps) {
-  const chartVars = Object.entries(config).reduce<Record<string, string>>((acc, [key, value]) => {
-    if (value.color) {
-      acc[`--color-${key}`] = value.color;
-    }
-    return acc;
-  }, {});
+export function ChartContainer({
+  config,
+  className,
+  style,
+  children,
+  ...props
+}: ChartContainerProps) {
+  const chartVars = Object.entries(config).reduce<Record<string, string>>(
+    (acc, [key, value]) => {
+      if (value.color) {
+        acc[`--color-${key}`] = value.color;
+      }
+      return acc;
+    },
+    {},
+  );
 
   return (
     <ChartConfigContext.Provider value={config}>
@@ -87,27 +96,45 @@ export function ChartTooltipContent({
   return (
     <div
       className="min-w-[160px] rounded-xl border px-3 py-2.5 shadow-sm"
-      style={{ borderColor: "var(--color-border)", background: "rgba(255,255,255,0.96)" }}
+      style={{
+        borderColor: "var(--color-border)",
+        background: "var(--color-background-surface)",
+      }}
     >
-      <div className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: "var(--color-ink-40)" }}>
+      <div
+        className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {labelFormatter ? labelFormatter(label ?? "") : label}
       </div>
       <div className="mt-2 space-y-1.5">
         {payload.map((item) => {
           const key = getPayloadKey(item);
           const chartItem = config[key];
-          const tone = item.color ?? chartItem?.color ?? "var(--color-ink)";
+          const tone =
+            item.color ?? chartItem?.color ?? "var(--color-text-primary)";
 
           return (
-            <div key={key} className="flex items-center justify-between gap-3 text-sm">
+            <div
+              key={key}
+              className="flex items-center justify-between gap-3 text-sm"
+            >
               <div className="flex items-center gap-2">
                 <span
-                  className={cn("inline-block shrink-0 rounded-full", indicator === "line" ? "h-0.5 w-3" : "h-2.5 w-2.5")}
+                  className={cn(
+                    "inline-block shrink-0 rounded-full",
+                    indicator === "line" ? "h-0.5 w-3" : "h-2.5 w-2.5",
+                  )}
                   style={{ background: tone }}
                 />
-                <span style={{ color: "var(--color-ink)" }}>{chartItem?.label ?? key}</span>
+                <span style={{ color: "var(--color-text-primary)" }}>
+                  {chartItem?.label ?? key}
+                </span>
               </div>
-              <span className="font-semibold tabular-nums" style={{ color: "var(--color-ink)" }}>
+              <span
+                className="font-semibold tabular-nums"
+                style={{ color: "var(--color-text-primary)" }}
+              >
                 {item.value ?? 0}
               </span>
             </div>

@@ -1,45 +1,26 @@
 import type { ButtonHTMLAttributes, PropsWithChildren } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type IconButtonProps = PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>> & {
+type IconButtonProps = PropsWithChildren<
+  ButtonHTMLAttributes<HTMLButtonElement>
+> & {
   variant?: "default" | "danger";
 };
 
 export function IconButton({
   className,
   variant = "default",
-  disabled,
-  children,
+  style,
   ...props
 }: IconButtonProps) {
   return (
-    <button
+    <Button
       type="button"
-      disabled={disabled}
-      className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-lg transition-all disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
-      style={{
-        color: variant === "danger" ? "var(--color-ember)" : "var(--color-ink-50)",
-        background: "transparent",
-      }}
-      onMouseEnter={(event) => {
-        if (!disabled) {
-          event.currentTarget.style.background =
-            variant === "danger" ? "rgba(179, 56, 44, 0.08)" : "var(--color-ink-05)";
-        }
-        props.onMouseEnter?.(event);
-      }}
-      onMouseLeave={(event) => {
-        if (!disabled) {
-          event.currentTarget.style.background = "transparent";
-        }
-        props.onMouseLeave?.(event);
-      }}
+      variant={variant === "danger" ? "danger" : "ghost"}
+      className={cn("h-9 w-9 p-0", className)}
+      style={{ width: "2.25rem", height: "2.25rem", padding: 0, ...style }}
       {...props}
-    >
-      {children}
-    </button>
+    />
   );
 }

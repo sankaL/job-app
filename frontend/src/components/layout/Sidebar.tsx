@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useEffect, useState, type ReactNode } from "react";
 import { CreditCard } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -191,12 +192,12 @@ function SidebarNavLink({
       style={({ isActive }) => ({
         background: isActive
           ? compact
-            ? "rgba(255,255,255,0.12)"
-            : "var(--color-sidebar-bg-active)"
+            ? "var(--color-neutral)"
+            : "var(--color-accent-muted)"
           : "transparent",
         color: isActive
-          ? "var(--color-sidebar-text-active)"
-          : "var(--color-sidebar-text)",
+          ? "var(--color-text-primary)"
+          : "var(--color-text-secondary)",
       })}
       onClick={onNavigate}
     >
@@ -211,7 +212,7 @@ function SidebarNavLink({
 
 function SidebarBrand() {
   return (
-    <div className="flex h-16 items-center gap-2.5 border-b border-[var(--color-sidebar-border)] px-5">
+    <div className="flex h-16 items-center gap-2.5 border-b border-[var(--color-border)] px-5">
       <div className="flex h-10 w-10 items-center justify-center overflow-hidden">
         <img
           src="/applix-logo.svg"
@@ -220,10 +221,10 @@ function SidebarBrand() {
         />
       </div>
       <div>
-        <div className="text-sm font-semibold text-[var(--color-sidebar-text-active)]">
+        <div className="text-sm font-semibold text-[var(--color-text-primary)]">
           Applix
         </div>
-        <div className="text-[11px] text-[var(--color-sidebar-text)]">
+        <div className="text-[11px] text-[var(--color-text-secondary)]">
           AI Job Applications
         </div>
       </div>
@@ -252,10 +253,10 @@ function AdminNavigation({
       <div
         className="group flex items-center rounded-lg transition-all"
         style={{
-          background: active ? "var(--color-sidebar-bg-active)" : "transparent",
+          background: active ? "var(--color-accent-muted)" : "transparent",
           color: active
-            ? "var(--color-sidebar-text-active)"
-            : "var(--color-sidebar-text)",
+            ? "var(--color-text-primary)"
+            : "var(--color-text-secondary)",
         }}
       >
         <NavLink
@@ -268,11 +269,12 @@ function AdminNavigation({
           </span>
           <span className="truncate">Admin</span>
         </NavLink>
-        <button
+        <Button
+          variant="ghost"
           type="button"
           aria-label={expanded ? "Collapse admin menu" : "Expand admin menu"}
           aria-expanded={expanded}
-          className="mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-inherit transition-colors hover:bg-white/10"
+          className="mr-1 inline-flex h-7 w-7 items-center justify-center text-inherit transition-colors"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -280,10 +282,10 @@ function AdminNavigation({
           }}
         >
           <IconChevron open={expanded} />
-        </button>
+        </Button>
       </div>
       {expanded ? (
-        <div className="ml-4 mt-1 space-y-1 border-l border-white/15 pl-2.5">
+        <div className="ml-4 mt-1 space-y-1 border-l border-[var(--color-border)] pl-2.5">
           {items.map((item) => (
             <SidebarNavLink
               key={item.to}
@@ -301,13 +303,14 @@ function AdminNavigation({
 function SidebarSignOut({ onSignOut }: { onSignOut: () => void }) {
   return (
     <div className="px-3 pb-4">
-      <button
+      <Button
+        variant="ghost"
         onClick={onSignOut}
-        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[var(--color-sidebar-text)] transition-all hover:bg-[var(--color-sidebar-bg-hover)]"
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-all"
       >
         <IconSignOut />
         <span>Sign Out</span>
-      </button>
+      </Button>
     </div>
   );
 }
@@ -355,8 +358,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       style={{
         width: "var(--sidebar-width)",
         height: "100dvh",
-        background: "var(--color-sidebar-bg)",
-        borderColor: "var(--color-sidebar-border)",
+        background: "var(--color-background-surface)",
+        borderColor: "var(--color-border)",
       }}
     >
       <SidebarBrand />

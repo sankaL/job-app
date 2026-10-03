@@ -117,12 +117,12 @@ function AccessRequestForm(props: AccessRequestFormProps) {
         />
       </div>
       {props.error && (
-        <div className="rounded-lg border border-[var(--color-ember-10)] bg-[var(--color-ember-05)] px-4 py-3 text-sm text-ember">
+        <div className="rounded-lg border border-[var(--color-error-muted)] bg-[var(--color-error-muted)] px-4 py-3 text-sm text-[var(--color-error)]">
           {props.error}
         </div>
       )}
       {props.succeeded && (
-        <div className="rounded-lg border border-[var(--color-spruce-10)] bg-[var(--color-spruce-05)] px-4 py-3 text-sm text-spruce">
+        <div className="rounded-lg border border-[var(--color-accent-muted)] bg-[var(--color-accent-muted)] px-4 py-3 text-sm text-[var(--color-accent)]">
           Request sent. Applix is still in beta, and the admin team will reach
           out by email if early access is available.
         </div>
@@ -186,19 +186,19 @@ function AccessRequestPage() {
       <div className="mt-8">
         <p
           className="text-xs font-semibold"
-          style={{ color: "var(--color-spruce)" }}
+          style={{ color: "var(--color-accent)" }}
         >
           Invite-only beta
         </p>
         <h1
           className="mt-3 max-w-lg font-display text-3xl leading-[1.08] sm:text-4xl lg:text-[2.75rem]"
-          style={{ color: "var(--color-ink)" }}
+          style={{ color: "var(--color-text-primary)" }}
         >
           Request access to Applix
         </h1>
         <p
           className="mt-5 max-w-lg text-base leading-7 sm:text-lg"
-          style={{ color: "var(--color-ink-65)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           Tell us where to reach you. If there is room in the beta, an admin
           will follow up by email with an invite link.
@@ -219,9 +219,15 @@ function AccessRequestPage() {
           onNoteChange={setNote}
           onSubmit={handleSubmit}
         />
-        <p className="mt-5 text-sm" style={{ color: "var(--color-ink-50)" }}>
+        <p
+          className="mt-5 text-sm"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
           Already invited? Open your invite link, or{" "}
-          <Link to="/login" className="font-semibold text-spruce">
+          <Link
+            to="/login"
+            className="font-semibold text-[var(--color-accent)]"
+          >
             log in
           </Link>
           .
@@ -336,11 +342,11 @@ function InviteForm(props: InviteFormProps) {
           />
         </div>
       </div>
-      <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>
+      <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
         Use 12+ characters with uppercase, lowercase, a number, and a symbol.
       </p>
       {props.error && (
-        <div className="rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-sm text-ember">
+        <div className="rounded-2xl border border-[var(--color-error-muted)] bg-[var(--color-error-muted)] px-4 py-3 text-sm text-[var(--color-error)]">
           {props.error}
         </div>
       )}
@@ -373,13 +379,16 @@ function InviteStatus({
 }) {
   if (loading)
     return (
-      <div className="mt-6 text-sm" style={{ color: "var(--color-ink-50)" }}>
+      <div
+        className="mt-6 text-sm"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         Loading invite details…
       </div>
     );
   if (error)
     return (
-      <div className="mt-6 rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-sm text-ember">
+      <div className="mt-6 rounded-2xl border border-[var(--color-error-muted)] bg-[var(--color-error-muted)] px-4 py-3 text-sm text-[var(--color-error)]">
         {error}
       </div>
     );
@@ -389,14 +398,14 @@ function InviteStatus({
         <div
           className="mt-6 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium"
           style={{
-            background: "var(--color-spruce-05)",
-            color: "var(--color-spruce)",
-            border: "1px solid var(--color-spruce-10)",
+            background: "var(--color-accent-muted)",
+            color: "var(--color-accent)",
+            border: "1px solid var(--color-accent-muted)",
           }}
         >
           <span>Invite active</span>
-          <span style={{ color: "var(--color-ink-50)" }}>·</span>
-          <span style={{ color: "var(--color-ink-65)" }}>
+          <span style={{ color: "var(--color-text-secondary)" }}>·</span>
+          <span style={{ color: "var(--color-text-secondary)" }}>
             Expires {expiryLabel}
           </span>
         </div>
@@ -506,19 +515,19 @@ function InviteSignupPage({ token }: { token: string }) {
       <div className="mt-8">
         <p
           className="text-xs font-semibold uppercase tracking-[0.22em]"
-          style={{ color: "var(--color-spruce)" }}
+          style={{ color: "var(--color-accent)" }}
         >
           Invite-only MVP
         </p>
         <h1
           className="mt-3 max-w-lg font-display text-3xl leading-[1.08] sm:text-4xl lg:text-[2.75rem]"
-          style={{ color: "var(--color-ink)" }}
+          style={{ color: "var(--color-text-primary)" }}
         >
           Finish account setup
         </h1>
         <p
           className="mt-5 max-w-lg text-base leading-7 sm:text-lg"
-          style={{ color: "var(--color-ink-65)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           Create your profile and password to enter the invite-only workspace.
         </p>

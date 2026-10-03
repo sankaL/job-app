@@ -35,14 +35,14 @@ export function ModalShell({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !closeDisabled) onClose();
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onClose, open]);
+  }, [onClose, open, closeDisabled]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -50,10 +50,10 @@ export function ModalShell({
     <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
       <div
         aria-hidden="true"
-        onClick={onClose}
+        onClick={closeDisabled ? undefined : onClose}
         className="absolute inset-0"
         style={{
-          background: "rgba(16, 24, 40, 0.48)",
+          background: "var(--color-overlay)",
           backdropFilter: "blur(6px)",
           animation: "fadeIn 220ms var(--ease-out) both",
         }}
@@ -66,10 +66,10 @@ export function ModalShell({
         className="animate-scaleIn relative z-[1] overflow-hidden"
         style={{
           width,
-          borderRadius: "var(--radius-xl)",
+          borderRadius: "var(--radius-container)",
           border: "1px solid var(--color-border)",
-          background: "var(--color-white)",
-          boxShadow: "var(--shadow-panel)",
+          background: "var(--color-background-surface)",
+          boxShadow: "var(--shadow-high)",
         }}
       >
         <div
@@ -80,28 +80,39 @@ export function ModalShell({
             <div className="flex items-center gap-2">
               <div
                 className="flex h-7 w-7 items-center justify-center rounded-lg"
-                style={{ background: "var(--color-spruce)", color: "white" }}
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-on-accent)",
+                }}
               >
                 {icon}
               </div>
-              <h2 id={titleId} className="text-base font-semibold" style={{ color: "var(--color-ink)" }}>
+              <h2
+                id={titleId}
+                className="text-base font-semibold"
+                style={{ color: "var(--color-text-primary)" }}
+              >
                 {title}
               </h2>
             </div>
-            <p id={descriptionId} className="text-sm leading-relaxed" style={{ color: "var(--color-ink-50)" }}>
+            <p
+              id={descriptionId}
+              className="text-sm leading-relaxed"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
               {description}
             </p>
           </div>
-          <button
+          <Button
+            variant="ghost"
             type="button"
             aria-label={closeLabel}
             onClick={onClose}
             disabled={closeDisabled}
-            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border transition-all disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ color: "var(--color-ink-40)", background: "transparent", borderColor: "var(--color-border)" }}
+            className="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center border transition-all disabled:cursor-not-allowed disabled:opacity-50"
           >
             <X size={15} aria-hidden="true" />
-          </button>
+          </Button>
         </div>
         {children}
       </div>
@@ -116,9 +127,9 @@ export function ModalError({ message }: { message: string | null }) {
     <div
       className="rounded-xl border px-4 py-3 text-sm"
       style={{
-        color: "var(--color-ember)",
-        borderColor: "var(--color-ember-10)",
-        background: "var(--color-ember-05)",
+        color: "var(--color-error)",
+        borderColor: "var(--color-error-muted)",
+        background: "var(--color-error-muted)",
       }}
     >
       {message}
@@ -132,10 +143,22 @@ type ModalActionsProps = {
   submitLabel: ReactNode;
 };
 
-export function ModalActions({ onCancel, submitting, submitLabel }: ModalActionsProps) {
+export function ModalActions({
+  onCancel,
+  submitting,
+  submitLabel,
+}: ModalActionsProps) {
   return (
-    <div className="mt-5 flex items-center justify-end gap-2 border-t pt-5" style={{ borderColor: "var(--color-border)" }}>
-      <Button type="button" variant="secondary" onClick={onCancel} disabled={submitting}>
+    <div
+      className="mt-5 flex items-center justify-end gap-2 border-t pt-5"
+      style={{ borderColor: "var(--color-border)" }}
+    >
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={onCancel}
+        disabled={submitting}
+      >
         Cancel
       </Button>
       <Button type="submit" loading={submitting} disabled={submitting}>

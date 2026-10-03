@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { Clock3, TriangleAlert } from "lucide-react";
 import type { ApplicationActivityEvent } from "@/lib/api";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
@@ -122,10 +123,10 @@ function DetailLine({
   if (value === null || value === undefined || value === "") return null;
   return (
     <div>
-      <span style={{ color: "var(--color-ink-40)" }}>{label}: </span>
+      <span style={{ color: "var(--color-text-secondary)" }}>{label}: </span>
       <span
         className={emphasized ? "font-medium" : undefined}
-        style={{ color: "var(--color-ink)" }}
+        style={{ color: "var(--color-text-primary)" }}
       >
         {String(value)}
       </span>
@@ -166,18 +167,20 @@ function InstructionBlock({
       className="mt-1 border-l-2 pl-2"
       style={{
         borderColor: judge
-          ? "var(--color-ember-30, var(--color-ember))"
-          : "var(--color-ink-20)",
+          ? "var(--color-error-muted)"
+          : "var(--color-border-emphasized)",
       }}
     >
       <span
-        style={{ color: judge ? "var(--color-ember)" : "var(--color-ink-40)" }}
+        style={{
+          color: judge ? "var(--color-error)" : "var(--color-text-secondary)",
+        }}
       >
         {label}:{" "}
       </span>
       <p
         className="mt-0.5 whitespace-pre-line font-normal italic"
-        style={{ color: "var(--color-ink-65)" }}
+        style={{ color: "var(--color-text-secondary)" }}
       >
         &quot;{formatted}&quot;
       </p>
@@ -214,9 +217,9 @@ function LengthDiagnostics({ details }: { details: ActivityDetails }) {
   return (
     <div
       className="mt-1 space-y-0.5 border-l-2 pl-2"
-      style={{ borderColor: "var(--color-ink-20)" }}
+      style={{ borderColor: "var(--color-border-emphasized)" }}
     >
-      <div style={{ color: "var(--color-ink-40)" }}>Length check:</div>
+      <div style={{ color: "var(--color-text-secondary)" }}>Length check:</div>
       <DetailLine
         label="Generated"
         value={`${formatNumber(diagnostics.generated_word_count) ?? "Unknown"} words`}
@@ -252,14 +255,16 @@ function JudgeDetails({ details }: { details: ActivityDetails }) {
       />
       {verdict ? (
         <div>
-          <span style={{ color: "var(--color-ink-40)" }}>Verdict: </span>
+          <span style={{ color: "var(--color-text-secondary)" }}>
+            Verdict:{" "}
+          </span>
           <span
             className="font-medium"
             style={{
               color:
                 verdict.toLowerCase() === "pass"
-                  ? "var(--color-spruce)"
-                  : "var(--color-ember)",
+                  ? "var(--color-accent)"
+                  : "var(--color-error)",
             }}
           >
             {verdict.toUpperCase() === "PASS" ? "Pass" : verdict}
@@ -286,12 +291,14 @@ function AttemptTimeline({
   if (!attempts.length) return null;
   return (
     <div className="space-y-1">
-      <div style={{ color: "var(--color-ink-40)" }}>Attempt timeline:</div>
+      <div style={{ color: "var(--color-text-secondary)" }}>
+        Attempt timeline:
+      </div>
       <ol className="space-y-1 pl-4">
         {attempts.map((attempt, index) => (
           <li
             key={`${attempt.model ?? "unknown"}-${index}`}
-            style={{ color: "var(--color-ink)" }}
+            style={{ color: "var(--color-text-primary)" }}
           >
             {index + 1}. {attempt.model ?? "Unknown model"}
             {attempt.outcome ? ` · ${attempt.outcome}` : ""}
@@ -309,10 +316,12 @@ function ValidationErrors({ errors }: { errors: unknown }) {
   if (!Array.isArray(errors) || errors.length === 0) return null;
   return (
     <div className="space-y-1">
-      <div style={{ color: "var(--color-ink-40)" }}>Validation errors:</div>
+      <div style={{ color: "var(--color-text-secondary)" }}>
+        Validation errors:
+      </div>
       <ul
         className="list-disc space-y-1 pl-4"
-        style={{ color: "var(--color-ink)" }}
+        style={{ color: "var(--color-text-primary)" }}
       >
         {errors.map((errorLine) => (
           <li key={String(errorLine)}>{String(errorLine)}</li>
@@ -398,20 +407,20 @@ function ActivityRow({
         <div className="min-w-0">
           <p
             className="text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+            style={{ color: "var(--color-text-primary)" }}
           >
             {item.title}
           </p>
           <p
             className="mt-0.5 text-xs"
-            style={{ color: "var(--color-ink-65)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             {item.summary}
           </p>
         </div>
         <span
           className="shrink-0 text-[11px] font-medium"
-          style={{ color: "var(--color-ink-40)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {formatTime(item.created_at)}
         </span>
@@ -421,9 +430,11 @@ function ActivityRow({
           className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold uppercase tracking-[0.12em]"
           style={{
             background: failure
-              ? "var(--color-ember-10)"
-              : "var(--color-ink-05)",
-            color: failure ? "var(--color-ember)" : "var(--color-ink-50)",
+              ? "var(--color-error-muted)"
+              : "var(--color-background-muted)",
+            color: failure
+              ? "var(--color-error)"
+              : "var(--color-text-secondary)",
           }}
         >
           {failure ? (
@@ -434,7 +445,7 @@ function ActivityRow({
           {label}
         </span>
         {expandable ? (
-          <span style={{ color: "var(--color-spruce)" }}>
+          <span style={{ color: "var(--color-accent)" }}>
             {expanded ? "Hide details" : "Details"}
           </span>
         ) : null}
@@ -455,10 +466,10 @@ export function ApplicationActivityItem({
   const expandable = hasExpandableActivityDetails(item);
   const failure = item.status === "failure";
   const dotColor = failure
-    ? "var(--color-ember)"
+    ? "var(--color-error)"
     : item.status === "success"
-      ? "var(--color-spruce)"
-      : "var(--color-ink-20)";
+      ? "var(--color-accent)"
+      : "var(--color-border-emphasized)";
   const row = (
     <ActivityRow item={item} expanded={expanded} expandable={expandable} />
   );
@@ -466,19 +477,20 @@ export function ApplicationActivityItem({
   return (
     <article className="group/item relative">
       <div
-        className="absolute left-[-29px] top-1.5 h-2.5 w-2.5 rounded-full border-2 bg-white transition-transform group-hover/item:scale-110"
+        className="absolute left-[-29px] top-1.5 h-2.5 w-2.5 rounded-full border-2 bg-[var(--color-background-surface)] transition-transform group-hover/item:scale-110"
         style={{ borderColor: dotColor }}
       />
       {expandable ? (
-        <button
+        <Button
+          variant="ghost"
           type="button"
           onClick={onToggle}
-          className="-m-1.5 w-full rounded-md p-1.5 text-left transition-colors hover:bg-[var(--color-ink-05)]"
+          className="-m-1.5 w-full p-1.5 text-left transition-colors"
           aria-expanded={expanded}
           aria-controls={`activity-details-${item.id}`}
         >
           {row}
-        </button>
+        </Button>
       ) : (
         <div className="-m-1.5 rounded-md p-1.5">{row}</div>
       )}
@@ -486,8 +498,8 @@ export function ApplicationActivityItem({
         <p
           className="mt-2 rounded-md border px-2 py-1.5 text-xs"
           style={{
-            borderColor: "var(--color-ember-10)",
-            color: "var(--color-ember)",
+            borderColor: "var(--color-error-muted)",
+            color: "var(--color-error)",
           }}
         >
           {item.failure_message}

@@ -1936,11 +1936,11 @@ describe("phase 1 applications UI", () => {
     expect(missingKeywordPill as HTMLElement).not.toHaveTextContent(/missing/i);
     expect(matchedKeywordPill as HTMLElement).toHaveAttribute(
       "style",
-      expect.stringContaining("var(--color-spruce)"),
+      expect.stringContaining("var(--color-accent)"),
     );
     expect(missingKeywordPill as HTMLElement).toHaveAttribute(
       "style",
-      expect.stringContaining("var(--color-ember)"),
+      expect.stringContaining("var(--color-error)"),
     );
     expect(within(dialog).getByText(/2\/3/i)).toBeInTheDocument();
     expect(
@@ -3356,7 +3356,7 @@ describe("phase 1 applications UI", () => {
       updated_at: "2026-04-07T12:00:00Z",
     });
 
-    const { container } = renderWithAppProvider(
+    renderWithAppProvider(
       <Routes>
         <Route
           path="/app/applications/:applicationId"

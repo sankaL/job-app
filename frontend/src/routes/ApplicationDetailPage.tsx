@@ -1,3 +1,4 @@
+import { PopoverSurface } from "@/components/ui/card";
 import {
   FormEvent,
   useEffect,
@@ -56,11 +57,7 @@ import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import {
   cancelExtraction,
   deleteApplication,
-  fetchApplicationDetail,
-  fetchApplicationProgress,
   fetchBaseResume,
-  fetchDraft,
-  listBaseResumes,
   patchApplication,
   recoverApplicationFromSource,
   resolveDuplicate,
@@ -248,7 +245,7 @@ function NotesCard({
     <Card density="compact" className="p-4">
       <h3
         className="text-xs font-semibold uppercase tracking-wider"
-        style={{ color: "var(--color-ink-40)" }}
+        style={{ color: "var(--color-text-secondary)" }}
       >
         Notes
       </h3>
@@ -258,7 +255,10 @@ function NotesCard({
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
-      <p className="mt-2 text-xs" style={{ color: "var(--color-ink-40)" }}>
+      <p
+        className="mt-2 text-xs"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {status}
       </p>
     </Card>
@@ -349,25 +349,25 @@ function isResumeJudgeStale(detail: ApplicationDetail | null) {
 function resumeJudgeTone(verdict: string | null | undefined) {
   if (verdict === "pass") {
     return {
-      accent: "var(--color-spruce)",
-      bg: "var(--color-spruce-05)",
-      border: "var(--color-spruce-10)",
-      muted: "var(--color-ink-65)",
+      accent: "var(--color-accent)",
+      bg: "var(--color-accent-muted)",
+      border: "var(--color-accent-muted)",
+      muted: "var(--color-text-secondary)",
     };
   }
   if (verdict === "warn") {
     return {
-      accent: "var(--color-amber)",
-      bg: "var(--color-amber-10)",
-      border: "rgba(180,83,9,0.2)",
-      muted: "var(--color-ink-65)",
+      accent: "var(--color-warning)",
+      bg: "var(--color-warning-muted)",
+      border: "var(--color-warning-muted)",
+      muted: "var(--color-text-secondary)",
     };
   }
   return {
-    accent: "var(--color-ember)",
-    bg: "var(--color-ember-05)",
-    border: "var(--color-ember-10)",
-    muted: "var(--color-ink-65)",
+    accent: "var(--color-error)",
+    bg: "var(--color-error-muted)",
+    border: "var(--color-error-muted)",
+    muted: "var(--color-text-secondary)",
   };
 }
 
@@ -449,29 +449,29 @@ function keywordTone(
 ) {
   if (status === "failed") {
     return {
-      accent: "var(--color-ember)",
-      bg: "var(--color-ember-05)",
-      border: "var(--color-ember-10)",
+      accent: "var(--color-error)",
+      bg: "var(--color-error-muted)",
+      border: "var(--color-error-muted)",
     };
   }
   if (!match) {
     return {
-      accent: "var(--color-ink-50)",
-      bg: "var(--color-ink-05)",
+      accent: "var(--color-text-secondary)",
+      bg: "var(--color-background-muted)",
       border: "var(--color-border)",
     };
   }
   if (match.target_met) {
     return {
-      accent: "var(--color-spruce)",
-      bg: "var(--color-spruce-05)",
-      border: "var(--color-spruce-10)",
+      accent: "var(--color-accent)",
+      bg: "var(--color-accent-muted)",
+      border: "var(--color-accent-muted)",
     };
   }
   return {
-    accent: "var(--color-amber)",
-    bg: "var(--color-amber-10)",
-    border: "rgba(180,83,9,0.2)",
+    accent: "var(--color-warning)",
+    bg: "var(--color-warning-muted)",
+    border: "var(--color-warning-muted)",
   };
 }
 
@@ -813,7 +813,7 @@ function KeywordCoverageBody({
     <div className="mt-3">
       <div
         className="flex items-center justify-between gap-3 text-[11px]"
-        style={{ color: "var(--color-ink-50)" }}
+        style={{ color: "var(--color-text-secondary)" }}
       >
         <span>Target {match.target_percentage}%</span>
         <span style={{ color: tone.accent }}>
@@ -822,7 +822,7 @@ function KeywordCoverageBody({
       </div>
       <div
         className="mt-2 h-2 overflow-hidden rounded-full"
-        style={{ background: "rgba(15,23,42,0.08)" }}
+        style={{ background: "var(--color-border)" }}
       >
         <div
           className="h-full rounded-full transition-all"
@@ -832,7 +832,10 @@ function KeywordCoverageBody({
           }}
         />
       </div>
-      <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-50)" }}>
+      <p
+        className="mt-2 text-[11px]"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {manualLabel}
       </p>
     </div>
@@ -869,10 +872,16 @@ function KeywordMatchCard({
       data-testid="keyword-match-card"
       style={{
         borderColor: tone.border,
-        background: `linear-gradient(145deg, ${tone.bg} 0%, white 88%)`,
+        background: `linear-gradient(145deg, ${tone.bg} 0%, var(--color-background-surface) 88%)`,
       }}
     >
-      <button type="button" className="w-full p-3 text-left" onClick={onOpen}>
+      <Button
+        contentLayout="block"
+        variant="ghost"
+        type="button"
+        className="w-full p-3 text-left"
+        onClick={onOpen}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <span
@@ -884,13 +893,13 @@ function KeywordMatchCard({
             <div>
               <p
                 className="text-[10px] font-semibold uppercase tracking-[0.22em]"
-                style={{ color: "var(--color-ink-50)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 ATS Keywords
               </p>
               <p
                 className="mt-1 text-sm font-semibold"
-                style={{ color: "var(--color-ink)" }}
+                style={{ color: "var(--color-text-primary)" }}
               >
                 {summary}
               </p>
@@ -900,7 +909,7 @@ function KeywordMatchCard({
             <span
               className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
               style={{
-                background: "rgba(255,255,255,0.72)",
+                background: "var(--color-background-surface)",
                 color: tone.accent,
               }}
             >
@@ -909,7 +918,7 @@ function KeywordMatchCard({
             <ExternalLink
               size={14}
               aria-hidden="true"
-              style={{ color: "var(--color-ink-50)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             />
           </div>
         </div>
@@ -923,12 +932,12 @@ function KeywordMatchCard({
         ) : (
           <p
             className="mt-3 text-xs leading-5"
-            style={{ color: "var(--color-ink-65)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             {keywordEmptyMessage(jobKeywords, updating)}
           </p>
         )}
-      </button>
+      </Button>
     </Card>
   );
 }
@@ -941,22 +950,22 @@ function getKeywordPillPresentation(
   if (matched)
     return {
       label: "matched keyword",
-      color: "var(--color-spruce)",
-      border: "var(--color-spruce-10)",
-      background: "var(--color-spruce-05)",
+      color: "var(--color-accent)",
+      border: "var(--color-accent-muted)",
+      background: "var(--color-accent-muted)",
     };
   if (missing)
     return {
       label: "missing keyword",
-      color: "var(--color-ember)",
-      border: "var(--color-ember-10)",
-      background: "var(--color-ember-05)",
+      color: "var(--color-error)",
+      border: "var(--color-error-muted)",
+      background: "var(--color-error-muted)",
     };
   return {
     label: `${entry.source} keyword`,
-    color: "var(--color-ink)",
+    color: "var(--color-text-primary)",
     border: "var(--color-border)",
-    background: "var(--color-ink-05)",
+    background: "var(--color-background-muted)",
   };
 }
 
@@ -971,19 +980,16 @@ function ManualKeywordRemove({
 }) {
   if (entry.source !== "manual") return null;
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
-      className="ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
-      style={{
-        background: "rgba(15,23,42,0.08)",
-        color: "var(--color-ink-50)",
-      }}
+      className="ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center"
       aria-label={`Remove ${entry.text}`}
       disabled={saving}
       onClick={() => onRemove(entry.text)}
     >
       <X size={11} aria-hidden="true" />
-    </button>
+    </Button>
   );
 }
 
@@ -1039,13 +1045,13 @@ function KeywordGroup({
       <div className="flex items-center justify-between gap-3">
         <p
           className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-          style={{ color: "var(--color-ink-50)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {label}
         </p>
         <span
           className="text-xs font-semibold"
-          style={{ color: "var(--color-ink-50)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {entries.length}
           {limit ? `/${limit}` : ""}
@@ -1066,7 +1072,7 @@ function KeywordGroup({
         ) : (
           <p
             className="text-xs leading-5"
-            style={{ color: "var(--color-ink-50)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             No {label.toLowerCase()} keywords.
           </p>
@@ -1137,13 +1143,13 @@ function KeywordDialogHeader({
         <div>
           <p
             className="text-[11px] font-semibold uppercase tracking-[0.24em]"
-            style={{ color: "var(--color-ink-50)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             ATS Keywords
           </p>
           <h2
             className="mt-2 text-xl font-semibold"
-            style={{ color: "var(--color-ink)" }}
+            style={{ color: "var(--color-text-primary)" }}
           >
             Keyword breakdown
           </h2>
@@ -1161,13 +1167,14 @@ function KeywordDialogHeader({
           >
             {badge}
           </span>
-          <button
+          <Button
+            variant="ghost"
             type="button"
-            className="rounded-full px-3 py-1.5 text-sm font-semibold"
+            className="px-3 py-1.5 text-sm"
             onClick={onClose}
           >
             Close
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -1192,7 +1199,7 @@ function KeywordOptimization({
     >
       <p
         className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-        style={{ color: "var(--color-ink-50)" }}
+        style={{ color: "var(--color-text-secondary)" }}
       >
         Optimization
       </p>
@@ -1200,19 +1207,20 @@ function KeywordOptimization({
         <span>Missing keywords</span>
         <span className="font-semibold">{missingCount}</span>
       </div>
-      <button
+      <Button
+        variant="ghost"
         type="button"
         disabled={Boolean(blocker) || optimizing}
-        className="ai-button mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
+        className="mt-4 inline-flex w-full items-center justify-center gap-1.5 px-4 py-2 text-sm disabled:opacity-50"
         onClick={onOptimize}
       >
         <Sparkles size={14} />
         {optimizing ? "Starting..." : "Optimize for missing keywords"}
-      </button>
+      </Button>
       {blocker && (
         <p
           className="mt-2 text-xs leading-5"
-          style={{ color: "var(--color-ink-50)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {blocker}
         </p>
@@ -1232,7 +1240,7 @@ function KeywordDialogSidebar(
       className="space-y-6 border-t px-6 py-5 lg:border-l lg:border-t-0"
       style={{
         borderColor: "var(--color-border)",
-        background: "var(--color-ink-05)",
+        background: "var(--color-background-muted)",
       }}
     >
       <form onSubmit={props.onAdd}>
@@ -1283,9 +1291,9 @@ function KeywordDialogContent(
         width: "min(920px, 100%)",
         maxHeight: "calc(100vh - 48px)",
         overflowY: "auto",
-        borderRadius: "24px",
+        borderRadius: "var(--radius-container)",
         background: "white",
-        boxShadow: "var(--shadow-panel)",
+        boxShadow: "var(--shadow-high)",
       }}
       role="dialog"
       aria-modal="true"
@@ -1376,7 +1384,7 @@ function KeywordDialog(props: KeywordDialogProps) {
         style={{
           position: "absolute",
           inset: 0,
-          background: "rgba(16, 24, 40, 0.52)",
+          background: "var(--color-overlay)",
           backdropFilter: "blur(8px)",
         }}
       />
@@ -1395,22 +1403,22 @@ function PendingResumeJudgeCard() {
       className="w-full p-3"
       data-testid="resume-judge-card"
       style={{
-        borderColor: "var(--color-spruce-10)",
+        borderColor: "var(--color-accent-muted)",
         background:
-          "linear-gradient(145deg, color-mix(in srgb, var(--color-spruce) 8%, white) 0%, white 88%)",
+          "linear-gradient(145deg, color-mix(in srgb, var(--color-accent) 8%, white) 0%, var(--color-background-surface) 88%)",
       }}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <span
             className="text-[10px] font-semibold uppercase tracking-[0.22em]"
-            style={{ color: "var(--color-ink-50)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             Resume Judge
           </span>
           <p
             className="mt-1.5 text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+            style={{ color: "var(--color-text-primary)" }}
           >
             Scoring draft
           </p>
@@ -1418,8 +1426,8 @@ function PendingResumeJudgeCard() {
         <span
           className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
           style={{
-            background: "var(--color-spruce-05)",
-            color: "var(--color-spruce)",
+            background: "var(--color-accent-muted)",
+            color: "var(--color-accent)",
           }}
         >
           Running
@@ -1429,13 +1437,13 @@ function PendingResumeJudgeCard() {
         <span
           className="inline-block h-2.5 w-2.5 rounded-full"
           style={{
-            background: "var(--color-spruce)",
-            boxShadow: "0 0 0 6px var(--color-spruce-05)",
+            background: "var(--color-accent)",
+            boxShadow: "0 0 0 6px var(--color-accent-muted)",
           }}
         />
         <span
           className="text-xs leading-5"
-          style={{ color: "var(--color-ink-65)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           The draft is ready. Judge feedback will appear here shortly.
         </span>
@@ -1549,7 +1557,9 @@ function UnavailableResumeJudgeCard({
   onTrigger: () => void;
 }) {
   const copy = getUnavailableJudgeCopy(result, stale, runLimit, triggering);
-  const accent = copy.alert ? "var(--color-ember)" : "var(--color-ink-50)";
+  const accent = copy.alert
+    ? "var(--color-error)"
+    : "var(--color-text-secondary)";
   return (
     <Card
       density="compact"
@@ -1557,24 +1567,24 @@ function UnavailableResumeJudgeCard({
       data-testid="resume-judge-card"
       style={{
         borderColor: copy.alert
-          ? "var(--color-ember-10)"
+          ? "var(--color-error-muted)"
           : "var(--color-border)",
         background: copy.alert
-          ? "linear-gradient(145deg, var(--color-ember-05) 0%, white 86%)"
-          : "linear-gradient(145deg, var(--color-ink-05) 0%, white 86%)",
+          ? "linear-gradient(145deg, var(--color-error-muted) 0%, white 86%)"
+          : "linear-gradient(145deg, var(--color-background-muted) 0%, white 86%)",
       }}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <span
             className="text-[10px] font-semibold uppercase tracking-[0.22em]"
-            style={{ color: "var(--color-ink-50)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             Resume Judge
           </span>
           <p
             className="mt-1.5 text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+            style={{ color: "var(--color-text-primary)" }}
           >
             {copy.title}
           </p>
@@ -1583,8 +1593,8 @@ function UnavailableResumeJudgeCard({
           className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
           style={{
             background: copy.alert
-              ? "var(--color-ember-05)"
-              : "var(--color-ink-05)",
+              ? "var(--color-error-muted)"
+              : "var(--color-background-muted)",
             color: accent,
           }}
         >
@@ -1593,7 +1603,7 @@ function UnavailableResumeJudgeCard({
       </div>
       <p
         className="mt-2.5 text-xs leading-5"
-        style={{ color: "var(--color-ink-65)" }}
+        style={{ color: "var(--color-text-secondary)" }}
       >
         {copy.message}
       </p>
@@ -1625,9 +1635,10 @@ function CompletedResumeJudgeCard({
   onOpen: () => void;
 }) {
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
-      className="block w-full rounded-[1.35rem] text-left transition-transform duration-150 hover:-translate-y-0.5"
+      className="block w-full text-left transition-transform duration-150 hover:-translate-y-0.5"
       data-testid="resume-judge-card"
       onClick={onOpen}
     >
@@ -1635,18 +1646,18 @@ function CompletedResumeJudgeCard({
         density="compact"
         className="p-3"
         style={{
-          borderColor: stale ? "var(--color-amber)" : tone.border,
+          borderColor: stale ? "var(--color-warning)" : tone.border,
           background: stale
-            ? "linear-gradient(145deg, var(--color-amber-10) 0%, white 90%)"
-            : `linear-gradient(145deg, ${tone.bg} 0%, white 88%)`,
-          boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+            ? "linear-gradient(145deg, var(--color-warning-muted) 0%, white 90%)"
+            : `linear-gradient(145deg, ${tone.bg} 0%, var(--color-background-surface) 88%)`,
+          boxShadow: "var(--shadow-med)",
         }}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <span
               className="text-[10px] font-semibold uppercase tracking-[0.22em]"
-              style={{ color: "var(--color-ink-50)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             >
               Resume Judge
             </span>
@@ -1654,7 +1665,7 @@ function CompletedResumeJudgeCard({
               className="mt-2 text-[11px] leading-5"
               title={summary}
               style={{
-                color: "var(--color-ink-65)",
+                color: "var(--color-text-secondary)",
                 display: "-webkit-box",
                 WebkitBoxOrient: "vertical",
                 WebkitLineClamp: 2,
@@ -1669,9 +1680,9 @@ function CompletedResumeJudgeCard({
               className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
               style={{
                 background: stale
-                  ? "rgba(180, 83, 9, 0.12)"
-                  : "rgba(255,255,255,0.7)",
-                color: stale ? "var(--color-amber)" : tone.accent,
+                  ? "var(--color-warning-muted)"
+                  : "var(--color-background-surface)",
+                color: stale ? "var(--color-warning)" : tone.accent,
               }}
             >
               {stale ? "Stale" : resumeJudgeVerdictLabel(result.verdict)}
@@ -1679,8 +1690,8 @@ function CompletedResumeJudgeCard({
             <span
               className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
               style={{
-                background: "rgba(255,255,255,0.82)",
-                color: stale ? "var(--color-amber)" : tone.accent,
+                background: "var(--color-background-surface)",
+                color: stale ? "var(--color-warning)" : tone.accent,
               }}
             >
               {result.display_score ?? "—"}/100
@@ -1690,19 +1701,19 @@ function CompletedResumeJudgeCard({
         <div className="mt-3 flex items-end justify-between gap-3">
           <span
             className="text-[10px]"
-            style={{ color: "var(--color-ink-50)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             Hover to read more.
           </span>
           <span
             className="text-[10px] font-semibold"
-            style={{ color: "var(--color-ember)" }}
+            style={{ color: "var(--color-error)" }}
           >
             Click for details.
           </span>
         </div>
       </Card>
-    </button>
+    </Button>
   );
 }
 
@@ -1761,8 +1772,8 @@ const WORKSPACE_META_CHIP_CLASS =
   "inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none";
 const WORKSPACE_META_CHIP_STYLE = {
   borderColor: "var(--color-border)",
-  background: "var(--color-ink-05)",
-  color: "var(--color-ink-50)",
+  background: "var(--color-background-muted)",
+  color: "var(--color-text-secondary)",
 };
 const RESUME_PREVIEW_SURFACE_CLASS =
   "mt-0.5 flex min-h-0 flex-1 overflow-y-auto px-3 pb-1 sm:px-4";
@@ -1787,7 +1798,7 @@ function GeneratedWorkspaceHeader({
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
         <h3
           className="shrink-0 text-xs font-semibold uppercase tracking-wider"
-          style={{ color: "var(--color-ink-40)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           Generated Resume
         </h3>
@@ -1812,39 +1823,31 @@ function GeneratedWorkspaceHeader({
         className="inline-flex items-center rounded-full border p-1"
         style={{
           borderColor: editing
-            ? "var(--color-spruce-10)"
+            ? "var(--color-accent-muted)"
             : "var(--color-border)",
           background: editing
-            ? "var(--color-spruce-05)"
-            : "var(--color-ink-05)",
+            ? "var(--color-accent-muted)"
+            : "var(--color-background-muted)",
         }}
       >
-        <button
-          className="rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{
-            background: editing ? "transparent" : "var(--color-ink)",
-            color: editing ? "var(--color-ink-50)" : "#fff",
-          }}
+        <Button
+          variant="ghost"
+          className="px-3 py-1.5 text-xs"
           type="button"
           disabled={locked}
           onClick={onPreview}
         >
           Preview
-        </button>
-        <button
-          className="rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{
-            background: editing
-              ? "var(--color-sidebar-bg-active)"
-              : "transparent",
-            color: editing ? "#fff" : "var(--color-ink-50)",
-          }}
+        </Button>
+        <Button
+          variant="ghost"
+          className="px-3 py-1.5 text-xs"
           type="button"
           disabled={locked}
           onClick={onEdit}
         >
           Edit
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1869,7 +1872,10 @@ function GeneratedWorkspaceNotices({
   return (
     <>
       {!comparing && baselineMessage && (
-        <p className="mt-3 text-xs" style={{ color: "var(--color-ink-50)" }}>
+        <p
+          className="mt-3 text-xs"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
           {baselineMessage}
         </p>
       )}
@@ -1877,14 +1883,14 @@ function GeneratedWorkspaceNotices({
         <div
           className="mt-3 rounded-md border px-3 py-2 text-xs"
           style={{
-            borderColor: "var(--color-amber)",
-            background: "var(--color-amber-10)",
-            color: "var(--color-ink-65)",
+            borderColor: "var(--color-warning)",
+            background: "var(--color-warning-muted)",
+            color: "var(--color-text-secondary)",
           }}
         >
           <div
             className="font-semibold"
-            style={{ color: "var(--color-amber)" }}
+            style={{ color: "var(--color-warning)" }}
           >
             Shorter Than Target
           </div>
@@ -2034,7 +2040,10 @@ function GenerationAttempts({
 }) {
   if (!attempts?.length) return null;
   return (
-    <ul className="mt-2 space-y-1" style={{ color: "var(--color-ink-50)" }}>
+    <ul
+      className="mt-2 space-y-1"
+      style={{ color: "var(--color-text-secondary)" }}
+    >
       {attempts.map((attempt, index) => (
         <li key={`${attempt.model ?? "model"}-${index}`}>
           {attempt.model ?? "unknown model"} /{" "}
@@ -2266,16 +2275,26 @@ export function ApplicationDetailPage() {
     baseResumes.length,
   );
   const fullRegenerationBlocker = getFullRegenerationBlocker(detail);
-  function sectionRegenerationReason(section: ResumeSection, entryId?: string): string | null {
-    return getResumeRegenerationBlocker(section, draft?.source_snapshot?.document, draft?.generation_params.aggressiveness, entryId);
+  function sectionRegenerationReason(
+    section: ResumeSection,
+    entryId?: string,
+  ): string | null {
+    return getResumeRegenerationBlocker(
+      section,
+      draft?.source_snapshot?.document,
+      draft?.generation_params.aggressiveness,
+      entryId,
+    );
   }
-  const selectedRegenSection = draft?.document?.sections.find((section) => section.id === regenSectionName);
-  const sectionSourceBlocker = selectedRegenSection ? sectionRegenerationReason(selectedRegenSection, regenEntryId) : null;
-  const sectionRegenerationBlocker = sectionSourceBlocker ?? getSectionRegenerationBlocker(
-    detail,
-    regenSectionName,
-    regenInstructions,
+  const selectedRegenSection = draft?.document?.sections.find(
+    (section) => section.id === regenSectionName,
   );
+  const sectionSourceBlocker = selectedRegenSection
+    ? sectionRegenerationReason(selectedRegenSection, regenEntryId)
+    : null;
+  const sectionRegenerationBlocker =
+    sectionSourceBlocker ??
+    getSectionRegenerationBlocker(detail, regenSectionName, regenInstructions);
   const resumeJudgeStale = isResumeJudgeStale(detail);
   const resumeJudge = detail?.resume_judge_result ?? null;
   const resumeJudgeRunLimitReached = Boolean(
@@ -2300,7 +2319,9 @@ export function ApplicationDetailPage() {
     [draft],
   );
   const comparisonBaseResumeId = useMemo(() => {
-    const generationResumeId = draft?.source_snapshot?.base_resume_id ?? draft?.generation_params?.base_resume_id;
+    const generationResumeId =
+      draft?.source_snapshot?.base_resume_id ??
+      draft?.generation_params?.base_resume_id;
     if (typeof generationResumeId === "string" && generationResumeId.trim()) {
       return generationResumeId;
     }
@@ -2424,8 +2445,15 @@ export function ApplicationDetailPage() {
       }
     }
 
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setActionsMenuOpen(false);
+    }
     document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, [actionsMenuOpen]);
 
   useEffect(() => {
@@ -3005,12 +3033,6 @@ export function ApplicationDetailPage() {
 
   async function handleTriggerGeneration() {
     if (generationStartBlocker) {
-      console.warn("[generation-ui]", {
-        event: "blocked_before_request",
-        workflow_kind: "generation",
-        application_id: activeApplicationId,
-        reason: generationStartBlocker,
-      });
       setError(generationStartBlocker);
       return;
     }
@@ -3061,11 +3083,17 @@ export function ApplicationDetailPage() {
     }
   }
 
-  async function handleSaveSectionDocument(document: ResumeDocument, expectedRevision: number): Promise<boolean> {
+  async function handleSaveSectionDocument(
+    document: ResumeDocument,
+    expectedRevision: number,
+  ): Promise<boolean> {
     setIsSavingDraft(true);
     setError(null);
     try {
-      const updated = await saveDraft(activeApplicationId, { document, expected_revision: expectedRevision });
+      const updated = await saveDraft(activeApplicationId, {
+        document,
+        expected_revision: expectedRevision,
+      });
       applyDraftState(updated);
       await invalidateApplicationDraftQueries(queryClient, activeApplicationId);
       refreshActivityTimeline();
@@ -3075,12 +3103,17 @@ export function ApplicationDetailPage() {
       setError(err instanceof Error ? err.message : "Unable to save draft.");
       toast("Failed to save draft", "error");
       return false;
-    } finally { setIsSavingDraft(false); }
+    } finally {
+      setIsSavingDraft(false);
+    }
   }
 
   function openSectionRegeneration(section: ResumeSection, entryId?: string) {
     const blocker = sectionRegenerationReason(section, entryId);
-    if (blocker) { setError(blocker); return; }
+    if (blocker) {
+      setError(blocker);
+      return;
+    }
     setRegenSectionName(section.id);
     setRegenEntryId(entryId);
     setRegenInstructions("");
@@ -3103,14 +3136,11 @@ export function ApplicationDetailPage() {
     useJudgeFeedback?: boolean,
     useLatestBase = false,
   ): Promise<boolean> {
-    if (draftDirty) { setError("Save or discard your section edits before regenerating."); return false; }
+    if (draftDirty) {
+      setError("Save or discard your section edits before regenerating.");
+      return false;
+    }
     if (fullRegenerationBlocker) {
-      console.warn("[generation-ui]", {
-        event: "blocked_before_request",
-        workflow_kind: "regeneration_full",
-        application_id: activeApplicationId,
-        reason: fullRegenerationBlocker,
-      });
       setError(fullRegenerationBlocker);
       return false;
     }
@@ -3155,15 +3185,11 @@ export function ApplicationDetailPage() {
   }
 
   async function handleSectionRegeneration() {
-    if (draftDirty) { setError("Save or discard your section edits before regenerating."); return; }
+    if (draftDirty) {
+      setError("Save or discard your section edits before regenerating.");
+      return;
+    }
     if (sectionRegenerationBlocker) {
-      console.warn("[generation-ui]", {
-        event: "blocked_before_request",
-        workflow_kind: "regeneration_section",
-        application_id: activeApplicationId,
-        section_name: regenSectionName,
-        reason: sectionRegenerationBlocker,
-      });
       setError(sectionRegenerationBlocker);
       return;
     }
@@ -3308,7 +3334,12 @@ export function ApplicationDetailPage() {
   }
 
   async function handleKeywordOptimization() {
-    if (draftDirty) { setError("Save or discard your section edits before optimizing keywords."); return; }
+    if (draftDirty) {
+      setError(
+        "Save or discard your section edits before optimizing keywords.",
+      );
+      return;
+    }
     if (!draft || generationActive || isOptimizingKeywords) return;
     setIsOptimizingKeywords(true);
     setShowOptimisticProgress(true);
@@ -3336,7 +3367,10 @@ export function ApplicationDetailPage() {
   }
 
   async function handleExport(format: ExportFormat) {
-    if (draftDirty) { setError("Save or discard your section edits before exporting."); return; }
+    if (draftDirty) {
+      setError("Save or discard your section edits before exporting.");
+      return;
+    }
     setActionsMenuOpen(false);
     setExportingFormat(format);
     setError(null);
@@ -3382,7 +3416,10 @@ export function ApplicationDetailPage() {
   }
 
   function handleToggleCompareMode() {
-    if (draftDirty) { setError("Save or discard your section edits before opening comparison."); return; }
+    if (draftDirty) {
+      setError("Save or discard your section edits before opening comparison.");
+      return;
+    }
     if (compareMode) {
       setCompareMode(false);
       return;
@@ -3426,17 +3463,6 @@ export function ApplicationDetailPage() {
   const exportedTimestampLabel = draft?.last_exported_at
     ? `Exported ${new Date(draft.last_exported_at).toLocaleString()}`
     : null;
-  const compareBaselineLabel =
-    compareBaseline?.name ?? "Generation-time baseline";
-  const workspaceMetaChipClass =
-    "inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none";
-  const workspaceMetaChipStyle = {
-    borderColor: "var(--color-border)",
-    background: "var(--color-ink-05)",
-    color: "var(--color-ink-50)",
-  };
-  const resumePreviewSurfaceClass =
-    "mt-0.5 flex min-h-0 flex-1 overflow-y-auto px-3 pb-1 sm:px-4";
   const resumeJudgeToneStyle = resumeJudgeTone(resumeJudge?.verdict);
   const resumeJudgeHasCompletedScore = Boolean(
     resumeJudge &&
@@ -3461,13 +3487,6 @@ export function ApplicationDetailPage() {
     !resumeJudgeRunLimitReached;
   const resumeJudgeSummary =
     resumeJudge?.score_summary?.trim() ?? "Review available";
-
-  const clampedResumeJudgeSummaryStyle = {
-    display: "-webkit-box",
-    WebkitBoxOrient: "vertical" as const,
-    WebkitLineClamp: 2,
-    overflow: "hidden",
-  };
 
   function refreshActivityTimeline() {
     if (!applicationId) return;
@@ -3528,22 +3547,25 @@ export function ApplicationDetailPage() {
   function renderGeneratedWorkspacePane(options?: {
     lockInteractions?: boolean;
   }) {
-    if (draft) return (
-      <Card className="draft-workbench-card flex min-h-0 min-w-0 flex-col px-4 py-4">
-        <DraftSectionWorkbench
-          key={`${activeApplicationId}:${draft.id}`}
-          draft={draft}
-          profile={bootstrap?.profile ?? null}
-          locked={options?.lockInteractions ?? false}
-          saving={isSavingDraft}
-          onSave={handleSaveSectionDocument}
-          onDirtyChange={setDraftDirty}
-          onRegenerate={openSectionRegeneration}
-          canRegenerate={(section, entryId) => !sectionRegenerationReason(section, entryId)}
-          regenerationReason={sectionRegenerationReason}
-        />
-      </Card>
-    );
+    if (draft)
+      return (
+        <Card className="draft-workbench-card flex min-h-0 min-w-0 flex-col px-4 py-4">
+          <DraftSectionWorkbench
+            key={`${activeApplicationId}:${draft.id}`}
+            draft={draft}
+            profile={bootstrap?.profile ?? null}
+            locked={options?.lockInteractions ?? false}
+            saving={isSavingDraft}
+            onSave={handleSaveSectionDocument}
+            onDirtyChange={setDraftDirty}
+            onRegenerate={openSectionRegeneration}
+            canRegenerate={(section, entryId) =>
+              !sectionRegenerationReason(section, entryId)
+            }
+            regenerationReason={sectionRegenerationReason}
+          />
+        </Card>
+      );
     return (
       <GeneratedWorkspacePane
         className={workspaceCardClass}
@@ -3567,40 +3589,10 @@ export function ApplicationDetailPage() {
     );
   }
 
-  function renderBaseWorkspacePane() {
-    return (
-      <Card
-        className={`${workspaceCardClass} compare-pane-card compare-base-pane px-4 pb-4 pt-2`}
-      >
-        <div className="flex min-w-0 flex-col gap-2 overflow-hidden sm:min-h-8 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <h3
-              className="text-xs font-semibold uppercase tracking-wider"
-              style={{ color: "var(--color-ink-40)" }}
-            >
-              Base Resume
-            </h3>
-            <span
-              className={workspaceMetaChipClass}
-              style={workspaceMetaChipStyle}
-            >
-              {compareBaselineLabel}
-            </span>
-          </div>
-        </div>
-
-        <div className={resumePreviewSurfaceClass}>
-          <MarkdownPreview
-            content={compareBaseline?.content_md ?? ""}
-            className="resume-preview-markdown"
-          />
-        </div>
-      </Card>
-    );
-  }
-
   return (
-    <div className={`application-detail-page page-enter ${isPastExtraction && detail?.internal_state !== "manual_entry_required" && !compareMode ? "application-detail-page--workspace" : "space-y-4"}`}>
+    <div
+      className={`application-detail-page page-enter ${isPastExtraction && detail?.internal_state !== "manual_entry_required" && !compareMode ? "application-detail-page--workspace" : "space-y-4"}`}
+    >
       {/* Error banner */}
       <ErrorBanner
         error={error}
@@ -3631,8 +3623,8 @@ export function ApplicationDetailPage() {
                     <span
                       className="rounded-md px-2 py-1 text-[10px] font-bold uppercase"
                       style={{
-                        background: "var(--color-ember-10)",
-                        color: "var(--color-ember)",
+                        background: "var(--color-error-muted)",
+                        color: "var(--color-error)",
                       }}
                     >
                       Action Required
@@ -3642,38 +3634,22 @@ export function ApplicationDetailPage() {
                   <span
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full border shrink-0"
                     style={{
-                      background: "var(--color-spruce-05)",
-                      color: "var(--color-spruce)",
-                      borderColor: "rgba(24, 74, 69, 0.18)",
+                      background: "var(--color-accent-muted)",
+                      color: "var(--color-accent)",
+                      borderColor: "var(--color-success-muted)",
                     }}
                   >
                     <Check
                       size={12}
                       className="shrink-0"
-                      style={{ color: "var(--color-spruce)" }}
+                      style={{ color: "var(--color-accent)" }}
                       aria-hidden="true"
                     />
                     Applied
                   </span>
                 )}
                 {compareMode && (
-                  <Button
-                    size="sm"
-                    onClick={handleToggleCompareMode}
-                    style={{
-                      background: "var(--color-spruce)",
-                      color: "#fff",
-                      borderColor: "var(--color-spruce)",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "#133c38";
-                      e.currentTarget.style.borderColor = "#133c38";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "var(--color-spruce)";
-                      e.currentTarget.style.borderColor = "var(--color-spruce)";
-                    }}
-                  >
+                  <Button size="sm" onClick={handleToggleCompareMode}>
                     Close Comparison
                   </Button>
                 )}
@@ -3698,12 +3674,10 @@ export function ApplicationDetailPage() {
                     <ChevronDown size={14} aria-hidden="true" />
                   </Button>
                   {actionsMenuOpen && (
-                    <div
+                    <PopoverSurface
                       id="application-actions-menu"
-                      className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border py-1 shadow-lg"
+                      className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border py-1 shadow-[var(--shadow-high)]"
                       style={{
-                        borderColor: "var(--color-border)",
-                        background: "var(--color-white)",
                         maxHeight: "calc(100vh - 200px)",
                         overflowY: "auto",
                       }}
@@ -3716,24 +3690,24 @@ export function ApplicationDetailPage() {
                           target="_blank"
                           rel="noreferrer"
                           role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5"
-                          style={{ color: "var(--color-ink)" }}
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-[var(--color-background-muted)]"
+                          style={{ color: "var(--color-text-primary)" }}
                           onClick={() => setActionsMenuOpen(false)}
                         >
                           <ExternalLink
                             size={16}
                             className="shrink-0"
-                            style={{ color: "var(--color-spruce)" }}
+                            style={{ color: "var(--color-accent)" }}
                             aria-hidden="true"
                           />
                           <span>View Posting</span>
                         </a>
                       )}
-                      <button
+                      <Button
+                        variant="ghost"
                         type="button"
                         role="menuitem"
-                        className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5"
-                        style={{ color: "var(--color-ink)" }}
+                        className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors"
                         onClick={() => {
                           setActionsMenuOpen(false);
                           handleAppliedButtonClick();
@@ -3744,7 +3718,7 @@ export function ApplicationDetailPage() {
                             <X
                               size={16}
                               className="shrink-0"
-                              style={{ color: "var(--color-ember)" }}
+                              style={{ color: "var(--color-error)" }}
                               aria-hidden="true"
                             />
                             <span>Mark unapplied instead</span>
@@ -3755,7 +3729,7 @@ export function ApplicationDetailPage() {
                               size={16}
                               className="shrink-0"
                               style={{
-                                color: "var(--color-ink-30)",
+                                color: "var(--color-text-disabled)",
                                 opacity: 0.3,
                               }}
                               aria-hidden="true"
@@ -3763,7 +3737,7 @@ export function ApplicationDetailPage() {
                             <span>Mark Applied</span>
                           </>
                         )}
-                      </button>
+                      </Button>
                       {draft && (
                         <div
                           className="my-1 border-t"
@@ -3771,11 +3745,11 @@ export function ApplicationDetailPage() {
                         />
                       )}
                       {draft && (
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
                           role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           disabled={
                             exportingFormat !== null ||
                             isRegenerating ||
@@ -3786,7 +3760,7 @@ export function ApplicationDetailPage() {
                           <FileDown
                             size={16}
                             className="shrink-0"
-                            style={{ color: "var(--color-ink-50)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                             aria-hidden="true"
                           />
                           <span>
@@ -3794,14 +3768,14 @@ export function ApplicationDetailPage() {
                               ? "Exporting PDF…"
                               : "Export PDF"}
                           </span>
-                        </button>
+                        </Button>
                       )}
                       {draft && (
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
                           role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           disabled={
                             exportingFormat !== null ||
                             isRegenerating ||
@@ -3812,7 +3786,7 @@ export function ApplicationDetailPage() {
                           <FileDown
                             size={16}
                             className="shrink-0"
-                            style={{ color: "var(--color-ink-50)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                             aria-hidden="true"
                           />
                           <span>
@@ -3820,14 +3794,14 @@ export function ApplicationDetailPage() {
                               ? "Exporting DOCX…"
                               : "Export DOCX"}
                           </span>
-                        </button>
+                        </Button>
                       )}
                       {draft && (
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
                           role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           disabled={
                             isRegenerating ||
                             exportingFormat !== null ||
@@ -3841,20 +3815,20 @@ export function ApplicationDetailPage() {
                           <Columns
                             size={16}
                             className="shrink-0"
-                            style={{ color: "var(--color-ink-50)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                             aria-hidden="true"
                           />
                           <span>
                             {compareMode ? "Close comparison" : "Compare"}
                           </span>
-                        </button>
+                        </Button>
                       )}
                       {draft && !generationActive && (
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
                           role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           disabled={isRegenerating || exportingFormat !== null}
                           onClick={() => {
                             setActionsMenuOpen(false);
@@ -3866,18 +3840,18 @@ export function ApplicationDetailPage() {
                           <Sparkles
                             size={16}
                             className="shrink-0"
-                            style={{ color: "var(--color-ink-50)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                             aria-hidden="true"
                           />
                           <span>Regen Section</span>
-                        </button>
+                        </Button>
                       )}
                       {draft && !generationActive && (
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
                           role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
+                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           disabled={isRegenerating || exportingFormat !== null}
                           onClick={() => {
                             setActionsMenuOpen(false);
@@ -3889,15 +3863,15 @@ export function ApplicationDetailPage() {
                           <RefreshCw
                             size={16}
                             className={`shrink-0 ${isRegenerating ? "animate-spin" : ""}`}
-                            style={{ color: "var(--color-ink-50)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                             aria-hidden="true"
                           />
                           <span>
                             {isRegenerating ? "Starting…" : "Full Regen"}
                           </span>
-                        </button>
+                        </Button>
                       )}
-                    </div>
+                    </PopoverSurface>
                   )}
                 </div>
                 {extractionActive ? (
@@ -3943,25 +3917,25 @@ export function ApplicationDetailPage() {
               <Card variant="success" density="compact" className="p-4">
                 <h3
                   className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--color-spruce)" }}
+                  style={{ color: "var(--color-accent)" }}
                 >
                   Extraction Progress
                 </h3>
                 <div
                   className="mt-3 h-2 overflow-hidden rounded-full"
-                  style={{ background: "var(--color-spruce-10)" }}
+                  style={{ background: "var(--color-accent-muted)" }}
                 >
                   <div
                     className="h-full rounded-full transition-all"
                     style={{
                       width: `${extractionPercent}%`,
-                      background: "var(--color-spruce)",
+                      background: "var(--color-accent)",
                     }}
                   />
                 </div>
                 <p
                   className="mt-2 text-sm"
-                  style={{ color: "var(--color-ink)" }}
+                  style={{ color: "var(--color-text-primary)" }}
                 >
                   {progress.message}
                 </p>
@@ -3973,13 +3947,13 @@ export function ApplicationDetailPage() {
             <Card variant="danger" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
-                style={{ color: "var(--color-ember)" }}
+                style={{ color: "var(--color-error)" }}
               >
                 Blocked Source
               </h3>
               <p
                 className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 The job site blocked automated retrieval. Use pasted text or
                 manual entry below.
@@ -3988,13 +3962,13 @@ export function ApplicationDetailPage() {
                 className="mt-3 grid gap-2 rounded-lg border p-3 text-xs sm:grid-cols-2"
                 style={{
                   borderColor: "var(--color-border)",
-                  color: "var(--color-ink-50)",
+                  color: "var(--color-text-secondary)",
                 }}
               >
                 <div>
                   <span
                     className="font-semibold"
-                    style={{ color: "var(--color-ink)" }}
+                    style={{ color: "var(--color-text-primary)" }}
                   >
                     Provider:
                   </span>{" "}
@@ -4003,7 +3977,7 @@ export function ApplicationDetailPage() {
                 <div>
                   <span
                     className="font-semibold"
-                    style={{ color: "var(--color-ink)" }}
+                    style={{ color: "var(--color-text-primary)" }}
                   >
                     Ref ID:
                   </span>{" "}
@@ -4012,7 +3986,7 @@ export function ApplicationDetailPage() {
                 <div className="sm:col-span-2 break-all">
                   <span
                     className="font-semibold"
-                    style={{ color: "var(--color-ink)" }}
+                    style={{ color: "var(--color-text-primary)" }}
                   >
                     URL:
                   </span>{" "}
@@ -4028,13 +4002,13 @@ export function ApplicationDetailPage() {
             <Card variant="warning" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
-                style={{ color: "var(--color-amber)" }}
+                style={{ color: "var(--color-warning)" }}
               >
                 Extraction Stopped
               </h3>
               <p
                 className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 Extraction was stopped. Retry from the URL, retry with pasted
                 text, or delete this application.
@@ -4047,13 +4021,13 @@ export function ApplicationDetailPage() {
             <Card variant="warning" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
-                style={{ color: "var(--color-amber)" }}
+                style={{ color: "var(--color-warning)" }}
               >
                 Duplicate Detected
               </h3>
               <p
                 className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 Confidence{" "}
                 {detail.duplicate_warning.similarity_score.toFixed(2)} based on{" "}
@@ -4065,14 +4039,14 @@ export function ApplicationDetailPage() {
               >
                 <div
                   className="font-medium"
-                  style={{ color: "var(--color-ink)" }}
+                  style={{ color: "var(--color-text-primary)" }}
                 >
                   {detail.duplicate_warning.matched_application.job_title ??
                     "Existing application"}
                 </div>
                 <div
                   className="text-xs"
-                  style={{ color: "var(--color-ink-50)" }}
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   {detail.duplicate_warning.matched_application.company ??
                     "Unknown"}
@@ -4103,7 +4077,7 @@ export function ApplicationDetailPage() {
               <Card variant="success" density="compact" className="p-4">
                 <p
                   className="text-sm font-medium"
-                  style={{ color: "var(--color-spruce)" }}
+                  style={{ color: "var(--color-accent)" }}
                 >
                   Company is missing from extraction. Add it to enable duplicate
                   review.
@@ -4116,13 +4090,13 @@ export function ApplicationDetailPage() {
               <Card variant="warning" density="compact" className="p-4">
                 <h3
                   className="text-sm font-semibold"
-                  style={{ color: "var(--color-amber)" }}
+                  style={{ color: "var(--color-warning)" }}
                 >
                   Shorter Than Target
                 </h3>
                 <p
                   className="mt-1 text-sm"
-                  style={{ color: "var(--color-ink-65)" }}
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   {sourceLimitedLengthFlag.text}
                 </p>
@@ -4134,13 +4108,13 @@ export function ApplicationDetailPage() {
             <Card variant="warning" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
-                style={{ color: "var(--color-amber)" }}
+                style={{ color: "var(--color-warning)" }}
               >
                 Generation Timed Out
               </h3>
               <p
                 className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "The AI provider may be experiencing delays."}
@@ -4163,13 +4137,13 @@ export function ApplicationDetailPage() {
             <Card variant="success" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
-                style={{ color: "var(--color-spruce)" }}
+                style={{ color: "var(--color-accent)" }}
               >
                 Generation Cancelled
               </h3>
               <p
                 className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "You can adjust settings and try again."}
@@ -4190,13 +4164,13 @@ export function ApplicationDetailPage() {
             <Card variant="danger" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
-                style={{ color: "var(--color-ember)" }}
+                style={{ color: "var(--color-error)" }}
               >
                 Generation Failed
               </h3>
               <p
                 className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "Resume generation encountered errors."}
@@ -4204,7 +4178,7 @@ export function ApplicationDetailPage() {
               {detail.generation_failure_details?.validation_errors?.length ? (
                 <ul
                   className="mt-2 list-disc space-y-1 pl-5 text-xs"
-                  style={{ color: "var(--color-ink-50)" }}
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   {detail.generation_failure_details.validation_errors.map(
                     (err, i) => (
@@ -4235,7 +4209,7 @@ export function ApplicationDetailPage() {
               <Card density="compact" className="p-4">
                 <h3
                   className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--color-ink-40)" }}
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   Job Information
                 </h3>
@@ -4278,13 +4252,13 @@ export function ApplicationDetailPage() {
                 <Card variant="danger" density="compact" className="p-4">
                   <h3
                     className="text-sm font-semibold"
-                    style={{ color: "var(--color-ember)" }}
+                    style={{ color: "var(--color-error)" }}
                   >
                     Manual Entry Required
                   </h3>
                   <p
                     className="mt-1 text-sm"
-                    style={{ color: "var(--color-ink-65)" }}
+                    style={{ color: "var(--color-text-secondary)" }}
                   >
                     {detail.extraction_failure_details?.kind ===
                     "blocked_source"
@@ -4390,12 +4364,17 @@ export function ApplicationDetailPage() {
                 {/* Resume tabs and content occupy the left side of the workspace. */}
                 <div
                   className={
-                    compareMode ? "min-w-0" : "application-resume-column min-w-0"
+                    compareMode
+                      ? "min-w-0"
+                      : "application-resume-column min-w-0"
                   }
                 >
                   {/* Resume Content Area */}
                   {generationActive || showOptimisticProgress ? (
-                    <div className="application-resume-placeholder min-h-0 overflow-y-auto" aria-label="Resume generation workspace">
+                    <div
+                      className="application-resume-placeholder min-h-0 overflow-y-auto"
+                      aria-label="Resume generation workspace"
+                    >
                       <GenerationProgress
                         progress={generationProgress}
                         isOptimistic={showOptimisticProgress}
@@ -4403,7 +4382,10 @@ export function ApplicationDetailPage() {
                         isCancelling={isCancelling}
                         onCancel={() => void handleCancelGeneration()}
                       />
-                      {draft && renderGeneratedWorkspacePane({ lockInteractions: true })}
+                      {draft &&
+                        renderGeneratedWorkspacePane({
+                          lockInteractions: true,
+                        })}
                     </div>
                   ) : draft ? (
                     compareMode ? (
@@ -4433,39 +4415,40 @@ export function ApplicationDetailPage() {
                     >
                       <div
                         className="rounded-full p-4 mb-4"
-                        style={{ background: "var(--color-ink-05)" }}
+                        style={{ background: "var(--color-background-muted)" }}
                       >
                         <FileText
                           size={32}
-                          style={{ color: "var(--color-ink-40)" }}
+                          style={{ color: "var(--color-text-secondary)" }}
                         />
                       </div>
                       <h3
                         className="text-lg font-semibold mb-2"
-                        style={{ color: "var(--color-ink)" }}
+                        style={{ color: "var(--color-text-primary)" }}
                       >
                         No Resume Generated Yet
                       </h3>
                       <p
                         className="text-sm mb-4"
-                        style={{ color: "var(--color-ink-50)" }}
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Configure your settings and click "Generate Resume" to
                         get started.
                       </p>
-                      <button
+                      <Button
+                        variant="ghost"
                         type="button"
                         disabled={generationStartBlocker !== null}
-                        className="ai-button inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={() => void handleTriggerGeneration()}
                       >
                         <Sparkles size={16} />
                         Generate Resume
-                      </button>
+                      </Button>
                       {generationStartBlocker ? (
                         <p
                           className="mt-3 text-xs"
-                          style={{ color: "var(--color-ink-50)" }}
+                          style={{ color: "var(--color-text-secondary)" }}
                         >
                           {generationStartBlocker}
                         </p>
@@ -4497,14 +4480,14 @@ export function ApplicationDetailPage() {
                       <div className="flex items-center gap-1.5">
                         <h3
                           className="text-xs font-semibold uppercase tracking-wider"
-                          style={{ color: "var(--color-ink-40)" }}
+                          style={{ color: "var(--color-text-secondary)" }}
                         >
                           Job Description
                         </h3>
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
                           className="sm:hidden p-0.5"
-                          style={{ color: "var(--color-ink-40)" }}
                           onClick={() => setJobDescriptionCollapsed((v) => !v)}
                           aria-label={
                             jobDescriptionCollapsed
@@ -4532,7 +4515,7 @@ export function ApplicationDetailPage() {
                               strokeLinejoin="round"
                             />
                           </svg>
-                        </button>
+                        </Button>
                       </div>
                       <form onSubmit={handleSaveJobInfo}>
                         <Button
@@ -4566,7 +4549,7 @@ export function ApplicationDetailPage() {
                         <div className="flex items-start justify-between gap-3">
                           <h3
                             className="text-xs font-semibold uppercase tracking-wider"
-                            style={{ color: "var(--color-ink-40)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             Generation Settings
                           </h3>
@@ -4595,7 +4578,7 @@ export function ApplicationDetailPage() {
                             <FileText
                               size={14}
                               className="flex-shrink-0"
-                              style={{ color: "var(--color-ink-40)" }}
+                              style={{ color: "var(--color-text-secondary)" }}
                             />
                             <Label className="inline text-xs font-medium">
                               Base Resume
@@ -4606,13 +4589,13 @@ export function ApplicationDetailPage() {
                               className="rounded-lg border p-2 text-xs"
                               style={{
                                 borderColor: "var(--color-border)",
-                                color: "var(--color-ink-50)",
+                                color: "var(--color-text-secondary)",
                               }}
                             >
                               No base resumes yet.{" "}
                               <Link
                                 className="font-medium"
-                                style={{ color: "var(--color-spruce)" }}
+                                style={{ color: "var(--color-accent)" }}
                                 to="/app/resumes"
                               >
                                 Create one
@@ -4643,7 +4626,7 @@ export function ApplicationDetailPage() {
                             <Ruler
                               size={14}
                               className="flex-shrink-0"
-                              style={{ color: "var(--color-ink-40)" }}
+                              style={{ color: "var(--color-text-secondary)" }}
                             />
                             <Label className="inline text-xs font-medium">
                               Target Length
@@ -4657,19 +4640,19 @@ export function ApplicationDetailPage() {
                                 style={{
                                   borderColor:
                                     pageLength === o.value
-                                      ? "var(--color-spruce)"
+                                      ? "var(--color-accent)"
                                       : "var(--color-border)",
                                   background:
                                     pageLength === o.value
-                                      ? "var(--color-spruce-05)"
-                                      : "var(--color-white)",
+                                      ? "var(--color-accent-muted)"
+                                      : "var(--color-background-surface)",
                                   color:
                                     pageLength === o.value
-                                      ? "var(--color-spruce)"
-                                      : "var(--color-ink)",
+                                      ? "var(--color-accent)"
+                                      : "var(--color-text-primary)",
                                 }}
                               >
-                                <input
+                                <Input
                                   checked={pageLength === o.value}
                                   className="sr-only"
                                   name="pageLength"
@@ -4692,7 +4675,7 @@ export function ApplicationDetailPage() {
                             <Gauge
                               size={14}
                               className="flex-shrink-0"
-                              style={{ color: "var(--color-ink-40)" }}
+                              style={{ color: "var(--color-text-secondary)" }}
                             />
                             <Label className="inline text-xs font-medium">
                               Aggressiveness
@@ -4706,15 +4689,15 @@ export function ApplicationDetailPage() {
                                 style={{
                                   borderColor:
                                     aggressiveness === o.value
-                                      ? "var(--color-spruce)"
+                                      ? "var(--color-accent)"
                                       : "var(--color-border)",
                                   background:
                                     aggressiveness === o.value
-                                      ? "var(--color-spruce-05)"
-                                      : "var(--color-white)",
+                                      ? "var(--color-accent-muted)"
+                                      : "var(--color-background-surface)",
                                 }}
                               >
-                                <input
+                                <Input
                                   checked={aggressiveness === o.value}
                                   className="sr-only"
                                   name="aggressiveness"
@@ -4729,13 +4712,17 @@ export function ApplicationDetailPage() {
                                   <div className="min-w-0">
                                     <div
                                       className="text-xs font-medium"
-                                      style={{ color: "var(--color-ink)" }}
+                                      style={{
+                                        color: "var(--color-text-primary)",
+                                      }}
                                     >
                                       {o.label}
                                     </div>
                                     <div
                                       className="text-[10px]"
-                                      style={{ color: "var(--color-ink-50)" }}
+                                      style={{
+                                        color: "var(--color-text-secondary)",
+                                      }}
                                     >
                                       {o.description}
                                     </div>
@@ -4747,14 +4734,17 @@ export function ApplicationDetailPage() {
                                       <div className="space-y-2">
                                         <p
                                           className="text-xs font-semibold"
-                                          style={{ color: "var(--color-ink)" }}
+                                          style={{
+                                            color: "var(--color-text-primary)",
+                                          }}
                                         >
                                           {o.label} affects:
                                         </p>
                                         <ul
                                           className="space-y-1 text-[11px]"
                                           style={{
-                                            color: "var(--color-ink-65)",
+                                            color:
+                                              "var(--color-text-secondary)",
                                           }}
                                         >
                                           {o.details.map((detailLine) => (
@@ -4775,9 +4765,9 @@ export function ApplicationDetailPage() {
                               role="alert"
                               className="mt-2 rounded-md border px-3 py-2 text-[11px]"
                               style={{
-                                borderColor: "var(--color-amber)",
-                                background: "var(--color-amber-10)",
-                                color: "var(--color-ink)",
+                                borderColor: "var(--color-warning)",
+                                background: "var(--color-warning-muted)",
+                                color: "var(--color-text-primary)",
                               }}
                             >
                               {selectedAggressivenessOption.warning}
@@ -4791,7 +4781,7 @@ export function ApplicationDetailPage() {
                             <MessageSquare
                               size={14}
                               className="flex-shrink-0"
-                              style={{ color: "var(--color-ink-40)" }}
+                              style={{ color: "var(--color-text-secondary)" }}
                             />
                             <Label className="inline text-xs font-medium">
                               Additional Instructions
@@ -4822,7 +4812,6 @@ export function ApplicationDetailPage() {
                     }}
                   />
                 </aside>
-
               </div>
             )}
 
@@ -4879,20 +4868,39 @@ export function ApplicationDetailPage() {
             message={
               <div className="flex flex-col gap-3">
                 <p style={{ margin: 0 }}>
-                  Regenerate source-backed sections using your saved section inclusion,
-                  order and headings. Fixed sections and sections with added or reordered
-                  entries keep their current content. This may take up to four minutes.
+                  Regenerate source-backed sections using your saved section
+                  inclusion, order and headings. Fixed sections and sections
+                  with added or reordered entries keep their current content.
+                  This may take up to four minutes.
                 </p>
                 <label className="flex items-start gap-2 text-sm">
-                  <input type="checkbox" className="mt-1" checked={fullRegenUseLatestBase} onChange={(event) => setFullRegenUseLatestBase(event.target.checked)} />
-                  <span>Use latest base resume. Replace draft content and layout with the linked base's reviewed sections. This also refreshes source links for comparison and future regeneration.</span>
+                  <Input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={fullRegenUseLatestBase}
+                    onChange={(event) =>
+                      setFullRegenUseLatestBase(event.target.checked)
+                    }
+                  />
+                  <span>
+                    Use latest base resume. Replace draft content and layout
+                    with the linked base's reviewed sections. This also
+                    refreshes source links for comparison and future
+                    regeneration.
+                  </span>
                 </label>
-                {(!draft?.document || !draft?.source_snapshot) && <p className="text-xs">This legacy draft has no frozen source links. Select Use latest base resume to replace it. The existing draft stays available if generation fails.</p>}
+                {(!draft?.document || !draft?.source_snapshot) && (
+                  <p className="text-xs">
+                    This legacy draft has no frozen source links. Select Use
+                    latest base resume to replace it. The existing draft stays
+                    available if generation fails.
+                  </p>
+                )}
                 <div className="flex flex-col gap-1.5 mt-2">
                   <label
                     htmlFor="full-regen-instr"
                     className="text-xs font-semibold"
-                    style={{ color: "var(--color-ink-65)" }}
+                    style={{ color: "var(--color-text-secondary)" }}
                   >
                     Custom Instructions (Optional)
                   </label>
@@ -4958,7 +4966,7 @@ export function ApplicationDetailPage() {
                     left: 0,
                     width: "100%",
                     height: "100%",
-                    background: "rgba(16, 24, 40, 0.5)",
+                    background: "var(--color-overlay)",
                     backdropFilter: "blur(6px)",
                     animation: "fadeIn 200ms var(--ease-out) both",
                   }}
@@ -4970,9 +4978,9 @@ export function ApplicationDetailPage() {
                   style={{
                     position: "relative",
                     zIndex: 1,
-                    background: "var(--color-white)",
-                    borderRadius: "var(--radius-xl)",
-                    boxShadow: "var(--shadow-panel)",
+                    background: "var(--color-background-surface)",
+                    borderRadius: "var(--radius-container)",
+                    boxShadow: "var(--shadow-high)",
                     padding: "24px",
                     maxWidth: "440px",
                     width: "calc(100% - 48px)",
@@ -4982,7 +4990,7 @@ export function ApplicationDetailPage() {
                     style={{
                       fontSize: "17px",
                       fontWeight: 600,
-                      color: "var(--color-ink)",
+                      color: "var(--color-text-primary)",
                       margin: 0,
                       lineHeight: 1.3,
                     }}
@@ -4993,44 +5001,79 @@ export function ApplicationDetailPage() {
                     style={{
                       marginTop: "8px",
                       fontSize: "14px",
-                      color: "var(--color-ink-65)",
+                      color: "var(--color-text-secondary)",
                       lineHeight: 1.5,
                     }}
                   >
-                    {regenEntryId ? "Only this role will be regenerated. Other roles and sections stay as they are." : "Select a section and describe how you want to improve it."}
+                    {regenEntryId
+                      ? "Only this role will be regenerated. Other roles and sections stay as they are."
+                      : "Select a section and describe how you want to improve it."}
                   </p>
 
                   <div className="mt-4 space-y-3">
                     <div>
                       <Label
                         className="text-xs font-medium"
-                        style={{ color: "var(--color-ink-65)" }}
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Section
                       </Label>
                       <Select
                         className="mt-1 text-sm"
                         value={regenSectionName}
-                        onChange={(e) => { setRegenSectionName(e.target.value); setRegenEntryId(undefined); }}
+                        onChange={(e) => {
+                          setRegenSectionName(e.target.value);
+                          setRegenEntryId(undefined);
+                        }}
                       >
                         <option value="">Select section…</option>
-                        {draft?.document ? draft.document.sections.filter((section) => section.enabled).map((section) => (
-                          <option key={section.id} value={section.id} disabled={Boolean(sectionRegenerationReason(section, section.id === regenSectionName ? regenEntryId : undefined))}>{section.heading}</option>
-                        )) : <>
-                          <option value="summary">Summary</option>
-                          <option value="professional_experience">Professional Experience</option>
-                          <option value="education">Education</option>
-                          <option value="skills">Skills</option>
-                          <option value="projects">Projects</option>
-                          <option value="certifications">Certifications</option>
-                        </>}
+                        {draft?.document ? (
+                          draft.document.sections
+                            .filter((section) => section.enabled)
+                            .map((section) => (
+                              <option
+                                key={section.id}
+                                value={section.id}
+                                disabled={Boolean(
+                                  sectionRegenerationReason(
+                                    section,
+                                    section.id === regenSectionName
+                                      ? regenEntryId
+                                      : undefined,
+                                  ),
+                                )}
+                              >
+                                {section.heading}
+                              </option>
+                            ))
+                        ) : (
+                          <>
+                            <option value="summary">Summary</option>
+                            <option value="professional_experience">
+                              Professional Experience
+                            </option>
+                            <option value="education">Education</option>
+                            <option value="skills">Skills</option>
+                            <option value="projects">Projects</option>
+                            <option value="certifications">
+                              Certifications
+                            </option>
+                          </>
+                        )}
                       </Select>
-                      {sectionSourceBlocker && <p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>{sectionSourceBlocker}</p>}
+                      {sectionSourceBlocker && (
+                        <p
+                          className="mt-2 text-xs"
+                          style={{ color: "var(--color-text-secondary)" }}
+                        >
+                          {sectionSourceBlocker}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <Label
                         className="text-xs font-medium"
-                        style={{ color: "var(--color-ink-65)" }}
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Instructions
                       </Label>
@@ -5064,7 +5107,8 @@ export function ApplicationDetailPage() {
                     >
                       Cancel
                     </Button>
-                    <button
+                    <Button
+                      variant="ghost"
                       type="button"
                       disabled={
                         isRegenerating ||
@@ -5072,12 +5116,12 @@ export function ApplicationDetailPage() {
                         !regenSectionName ||
                         !regenInstructions.trim()
                       }
-                      className="ai-button inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => void handleSectionRegeneration()}
                     >
                       <Sparkles size={14} />
                       {isRegenerating ? "Regenerating…" : "Regenerate"}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>,
@@ -5106,7 +5150,7 @@ export function ApplicationDetailPage() {
                   style={{
                     position: "absolute",
                     inset: 0,
-                    background: "rgba(16, 24, 40, 0.52)",
+                    background: "var(--color-overlay)",
                     backdropFilter: "blur(8px)",
                     animation: "fadeIn 200ms var(--ease-out) both",
                   }}
@@ -5119,10 +5163,10 @@ export function ApplicationDetailPage() {
                     width: "min(920px, 100%)",
                     maxHeight: "calc(100vh - 48px)",
                     overflowY: "auto",
-                    borderRadius: "24px",
+                    borderRadius: "var(--radius-container)",
                     background:
-                      "linear-gradient(180deg, color-mix(in srgb, var(--color-ink) 2%, white) 0%, white 24%, white 100%)",
-                    boxShadow: "var(--shadow-panel)",
+                      "linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 2%, white) 0%, white 24%, white 100%)",
+                    boxShadow: "var(--shadow-high)",
                     padding: "24px",
                   }}
                   role="dialog"
@@ -5136,7 +5180,7 @@ export function ApplicationDetailPage() {
                     <div className="flex items-start justify-between gap-3">
                       <p
                         className="text-[11px] font-semibold uppercase tracking-[0.24em]"
-                        style={{ color: "var(--color-ink-50)" }}
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Resume Judge
                       </p>
@@ -5145,54 +5189,51 @@ export function ApplicationDetailPage() {
                           className="inline-flex items-center rounded-full px-3 py-1.5 text-sm font-semibold"
                           style={{
                             background: resumeJudgeStale
-                              ? "var(--color-amber-10)"
+                              ? "var(--color-warning-muted)"
                               : resumeJudgeToneStyle.bg,
                             color: resumeJudgeStale
-                              ? "var(--color-amber)"
+                              ? "var(--color-warning)"
                               : resumeJudgeToneStyle.accent,
                           }}
                         >
                           {resumeJudge.display_score ?? "—"}/100
                         </span>
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
-                          className="rounded-full px-3 py-1.5 text-sm font-semibold transition-colors"
-                          style={{
-                            color: "var(--color-ink-50)",
-                            background: "var(--color-ink-05)",
-                          }}
+                          className="px-3 py-1.5 text-sm transition-colors"
                           onClick={() => setShowResumeJudgeDialog(false)}
                         >
                           Close
-                        </button>
+                        </Button>
                       </div>
                     </div>
                     <div className="mt-3 min-w-0">
                       <p
                         className="text-xs font-semibold uppercase tracking-[0.16em]"
-                        style={{ color: "var(--color-ink-50)" }}
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Summary
                       </p>
                       <p
                         className="mt-2 text-[15px] leading-6"
-                        style={{ color: "var(--color-ink)" }}
+                        style={{ color: "var(--color-text-primary)" }}
                       >
                         {resumeJudge.score_summary ?? "Resume score breakdown"}
                       </p>
                     </div>
                     <div
                       className="mt-3 flex flex-wrap items-center gap-2 text-xs"
-                      style={{ color: "var(--color-ink-50)" }}
+                      style={{ color: "var(--color-text-secondary)" }}
                     >
                       <span
                         className="rounded-full px-2.5 py-1 font-semibold uppercase tracking-wide"
                         style={{
                           background: resumeJudgeStale
-                            ? "var(--color-amber-10)"
+                            ? "var(--color-warning-muted)"
                             : resumeJudgeToneStyle.bg,
                           color: resumeJudgeStale
-                            ? "var(--color-amber)"
+                            ? "var(--color-warning)"
                             : resumeJudgeToneStyle.accent,
                         }}
                       >
@@ -5212,7 +5253,7 @@ export function ApplicationDetailPage() {
                     </div>
                     <p
                       className="mt-3 text-xs leading-5"
-                      style={{ color: "var(--color-ink-65)" }}
+                      style={{ color: "var(--color-text-secondary)" }}
                     >
                       {resumeJudgeStale
                         ? "This score was calculated for an older draft. Re-evaluate after reviewing the breakdown."
@@ -5227,15 +5268,16 @@ export function ApplicationDetailPage() {
                         return (
                           <div
                             key={key}
-                            className="overflow-hidden rounded-[1.25rem] border"
+                            className="overflow-hidden rounded-[var(--radius-container)] border"
                             style={{
                               borderColor: expanded
                                 ? resumeJudgeToneStyle.border
                                 : "var(--color-border)",
-                              background: "rgba(255,255,255,0.92)",
+                              background: "var(--color-background-surface)",
                             }}
                           >
-                            <button
+                            <Button
+                              variant="ghost"
                               type="button"
                               className="flex w-full items-start justify-between gap-4 px-4 py-4 text-left"
                               aria-expanded={expanded}
@@ -5250,7 +5292,9 @@ export function ApplicationDetailPage() {
                                 <div className="flex flex-wrap items-center gap-2">
                                   <p
                                     className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                                    style={{ color: "var(--color-ink-50)" }}
+                                    style={{
+                                      color: "var(--color-text-secondary)",
+                                    }}
                                   >
                                     {RESUME_JUDGE_DIMENSION_LABELS[key] ?? key}
                                   </p>
@@ -5261,8 +5305,8 @@ export function ApplicationDetailPage() {
                                     <span
                                       className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
                                       style={{
-                                        background: "var(--color-ember-05)",
-                                        color: "var(--color-ember)",
+                                        background: "var(--color-error-muted)",
+                                        color: "var(--color-error)",
                                       }}
                                     >
                                       Priority
@@ -5272,39 +5316,51 @@ export function ApplicationDetailPage() {
                                 <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
                                   <div>
                                     <div
-                                      style={{ color: "var(--color-ink-50)" }}
+                                      style={{
+                                        color: "var(--color-text-secondary)",
+                                      }}
                                     >
                                       Score
                                     </div>
                                     <div
                                       className="mt-1 font-semibold"
-                                      style={{ color: "var(--color-ink)" }}
+                                      style={{
+                                        color: "var(--color-text-primary)",
+                                      }}
                                     >
                                       {value.score.toFixed(1)} / 10
                                     </div>
                                   </div>
                                   <div>
                                     <div
-                                      style={{ color: "var(--color-ink-50)" }}
+                                      style={{
+                                        color: "var(--color-text-secondary)",
+                                      }}
                                     >
                                       Weight
                                     </div>
                                     <div
                                       className="mt-1 font-semibold"
-                                      style={{ color: "var(--color-ink)" }}
+                                      style={{
+                                        color: "var(--color-text-primary)",
+                                      }}
                                     >
                                       {(value.weight * 100).toFixed(0)}%
                                     </div>
                                   </div>
                                   <div>
                                     <div
-                                      style={{ color: "var(--color-ink-50)" }}
+                                      style={{
+                                        color: "var(--color-text-secondary)",
+                                      }}
                                     >
                                       Weighted impact
                                     </div>
                                     <div
                                       className="mt-1 font-semibold"
-                                      style={{ color: "var(--color-ink)" }}
+                                      style={{
+                                        color: "var(--color-text-primary)",
+                                      }}
                                     >
                                       {value.weighted_contribution.toFixed(1)}
                                     </div>
@@ -5316,21 +5372,21 @@ export function ApplicationDetailPage() {
                                 aria-hidden="true"
                                 className="mt-1 shrink-0 transition-transform"
                                 style={{
-                                  color: "var(--color-ink-50)",
+                                  color: "var(--color-text-secondary)",
                                   transform: expanded
                                     ? "rotate(180deg)"
                                     : "rotate(0deg)",
                                 }}
                               />
-                            </button>
+                            </Button>
                             {expanded ? (
                               <div
                                 id={`resume-judge-dimension-${key}`}
                                 className="border-t px-4 py-4 text-xs leading-5"
                                 style={{
                                   borderColor: "var(--color-border)",
-                                  color: "var(--color-ink-65)",
-                                  background: "var(--color-ink-05)",
+                                  color: "var(--color-text-secondary)",
+                                  background: "var(--color-background-muted)",
                                 }}
                               >
                                 {value.notes}
@@ -5343,22 +5399,22 @@ export function ApplicationDetailPage() {
 
                     <div className="space-y-4">
                       <div
-                        className="rounded-[1.25rem] border p-4"
+                        className="rounded-[var(--radius-container)] border p-4"
                         style={{
                           borderColor: "var(--color-border)",
-                          background: "rgba(255,255,255,0.88)",
+                          background: "var(--color-background-surface)",
                         }}
                       >
                         <p
                           className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                          style={{ color: "var(--color-ink-50)" }}
+                          style={{ color: "var(--color-text-secondary)" }}
                         >
                           Verdict
                         </p>
                         <div className="mt-3 flex items-center justify-between gap-3">
                           <span
                             className="text-sm font-semibold"
-                            style={{ color: "var(--color-ink)" }}
+                            style={{ color: "var(--color-text-primary)" }}
                           >
                             {resumeJudgeStale
                               ? "Out of date"
@@ -5368,10 +5424,10 @@ export function ApplicationDetailPage() {
                             className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
                             style={{
                               background: resumeJudgeStale
-                                ? "var(--color-amber-10)"
+                                ? "var(--color-warning-muted)"
                                 : resumeJudgeToneStyle.bg,
                               color: resumeJudgeStale
-                                ? "var(--color-amber)"
+                                ? "var(--color-warning)"
                                 : resumeJudgeToneStyle.accent,
                             }}
                           >
@@ -5383,7 +5439,7 @@ export function ApplicationDetailPage() {
                           <div className="mt-4">
                             <p
                               className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                              style={{ color: "var(--color-ink-50)" }}
+                              style={{ color: "var(--color-text-secondary)" }}
                             >
                               Priority Dimensions
                             </p>
@@ -5394,8 +5450,9 @@ export function ApplicationDetailPage() {
                                     key={dimension}
                                     className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
                                     style={{
-                                      background: "var(--color-ink-05)",
-                                      color: "var(--color-ink-65)",
+                                      background:
+                                        "var(--color-background-muted)",
+                                      color: "var(--color-text-secondary)",
                                     }}
                                   >
                                     {RESUME_JUDGE_DIMENSION_LABELS[dimension] ??
@@ -5412,15 +5469,15 @@ export function ApplicationDetailPage() {
                         resumeJudge.status === "failed" ||
                         resumeJudge.final_score == null) && (
                         <div
-                          className="rounded-[1.25rem] border p-4"
+                          className="rounded-[var(--radius-container)] border p-4"
                           style={{
                             borderColor: "var(--color-border)",
-                            background: "var(--color-amber-10)",
+                            background: "var(--color-warning-muted)",
                           }}
                         >
                           <p
                             className="text-sm font-semibold"
-                            style={{ color: "var(--color-ink)" }}
+                            style={{ color: "var(--color-text-primary)" }}
                           >
                             {resumeJudgeStale
                               ? "This score is stale."
@@ -5428,7 +5485,7 @@ export function ApplicationDetailPage() {
                           </p>
                           <p
                             className="mt-2 text-xs leading-5"
-                            style={{ color: "var(--color-ink-65)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             {resumeJudgeStale
                               ? "You edited the draft after it was scored. Re-evaluate to refresh the breakdown."
@@ -5451,21 +5508,21 @@ export function ApplicationDetailPage() {
 
                       {resumeJudge.regeneration_instructions ? (
                         <div
-                          className="rounded-[1.25rem] border p-4"
+                          className="rounded-[var(--radius-container)] border p-4"
                           style={{
                             borderColor: "var(--color-border)",
-                            background: "var(--color-ink-05)",
+                            background: "var(--color-background-muted)",
                           }}
                         >
                           <p
                             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                            style={{ color: "var(--color-ink-50)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             Regeneration Instructions
                           </p>
                           <p
                             className="mt-3 text-xs leading-5"
-                            style={{ color: "var(--color-ink)" }}
+                            style={{ color: "var(--color-text-primary)" }}
                           >
                             {formatJudgeInstructions(
                               resumeJudge.regeneration_instructions,
@@ -5475,16 +5532,17 @@ export function ApplicationDetailPage() {
                             <>
                               <p
                                 className="mt-3 text-xs"
-                                style={{ color: "var(--color-ink-50)" }}
+                                style={{ color: "var(--color-text-secondary)" }}
                               >
                                 Full regeneration will keep your current
                                 instructions and append the judge’s corrective
                                 guidance.
                               </p>
-                              <button
+                              <Button
+                                variant="ghost"
                                 type="button"
                                 disabled={Boolean(fullRegenerationBlocker)}
-                                className="ai-button mt-4 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                                className="mt-4 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                                 onClick={() => {
                                   setShowResumeJudgeDialog(false);
                                   void handleFullRegeneration(
@@ -5495,14 +5553,14 @@ export function ApplicationDetailPage() {
                               >
                                 <Sparkles size={14} />
                                 Regenerate with Judge Feedback
-                              </button>
+                              </Button>
                             </>
                           ) : null}
                           {fullRegenerationBlocker &&
                           resumeJudgeCanRegenerateWithFeedback ? (
                             <p
                               className="mt-2 text-xs"
-                              style={{ color: "var(--color-ink-50)" }}
+                              style={{ color: "var(--color-text-secondary)" }}
                             >
                               {fullRegenerationBlocker}
                             </p>
@@ -5512,21 +5570,21 @@ export function ApplicationDetailPage() {
 
                       {resumeJudge.evaluator_notes ? (
                         <div
-                          className="rounded-[1.25rem] border p-4"
+                          className="rounded-[var(--radius-container)] border p-4"
                           style={{
                             borderColor: "var(--color-border)",
-                            background: "rgba(255,255,255,0.88)",
+                            background: "var(--color-background-surface)",
                           }}
                         >
                           <p
                             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                            style={{ color: "var(--color-ink-50)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             Evaluator Notes
                           </p>
                           <p
                             className="mt-3 text-xs leading-5"
-                            style={{ color: "var(--color-ink-65)" }}
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             {resumeJudge.evaluator_notes}
                           </p>

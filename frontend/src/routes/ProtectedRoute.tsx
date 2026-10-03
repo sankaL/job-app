@@ -24,10 +24,10 @@ export function ProtectedRoute({ children }: PropsWithChildren) {
     };
   }, [ensureSession, hasCheckedSession, user]);
 
-  if (isLoading || !user && !hasCheckedSession) {
+  if (isLoading || (!user && !hasCheckedSession)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="rounded-full border border-ink/10 bg-white px-5 py-3 text-sm font-medium text-ink/70 shadow-panel">
+        <div className="rounded-full border border-[var(--color-border)] bg-[var(--color-background-surface)] px-5 py-3 text-sm font-medium text-[var(--color-text-secondary)] shadow-[var(--shadow-high)]">
           Checking your invite-only session…
         </div>
       </div>

@@ -27,7 +27,6 @@ import {
   cancelExtraction,
   createApplication,
   deleteApplication,
-  listApplications,
   patchApplication,
   type ApplicationSummary,
 } from "@/lib/api";
@@ -141,7 +140,7 @@ function SelectionCheckbox({
   }, [indeterminate]);
 
   return (
-    <input
+    <Input
       ref={inputRef}
       type="checkbox"
       checked={checked}
@@ -150,7 +149,7 @@ function SelectionCheckbox({
       onChange={onChange}
       onClick={(event) => event.stopPropagation()}
       className="h-4 w-4 cursor-pointer rounded border"
-      style={{ accentColor: "var(--color-spruce)" }}
+      style={{ accentColor: "var(--color-accent)" }}
     />
   );
 }
@@ -169,13 +168,13 @@ function ApplicationTitleCell({
       ? "Duplicate review pending"
       : null;
   const noticeColor = actionRequired
-    ? "var(--color-ember)"
-    : "var(--color-spruce)";
+    ? "var(--color-error)"
+    : "var(--color-accent)";
   return (
     <div className="flex min-w-0 flex-col justify-center">
       <div
         className="truncate whitespace-nowrap text-sm font-medium"
-        style={{ color: "var(--color-ink)" }}
+        style={{ color: "var(--color-text-primary)" }}
       >
         {application.job_title ?? "Awaiting extraction"}
       </div>
@@ -329,7 +328,7 @@ function buildApplicationColumns({
       render: (app) => (
         <span
           className="block truncate text-sm"
-          style={{ color: "var(--color-ink-65)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {app.company ?? "—"}
         </span>
@@ -345,7 +344,7 @@ function buildApplicationColumns({
       render: (app) => (
         <span
           className="block truncate text-xs"
-          style={{ color: "var(--color-ink-40)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {app.base_resume_name ?? "—"}
         </span>
@@ -361,7 +360,7 @@ function buildApplicationColumns({
       render: (app) => (
         <span
           className="block text-xs tabular-nums"
-          style={{ color: "var(--color-ink-40)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {new Date(app.updated_at).toLocaleDateString()}
         </span>
@@ -500,7 +499,8 @@ function ApplicationsFilters({
             onChange={(event) => onSearch(event.target.value)}
             className="flex-1"
           />
-          <button
+          <Button
+            variant="ghost"
             type="button"
             className="mobile-filters-toggle"
             onClick={() => onMobileOpen(!mobileOpen)}
@@ -517,7 +517,7 @@ function ApplicationsFilters({
               <path d="M2 4h12M4 8h8M6 12h4" />
             </svg>
             Filters
-          </button>
+          </Button>
         </div>
         {mobileOpen && (
           <div className="flex gap-2">
@@ -561,12 +561,12 @@ function BulkSelectionCard({
         <div className="space-y-1">
           <p
             className="text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+            style={{ color: "var(--color-text-primary)" }}
           >
             {formatApplicationCount(count)} selected
           </p>
           {activeCount > 0 && (
-            <p className="text-xs" style={{ color: "var(--color-ember)" }}>
+            <p className="text-xs" style={{ color: "var(--color-error)" }}>
               {warning}
             </p>
           )}

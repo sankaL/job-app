@@ -58,11 +58,11 @@ function UserIdentityCell({ user }: { user: AdminUser }) {
     <div className="space-y-0.5">
       <p
         className="text-sm font-semibold"
-        style={{ color: "var(--color-ink)" }}
+        style={{ color: "var(--color-text-primary)" }}
       >
         {fullName(user)}
       </p>
-      <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>
+      <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
         {user.email}
       </p>
     </div>
@@ -74,12 +74,12 @@ function UserStatusCell({ user }: { user: AdminUser }) {
     <div className="flex flex-col gap-1 text-xs">
       <span
         style={{
-          color: user.is_active ? "var(--color-spruce)" : "var(--color-ember)",
+          color: user.is_active ? "var(--color-accent)" : "var(--color-error)",
         }}
       >
         {user.is_active ? "Active" : "Deactivated"}
       </span>
-      <span style={{ color: "var(--color-ink-50)" }}>
+      <span style={{ color: "var(--color-text-secondary)" }}>
         {user.onboarding_completed_at ? "Onboarded" : "Invite pending"}
       </span>
     </div>
@@ -92,8 +92,10 @@ function UserTierCell({ user }: { user: AdminUser }) {
     <span
       className="inline-flex rounded-md px-2 py-1 text-xs font-semibold capitalize"
       style={{
-        background: isPro ? "var(--color-amber-10)" : "var(--color-spruce-10)",
-        color: isPro ? "var(--color-amber)" : "var(--color-spruce)",
+        background: isPro
+          ? "var(--color-warning-muted)"
+          : "var(--color-accent-muted)",
+        color: isPro ? "var(--color-warning)" : "var(--color-accent)",
       }}
     >
       {user.subscription_tier}
@@ -190,7 +192,7 @@ function AdminUsersTable({
       render: (user: AdminUser) => (
         <div
           className="space-y-0.5 text-xs"
-          style={{ color: "var(--color-ink-50)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           <p>{user.latest_invite_status || "—"}</p>
           <p>Sent: {formatDate(user.latest_invite_sent_at)}</p>
@@ -205,7 +207,10 @@ function AdminUsersTable({
       sortable: true,
       sortValue: (user: AdminUser) => user.updated_at,
       render: (user: AdminUser) => (
-        <span className="text-xs" style={{ color: "var(--color-ink-50)" }}>
+        <span
+          className="text-xs"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
           {formatDate(user.updated_at)}
         </span>
       ),
@@ -239,15 +244,18 @@ function AdminUsersTable({
           <UserPlus
             size={20}
             className="mx-auto mb-2"
-            style={{ color: "var(--color-ink-40)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           />
           <p
             className="text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+            style={{ color: "var(--color-text-primary)" }}
           >
             No users found
           </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-50)" }}>
+          <p
+            className="mt-1 text-sm"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
             Adjust filters or invite a new user.
           </p>
         </div>
@@ -325,11 +333,14 @@ function AdminUsersContent(props: AdminUsersContentProps) {
         <Card variant="danger" density="compact">
           <p
             className="text-sm font-semibold"
-            style={{ color: "var(--color-ember)" }}
+            style={{ color: "var(--color-error)" }}
           >
             User list unavailable
           </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
+          <p
+            className="mt-1 text-sm"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
             {props.error}
           </p>
         </Card>
@@ -424,7 +435,7 @@ export function AdminUsersPage() {
   const { bootstrap } = useAppContext();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const deferredSearch = useDeferredValue(search);

@@ -11,7 +11,7 @@ export function Label({
         "mb-1.5 block text-xs font-semibold uppercase tracking-[0.08em]",
         className,
       )}
-      style={{ color: "var(--color-text-secondary)" }}
+      style={{ color: "var(--color-ink-65)" }}
       {...props}
     />
   );

@@ -1,34 +1,55 @@
 import type { HTMLAttributes, PropsWithChildren } from "react";
+import { Card as AstryxCard } from "@astryxdesign/core/Card";
 import { cn } from "@/lib/utils";
 
-type CardVariant = "default" | "elevated" | "flat" | "danger" | "success" | "warning";
-
+type CardVariant =
+  | "default"
+  | "elevated"
+  | "flat"
+  | "danger"
+  | "success"
+  | "warning";
 type CardProps = PropsWithChildren<HTMLAttributes<HTMLDivElement>> & {
   variant?: CardVariant;
   density?: "default" | "compact";
 };
-
-const VARIANT_STYLES: Record<CardVariant, { bg: string; border: string }> = {
-  default:  { bg: "var(--color-surface)",         border: "var(--color-border)" },
-  elevated: { bg: "var(--color-white)",           border: "var(--color-border)" },
-  flat:     { bg: "var(--color-ink-05)",          border: "transparent" },
-  danger:   { bg: "var(--color-ember-05)",        border: "var(--color-ember-10)" },
-  success:  { bg: "var(--color-spruce-05)",       border: "var(--color-spruce-10)" },
-  warning:  { bg: "var(--color-amber-10)",        border: "rgba(180,83,9,0.2)" },
-};
-
-export function Card({ className, variant = "default", density = "default", style, ...props }: CardProps) {
-  const v = VARIANT_STYLES[variant];
-
+const variants = {
+  default: "default",
+  elevated: "default",
+  flat: "muted",
+  danger: "red",
+  success: "green",
+  warning: "yellow",
+} as const;
+export function Card({
+  className,
+  variant = "default",
+  density = "default",
+  ...props
+}: CardProps) {
   return (
-    <div
-      className={cn("rounded-xl border", density === "compact" ? "p-4" : "p-5", className)}
-      style={{
-        background: v.bg,
-        borderColor: v.border,
-        ...(variant === "elevated" ? { boxShadow: "var(--shadow-md)" } : {}),
-        ...style,
-      }}
+    <AstryxCard
+      padding={density === "compact" ? 4 : 5}
+      variant={variants[variant]}
+      elevation={variant === "elevated" ? "med" : "none"}
+      className={cn("app-card", className)}
+      {...props}
+    />
+  );
+}
+
+// Shared visual frame for existing menus and information popovers. Position and content stay with each caller.
+export function PopoverSurface({
+  className,
+  style,
+  ...props
+}: PropsWithChildren<HTMLAttributes<HTMLDivElement>>) {
+  return (
+    <AstryxCard
+      padding={0}
+      elevation="high"
+      className={cn("app-popover", className)}
+      style={{ transformOrigin: "top right", ...style }}
       {...props}
     />
   );

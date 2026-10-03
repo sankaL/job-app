@@ -1,7 +1,12 @@
+import { Theme } from "@astryxdesign/core/theme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { AppProvider, useAppContext } from "@/components/layout/AppContext";
-import { ShellLayoutProvider, useShellLayout } from "@/components/layout/ShellLayoutContext";
+import {
+  ShellLayoutProvider,
+  useShellLayout,
+} from "@/components/layout/ShellLayoutContext";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { Card } from "@/components/ui/card";
@@ -20,7 +25,10 @@ function ShellContent() {
   }, [immersive]);
 
   return (
-    <div className="app-shell-root flex min-h-screen overflow-x-clip" data-shell-mode={mode}>
+    <div
+      className="app-shell-root flex min-h-screen overflow-x-clip"
+      data-shell-mode={mode}
+    >
       {/* Desktop sidebar */}
       <div className="sidebar-desktop app-shell-sidebar-desktop">
         <Sidebar />
@@ -29,7 +37,10 @@ function ShellContent() {
       {/* Mobile sidebar overlay */}
       {!immersive && mobileSidebarOpen && (
         <>
-          <div className="sidebar-overlay" onClick={() => setMobileSidebarOpen(false)} />
+          <div
+            className="sidebar-overlay"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
           <div className="sidebar-mobile">
             <Sidebar onNavigate={() => setMobileSidebarOpen(false)} />
           </div>
@@ -40,16 +51,29 @@ function ShellContent() {
         className="main-with-sidebar app-shell-frame min-w-0 flex flex-1 flex-col"
         style={{ marginLeft: immersive ? 0 : "var(--sidebar-width)" }}
       >
-        <TopBar onMenuToggle={immersive ? undefined : () => setMobileSidebarOpen((v) => !v)} />
+        <TopBar
+          onMenuToggle={
+            immersive ? undefined : () => setMobileSidebarOpen((v) => !v)
+          }
+        />
 
         <main className="app-shell-main flex-1" style={{ overflowX: "clip" }}>
-          <div className="app-shell-content" style={{ maxWidth: "100%", overflowX: "clip" }}>
+          <div
+            className="app-shell-content"
+            style={{ maxWidth: "100%", overflowX: "clip" }}
+          >
             {bootstrapError ? (
               <Card variant="danger" className="mb-6">
-                <p className="text-sm font-semibold" style={{ color: "var(--color-ember)" }}>
+                <p
+                  className="text-sm font-semibold"
+                  style={{ color: "var(--color-error)" }}
+                >
                   Session bootstrap failed
                 </p>
-                <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
+                <p
+                  className="mt-1 text-sm"
+                  style={{ color: "var(--color-text-secondary)" }}
+                >
                   {bootstrapError}
                 </p>
               </Card>
@@ -65,12 +89,14 @@ function ShellContent() {
 
 export function AppShell() {
   return (
-    <AppProvider>
-      <ToastProvider>
-        <ShellLayoutProvider>
-          <ShellContent />
-        </ShellLayoutProvider>
-      </ToastProvider>
-    </AppProvider>
+    <Theme theme={neutralTheme} mode="light">
+      <AppProvider>
+        <ToastProvider>
+          <ShellLayoutProvider>
+            <ShellContent />
+          </ShellLayoutProvider>
+        </ToastProvider>
+      </AppProvider>
+    </Theme>
   );
 }

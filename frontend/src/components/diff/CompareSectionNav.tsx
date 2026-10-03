@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import type { SectionDiff } from "./diff-engine";
 import { cn } from "@/lib/utils";
@@ -45,7 +46,7 @@ export function CompareSectionNav({
       ref={containerRef}
       className="relative flex items-center gap-1 overflow-x-auto rounded-xl border p-1 no-scrollbar"
       style={{
-        background: "var(--color-white)",
+        background: "var(--color-background-surface)",
         borderColor: "var(--color-border)",
       }}
     >
@@ -54,46 +55,49 @@ export function CompareSectionNav({
         ref={pillRef}
         className="pointer-events-none absolute top-1 bottom-1 left-0 rounded-lg shadow-2xs opacity-0"
         style={{
-          background: "var(--color-spruce-10)",
-          border: "1px solid rgba(24, 74, 69, 0.2)",
+          background: "var(--color-accent-muted)",
+          border: "1px solid var(--color-success-muted)",
         }}
       />
 
       {/* "All" Tab */}
-      <button
+      <Button
+        variant="ghost"
         type="button"
         data-section-id="all"
         className={cn(
           "relative z-10 shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
           activeSectionId === null
-            ? "text-[#184a45] font-bold"
-            : "text-[var(--color-ink-65)] hover:text-black",
+            ? "text-[var(--color-success)] font-bold"
+            : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
         )}
         onClick={() => onSelectSection(null)}
       >
         All Sections
-      </button>
+      </Button>
 
       {/* Individual Section Tabs */}
-      {sections.map((sec, idx) => {
+      {sections.map((sec) => {
         const isActive = activeSectionId === sec.id;
         const itemCount =
           sec.kind === "professional_experience"
-            ? sec.experienceDiffs?.length ?? 0
+            ? (sec.experienceDiffs?.length ?? 0)
             : sec.kind === "skills"
-              ? (sec.skillsDiff?.addedSkills.length ?? 0) + (sec.skillsDiff?.removedSkills.length ?? 0)
+              ? (sec.skillsDiff?.addedSkills.length ?? 0) +
+                (sec.skillsDiff?.removedSkills.length ?? 0)
               : null;
 
         return (
-          <button
+          <Button
+            variant="ghost"
             key={sec.id}
             type="button"
             data-section-id={sec.id}
             className={cn(
               "relative z-10 flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
               isActive
-                ? "text-[#184a45] font-bold"
-                : "text-[var(--color-ink-65)] hover:text-black",
+                ? "text-[var(--color-success)] font-bold"
+                : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
             )}
             onClick={() => onSelectSection(sec.id)}
           >
@@ -102,14 +106,18 @@ export function CompareSectionNav({
               <span
                 className="rounded-full px-1.5 py-0.2 text-[10px] font-bold"
                 style={{
-                  background: isActive ? "rgba(24, 74, 69, 0.2)" : "var(--color-ink-05)",
-                  color: isActive ? "var(--color-spruce)" : "var(--color-ink-50)",
+                  background: isActive
+                    ? "var(--color-success-muted)"
+                    : "var(--color-background-muted)",
+                  color: isActive
+                    ? "var(--color-accent)"
+                    : "var(--color-text-secondary)",
                 }}
               >
                 {sec.kind === "skills" ? itemCount : itemCount}
               </span>
             )}
-          </button>
+          </Button>
         );
       })}
     </div>

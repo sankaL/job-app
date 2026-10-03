@@ -77,12 +77,12 @@ export function AuthBrand({ subtitle, linkTo, uppercaseSubtitle = true }: AuthBr
         <img src="/applix-logo.svg" alt="Applix logo" className="h-10 w-10 object-contain" />
       </div>
       <div className="leading-tight">
-        <p className="text-sm font-semibold" style={{ color: "var(--color-ink)" }}>
+        <p className="text-sm font-semibold" style={{ color: "var(--color-ink, var(--color-text-primary))" }}>
           Applix
         </p>
         <p
           className={uppercaseSubtitle ? "text-xs uppercase tracking-[0.18em]" : "text-xs"}
-          style={{ color: "var(--color-ink-50)" }}
+          style={{ color: "var(--color-ink-50, var(--color-text-secondary))" }}
         >
           {subtitle}
         </p>

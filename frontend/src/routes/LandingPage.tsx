@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Check, ChevronRight, FileText, Lock, Sparkles, Workflow, Link2, Gauge } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Sparkles, Workflow, Link2, Gauge } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const featureCards = [

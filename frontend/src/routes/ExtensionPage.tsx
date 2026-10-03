@@ -92,10 +92,12 @@ function ConnectionRow({
       <span
         className="h-2 w-2 rounded-full"
         style={{
-          background: connected ? "var(--color-spruce)" : "var(--color-ink-25)",
+          background: connected
+            ? "var(--color-accent)"
+            : "var(--color-border-emphasized)",
         }}
       />
-      <span className="text-sm text-[var(--color-ink)]">
+      <span className="text-sm text-[var(--color-text-primary)]">
         {connected ? connectedLabel : disconnectedLabel}
       </span>
     </div>
@@ -111,7 +113,7 @@ function getTokenLabel(status: ExtensionConnectionStatus | null) {
 function LastImport({ timestamp }: { timestamp: string | null | undefined }) {
   if (!timestamp) return null;
   return (
-    <div className="text-xs text-[var(--color-ink-40)]">
+    <div className="text-xs text-[var(--color-text-secondary)]">
       Last import: {new Date(timestamp).toLocaleString()}
     </div>
   );
@@ -135,7 +137,7 @@ function ExtensionStatusCard({
   const tokenLabel = getTokenLabel(status);
   return (
     <Card density="compact" className="flex h-full flex-col">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-40)]">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
         Connection Status
       </h3>
       <div className="mt-3 space-y-2.5">
@@ -171,19 +173,21 @@ function ExtensionStatusCard({
 function ExtensionSetupGuide() {
   return (
     <Card density="compact">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-40)]">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
         Setup Guide
       </h3>
       <div className="mt-3 space-y-3">
         {SETUP_STEPS.map((step) => (
           <div key={step.num} className="flex gap-3">
-            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[var(--color-spruce-10)] text-xs font-bold text-[var(--color-spruce)]">
+            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-muted)] text-xs font-bold text-[var(--color-accent)]">
               {step.num}
             </span>
             <div>
-              <p className="text-sm text-[var(--color-ink)]">{step.text}</p>
+              <p className="text-sm text-[var(--color-text-primary)]">
+                {step.text}
+              </p>
               {step.detail ? (
-                <code className="mt-1 inline-block rounded bg-[var(--color-ink-05)] px-2 py-0.5 text-xs text-[var(--color-ink-65)]">
+                <code className="mt-1 inline-block rounded bg-[var(--color-background-muted)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
                   {step.detail}
                 </code>
               ) : null}
@@ -281,11 +285,14 @@ export function ExtensionPage() {
         <Card variant="danger" density="compact">
           <p
             className="text-sm font-semibold"
-            style={{ color: "var(--color-ember)" }}
+            style={{ color: "var(--color-error)" }}
           >
             Error
           </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
+          <p
+            className="mt-1 text-sm"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
             {error}
           </p>
         </Card>
@@ -293,7 +300,7 @@ export function ExtensionPage() {
 
       {message && (
         <Card variant="success" density="compact">
-          <p className="text-sm" style={{ color: "var(--color-spruce)" }}>
+          <p className="text-sm" style={{ color: "var(--color-accent)" }}>
             {message}
           </p>
         </Card>

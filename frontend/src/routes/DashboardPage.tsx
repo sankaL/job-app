@@ -69,19 +69,31 @@ const MONTH_LABELS = [
 const MONTHLY_CHART_CONFIG = {
   created: {
     label: "Created",
-    color: "rgba(16, 24, 40, 0.42)",
+    color: "var(--color-text-secondary)",
   },
   createdAndApplied: {
     label: "Created and Marked Applied",
-    color: "var(--color-spruce)",
+    color: "var(--color-accent)",
   },
 } satisfies ChartConfig;
 
 const STATUS_ACCENTS: Record<StatusKey, { fill: string; track: string }> = {
-  draft: { fill: "var(--color-ink-25)", track: "var(--color-ink-10)" },
-  needs_action: { fill: "var(--color-ember)", track: "var(--color-ember-10)" },
-  in_progress: { fill: "var(--color-spruce)", track: "var(--color-spruce-10)" },
-  complete: { fill: "var(--color-ink)", track: "var(--color-ink-10)" },
+  draft: {
+    fill: "var(--color-border-emphasized)",
+    track: "var(--color-neutral)",
+  },
+  needs_action: {
+    fill: "var(--color-error)",
+    track: "var(--color-error-muted)",
+  },
+  in_progress: {
+    fill: "var(--color-info)",
+    track: "var(--color-info-muted)",
+  },
+  complete: {
+    fill: "var(--color-success)",
+    track: "var(--color-success-muted)",
+  },
 };
 
 const SOURCE_META: Record<
@@ -91,64 +103,64 @@ const SOURCE_META: Record<
   linkedin: {
     label: "LinkedIn",
     icon: Link2,
-    accent: "#0a66c2",
-    tint: "rgba(10,102,194,0.10)",
+    accent: "var(--color-data-categorical-blue)",
+    tint: "var(--color-border)",
   },
   indeed: {
     label: "Indeed",
     icon: Search,
-    accent: "#2557a7",
-    tint: "rgba(37,87,167,0.10)",
+    accent: "var(--color-data-categorical-indigo)",
+    tint: "var(--color-border)",
   },
   google_jobs: {
     label: "Google Jobs",
     icon: Search,
-    accent: "#1a73e8",
-    tint: "rgba(26,115,232,0.10)",
+    accent: "var(--color-data-categorical-cyan)",
+    tint: "var(--color-border)",
   },
   glassdoor: {
     label: "Glassdoor",
     icon: Building2,
-    accent: "#0caa41",
-    tint: "rgba(12,170,65,0.10)",
+    accent: "var(--color-data-categorical-green)",
+    tint: "var(--color-border)",
   },
   ziprecruiter: {
     label: "ZipRecruiter",
     icon: TrendingUp,
-    accent: "#1565ff",
-    tint: "rgba(21,101,255,0.10)",
+    accent: "var(--color-data-categorical-blue)",
+    tint: "var(--color-border)",
   },
   monster: {
     label: "Monster",
     icon: Globe2,
-    accent: "#6d28d9",
-    tint: "rgba(109,40,217,0.10)",
+    accent: "var(--color-data-categorical-purple)",
+    tint: "var(--color-border)",
   },
   dice: {
     label: "Dice",
     icon: Briefcase,
-    accent: "#7c3aed",
-    tint: "rgba(124,58,237,0.10)",
+    accent: "var(--color-data-categorical-purple)",
+    tint: "var(--color-border)",
   },
   company_website: {
     label: "Company Website",
     icon: Globe2,
-    accent: "var(--color-spruce)",
-    tint: "var(--color-spruce-10)",
+    accent: "var(--color-accent)",
+    tint: "var(--color-accent-muted)",
   },
   unknown: {
     label: "Unknown",
     icon: Globe2,
-    accent: "var(--color-ink-50)",
-    tint: "var(--color-ink-05)",
+    accent: "var(--color-text-secondary)",
+    tint: "var(--color-background-muted)",
   },
 };
 const JOB_SOURCES_CARD_LIMIT = 4;
 const OTHER_JOB_SOURCE_META = {
   label: "Other",
   icon: Globe2,
-  accent: "var(--color-ink-50)",
-  tint: "var(--color-ink-05)",
+  accent: "var(--color-text-secondary)",
+  tint: "var(--color-background-muted)",
 };
 
 function getCurrentYear() {
@@ -162,8 +174,8 @@ function getSourceMeta(origin: string) {
         .replace(/_/g, " ")
         .replace(/\b\w/g, (letter) => letter.toUpperCase()),
       icon: Globe2,
-      accent: "var(--color-spruce)",
-      tint: "var(--color-spruce-10)",
+      accent: "var(--color-accent)",
+      tint: "var(--color-accent-muted)",
     }
   );
 }
@@ -412,13 +424,13 @@ export function DashboardPage() {
           <Card variant="danger" density="compact">
             <p
               className="text-sm font-semibold"
-              style={{ color: "var(--color-ember)" }}
+              style={{ color: "var(--color-error)" }}
             >
               Dashboard unavailable
             </p>
             <p
               className="mt-1 text-sm"
-              style={{ color: "var(--color-ink-65)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             >
               {error}
             </p>
@@ -547,29 +559,29 @@ function DashboardContent({
         <StatCard
           label="Total Applications"
           value={total}
-          accent="var(--color-ink)"
-          tint="var(--color-ink-05)"
+          accent="var(--color-text-primary)"
+          tint="var(--color-background-muted)"
           icon={Briefcase}
         />
         <StatCard
           label="Applied"
           value={appliedCount}
-          accent="var(--color-spruce)"
-          tint="var(--color-spruce-10)"
+          accent="var(--color-accent)"
+          tint="var(--color-accent-muted)"
           icon={CheckCircle2}
         />
         <StatCard
           label="Needs Action"
           value={needsActionCount}
-          accent="var(--color-ember)"
-          tint="var(--color-ember-10)"
+          accent="var(--color-error)"
+          tint="var(--color-error-muted)"
           icon={AlertTriangle}
         />
         <StatCard
           label="Extraction Failures"
           value={failedExtractions}
-          accent="var(--color-amber)"
-          tint="var(--color-amber-10)"
+          accent="var(--color-warning)"
+          tint="var(--color-warning-muted)"
           icon={Building2}
         />
       </div>
@@ -577,7 +589,8 @@ function DashboardContent({
       {/* Monthly Activity — collapsible on mobile */}
       {isMobile ? (
         <div>
-          <button
+          <Button
+            variant="ghost"
             type="button"
             className="chart-toggle-btn"
             onClick={() => setChartExpanded(!chartExpanded)}
@@ -613,14 +626,14 @@ function DashboardContent({
                 strokeLinejoin="round"
               />
             </svg>
-          </button>
+          </Button>
           {chartExpanded && (
             <Card density="compact" className="mt-2 overflow-hidden !p-0">
               <div className="px-3 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3
                     className="text-xs font-semibold uppercase tracking-[0.18em]"
-                    style={{ color: "var(--color-ink-40)" }}
+                    style={{ color: "var(--color-text-secondary)" }}
                   >
                     Monthly Activity
                   </h3>
@@ -647,7 +660,7 @@ function DashboardContent({
                   >
                     <CartesianGrid
                       vertical={false}
-                      stroke="rgba(16, 24, 40, 0.08)"
+                      stroke="var(--color-border)"
                       strokeDasharray="4 8"
                     />
                     <XAxis
@@ -657,7 +670,7 @@ function DashboardContent({
                       tickMargin={8}
                       interval={1}
                       tick={{
-                        fill: "rgba(16, 24, 40, 0.44)",
+                        fill: "var(--color-text-secondary)",
                         fontSize: 10,
                         fontWeight: 700,
                       }}
@@ -666,16 +679,16 @@ function DashboardContent({
                     <Area
                       dataKey="created"
                       type="natural"
-                      fill="rgba(16, 24, 40, 0.08)"
-                      stroke="rgba(16, 24, 40, 0.42)"
+                      fill="var(--color-border)"
+                      stroke="var(--color-text-secondary)"
                       strokeWidth={2}
                       dot={false}
                     />
                     <Area
                       dataKey="createdAndApplied"
                       type="natural"
-                      fill="rgba(24, 74, 69, 0.08)"
-                      stroke="var(--color-spruce)"
+                      fill="var(--color-success-muted)"
+                      stroke="var(--color-accent)"
                       strokeWidth={2}
                       dot={false}
                     />
@@ -685,21 +698,21 @@ function DashboardContent({
               <div
                 className="flex flex-wrap items-center gap-2 border-t px-3 pb-3 pt-2 text-[10px] font-semibold uppercase tracking-[0.16em]"
                 style={{
-                  color: "var(--color-ink-40)",
+                  color: "var(--color-text-secondary)",
                   borderColor: "var(--color-border)",
                 }}
               >
                 <span className="flex items-center gap-1.5">
                   <span
                     className="inline-block h-2 w-2 rounded-sm"
-                    style={{ background: "rgba(16, 24, 40, 0.20)" }}
+                    style={{ background: "var(--color-neutral)" }}
                   />
                   {totalCreatedForYear} created
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span
                     className="inline-block h-2 w-2 rounded-sm"
-                    style={{ background: "rgba(24, 74, 69, 0.78)" }}
+                    style={{ background: "var(--color-success)" }}
                   />
                   {totalCreatedAndAppliedForYear} applied
                 </span>
@@ -716,11 +729,14 @@ function DashboardContent({
             <div className="grid flex-1 gap-1">
               <h3
                 className="text-xs font-semibold uppercase tracking-[0.18em]"
-                style={{ color: "var(--color-ink-40)" }}
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 Monthly Activity
               </h3>
-              <p className="text-sm" style={{ color: "var(--color-ink-50)" }}>
+              <p
+                className="text-sm"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
                 Creation volume and how many of those applications are currently
                 marked applied.
               </p>
@@ -742,21 +758,21 @@ function DashboardContent({
           <div
             className="flex flex-wrap items-center gap-3 border-t px-4 pb-4 pt-3 text-[10px] font-semibold uppercase tracking-[0.16em] sm:px-6"
             style={{
-              color: "var(--color-ink-40)",
+              color: "var(--color-text-secondary)",
               borderColor: "var(--color-border)",
             }}
           >
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{ background: "rgba(16, 24, 40, 0.20)" }}
+                style={{ background: "var(--color-neutral)" }}
               />
               {totalCreatedForYear} created
             </span>
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{ background: "rgba(24, 74, 69, 0.78)" }}
+                style={{ background: "var(--color-success)" }}
               />
               {totalCreatedAndAppliedForYear} created + applied
             </span>
@@ -770,13 +786,13 @@ function DashboardContent({
           <div className="flex items-center justify-between gap-3">
             <h3
               className="text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "var(--color-ink-40)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             >
               Job Sources
             </h3>
             <span
               className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-              style={{ color: "var(--color-ink-40)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             >
               capture mix
             </span>
@@ -804,12 +820,12 @@ function DashboardContent({
                       </span>
                       <div
                         className="min-w-0 truncate text-sm font-medium"
-                        style={{ color: "var(--color-ink)" }}
+                        style={{ color: "var(--color-text-primary)" }}
                       >
                         {source.label}
                         <span
                           className="ml-2 text-[10px] font-semibold uppercase tracking-[0.16em]"
-                          style={{ color: "var(--color-ink-40)" }}
+                          style={{ color: "var(--color-text-secondary)" }}
                         >
                           {source.share}%
                         </span>
@@ -832,13 +848,13 @@ function DashboardContent({
           <div className="flex items-center justify-between gap-3">
             <h3
               className="text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "var(--color-ink-40)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             >
               Top Companies
             </h3>
             <span
               className="text-[10px] font-semibold uppercase tracking-[0.16em]"
-              style={{ color: "var(--color-ink-40)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             >
               by volume
             </span>
@@ -850,15 +866,15 @@ function DashboardContent({
                 label={
                   <span
                     className="block truncate text-sm font-medium"
-                    style={{ color: "var(--color-ink)" }}
+                    style={{ color: "var(--color-text-primary)" }}
                   >
                     {company}
                   </span>
                 }
                 value={count}
                 maxValue={maxCompanyCount}
-                fill="linear-gradient(90deg, var(--color-spruce) 0%, var(--color-spruce-light) 100%)"
-                track="var(--color-spruce-10)"
+                fill="linear-gradient(90deg, var(--color-accent) 0%, var(--color-accent) 100%)"
+                track="var(--color-accent-muted)"
               />
             ))}
           </div>
@@ -867,7 +883,7 @@ function DashboardContent({
         <Card density="compact" className="h-full min-h-[198px]">
           <h3
             className="text-xs font-semibold uppercase tracking-[0.18em]"
-            style={{ color: "var(--color-ink-40)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             Status Breakdown
           </h3>
@@ -890,7 +906,7 @@ function DashboardContent({
         <div className="flex items-center justify-between">
           <h3
             className="text-xs font-semibold uppercase tracking-[0.18em]"
-            style={{ color: "var(--color-ink-40)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           >
             Recent Activity
           </h3>
@@ -912,7 +928,8 @@ function DashboardContent({
               className="flex cursor-pointer items-center gap-3 py-2.5 transition-colors first:pt-0 last:pb-0"
               onClick={() => navigate(`/app/applications/${app.id}`)}
               onMouseEnter={(event) => {
-                event.currentTarget.style.background = "var(--color-ink-05)";
+                event.currentTarget.style.background =
+                  "var(--color-background-muted)";
               }}
               onMouseLeave={(event) => {
                 event.currentTarget.style.background = "transparent";
@@ -922,13 +939,13 @@ function DashboardContent({
               <div className="min-w-0 flex-1">
                 <div
                   className="truncate text-sm font-medium"
-                  style={{ color: "var(--color-ink)" }}
+                  style={{ color: "var(--color-text-primary)" }}
                 >
                   {app.job_title ?? "Untitled"}
                 </div>
                 <div
                   className="truncate text-xs"
-                  style={{ color: "var(--color-ink-40)" }}
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   {app.company ?? "Unknown"} ·{" "}
                   {new Date(app.updated_at).toLocaleDateString()}
@@ -938,8 +955,8 @@ function DashboardContent({
                 <span
                   className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]"
                   style={{
-                    color: "var(--color-spruce)",
-                    background: "var(--color-spruce-05)",
+                    color: "var(--color-accent)",
+                    background: "var(--color-accent-muted)",
                   }}
                 >
                   Applied
@@ -984,9 +1001,9 @@ function QuotaCard({ quota }: QuotaCardProps) {
             className="inline-flex h-11 w-11 items-center justify-center rounded-lg"
             style={{
               background: depleted
-                ? "var(--color-ember-10)"
-                : "var(--color-spruce-10)",
-              color: depleted ? "var(--color-ember)" : "var(--color-spruce)",
+                ? "var(--color-error-muted)"
+                : "var(--color-accent-muted)",
+              color: depleted ? "var(--color-error)" : "var(--color-accent)",
             }}
           >
             <Zap size={18} />
@@ -994,13 +1011,13 @@ function QuotaCard({ quota }: QuotaCardProps) {
           <div>
             <p
               className="text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "var(--color-ink-40)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             >
               Monthly Requests
             </p>
             <p
               className="mt-1 text-lg font-semibold"
-              style={{ color: "var(--color-ink)" }}
+              style={{ color: "var(--color-text-primary)" }}
             >
               {remaining} left
             </p>
@@ -1009,24 +1026,27 @@ function QuotaCard({ quota }: QuotaCardProps) {
         <div className="min-w-[220px] sm:text-right">
           <p
             className="text-sm font-medium capitalize"
-            style={{ color: "var(--color-ink)" }}
+            style={{ color: "var(--color-text-primary)" }}
           >
             {quota.subscription_tier} tier
           </p>
-          <p className="mt-1 text-xs" style={{ color: "var(--color-ink-50)" }}>
+          <p
+            className="mt-1 text-xs"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
             {used} of {limit} used. Resets {formatResetDate(quota.resets_at)}.
           </p>
           <div
             className="mt-3 h-2 overflow-hidden rounded-full"
-            style={{ background: "var(--color-ink-10)" }}
+            style={{ background: "var(--color-neutral)" }}
           >
             <div
               className="h-full rounded-full"
               style={{
                 width: `${percent}%`,
                 background: depleted
-                  ? "var(--color-ember)"
-                  : "var(--color-spruce)",
+                  ? "var(--color-error)"
+                  : "var(--color-accent)",
               }}
             />
           </div>
@@ -1080,7 +1100,7 @@ function MonthlyActivityChart({
         </defs>
         <CartesianGrid
           vertical={false}
-          stroke="rgba(16, 24, 40, 0.08)"
+          stroke="var(--color-border)"
           strokeDasharray="4 8"
         />
         <XAxis
@@ -1090,7 +1110,7 @@ function MonthlyActivityChart({
           tickMargin={12}
           interval={0}
           tick={{
-            fill: "rgba(16, 24, 40, 0.44)",
+            fill: "var(--color-text-secondary)",
             fontSize: 11,
             fontWeight: 700,
           }}
@@ -1147,7 +1167,7 @@ function JobSourcesPieChart({ sources }: { sources: SourceDatum[] }) {
           cx={center}
           cy={center}
           r={radius + 14}
-          fill="rgba(16, 24, 40, 0.03)"
+          fill="var(--color-border)"
         />
 
         {sources.length === 1 ? (
@@ -1173,7 +1193,7 @@ function JobSourcesPieChart({ sources }: { sources: SourceDatum[] }) {
                 key={source.origin}
                 d={path}
                 fill={source.accent}
-                stroke="rgba(255,255,255,0.88)"
+                stroke="var(--color-background-surface)"
                 strokeWidth="2.5"
               >
                 <title>{`${source.label}: ${source.count} applications (${source.share}%)`}</title>
@@ -1182,14 +1202,19 @@ function JobSourcesPieChart({ sources }: { sources: SourceDatum[] }) {
           })
         )}
 
-        <circle cx={center} cy={center} r="24" fill="rgba(255,255,255,0.92)" />
+        <circle
+          cx={center}
+          cy={center}
+          r="24"
+          fill="var(--color-background-surface)"
+        />
         <text
           x={center}
           y={center + 3}
           textAnchor="middle"
           fontSize="18"
           fontWeight="700"
-          fill="var(--color-ink)"
+          fill="var(--color-text-primary)"
         >
           {total}
         </text>
@@ -1231,7 +1256,7 @@ function CompactRailRow({
       </div>
       <span
         className="w-8 text-right text-sm font-semibold tabular-nums"
-        style={{ color: "var(--color-ink)" }}
+        style={{ color: "var(--color-text-primary)" }}
       >
         {value}
       </span>

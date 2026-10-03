@@ -1,13 +1,17 @@
 ENV_FILE ?= .env.compose
 COMPOSE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
 
-.PHONY: ensure-env auto-ports up down reset logs health test-prepare compose-config test-stack test-migrate test-backend test-agents test-frontend test test-build test-browser test-browser-seed test-browser-seed-check test-browser-export test-local-guards test-resume-evals eval-resumes
+.PHONY: dev-frontend ensure-env auto-ports up down reset logs health test-prepare compose-config test-stack test-migrate test-backend test-agents test-frontend test test-build test-browser test-browser-seed test-browser-seed-check test-browser-export test-local-guards test-resume-evals eval-resumes
 
 ensure-env:
 	@test -f $(ENV_FILE) || (echo "Missing $(ENV_FILE). Copy .env.compose.example to $(ENV_FILE)." && exit 1)
 
 auto-ports: ensure-env
 	./scripts/auto-assign-ports.sh $(ENV_FILE)
+
+dev-frontend: ensure-env
+	@python3 scripts/check-test-env.py $(ENV_FILE)
+	$(COMPOSE) up -d --no-deps --build frontend
 
 up: auto-ports
 	$(COMPOSE) up -d --build --remove-orphans

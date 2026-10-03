@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthBrand, AuthPageShell } from "@/components/auth/AuthIllustration";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/auth/login-button";
+import { Input } from "@/components/auth/login-input";
+import { Label } from "@/components/auth/login-label";
 import { env } from "@/lib/env";
 import { useAuth } from "@/lib/auth";
 

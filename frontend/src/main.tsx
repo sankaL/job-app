@@ -6,7 +6,11 @@ import App from "./App";
 import { appQueryClient } from "@/lib/query-client";
 import { AuthProvider } from "@/lib/auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import "@astryxdesign/core/reset.css";
+import "@astryxdesign/core/astryx.css";
+import "@astryxdesign/theme-neutral/theme.css";
 import "./index.css";
+import "./components/ui/controls.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
