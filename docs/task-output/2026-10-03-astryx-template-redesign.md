@@ -1,5 +1,11 @@
 # Astryx template redesign
 
+## Neutral color restoration
+
+Completed 2026-10-03 17:11 EDT. The user rejected the orange styling. Restored Astryx neutral in both the authenticated shell and floating portals, including standard primary and secondary buttons. Removed the unused custom theme source, generated assets, stylesheet import and secondary-action accent override. DropdownMenu controls, grouped bars, floating placement and compact top spacing remain. Product and agent guidance now reflect the restored palette.
+
+Review found no remaining imports or references to the removed theme. Browser verified neutral dashboard accents, a fixed black CTA with white text and the resume group's neutral secondary/black primary variants. All 239 frontend tests across 18 files and the Makefile-managed local TypeScript/Vite production build passed. Saved dashboard evidence and closed the temporary verification tab. No user records or data contracts changed.
+
 ## Header spacing follow-up
 
 Completed 2026-10-03 17:09:08 EDT. Authenticated pages with hidden body headings now share a token-based 12px top inset, reduced from 32px on desktop and 20px on narrow screens. Section padding and spacing between regions remain intact. The source and application workbench height calculations inherit the shell inset, keeping fitted editors aligned with the available space. Individual applications retain their visible job heading and existing top inset.

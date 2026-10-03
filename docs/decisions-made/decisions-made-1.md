@@ -1,3 +1,7 @@
+## 2026-10-03: Restore neutral colors and floating CTA styles
+
+The user rejected the orange theme and CTA color. Restore Astryx neutral across authenticated screens and floating portals, including standard primary and secondary button variants. Remove the unused custom theme source and generated assets. This supersedes the orange styling decision below; shared DropdownMenu controls, bar charts, floating placement and compact page spacing remain.
+
 ## 2026-10-03: Share Astryx dropdowns and logo-orange CTA styling
 
 The user requested Astryx DropdownMenu for dropdowns, orange CTA buttons matching the logo, and a bar chart for Monthly Activity. Selection controls use DropdownMenu radio groups while native backing select fields retain validation, form data, refs and change events. Account/application menus use the library's action items and focus/dismissal behavior; information and notification panels retain their existing dialog/popover roles.

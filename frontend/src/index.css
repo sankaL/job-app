@@ -720,10 +720,6 @@ body,
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-med);
 }
-.app-floating-action-buttons .app-button[data-variant="secondary"] {
-  background-color: var(--color-accent);
-  color: var(--color-on-accent);
-}
 .app-floating-name-editor {
   width: min(100%, 20rem);
 }
