@@ -424,7 +424,7 @@
   .resume-editor--workbench {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - var(--topbar-height) - var(--spacing-8) - var(--floating-page-actions-height, 48px) - var(--spacing-10));
+    height: calc(100dvh - var(--topbar-height) - var(--app-content-padding-top, var(--spacing-8)) - var(--floating-page-actions-height, 48px) - var(--spacing-10));
     gap: 1rem;
     padding-bottom: 0;
   }
@@ -474,7 +474,7 @@
 
 @media (min-width: 1280px) and (min-height: 800px) {
   .application-detail-page--workspace {
-    height: calc(100dvh - var(--topbar-height) - var(--spacing-8) - var(--floating-page-actions-height, 48px) - var(--spacing-10));
+    height: calc(100dvh - var(--topbar-height) - var(--app-content-padding-top, var(--spacing-8)) - var(--floating-page-actions-height, 48px) - var(--spacing-10));
   }
   .application-detail-page--workspace > * {
     flex-shrink: 0;

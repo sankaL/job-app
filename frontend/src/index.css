@@ -318,9 +318,10 @@ body,
 }
 
 .app-shell-content {
+  --app-content-padding-top: var(--spacing-8);
   width: 100%;
   min-width: 0;
-  padding: var(--spacing-8) var(--spacing-8) var(--spacing-10);
+  padding: var(--app-content-padding-top) var(--spacing-8) var(--spacing-10);
 }
 .app-topbar {
   padding-inline: var(--spacing-6);
@@ -337,7 +338,8 @@ body,
 }
 @media (max-width: 767px) {
   .app-shell-content {
-    padding: var(--spacing-5) var(--spacing-4) var(--spacing-8);
+    --app-content-padding-top: var(--spacing-5);
+    padding: var(--app-content-padding-top) var(--spacing-4) var(--spacing-8);
   }
   .app-topbar {
     padding-inline: var(--spacing-4);
@@ -724,6 +726,9 @@ body,
 }
 .app-floating-name-editor {
   width: min(100%, 20rem);
+}
+.app-shell-content:has(.app-page-heading-hidden) {
+  --app-content-padding-top: var(--spacing-3);
 }
 .page-enter > .app-page-heading-hidden + :not([hidden]) {
   margin-top: 0;

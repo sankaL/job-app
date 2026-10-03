@@ -1,5 +1,11 @@
 # Astryx template redesign
 
+## Header spacing follow-up
+
+Completed 2026-10-03 17:09:08 EDT. Authenticated pages with hidden body headings now share a token-based 12px top inset, reduced from 32px on desktop and 20px on narrow screens. Section padding and spacing between regions remain intact. The source and application workbench height calculations inherit the shell inset, keeping fitted editors aligned with the available space. Individual applications retain their visible job heading and existing top inset.
+
+Reviewed the cascade, mobile override, hidden-heading margin reset and workbench calculations. The Makefile-managed local TypeScript/Vite production build passed with the existing chunk-size advisory. Browser checks confirmed the inset on dashboard, application/resume lists, source editor, profile, extension and admin. The narrow dashboard's actual 487px viewport had no horizontal overflow; temporary viewport overrides were reset. Saved a focused dashboard screenshot, and closed the temporary verification tab without changing user records.
+
 ## Bar chart, dropdown and CTA follow-up
 
 Completed 2026-10-03 17:05:00 EDT. Read the official DropdownMenu and theme extension documentation through the installed Astryx CLI. Monthly Activity now renders grouped bars for both count series in the expanded and compact views, preserving year selection, tooltips and data. Legend swatches use the same colors as the bars.
