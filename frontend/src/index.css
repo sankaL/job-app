@@ -256,7 +256,7 @@ body {
 }
 .prose pre {
   background: var(--color-text-primary);
-  color: var(--color-on-accent);
+  color: var(--color-background-surface);
   padding: 1em;
   border-radius: var(--radius-container);
   overflow-x: auto;
@@ -717,6 +717,10 @@ body,
   min-width: var(--spacing-12);
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-med);
+}
+.app-floating-action-buttons .app-button[data-variant="secondary"] {
+  background-color: var(--color-accent);
+  color: var(--color-on-accent);
 }
 .app-floating-name-editor {
   width: min(100%, 20rem);

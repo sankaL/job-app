@@ -3,7 +3,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Theme } from "@astryxdesign/core/theme";
-import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import { applixTheme } from "@/themes/applix";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -87,7 +87,7 @@ export function PageHeader({
       )}
       {hasFloatingActions && typeof document !== "undefined"
         ? createPortal(
-            <Theme theme={neutralTheme} mode="light">
+            <Theme theme={applixTheme} mode="light">
               <VStack
                 ref={floatingRef}
                 gap={2}

@@ -94,7 +94,8 @@ describe("section workbench", () => {
   it("adds flexible custom sections without losing existing entries", async () => {
     const user = userEvent.setup();
     render(<ControlledWorkbench />);
-    await user.selectOptions(screen.getByLabelText("New section type"), "custom");
+    await user.click(screen.getByLabelText("New section type"));
+    await user.click(screen.getByRole("menuitemradio", { name: "Custom section" }));
     await user.click(screen.getByRole("button", { name: "Add section" }));
     expect(screen.getByLabelText("Section heading 2")).toHaveValue("Custom section");
     expect(screen.queryByTestId("section-preview-experience-1")).not.toBeInTheDocument();

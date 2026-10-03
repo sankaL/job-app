@@ -3,9 +3,9 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Text } from "@astryxdesign/core/Text";
 import { Menu, UserRound, LogOut, Bell } from "lucide-react";
-import { PopoverSurface } from "@/components/ui/card";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { Button } from "@/components/ui/button";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
@@ -19,69 +19,6 @@ import {
   queryKeys,
   useNotificationsQuery,
 } from "@/lib/queries";
-
-function AccountMenuButton({
-  children,
-  icon,
-  onClick,
-}: {
-  children: ReactNode;
-  icon: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      onClick={onClick}
-      className="flex w-full items-center gap-2.5 px-4 py-2 text-sm transition-colors"
-    >
-      {icon}
-      {children}
-    </Button>
-  );
-}
-
-function AccountMenu({
-  userName,
-  userEmail,
-  onProfile,
-  onSignOut,
-}: {
-  userName: string;
-  userEmail: string;
-  onProfile: () => void;
-  onSignOut: () => void;
-}) {
-  return (
-    <PopoverSurface className="animate-scaleIn absolute right-0 top-full mt-2 w-56 overflow-hidden rounded-xl border py-1">
-      <div
-        className="border-b px-4 py-3"
-        style={{ borderColor: "var(--color-border)" }}
-      >
-        <div className="text-sm font-medium text-[var(--color-text-primary)]">
-          {userName || "User"}
-        </div>
-        <div className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
-          {userEmail}
-        </div>
-      </div>
-      <div className="py-1">
-        <AccountMenuButton
-          onClick={onProfile}
-          icon={<UserRound size={16} aria-hidden="true" />}
-        >
-          Profile & Preferences
-        </AccountMenuButton>
-        <AccountMenuButton
-          onClick={onSignOut}
-          icon={<LogOut size={16} aria-hidden="true" />}
-        >
-          Sign Out
-        </AccountMenuButton>
-      </div>
-    </PopoverSurface>
-  );
-}
 
 function getInitials(userName: string, userEmail: string) {
   if (userName)
@@ -132,7 +69,7 @@ function NotificationControl({
       >
         <Bell size={18} aria-hidden="true" />
         {needsActionCount > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-error)] px-1 text-xs font-bold leading-none text-[var(--color-on-accent)]">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-error)] px-1 text-xs font-bold leading-none text-[var(--color-on-error)]">
             {needsActionCount}
           </span>
         ) : null}
@@ -165,31 +102,42 @@ function AccountControl({
   initials: string;
   userName: string;
   userEmail: string;
-  onToggle: () => void;
+  onToggle: (open: boolean) => void;
   onProfile: () => void;
   onSignOut: () => void;
 }) {
   return (
-    <div className="relative">
-      <Button
-        variant="primary"
-        onClick={onToggle}
-        style={{ borderRadius: "var(--radius-full)", padding: 0 }}
-        className="flex h-9 w-9 items-center justify-center text-xs transition-all"
-        aria-label="Account menu"
-        aria-expanded={open}
-      >
-        {initials}
-      </Button>
-      {open ? (
-        <AccountMenu
-          userName={userName}
-          userEmail={userEmail}
-          onProfile={onProfile}
-          onSignOut={onSignOut}
-        />
-      ) : null}
-    </div>
+    <DropdownMenu
+      presentation="popover"
+      alignment="end"
+      menuWidth="max-content"
+      isMenuOpen={open}
+      onOpenChange={onToggle}
+      hasChevron={false}
+      button={{
+        label: initials,
+        "aria-label": "Account menu",
+        variant: "secondary",
+        className: "flex h-9 w-9 items-center justify-center text-xs",
+        style: { borderRadius: "var(--radius-full)", padding: 0 },
+        width: "var(--spacing-9)",
+      }}
+      items={[
+        {
+          type: "section",
+          title: userName || "User",
+          items: [
+            {
+              label: "Profile & Preferences",
+              description: userEmail,
+              icon: <UserRound size={16} />,
+              onClick: onProfile,
+            },
+          ],
+        },
+        { label: "Sign Out", icon: <LogOut size={16} />, onClick: onSignOut },
+      ]}
+    />
   );
 }
 
@@ -223,13 +171,11 @@ export function TopBar() {
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (!menusRef.current?.contains(event.target as Node)) {
-        setAvatarOpen(false);
         setNotificationsOpen(false);
       }
     }
     function handleEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setAvatarOpen(false);
         setNotificationsOpen(false);
       }
     }
@@ -246,9 +192,9 @@ export function TopBar() {
     setNotificationsOpen((current) => !current);
   }
 
-  function toggleAvatarMenu() {
+  function toggleAvatarMenu(open: boolean) {
     setNotificationsOpen(false);
-    setAvatarOpen((current) => !current);
+    setAvatarOpen(open);
   }
 
   function handleNotificationSelect(notification: NotificationSummary) {

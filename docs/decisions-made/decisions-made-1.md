@@ -1,3 +1,9 @@
+## 2026-10-03: Share Astryx dropdowns and logo-orange CTA styling
+
+The user requested Astryx DropdownMenu for dropdowns, orange CTA buttons matching the logo, and a bar chart for Monthly Activity. Selection controls use DropdownMenu radio groups while native backing select fields retain validation, form data, refs and change events. Account/application menus use the library's action items and focus/dismissal behavior; information and notification panels retain their existing dialog/popover roles.
+
+The CLI-built Applix theme extends neutral with the logo's `#f47721` and dark `#1c1917` text. Primary and floating CTA buttons share the accent; destructive actions remain red. Monthly counts use grouped bars in both sizes, with legends matched to the series colors. See `docs/task-output/2026-10-03-astryx-template-redesign.md` for review and verification.
+
 ## 2026-10-03: Use the top bar for page identity and float page actions
 
 The user requested removal of repeated body page titles and introductions. The shared top bar identifies authenticated routes, with an accessible hidden page heading retained. Individual applications keep their full job title and company in the body to accommodate long titles.

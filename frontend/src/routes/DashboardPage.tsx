@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { Link, useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useAppContext } from "@/components/layout/AppContext";
@@ -659,7 +659,7 @@ function DashboardContent({
                   role="img"
                   className="h-[200px] w-full"
                 >
-                  <AreaChart
+                  <BarChart
                     data={monthlyData}
                     margin={{ left: 2, right: 2, top: 8, bottom: 0 }}
                   >
@@ -682,25 +682,19 @@ function DashboardContent({
                       }}
                     />
                     <YAxis hide domain={[0, "dataMax + 1"]} />
-                    <Area
+                    <Bar
                       isAnimationActive={false}
                       dataKey="created"
-                      type="linear"
-                      fill="var(--color-border)"
-                      stroke="var(--color-text-secondary)"
-                      strokeWidth={2}
-                      dot={false}
+                      fill="var(--color-created)"
+                      radius={[4, 4, 0, 0]}
                     />
-                    <Area
+                    <Bar
                       isAnimationActive={false}
                       dataKey="createdAndApplied"
-                      type="linear"
-                      fill="var(--color-success-muted)"
-                      stroke="var(--color-accent)"
-                      strokeWidth={2}
-                      dot={false}
+                      fill="var(--color-applied)"
+                      radius={[4, 4, 0, 0]}
                     />
-                  </AreaChart>
+                  </BarChart>
                 </ChartContainer>
               </div>
               <div
@@ -713,14 +707,14 @@ function DashboardContent({
                 <span className="flex items-center gap-1.5">
                   <span
                     className="inline-block h-2 w-2 rounded-sm"
-                    style={{ background: "var(--color-neutral)" }}
+                    style={{ background: MONTHLY_CHART_CONFIG.created.color }}
                   />
                   {totalCreatedForYear} created
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span
                     className="inline-block h-2 w-2 rounded-sm"
-                    style={{ background: "var(--color-success)" }}
+                    style={{ background: MONTHLY_CHART_CONFIG.createdAndApplied.color }}
                   />
                   {totalCreatedAndAppliedForYear} applied
                 </span>
@@ -775,14 +769,14 @@ function DashboardContent({
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{ background: "var(--color-neutral)" }}
+                style={{ background: MONTHLY_CHART_CONFIG.created.color }}
               />
               {totalCreatedForYear} created
             </span>
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{ background: "var(--color-success)" }}
+                style={{ background: MONTHLY_CHART_CONFIG.createdAndApplied.color }}
               />
               {totalCreatedAndAppliedForYear} created + applied
             </span>
@@ -1047,33 +1041,7 @@ function MonthlyActivityChart({
       role="img"
       className="h-[260px] w-full"
     >
-      <AreaChart data={data} margin={{ left: 6, right: 6, top: 8, bottom: 0 }}>
-        <defs>
-          <linearGradient id="fillCreated" x1="0" y1="0" x2="0" y2="1">
-            <stop
-              offset="5%"
-              stopColor="var(--color-created)"
-              stopOpacity={0.46}
-            />
-            <stop
-              offset="95%"
-              stopColor="var(--color-created)"
-              stopOpacity={0.06}
-            />
-          </linearGradient>
-          <linearGradient id="fillApplied" x1="0" y1="0" x2="0" y2="1">
-            <stop
-              offset="5%"
-              stopColor="var(--color-applied)"
-              stopOpacity={0.42}
-            />
-            <stop
-              offset="95%"
-              stopColor="var(--color-applied)"
-              stopOpacity={0.05}
-            />
-          </linearGradient>
-        </defs>
+      <BarChart data={data} margin={{ left: 6, right: 6, top: 8, bottom: 0 }}>
         <CartesianGrid
           vertical={false}
           stroke="var(--color-border)"
@@ -1102,27 +1070,19 @@ function MonthlyActivityChart({
             />
           }
         />
-        <Area
+        <Bar
           isAnimationActive={false}
           dataKey="created"
-          type="linear"
-          fill="url(#fillCreated)"
-          stroke="var(--color-created)"
-          strokeWidth={3}
-          activeDot={{ r: 4, fill: "var(--color-created)" }}
-          dot={{ r: 3, fill: "var(--color-created)", strokeWidth: 0 }}
+          fill="var(--color-created)"
+          radius={[4, 4, 0, 0]}
         />
-        <Area
+        <Bar
           isAnimationActive={false}
           dataKey="createdAndApplied"
-          type="linear"
-          fill="url(#fillApplied)"
-          stroke="var(--color-applied)"
-          strokeWidth={3}
-          activeDot={{ r: 4, fill: "var(--color-applied)" }}
-          dot={{ r: 3, fill: "var(--color-applied)", strokeWidth: 0 }}
+          fill="var(--color-applied)"
+          radius={[4, 4, 0, 0]}
         />
-      </AreaChart>
+      </BarChart>
     </ChartContainer>
   );
 }

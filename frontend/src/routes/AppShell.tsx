@@ -2,7 +2,7 @@ import { MobileNav } from "@astryxdesign/core/MobileNav";
 import { Text } from "@astryxdesign/core/Text";
 import { AppShell as AstryxAppShell } from "@astryxdesign/core/AppShell";
 import { Theme } from "@astryxdesign/core/theme";
-import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import { applixTheme } from "@/themes/applix";
 import { useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { AppProvider, useAppContext } from "@/components/layout/AppContext";
@@ -88,7 +88,7 @@ function ShellContent() {
 
 export function AppShell() {
   return (
-    <Theme theme={neutralTheme} mode="light">
+    <Theme theme={applixTheme} mode="light">
       <AppProvider>
         <ToastProvider>
           <ShellLayoutProvider>

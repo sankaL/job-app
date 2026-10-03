@@ -242,7 +242,7 @@
   background: transparent;
   border-radius: 0 0 var(--radius-container) var(--radius-container);
 }
-.resume-add-section select {
+.resume-add-section .app-select-field {
   flex: 1;
   min-width: 0;
   flex-basis: 160px;
@@ -316,7 +316,7 @@
     width: 100%;
   }
   .resume-workbench input:not([type="checkbox"]),
-  .resume-workbench select,
+  .resume-workbench .app-select-trigger,
   .resume-prose,
   .resume-editor #resume-name {
     font-size: 16px;

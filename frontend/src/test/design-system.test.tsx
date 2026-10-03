@@ -1,5 +1,5 @@
 import { createRef } from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Theme } from "@astryxdesign/core/theme";
@@ -31,18 +31,32 @@ describe("shared app controls", () => {
         }
       />,
     );
-    expect(screen.getByRole("heading", { name: "Resumes", level: 1 })).toHaveClass("sr-only");
-    expect(screen.queryByText("Duplicate page introduction")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Resumes", level: 1 }),
+    ).toHaveClass("sr-only");
+    expect(
+      screen.queryByText("Duplicate page introduction"),
+    ).not.toBeInTheDocument();
     const group = screen.getByRole("group", { name: "Resumes actions" });
-    expect(group).toContainElement(screen.getByRole("button", { name: "Upload Resume" }));
-    await userEvent.click(screen.getByRole("button", { name: "Upload Resume" }));
-    await userEvent.click(screen.getByRole("button", { name: "Start from Scratch" }));
+    expect(group).toContainElement(
+      screen.getByRole("button", { name: "Upload Resume" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Upload Resume" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Start from Scratch" }),
+    );
     expect(upload).toHaveBeenCalledOnce();
     expect(create).toHaveBeenCalledOnce();
-    expect(document.body.style.getPropertyValue("--floating-page-actions-height")).not.toBe("");
+    expect(
+      document.body.style.getPropertyValue("--floating-page-actions-height"),
+    ).not.toBe("");
     rerender(<PageHeader title="Profile" />);
     expect(screen.queryByRole("group")).not.toBeInTheDocument();
-    expect(document.body.style.getPropertyValue("--floating-page-actions-height")).toBe("");
+    expect(
+      document.body.style.getPropertyValue("--floating-page-actions-height"),
+    ).toBe("");
     unmount();
   });
 
@@ -57,9 +71,13 @@ describe("shared app controls", () => {
     );
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading).not.toHaveClass("sr-only");
-    expect(heading).toHaveTextContent("Senior Engineering Practice Lead for Enterprise Platforms");
+    expect(heading).toHaveTextContent(
+      "Senior Engineering Practice Lead for Enterprise Platforms",
+    );
     expect(screen.getByText("Acme")).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: /actions$/ })).toContainElement(screen.getByRole("button", { name: "Activity" }));
+    expect(screen.getByRole("group", { name: /actions$/ })).toContainElement(
+      screen.getByRole("button", { name: "Activity" }),
+    );
   });
 
   it("cleans up toast removal and automatic-dismiss timers on unmount", () => {
@@ -190,14 +208,65 @@ describe("shared app controls", () => {
         <Textarea aria-label="Section" defaultValue="Python" ref={ref} />
       </>,
     );
-    await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "Filter" }),
-      "complete",
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    await userEvent.click(
+      screen.getByRole("menuitemradio", { name: "Complete" }),
     );
     expect(onChange.mock.calls[0][0].target.value).toBe("complete");
     ref.current?.setSelectionRange(1, 4);
     expect(ref.current?.selectionStart).toBe(1);
     expect(ref.current?.selectionEnd).toBe(4);
+  });
+
+  it("selects with the keyboard, blocks disabled options and retains native validation and form data", async () => {
+    const user = userEvent.setup();
+    const field = createRef<HTMLSelectElement>();
+    const submit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    render(
+      <form aria-label="Settings" onSubmit={submit}>
+        <Select
+          ref={field}
+          name="choice"
+          aria-label="Choice"
+          required
+          defaultValue=""
+        >
+          <option value="">Choose</option>
+          <option value="unavailable" disabled>
+            Unavailable
+          </option>
+          <option value="complete">Complete</option>
+        </Select>
+        <Button type="submit">Submit settings</Button>
+        <Button type="reset">Reset settings</Button>
+      </form>,
+    );
+    await user.click(screen.getByRole("button", { name: "Submit settings" }));
+    expect(submit).not.toHaveBeenCalled();
+    expect(field.current?.validity.valueMissing).toBe(true);
+    const trigger = screen.getByRole("button", { name: "Choice" });
+    await user.click(trigger);
+    const unavailable = screen.getByRole("menuitemradio", {
+      name: "Unavailable",
+    });
+    expect(unavailable).toHaveAttribute("aria-disabled", "true");
+    await user.click(unavailable);
+    expect(field.current?.value).toBe("");
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "Choose" })).toHaveFocus());
+    await user.keyboard("{End}");
+    await waitFor(() => expect(screen.getByRole("menuitemradio", { name: "Complete" })).toHaveFocus());
+    await user.keyboard("{Enter}");
+    expect(trigger).toHaveTextContent("Complete");
+    expect(field.current?.validity.valid).toBe(true);
+    expect(new FormData(field.current!.form!).get("choice")).toBe("complete");
+    await user.click(screen.getByRole("button", { name: "Submit settings" }));
+    expect(submit).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Reset settings" }));
+    await waitFor(() => expect(trigger).toHaveTextContent("Choose"));
+    expect(field.current?.value).toBe("");
   });
 
   it("restores document theme attributes when leaving the authenticated app", () => {

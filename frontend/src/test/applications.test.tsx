@@ -1305,13 +1305,10 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText("Top Companies")).toBeInTheDocument();
     expect(screen.getByText("Status Breakdown")).toBeInTheDocument();
 
-    const yearSelect = screen.getByRole("combobox", {
+    const yearSelect = screen.getByRole("button", {
       name: /select monthly activity year/i,
     });
-    expect(yearSelect).toHaveValue(String(currentYear));
-    expect(
-      within(yearSelect).getByRole("option", { name: String(previousYear) }),
-    ).toBeInTheDocument();
+    expect(yearSelect).toHaveTextContent(String(currentYear));
 
     const chart = screen.getByTestId("monthly-activity-chart");
     expect(chart).toHaveAttribute(
@@ -1322,7 +1319,8 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText("1 created + applied")).toBeInTheDocument();
     expect(screen.getByText(`${currentYear} overview`)).toBeInTheDocument();
 
-    await user.selectOptions(yearSelect, String(previousYear));
+    await user.click(yearSelect);
+    await user.click(screen.getByRole("menuitemradio", { name: String(previousYear) }));
 
     expect(chart).toHaveAttribute(
       "aria-label",
@@ -1481,10 +1479,8 @@ describe("phase 1 applications UI", () => {
       screen.queryByPlaceholderText(/other source label/i),
     ).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(
-      screen.getByLabelText(/posting source/i),
-      "other",
-    );
+    await userEvent.click(screen.getByLabelText(/posting source/i));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Other" }));
 
     expect(
       await screen.findByPlaceholderText(/other source label/i),
@@ -2821,10 +2817,12 @@ describe("phase 1 applications UI", () => {
 
     expect(await screen.findByText("Casey Member")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole("combobox"), "active");
+    await user.click(screen.getByRole("button", { name: /All users|Active|Invited|Deactivated/i }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Active" }));
     expect(await screen.findByText("Casey Member")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole("combobox"), "all");
+    await user.click(screen.getByRole("button", { name: /All users|Active|Invited|Deactivated/i }));
+    await user.click(screen.getByRole("menuitemradio", { name: "All users" }));
     expect(await screen.findByText("Casey Member")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /deactivate/i }));
@@ -2832,7 +2830,8 @@ describe("phase 1 applications UI", () => {
       expect(api.deactivateAdminUser).toHaveBeenCalledWith("user-2"),
     );
 
-    await user.selectOptions(screen.getByRole("combobox"), "active");
+    await user.click(screen.getByRole("button", { name: /All users|Active|Invited|Deactivated/i }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Active" }));
 
     expect(await screen.findByText(/no users found/i)).toBeInTheDocument();
     expect(screen.queryByText("Casey Member")).not.toBeInTheDocument();
@@ -2851,10 +2850,8 @@ describe("phase 1 applications UI", () => {
     await user.click(
       screen.getByRole("button", { name: /edit member@example.com/i }),
     );
-    await user.selectOptions(
-      screen.getByLabelText(/subscription tier/i),
-      "pro",
-    );
+    await user.click(screen.getByLabelText(/subscription tier/i));
+    await user.click(screen.getByRole("menuitemradio", { name: "Pro" }));
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() =>

@@ -1,5 +1,15 @@
 # Astryx template redesign
 
+## Bar chart, dropdown and CTA follow-up
+
+Completed 2026-10-03 17:05:00 EDT. Read the official DropdownMenu and theme extension documentation through the installed Astryx CLI. Monthly Activity now renders grouped bars for both count series in the expanded and compact views, preserving year selection, tooltips and data. Legend swatches use the same colors as the bars.
+
+Shared selection controls use DropdownMenu radio groups; native backing fields retain validation, form submission, refs and React change-event consumers. Account and application action menus use core DropdownMenu items, placement and dismissal. Information popovers and the notification dialog retain their roles. Removed the manual account/application menu frames, application outside-click/Escape listeners and unused native select styling.
+
+The Applix theme extends neutral and is compiled with the Astryx CLI. Its source, generated stylesheet, module and declarations are committed. Primary and floating CTA buttons use the logo orange `#f47721` with dark `#1c1917` lettering. Review preserved error-badge and code-block contrast, destructive styling and workbench dropdown/Add section alignment. Public marketing/login layouts retain their existing styles.
+
+All 239 frontend tests across 18 files passed through the Makefile-managed local Docker stack. Coverage includes selection change events, keyboard opening/selection, disabled choices, required-field validation, FormData, reset and focus restoration, as well as application export/regeneration and admin filters. The final TypeScript/Vite build passed. Browser checks verified filtering, year keyboard focus, the account menu, upward application actions and logo-orange CTA computed colors. A narrow application menu remained inside the actual 536px viewport. Temporary viewport overrides were reset. No schema or AI behavior changed.
+
 ## Floating page actions follow-up
 
 Completed 2026-10-03 16:54:00 EDT. Authenticated pages now rely on the top bar for page identity. Their accessible page heading remains, while the duplicate visible title and introduction are removed. Individual applications retain the full job title, company and status in the body.

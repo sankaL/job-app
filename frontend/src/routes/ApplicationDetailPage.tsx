@@ -1,6 +1,6 @@
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
-import { PopoverSurface } from "@/components/ui/card";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import {
   FormEvent,
   useEffect,
@@ -2202,7 +2202,6 @@ export function ApplicationDetailPage() {
   const lastDraftSyncDetailRef = useRef<string | null>(null);
   const lastKeywordSignatureRef = useRef<string | null>(null);
   const previousDetailRef = useRef<ApplicationDetail | null>(null);
-  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
   const [showKeywordDialog, setShowKeywordDialog] = useState(false);
   const [manualKeywordInput, setManualKeywordInput] = useState("");
@@ -2466,29 +2465,6 @@ export function ApplicationDetailPage() {
     }
     setExpandedResumeJudgeDimension(defaultExpandedResumeJudgeDimension);
   }, [showResumeJudgeDialog, defaultExpandedResumeJudgeDimension]);
-
-  useEffect(() => {
-    if (!actionsMenuOpen) return;
-
-    function handlePointerDown(event: MouseEvent) {
-      if (
-        actionsMenuRef.current &&
-        !actionsMenuRef.current.contains(event.target as Node)
-      ) {
-        setActionsMenuOpen(false);
-      }
-    }
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setActionsMenuOpen(false);
-    }
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("keydown", handleEscape);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("keydown", handleEscape);
-    };
-  }, [actionsMenuOpen]);
 
   useEffect(() => {
     if (!detailQuery.data) return;
@@ -3700,219 +3676,111 @@ export function ApplicationDetailPage() {
                   <History size={14} aria-hidden="true" />
                   Activity
                 </Button>
-                <div ref={actionsMenuRef} className="relative">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    aria-haspopup="menu"
-                    aria-expanded={actionsMenuOpen}
-                    aria-controls="application-actions-menu"
-                    onClick={() => setActionsMenuOpen((open) => !open)}
-                  >
-                    Actions
-                    <ChevronDown size={14} aria-hidden="true" />
-                  </Button>
-                  {actionsMenuOpen && (
-                    <PopoverSurface
-                      id="application-actions-menu"
-                      className="animate-scaleIn absolute right-0 bottom-full z-30 mb-2 w-56 overflow-hidden rounded-xl border py-1 shadow-[var(--shadow-high)]"
-                      style={{
-                        maxHeight: "calc(100vh - 200px)",
-                        overflowY: "auto",
-                      }}
-                      role="menu"
-                      aria-label="Application actions"
-                    >
-                      {detail.job_url && (
-                        <a
-                          href={detail.job_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-[var(--color-background-muted)]"
-                          style={{ color: "var(--color-text-primary)" }}
-                          onClick={() => setActionsMenuOpen(false)}
-                        >
-                          <ExternalLink
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-accent)" }}
-                            aria-hidden="true"
-                          />
-                          <span>View Posting</span>
-                        </a>
-                      )}
-                      <Button
-                        variant="ghost"
-                        type="button"
-                        role="menuitem"
-                        className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors"
-                        onClick={() => {
-                          setActionsMenuOpen(false);
-                          handleAppliedButtonClick();
-                        }}
-                      >
-                        {detail.applied ? (
-                          <>
-                            <X
-                              size={16}
-                              className="shrink-0"
-                              style={{ color: "var(--color-error)" }}
-                              aria-hidden="true"
-                            />
-                            <span>Mark unapplied instead</span>
-                          </>
-                        ) : (
-                          <>
-                            <Check
-                              size={16}
-                              className="shrink-0"
-                              style={{
-                                color: "var(--color-text-disabled)",
-                                opacity: 0.3,
-                              }}
-                              aria-hidden="true"
-                            />
-                            <span>Mark Applied</span>
-                          </>
-                        )}
-                      </Button>
-                      {draft && (
-                        <div
-                          className="my-1 border-t"
-                          style={{ borderColor: "var(--color-border)" }}
-                        />
-                      )}
-                      {draft && (
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={
-                            exportingFormat !== null ||
-                            isRegenerating ||
-                            generationActive
-                          }
-                          onClick={() => void handleExport("pdf")}
-                        >
-                          <FileDown
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-text-secondary)" }}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {exportingFormat === "pdf"
-                              ? "Exporting PDF…"
-                              : "Export PDF"}
-                          </span>
-                        </Button>
-                      )}
-                      {draft && (
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={
-                            exportingFormat !== null ||
-                            isRegenerating ||
-                            generationActive
-                          }
-                          onClick={() => void handleExport("docx")}
-                        >
-                          <FileDown
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-text-secondary)" }}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {exportingFormat === "docx"
-                              ? "Exporting DOCX…"
-                              : "Export DOCX"}
-                          </span>
-                        </Button>
-                      )}
-                      {draft && (
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={
-                            isRegenerating ||
-                            exportingFormat !== null ||
-                            generationActive
-                          }
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            handleToggleCompareMode();
-                          }}
-                        >
-                          <Columns
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-text-secondary)" }}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {compareMode ? "Close comparison" : "Compare"}
-                          </span>
-                        </Button>
-                      )}
-                      {draft && !generationActive && (
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={isRegenerating || exportingFormat !== null}
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            setRegenEntryId(undefined);
-                            setRegenSectionName("");
-                            setShowSectionRegen(true);
-                          }}
-                        >
-                          <Sparkles
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-text-secondary)" }}
-                            aria-hidden="true"
-                          />
-                          <span>Regen Section</span>
-                        </Button>
-                      )}
-                      {draft && !generationActive && (
-                        <Button
-                          variant="ghost"
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={isRegenerating || exportingFormat !== null}
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            setFullRegenInstructions("");
-                            setFullRegenUseLatestBase(false);
-                            setShowFullRegenConfirm(true);
-                          }}
-                        >
-                          <RefreshCw
-                            size={16}
-                            className={`shrink-0 ${isRegenerating ? "animate-spin" : ""}`}
-                            style={{ color: "var(--color-text-secondary)" }}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {isRegenerating ? "Starting…" : "Full Regen"}
-                          </span>
-                        </Button>
-                      )}
-                    </PopoverSurface>
-                  )}
-                </div>
+                <DropdownMenu
+                  presentation="popover"
+                  placement="above"
+                  alignment="end"
+                  menuWidth="max-content"
+                  isMenuOpen={actionsMenuOpen}
+                  onOpenChange={setActionsMenuOpen}
+                  button={{
+                    label: "Actions",
+                    size: "sm",
+                    variant: "secondary",
+                    className: "app-button",
+                  }}
+                  items={[
+                    ...(detail.job_url
+                      ? [
+                          {
+                            label: "View Posting",
+                            icon: <ExternalLink size={16} />,
+                            onClick: () =>
+                              window.open(
+                                detail.job_url!,
+                                "_blank",
+                                "noopener,noreferrer",
+                              ),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: detail.applied
+                        ? "Mark unapplied instead"
+                        : "Mark Applied",
+                      icon: detail.applied ? (
+                        <X size={16} />
+                      ) : (
+                        <Check size={16} />
+                      ),
+                      onClick: handleAppliedButtonClick,
+                    },
+                    ...(draft
+                      ? [
+                          { type: "divider" as const },
+                          {
+                            label:
+                              exportingFormat === "pdf"
+                                ? "Exporting PDF…"
+                                : "Export PDF",
+                            icon: <FileDown size={16} />,
+                            isDisabled:
+                              exportingFormat !== null ||
+                              isRegenerating ||
+                              generationActive,
+                            onClick: () => void handleExport("pdf"),
+                          },
+                          {
+                            label:
+                              exportingFormat === "docx"
+                                ? "Exporting DOCX…"
+                                : "Export DOCX",
+                            icon: <FileDown size={16} />,
+                            isDisabled:
+                              exportingFormat !== null ||
+                              isRegenerating ||
+                              generationActive,
+                            onClick: () => void handleExport("docx"),
+                          },
+                          {
+                            label: compareMode ? "Close comparison" : "Compare",
+                            icon: <Columns size={16} />,
+                            isDisabled:
+                              isRegenerating ||
+                              exportingFormat !== null ||
+                              generationActive,
+                            onClick: handleToggleCompareMode,
+                          },
+                        ]
+                      : []),
+                    ...(draft && !generationActive
+                      ? [
+                          {
+                            label: "Regen Section",
+                            icon: <Sparkles size={16} />,
+                            isDisabled:
+                              isRegenerating || exportingFormat !== null,
+                            onClick: () => {
+                              setRegenEntryId(undefined);
+                              setRegenSectionName("");
+                              setShowSectionRegen(true);
+                            },
+                          },
+                          {
+                            label: isRegenerating ? "Starting…" : "Full Regen",
+                            icon: <RefreshCw size={16} />,
+                            isDisabled:
+                              isRegenerating || exportingFormat !== null,
+                            onClick: () => {
+                              setFullRegenInstructions("");
+                              setFullRegenUseLatestBase(false);
+                              setShowFullRegenConfirm(true);
+                            },
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
                 {extractionActive ? (
                   <IconButton
                     variant="danger"
