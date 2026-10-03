@@ -19,7 +19,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { useAppContext } from "@/components/layout/AppContext";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import {
   ChartContainer,
   ChartTooltip,
@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/chart";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Select } from "@/components/ui/select";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { visibleStatusLabels } from "@/lib/application-options";
 import type { ApplicationSummary, SessionBootstrapResponse } from "@/lib/api";
 import { useApplicationsQuery } from "@/lib/queries";
@@ -421,7 +421,7 @@ export function DashboardPage() {
             title="Dashboard"
             subtitle="Application analytics and activity overview"
           />
-          <Card variant="danger" density="compact">
+          <Section variant="danger" density="compact">
             <p
               className="text-sm font-semibold"
               style={{ color: "var(--color-error)" }}
@@ -443,7 +443,7 @@ export function DashboardPage() {
                 Go to Applications
               </Button>
             </div>
-          </Card>
+          </Section>
         </div>
       );
     }
@@ -456,13 +456,13 @@ export function DashboardPage() {
         />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <SkeletonCard key={i} density="compact" />
+            <SkeletonSection key={i} density="compact" />
           ))}
         </div>
-        <SkeletonCard density="compact" />
+        <SkeletonSection density="compact" />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <SkeletonCard key={i} density="compact" />
+            <SkeletonSection key={i} density="compact" />
           ))}
         </div>
       </div>
@@ -628,7 +628,7 @@ function DashboardContent({
             </svg>
           </Button>
           {chartExpanded && (
-            <Card density="compact" className="mt-2 overflow-hidden !p-0">
+            <Section density="compact" className="mt-2 overflow-hidden !p-0">
               <div className="px-3 py-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3
@@ -717,11 +717,11 @@ function DashboardContent({
                   {totalCreatedAndAppliedForYear} applied
                 </span>
               </div>
-            </Card>
+            </Section>
           )}
         </div>
       ) : (
-        <Card density="compact" className="overflow-hidden !p-0">
+        <Section density="compact" className="overflow-hidden !p-0">
           <div
             className="flex flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5"
             style={{ borderColor: "var(--color-border)" }}
@@ -778,11 +778,11 @@ function DashboardContent({
             </span>
             <span>{selectedYear} overview</span>
           </div>
-        </Card>
+        </Section>
       )}
 
       <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <Card density="compact" className="h-full min-h-[198px]">
+        <Section density="compact" className="h-full min-h-[198px]">
           <div className="flex items-center justify-between gap-3">
             <h3
               className="text-xs font-semibold uppercase tracking-[0.18em]"
@@ -842,9 +842,9 @@ function DashboardContent({
               })}
             </div>
           </div>
-        </Card>
+        </Section>
 
-        <Card density="compact" className="h-full min-h-[198px]">
+        <Section density="compact" className="h-full min-h-[198px]">
           <div className="flex items-center justify-between gap-3">
             <h3
               className="text-xs font-semibold uppercase tracking-[0.18em]"
@@ -878,9 +878,9 @@ function DashboardContent({
               />
             ))}
           </div>
-        </Card>
+        </Section>
 
-        <Card density="compact" className="h-full min-h-[198px]">
+        <Section density="compact" className="h-full min-h-[198px]">
           <h3
             className="text-xs font-semibold uppercase tracking-[0.18em]"
             style={{ color: "var(--color-text-secondary)" }}
@@ -899,10 +899,10 @@ function DashboardContent({
               />
             ))}
           </div>
-        </Card>
+        </Section>
       </div>
 
-      <Card density="compact">
+      <Section density="compact">
         <div className="flex items-center justify-between">
           <h3
             className="text-xs font-semibold uppercase tracking-[0.18em]"
@@ -965,7 +965,7 @@ function DashboardContent({
             </div>
           ))}
         </div>
-      </Card>
+      </Section>
     </div>
   );
 }
@@ -994,7 +994,7 @@ function QuotaCard({ quota }: QuotaCardProps) {
   const depleted = remaining <= 0;
 
   return (
-    <Card density="compact" className="overflow-hidden">
+    <Section density="compact" className="overflow-hidden">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <span
@@ -1052,7 +1052,7 @@ function QuotaCard({ quota }: QuotaCardProps) {
           </div>
         </div>
       </div>
-    </Card>
+    </Section>
   );
 }
 

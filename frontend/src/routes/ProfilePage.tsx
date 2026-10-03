@@ -4,10 +4,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { updateProfile, type ProfileData } from "@/lib/api";
 import { updateBootstrapProfile } from "@/lib/queries";
 
@@ -37,8 +37,8 @@ function ProfileLoading() {
         subtitle="Manage your personal information and resume settings"
       />
       <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <SkeletonCard density="compact" />
-        <SkeletonCard density="compact" />
+        <SkeletonSection density="compact" />
+        <SkeletonSection density="compact" />
       </div>
     </div>
   );
@@ -51,14 +51,14 @@ function ProfileUnavailable({ error }: { error: string | null }) {
         title="Profile & Preferences"
         subtitle="Manage your personal information and resume settings"
       />
-      <Card variant="danger" density="compact">
+      <Section variant="danger" density="compact">
         <p className="text-sm font-semibold text-[var(--color-error)]">
           Profile unavailable
         </p>
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
           {error ?? "Refresh the page or sign in again."}
         </p>
-      </Card>
+      </Section>
     </div>
   );
 }
@@ -85,7 +85,7 @@ function PersonalInformationCard({
   onLinkedinChange: (value: string) => void;
 }) {
   return (
-    <Card density="compact">
+    <Section density="compact">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
         Personal Information
       </h3>
@@ -142,7 +142,7 @@ function PersonalInformationCard({
           />
         </div>
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -286,7 +286,7 @@ export function ProfilePage() {
       />
 
       {error && (
-        <Card variant="danger" density="compact">
+        <Section variant="danger" density="compact">
           <p
             className="text-sm font-semibold"
             style={{ color: "var(--color-error)" }}
@@ -299,7 +299,7 @@ export function ProfilePage() {
           >
             {error}
           </p>
-        </Card>
+        </Section>
       )}
 
       <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
@@ -314,7 +314,7 @@ export function ProfilePage() {
           onAddressChange={(value) => updateField("address", value)}
           onLinkedinChange={(value) => updateField("linkedinUrl", value)}
         />
-        <Card density="compact">
+        <Section density="compact">
           <h3 className="text-sm font-semibold">Resume sections</h3>
           <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
             Choose sections and their order in each resume workbench, including
@@ -327,7 +327,7 @@ export function ProfilePage() {
           >
             Manage base resumes
           </Link>
-        </Card>
+        </Section>
       </div>
     </div>
   );

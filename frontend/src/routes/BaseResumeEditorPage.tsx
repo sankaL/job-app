@@ -10,14 +10,14 @@ import {
   ResumeSectionWorkbench,
 } from "@/components/resume/ResumeSectionWorkbench";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ResumePdfInput } from "@/components/resume/ResumePdfInput";
 import { ResumeImportProgress } from "@/components/ui/resume-processing";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import {
   createBaseResume,
@@ -343,18 +343,18 @@ export function BaseResumeEditorPage() {
             {error}
           </p>
         ) : (
-          <Card variant="danger">
+          <Section variant="danger">
             <p className="text-sm">{error}</p>
             <p className="mt-2 text-xs">
               Your unsaved edits are still here. If another tab saved this
               resume, reload its latest revision before trying again.
             </p>
-          </Card>
+          </Section>
         ))}
       {loading ? (
-        <SkeletonCard />
+        <SkeletonSection />
       ) : !isNew && !resume ? (
-        <Card>
+        <Section>
           <p className="text-sm">This resume could not be loaded.</p>
           <Button
             className="mt-3"
@@ -363,7 +363,7 @@ export function BaseResumeEditorPage() {
           >
             Back to resumes
           </Button>
-        </Card>
+        </Section>
       ) : uploadMode && !resume ? (
         <div className="resume-upload-layout">
           <form

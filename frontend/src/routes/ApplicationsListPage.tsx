@@ -11,7 +11,7 @@ import { CircleStop, Trash2 } from "lucide-react";
 import { CreateApplicationModal } from "@/components/applications/CreateApplicationModal";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -556,7 +556,7 @@ function BulkSelectionCard({
       ? "Delete is unavailable while 1 selected application is still processing."
       : `Delete is unavailable while ${activeCount} selected applications are still processing.`;
   return (
-    <Card variant="default" density="compact">
+    <Section variant="default" density="compact">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
           <p
@@ -591,7 +591,7 @@ function BulkSelectionCard({
           </Button>
         </div>
       </div>
-    </Card>
+    </Section>
   );
 }
 

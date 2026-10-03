@@ -418,14 +418,14 @@
   font-size: inherit;
   font-weight: 600;
 }
-.draft-workbench-card {
+.draft-workbench-region {
   height: calc(100dvh - var(--topbar-height) - 4rem);
   min-height: 28rem;
 }
-.draft-workbench-card .resume-workbench {
+.draft-workbench-region .resume-workbench {
   min-height: 0;
 }
-.draft-workbench-card .resume-sheet {
+.draft-workbench-region .resume-sheet {
   height: 100%;
 }
 .draft-workbench-content > p {
@@ -474,11 +474,11 @@
   }
 }
 @media (max-width: 767px) {
-  .draft-workbench-card {
+  .draft-workbench-region {
     height: auto;
     min-height: 0;
   }
-  .draft-workbench-card .resume-sheet {
+  .draft-workbench-region .resume-sheet {
     height: min(42rem, calc(100dvh - var(--topbar-height) - 5rem));
   }
 }
@@ -501,7 +501,7 @@
     min-height: 0;
   }
   .application-detail-page--workspace
-    :is(.draft-workbench-card, .application-resume-placeholder) {
+    :is(.draft-workbench-region, .application-resume-placeholder) {
     height: 100%;
     min-height: 0;
   }

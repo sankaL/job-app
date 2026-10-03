@@ -9,7 +9,7 @@ import {
   ArrowRight,
   type LucideIcon,
 } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 interface ErrorBannerProps {
@@ -125,7 +125,7 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
   } = getErrorPresentation(errorStr);
 
   return (
-    <Card variant={variant} density="compact" className={className}>
+    <Section variant={variant} density="compact" className={className}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <span
@@ -202,6 +202,6 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
           )}
         </div>
       </div>
-    </Card>
+    </Section>
   );
 }

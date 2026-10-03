@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import {
   fetchExtensionStatus,
   issueExtensionToken,
@@ -136,7 +136,7 @@ function ExtensionStatusCard({
 }) {
   const tokenLabel = getTokenLabel(status);
   return (
-    <Card density="compact" className="flex h-full flex-col">
+    <Section density="compact" className="flex h-full flex-col">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
         Connection Status
       </h3>
@@ -166,13 +166,13 @@ function ExtensionStatusCard({
           Revoke Access
         </Button>
       </div>
-    </Card>
+    </Section>
   );
 }
 
 function ExtensionSetupGuide() {
   return (
-    <Card density="compact">
+    <Section density="compact">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
         Setup Guide
       </h3>
@@ -195,7 +195,7 @@ function ExtensionSetupGuide() {
           </div>
         ))}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -282,7 +282,7 @@ export function ExtensionPage() {
       />
 
       {error && (
-        <Card variant="danger" density="compact">
+        <Section variant="danger" density="compact">
           <p
             className="text-sm font-semibold"
             style={{ color: "var(--color-error)" }}
@@ -295,15 +295,15 @@ export function ExtensionPage() {
           >
             {error}
           </p>
-        </Card>
+        </Section>
       )}
 
       {message && (
-        <Card variant="success" density="compact">
+        <Section variant="success" density="compact">
           <p className="text-sm" style={{ color: "var(--color-accent)" }}>
             {message}
           </p>
-        </Card>
+        </Section>
       )}
 
       <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">

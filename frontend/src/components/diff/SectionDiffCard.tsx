@@ -15,7 +15,7 @@ import {
 import type { SectionDiff, DiffHighlightMode } from "./diff-engine";
 import { InlineDiffText } from "./InlineDiffText";
 import { ExperienceDiffCard } from "./ExperienceDiffCard";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 
 interface SectionDiffCardProps {
   sectionDiff: SectionDiff;
@@ -170,17 +170,11 @@ export function SectionDiffCard({
 
       {/* Summary Section */}
       {sectionDiff.kind === "summary" && sectionDiff.summaryDiff && (
-        <Card
-          className="rounded-xl border p-4 sm:p-5 shadow-[var(--shadow-low)]"
-          style={{
-            borderColor: "var(--color-border)",
-            background: "var(--color-background-surface)",
-          }}
-        >
+        <Section className="p-4 sm:p-5">
           {viewLayout === "split" ? (
             <div className="grid gap-4 lg:grid-cols-2">
               <div
-                className="rounded-lg border p-3.5"
+                className="border-l p-3.5"
                 style={{
                   borderColor: "var(--color-border)",
                   background: "var(--color-background-muted)",
@@ -200,7 +194,7 @@ export function SectionDiffCard({
                 </p>
               </div>
               <div
-                className="rounded-lg border p-3.5"
+                className="border-l p-3.5"
                 style={{
                   borderColor: "var(--color-success-muted)",
                   background: "var(--color-success-muted)",
@@ -244,7 +238,7 @@ export function SectionDiffCard({
               {sectionDiff.summaryDiff.baseText &&
                 sectionDiff.status === "modified" && (
                   <div
-                    className="rounded-lg border p-3 text-xs leading-relaxed"
+                    className="border-l p-3 text-xs leading-relaxed"
                     style={{
                       borderColor: "var(--color-border)",
                       background: "var(--color-background-muted)",
@@ -262,18 +256,12 @@ export function SectionDiffCard({
                 )}
             </div>
           )}
-        </Card>
+        </Section>
       )}
 
       {/* Skills Section */}
       {sectionDiff.kind === "skills" && sectionDiff.skillsDiff && (
-        <Card
-          className="rounded-xl border p-4 sm:p-5 shadow-[var(--shadow-low)]"
-          style={{
-            borderColor: "var(--color-border)",
-            background: "var(--color-background-surface)",
-          }}
-        >
+        <Section className="p-4 sm:p-5">
           <div className="space-y-3">
             {/* Added / Targeted Skills */}
             {sectionDiff.skillsDiff.addedSkills.length > 0 && (
@@ -359,21 +347,14 @@ export function SectionDiffCard({
               </div>
             )}
           </div>
-        </Card>
+        </Section>
       )}
 
       {/* Education Section */}
       {sectionDiff.kind === "education" && sectionDiff.educationDiffs && (
         <div className="space-y-3">
           {sectionDiff.educationDiffs.map((edu) => (
-            <Card
-              key={edu.id}
-              className="rounded-xl border p-4 shadow-[var(--shadow-low)]"
-              style={{
-                borderColor: "var(--color-border)",
-                background: "var(--color-background-surface)",
-              }}
-            >
+            <Section key={edu.id} className="p-4">
               <div
                 className="flex flex-wrap items-start justify-between gap-2 border-b pb-2.5"
                 style={{ borderColor: "var(--color-border)" }}
@@ -440,7 +421,7 @@ export function SectionDiffCard({
                   ))}
                 </ul>
               )}
-            </Card>
+            </Section>
           ))}
         </div>
       )}
@@ -448,7 +429,7 @@ export function SectionDiffCard({
       {sectionDiff.entryDiffs && (
         <div className="space-y-3">
           {sectionDiff.entryDiffs.map((entry) => (
-            <Card key={entry.id} className="p-4">
+            <Section key={entry.id} className="p-4">
               <div className="space-y-2">
                 {entry.fields.map((field) => (
                   <div key={field.name} className="text-xs">
@@ -477,7 +458,7 @@ export function SectionDiffCard({
                   ))}
                 </ul>
               )}
-            </Card>
+            </Section>
           ))}
         </div>
       )}
@@ -487,13 +468,7 @@ export function SectionDiffCard({
       ) &&
         !sectionDiff.entryDiffs &&
         sectionDiff.genericDiff && (
-          <Card
-            className="rounded-xl border p-4 sm:p-5 shadow-[var(--shadow-low)]"
-            style={{
-              borderColor: "var(--color-border)",
-              background: "var(--color-background-surface)",
-            }}
-          >
+          <Section className="p-4 sm:p-5">
             <div
               className="text-xs sm:text-sm leading-relaxed"
               style={{ color: "var(--color-text-primary)" }}
@@ -503,7 +478,7 @@ export function SectionDiffCard({
                 mode={highlightMode}
               />
             </div>
-          </Card>
+          </Section>
         )}
     </section>
   );

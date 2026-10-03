@@ -62,7 +62,7 @@ Software QA/QC Test Manager | Jan 2022 - Present
     updated_at: "2026-04-07T12:00:00Z",
   };
 
-  it("renders the comparison workspace with hero metrics and section cards", () => {
+  it("renders the comparison workspace with hero metrics and comparison sections", () => {
     render(
       <CompareWorkspace
         baseResume={mockBaseResume}
@@ -82,7 +82,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
     expect(screen.getAllByText("Standard Resume").length).toBeGreaterThan(0);
     expect(screen.getByText(/Roles \(/i)).toBeInTheDocument();
     expect(screen.getByText(/Deloitte Canada/i)).toBeInTheDocument();
-    expect(screen.getByText(/Software QA\/QC Test Manager/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Software QA\/QC Test Manager/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Role Title Targeted/i)).toBeInTheDocument();
   });
 
@@ -103,7 +105,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
       />,
     );
 
-    const sideBySideBtn = screen.getByTitle("Side-by-side cards comparing base and tailored");
+    const sideBySideBtn = screen.getByTitle(
+      "Side-by-side sections comparing base and tailored",
+    );
     await user.click(sideBySideBtn);
 
     expect(screen.getAllByText(/Base Resume/i).length).toBeGreaterThan(0);

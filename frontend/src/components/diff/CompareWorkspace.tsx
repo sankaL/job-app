@@ -6,7 +6,7 @@ import { compareResumeDocs, type DiffHighlightMode } from "./diff-engine";
 import { CompareHeroBar } from "./CompareHeroBar";
 import { CompareSectionNav } from "./CompareSectionNav";
 import { SectionDiffCard } from "./SectionDiffCard";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -154,13 +154,7 @@ export function CompareWorkspace({
 
       {/* Edit Mode Panel or Comparison Stream */}
       {editMode ? (
-        <Card
-          className="rounded-2xl border p-4 sm:p-6 shadow-sm"
-          style={{
-            borderColor: "var(--color-border)",
-            background: "var(--color-background-surface)",
-          }}
-        >
+        <Section className="p-4 sm:p-6">
           <div className="mb-3 flex items-center justify-between border-b pb-2.5">
             <h3
               className="text-sm font-bold uppercase tracking-wider"
@@ -204,7 +198,7 @@ export function CompareWorkspace({
               </Button>
             </div>
           </div>
-        </Card>
+        </Section>
       ) : (
         <div className="space-y-4">
           {/* Section Navigation Tabs */}

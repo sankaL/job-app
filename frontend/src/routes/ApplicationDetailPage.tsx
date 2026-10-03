@@ -34,7 +34,7 @@ import { useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ApplicationActivityPanel } from "@/components/applications/ApplicationActivityPanel";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, Section } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -52,7 +52,7 @@ import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
 import { getResumeRegenerationBlocker } from "@/lib/resume-document";
 import { GenerationProgress } from "@/components/ui/generation-progress";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import {
   cancelExtraction,
@@ -242,7 +242,7 @@ function NotesCard({
         ? "Saved."
         : "Autosaves when you pause typing.";
   return (
-    <Card density="compact" className="p-4">
+    <Section density="compact" className="p-4">
       <h3
         className="text-xs font-semibold uppercase tracking-wider"
         style={{ color: "var(--color-text-secondary)" }}
@@ -261,7 +261,7 @@ function NotesCard({
       >
         {status}
       </p>
-    </Card>
+    </Section>
   );
 }
 
@@ -478,17 +478,17 @@ function keywordTone(
 function isGenerationWorkflowActive(detail: ApplicationDetail | null) {
   return Boolean(
     detail &&
-      !detail.failure_reason &&
-      ACTIVE_GENERATION_STATES.includes(detail.internal_state),
+    !detail.failure_reason &&
+    ACTIVE_GENERATION_STATES.includes(detail.internal_state),
   );
 }
 
 function isGenerationProgressActive(progress: ExtractionProgress | null) {
   return Boolean(
     progress &&
-      !progress.completed_at &&
-      !progress.terminal_error_code &&
-      ACTIVE_GENERATION_PROGRESS_STATES.includes(progress.state),
+    !progress.completed_at &&
+    !progress.terminal_error_code &&
+    ACTIVE_GENERATION_PROGRESS_STATES.includes(progress.state),
   );
 }
 
@@ -1453,11 +1453,7 @@ function PendingResumeJudgeCard() {
 }
 
 type UnavailableJudgeState =
-  | "maxed"
-  | "stale_pending"
-  | "stale"
-  | "failed"
-  | "pending";
+  "maxed" | "stale_pending" | "stale" | "failed" | "pending";
 
 const UNAVAILABLE_JUDGE_COPY: Record<
   UnavailableJudgeState,
@@ -1991,7 +1987,7 @@ type GeneratedWorkspacePaneProps = {
 
 function GeneratedWorkspacePane(props: GeneratedWorkspacePaneProps) {
   return (
-    <Card
+    <Section
       className={`${props.className} ${props.compareMode ? "compare-pane-card compare-generated-pane" : ""} px-4 pb-4 pt-2`}
     >
       <GeneratedWorkspaceHeader
@@ -2025,7 +2021,7 @@ function GeneratedWorkspacePane(props: GeneratedWorkspacePaneProps) {
       ) : (
         <GeneratedDraftPreview draft={props.draft} />
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -2070,7 +2066,7 @@ function GenerationFailureDiagnostics({
   if (!details.failure_stage && attempts.length === 0) return null;
   return (
     <div
-      className="mt-2 rounded-lg border p-3 text-xs"
+      className="mt-2 border-l p-3 text-xs"
       style={{ borderColor: "var(--color-border)" }}
     >
       <div>Failure stage: {details.failure_stage ?? "unknown"}</div>
@@ -2181,11 +2177,11 @@ export function ApplicationDetailPage() {
     detail?.job_keywords?.status === "running";
   const shouldWatchApplication = Boolean(
     applicationId &&
-      detail &&
-      (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
-        isGenerationWorkflowActive(detail) ||
-        resumeJudgePending ||
-        keywordExtractionPending),
+    detail &&
+    (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
+      isGenerationWorkflowActive(detail) ||
+      resumeJudgePending ||
+      keywordExtractionPending),
   );
   const { isStale: isApplicationStreamStale } = useApplicationEventStream(
     applicationId,
@@ -2199,10 +2195,10 @@ export function ApplicationDetailPage() {
   const draftQuery = useApplicationDraftQuery(applicationId, shouldLoadDraft);
   const shouldPollProgress = Boolean(
     applicationId &&
-      detail &&
-      (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
-        isGenerationWorkflowActive(detail)) &&
-      isApplicationStreamStale,
+    detail &&
+    (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
+      isGenerationWorkflowActive(detail)) &&
+    isApplicationStreamStale,
   );
   const progressQuery = useApplicationProgressQuery(applicationId, {
     enabled: shouldPollProgress,
@@ -2299,9 +2295,9 @@ export function ApplicationDetailPage() {
   const resumeJudge = detail?.resume_judge_result ?? null;
   const resumeJudgeRunLimitReached = Boolean(
     draft &&
-      resumeJudge &&
-      !resumeJudgeStale &&
-      (resumeJudge.run_attempt_count ?? 0) >= 3,
+    resumeJudge &&
+    !resumeJudgeStale &&
+    (resumeJudge.run_attempt_count ?? 0) >= 3,
   );
   const resumeJudgeDimensionEntries = useMemo(
     () => getResumeJudgeDimensionEntries(resumeJudge),
@@ -2476,8 +2472,8 @@ export function ApplicationDetailPage() {
       detail.failure_reason === null;
     const completedGenerationFromActiveState = Boolean(
       previousDetail &&
-        isGenerationWorkflowActive(previousDetail) &&
-        completedGeneration,
+      isGenerationWorkflowActive(previousDetail) &&
+      completedGeneration,
     );
     const draftMissingOrStale =
       completedGeneration &&
@@ -3456,7 +3452,7 @@ export function ApplicationDetailPage() {
   const deleteBlocked = detail
     ? ACTIVE_GENERATION_STATES.includes(detail.internal_state)
     : false;
-  const workspaceCardClass = "flex min-h-[32rem] flex-col overflow-hidden";
+  const workspaceRegionClass = "flex min-h-[32rem] flex-col overflow-hidden";
   const generatedTimestampLabel = draft
     ? `Generated ${new Date(draft.last_generated_at).toLocaleString()}`
     : null;
@@ -3466,17 +3462,17 @@ export function ApplicationDetailPage() {
   const resumeJudgeToneStyle = resumeJudgeTone(resumeJudge?.verdict);
   const resumeJudgeHasCompletedScore = Boolean(
     resumeJudge &&
-      resumeJudge.status === "succeeded" &&
-      resumeJudge.final_score != null &&
-      resumeJudge.dimension_scores &&
-      Object.keys(resumeJudge.dimension_scores).length > 0,
+    resumeJudge.status === "succeeded" &&
+    resumeJudge.final_score != null &&
+    resumeJudge.dimension_scores &&
+    Object.keys(resumeJudge.dimension_scores).length > 0,
   );
   const resumeJudgeCanRegenerateWithFeedback =
     Boolean(
       resumeJudge &&
-        resumeJudge.status === "succeeded" &&
-        formatJudgeInstructions(resumeJudge.regeneration_instructions) &&
-        !resumeJudgeStale,
+      resumeJudge.status === "succeeded" &&
+      formatJudgeInstructions(resumeJudge.regeneration_instructions) &&
+      !resumeJudgeStale,
     ) && !generationActive;
   const resumeJudgeCanRun =
     Boolean(draft) &&
@@ -3549,7 +3545,7 @@ export function ApplicationDetailPage() {
   }) {
     if (draft)
       return (
-        <Card className="draft-workbench-card flex min-h-0 min-w-0 flex-col px-4 py-4">
+        <Section className="draft-workbench-region flex min-h-0 min-w-0 flex-col px-4 py-4">
           <DraftSectionWorkbench
             key={`${activeApplicationId}:${draft.id}`}
             draft={draft}
@@ -3564,11 +3560,11 @@ export function ApplicationDetailPage() {
             }
             regenerationReason={sectionRegenerationReason}
           />
-        </Card>
+        </Section>
       );
     return (
       <GeneratedWorkspacePane
-        className={workspaceCardClass}
+        className={workspaceRegionClass}
         compareMode={compareMode}
         lockInteractions={options?.lockInteractions ?? false}
         generatedTimestamp={generatedTimestampLabel}
@@ -3603,10 +3599,10 @@ export function ApplicationDetailPage() {
       {/* Loading skeleton */}
       {!detail ? (
         <div className="space-y-4">
-          <SkeletonCard />
+          <SkeletonSection />
           <div className="grid gap-4 lg:grid-cols-2">
-            <SkeletonCard />
-            <SkeletonCard />
+            <SkeletonSection />
+            <SkeletonSection />
           </div>
         </div>
       ) : (
@@ -3914,7 +3910,7 @@ export function ApplicationDetailPage() {
             ["extraction_pending", "extracting"].includes(
               detail.internal_state,
             ) && (
-              <Card variant="success" density="compact" className="p-4">
+              <Section variant="success" density="compact" className="p-4">
                 <h3
                   className="text-xs font-semibold uppercase tracking-wider"
                   style={{ color: "var(--color-accent)" }}
@@ -3939,12 +3935,12 @@ export function ApplicationDetailPage() {
                 >
                   {progress.message}
                 </p>
-              </Card>
+              </Section>
             )}
 
           {/* Blocked Source */}
           {detail.extraction_failure_details?.kind === "blocked_source" && (
-            <Card variant="danger" density="compact" className="p-4">
+            <Section variant="danger" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
                 style={{ color: "var(--color-error)" }}
@@ -3959,7 +3955,7 @@ export function ApplicationDetailPage() {
                 manual entry below.
               </p>
               <div
-                className="mt-3 grid gap-2 rounded-lg border p-3 text-xs sm:grid-cols-2"
+                className="mt-3 grid gap-2 border-l p-3 text-xs sm:grid-cols-2"
                 style={{
                   borderColor: "var(--color-border)",
                   color: "var(--color-text-secondary)",
@@ -3995,11 +3991,11 @@ export function ApplicationDetailPage() {
                     "Not provided"}
                 </div>
               </div>
-            </Card>
+            </Section>
           )}
 
           {detail.extraction_failure_details?.kind === "user_cancelled" && (
-            <Card variant="warning" density="compact" className="p-4">
+            <Section variant="warning" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
                 style={{ color: "var(--color-warning)" }}
@@ -4013,12 +4009,12 @@ export function ApplicationDetailPage() {
                 Extraction was stopped. Retry from the URL, retry with pasted
                 text, or delete this application.
               </p>
-            </Card>
+            </Section>
           )}
 
           {/* Duplicate Warning */}
           {detail.duplicate_warning && (
-            <Card variant="warning" density="compact" className="p-4">
+            <Section variant="warning" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
                 style={{ color: "var(--color-warning)" }}
@@ -4034,7 +4030,7 @@ export function ApplicationDetailPage() {
                 {detail.duplicate_warning.matched_fields.join(", ")}.
               </p>
               <div
-                className="mt-2 rounded-lg border p-3 text-sm"
+                className="mt-2 border-l p-3 text-sm"
                 style={{ borderColor: "var(--color-border)" }}
               >
                 <div
@@ -4067,14 +4063,14 @@ export function ApplicationDetailPage() {
                   Open Existing
                 </Button>
               </div>
-            </Card>
+            </Section>
           )}
 
           {/* Company Missing Warning */}
           {!detail.company &&
             detail.internal_state === "generation_pending" &&
             !detail.failure_reason && (
-              <Card variant="success" density="compact" className="p-4">
+              <Section variant="success" density="compact" className="p-4">
                 <p
                   className="text-sm font-medium"
                   style={{ color: "var(--color-accent)" }}
@@ -4082,12 +4078,12 @@ export function ApplicationDetailPage() {
                   Company is missing from extraction. Add it to enable duplicate
                   review.
                 </p>
-              </Card>
+              </Section>
             )}
 
           {sourceLimitedLengthFlag &&
             detail.internal_state === "resume_ready" && (
-              <Card variant="warning" density="compact" className="p-4">
+              <Section variant="warning" density="compact" className="p-4">
                 <h3
                   className="text-sm font-semibold"
                   style={{ color: "var(--color-warning)" }}
@@ -4100,12 +4096,12 @@ export function ApplicationDetailPage() {
                 >
                   {sourceLimitedLengthFlag.text}
                 </p>
-              </Card>
+              </Section>
             )}
 
           {/* Generation Timeout */}
           {detail.failure_reason === "generation_timeout" && (
-            <Card variant="warning" density="compact" className="p-4">
+            <Section variant="warning" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
                 style={{ color: "var(--color-warning)" }}
@@ -4129,12 +4125,12 @@ export function ApplicationDetailPage() {
               >
                 Retry
               </Button>
-            </Card>
+            </Section>
           )}
 
           {/* Generation Cancelled */}
           {detail.failure_reason === "generation_cancelled" && (
-            <Card variant="success" density="compact" className="p-4">
+            <Section variant="success" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
                 style={{ color: "var(--color-accent)" }}
@@ -4155,13 +4151,13 @@ export function ApplicationDetailPage() {
               >
                 Retry
               </Button>
-            </Card>
+            </Section>
           )}
 
           {/* Generation Failed */}
           {(detail.failure_reason === "generation_failed" ||
             detail.failure_reason === "regeneration_failed") && (
-            <Card variant="danger" density="compact" className="p-4">
+            <Section variant="danger" density="compact" className="p-4">
               <h3
                 className="text-sm font-semibold"
                 style={{ color: "var(--color-error)" }}
@@ -4199,14 +4195,14 @@ export function ApplicationDetailPage() {
               >
                 {isGenerating ? "Starting…" : "Retry"}
               </Button>
-            </Card>
+            </Section>
           )}
 
           {/* ── Manual Entry Required (shown when in manual_entry_required state, replaces two-column) ── */}
           {detail.internal_state === "manual_entry_required" && (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)] 2xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.8fr)]">
               {/* Job Information */}
-              <Card density="compact" className="p-4">
+              <Section density="compact" className="p-4">
                 <h3
                   className="text-xs font-semibold uppercase tracking-wider"
                   style={{ color: "var(--color-text-secondary)" }}
@@ -4236,7 +4232,7 @@ export function ApplicationDetailPage() {
                     )}
                   </div>
                 </form>
-              </Card>
+              </Section>
 
               {/* Notes + Manual Entry */}
               <div className="space-y-4">
@@ -4249,7 +4245,7 @@ export function ApplicationDetailPage() {
                   }}
                 />
 
-                <Card variant="danger" density="compact" className="p-4">
+                <Section variant="danger" density="compact" className="p-4">
                   <h3
                     className="text-sm font-semibold"
                     style={{ color: "var(--color-error)" }}
@@ -4345,7 +4341,7 @@ export function ApplicationDetailPage() {
                         : "Submit Manual Entry"}
                     </Button>
                   </form>
-                </Card>
+                </Section>
               </div>
             </div>
           )}
@@ -4410,8 +4406,8 @@ export function ApplicationDetailPage() {
                     )
                   ) : (
                     /* Empty State - No resume generated yet */
-                    <Card
-                      className={`${workspaceCardClass} application-resume-placeholder items-center justify-center p-8 text-center`}
+                    <Section
+                      className={`${workspaceRegionClass} application-resume-placeholder items-center justify-center p-8 text-center`}
                     >
                       <div
                         className="rounded-full p-4 mb-4"
@@ -4453,7 +4449,7 @@ export function ApplicationDetailPage() {
                           {generationStartBlocker}
                         </p>
                       ) : null}
-                    </Card>
+                    </Section>
                   )}
                 </div>
                 {/* Supporting panels follow the resume and sit on its right on desktop. */}
@@ -4470,8 +4466,8 @@ export function ApplicationDetailPage() {
                   {renderResumeJudgeCard()}
                   {renderKeywordCard()}
 
-                  {/* Job Description Card */}
-                  <Card
+                  {/* Job Description */}
+                  <Section
                     density="compact"
                     className="p-4"
                     data-testid="job-description-card"
@@ -4540,11 +4536,11 @@ export function ApplicationDetailPage() {
                         />
                       </div>
                     )}
-                  </Card>
+                  </Section>
 
                   {/* Generation Settings Card */}
                   {detail.internal_state !== "duplicate_review_required" && (
-                    <Card density="compact" className="p-4">
+                    <Section density="compact" className="p-4">
                       <form className="space-y-3" onSubmit={handleSaveSettings}>
                         <div className="flex items-start justify-between gap-3">
                           <h3
@@ -4586,7 +4582,7 @@ export function ApplicationDetailPage() {
                           </div>
                           {baseResumes.length === 0 ? (
                             <div
-                              className="rounded-lg border p-2 text-xs"
+                              className="border-l p-2 text-xs"
                               style={{
                                 borderColor: "var(--color-border)",
                                 color: "var(--color-text-secondary)",
@@ -4798,7 +4794,7 @@ export function ApplicationDetailPage() {
                           />
                         </div>
                       </form>
-                    </Card>
+                    </Section>
                   )}
 
                   {/* Notes Card */}
@@ -5399,7 +5395,7 @@ export function ApplicationDetailPage() {
 
                     <div className="space-y-4">
                       <div
-                        className="rounded-[var(--radius-container)] border p-4"
+                        className="border-t p-4"
                         style={{
                           borderColor: "var(--color-border)",
                           background: "var(--color-background-surface)",
@@ -5469,7 +5465,7 @@ export function ApplicationDetailPage() {
                         resumeJudge.status === "failed" ||
                         resumeJudge.final_score == null) && (
                         <div
-                          className="rounded-[var(--radius-container)] border p-4"
+                          className="border-t p-4"
                           style={{
                             borderColor: "var(--color-border)",
                             background: "var(--color-warning-muted)",
@@ -5508,7 +5504,7 @@ export function ApplicationDetailPage() {
 
                       {resumeJudge.regeneration_instructions ? (
                         <div
-                          className="rounded-[var(--radius-container)] border p-4"
+                          className="border-t p-4"
                           style={{
                             borderColor: "var(--color-border)",
                             background: "var(--color-background-muted)",
@@ -5570,7 +5566,7 @@ export function ApplicationDetailPage() {
 
                       {resumeJudge.evaluator_notes ? (
                         <div
-                          className="rounded-[var(--radius-container)] border p-4"
+                          className="border-t p-4"
                           style={{
                             borderColor: "var(--color-border)",
                             background: "var(--color-background-surface)",

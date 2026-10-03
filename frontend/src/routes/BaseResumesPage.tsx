@@ -4,12 +4,12 @@ import { useNavigate } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IconButton } from "@/components/ui/icon-button";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -77,10 +77,7 @@ function ResumeCard({
   onDelete: () => void;
 }) {
   return (
-    <Card
-      density="compact"
-      className="transition-all hover:shadow-[var(--shadow-med)]"
-    >
+    <Section density="compact" className="transition-all">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -130,7 +127,7 @@ function ResumeCard({
           onDelete={onDelete}
         />
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -209,7 +206,7 @@ function BaseResumeContent({
     return (
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
         {Array.from({ length: 2 }).map((_, index) => (
-          <SkeletonCard key={index} density="compact" />
+          <SkeletonSection key={index} density="compact" />
         ))}
       </div>
     );

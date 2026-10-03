@@ -933,7 +933,7 @@ Admin has three product responsibilities in MVP:
 
 ## 12. UX Requirements
 
-Authenticated routes, including admin, use one shared Astryx neutral theme. Tables, buttons, cards, menus, filters and form controls use shared adapters and semantic tokens. Preserve existing screen content, placement, density and responsive behavior. Native form validation, field types, refs and Markdown editing contracts remain intact. The marketing and login pages retain their existing public design.
+Authenticated routes, including admin, use one shared Astryx neutral theme. Tables, buttons, sections, menus, filters and form controls use shared adapters and semantic tokens. Use flat sections with spacing and dividers for page regions, forms, metrics and lists; reserve cards for distinct review widgets and the resume document surface. Avoid nested card frames. Preserve existing screen content, placement, density and responsive behavior. Native form validation, field types, refs and Markdown editing contracts remain intact. The marketing and login pages retain their existing public design.
 
 - **Skeleton loading** on all async data fetches
 - **Step-by-step progress messages** during extraction and generation (not just a spinner)

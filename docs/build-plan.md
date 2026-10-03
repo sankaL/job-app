@@ -16,6 +16,8 @@ Converted authenticated and admin routes to Astryx core 0.6.5 and its neutral th
 
 Self-review fixed disabled/loading controls, table column widths, keyboard sorting/navigation, menu Escape dismissal, pending-dialog dismissal, Markdown contrast and toast timer cleanup. Passed 235 frontend tests, the TypeScript/Vite production build, 15 local environment guard tests and 11 Astryx doctor checks. Production dependency audit reports zero advisories. Browser verified app screens, menus, source editing and mobile filters; admin pages were also inspected with existing local permissions, while write operations remain covered by regression mocks. See [implementation and review evidence](task-output/2026-10-03-astryx-design-system.md).
 
+Card reduction follow-up completed and reviewed (2026-10-03 16:11:48 EDT). Replaced page, form, metric, list and comparison card frames with shared transparent Astryx sections and dividers. Tables and skeletons use the same flat treatment. Kept the resume paper and the Judge/ATS review widgets distinct, with existing placements and controls. Removed unused card variants. The full frontend run passed 234 of 235 tests; updated the comparison tooltip assertion and all five comparison tests passed on rerun. The final production build passed. Browser verified dashboard, tables, workbench, profile and a narrow profile layout without horizontal overflow.
+
 ## Main merge and Railway release preparation
 
 **Status:** Complete; all three production deployments and health checks passed (2026-09-30 23:56:35 EDT).

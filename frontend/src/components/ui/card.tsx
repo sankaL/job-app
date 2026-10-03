@@ -1,38 +1,48 @@
 import type { HTMLAttributes, PropsWithChildren } from "react";
+import { Section as AstryxSection } from "@astryxdesign/core/Section";
 import { Card as AstryxCard } from "@astryxdesign/core/Card";
 import { cn } from "@/lib/utils";
 
-type CardVariant =
-  | "default"
-  | "elevated"
-  | "flat"
-  | "danger"
-  | "success"
-  | "warning";
-type CardProps = PropsWithChildren<HTMLAttributes<HTMLDivElement>> & {
-  variant?: CardVariant;
+type SurfaceProps = PropsWithChildren<HTMLAttributes<HTMLDivElement>> & {
   density?: "default" | "compact";
 };
-const variants = {
-  default: "default",
-  elevated: "default",
-  flat: "muted",
-  danger: "red",
-  success: "green",
-  warning: "yellow",
-} as const;
+
+// Cards are reserved for discrete review widgets; page regions use Section.
 export function Card({
+  className,
+  density = "default",
+  ...props
+}: SurfaceProps) {
+  return (
+    <AstryxCard
+      padding={density === "compact" ? 4 : 5}
+      elevation="none"
+      className={cn("app-card", className)}
+      {...props}
+    />
+  );
+}
+
+type SectionProps = SurfaceProps & {
+  variant?: "default" | "danger" | "success" | "warning";
+};
+
+export function Section({
   className,
   variant = "default",
   density = "default",
   ...props
-}: CardProps) {
+}: SectionProps) {
   return (
-    <AstryxCard
-      padding={density === "compact" ? 4 : 5}
-      variant={variants[variant]}
-      elevation={variant === "elevated" ? "med" : "none"}
-      className={cn("app-card", className)}
+    <AstryxSection
+      variant="transparent"
+      padding={0}
+      data-tone={variant}
+      className={cn(
+        "app-section",
+        density === "compact" ? "p-4" : "p-5",
+        className,
+      )}
       {...props}
     />
   );

@@ -360,10 +360,10 @@ export function DataTable<T>({
   return (
     <div className="app-table-frame animate-fadeIn">
       <div
-        className="overflow-hidden rounded-xl border"
+        className="overflow-hidden border-y"
         style={{
           borderColor: "var(--color-border)",
-          background: "var(--color-background-card)",
+          background: "transparent",
         }}
       >
         <div className="overflow-x-auto">

@@ -19,7 +19,8 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Keep client-side status labels and attention indicators aligned with the PRD's visible status model.
 
 ## UX Rules
-- Keep authenticated pages on the shared Astryx theme and existing UI adapters. Buttons, table rows, cards, native form controls and menu frames share semantic theme tokens. Preserve native field validation, input types and refs.
+- Keep authenticated pages on the shared Astryx theme and existing UI adapters. Buttons, table rows, sections, native form controls and menu frames share semantic theme tokens. Preserve native field validation, input types and refs.
+- Use flat Astryx sections, spacing and dividers for page regions, forms, metrics and lists. Use cards sparingly for distinct review widgets; avoid nested card frames around resume documents.
 - Keep the marketing and login pages on their isolated public styles. Preserve existing app placement, density and responsive behavior during design-system changes.
 - Use skeleton loading states for async page and list fetches.
 - Provide meaningful progress messaging during extraction, generation, regeneration, and export flows. A spinner alone is not sufficient.

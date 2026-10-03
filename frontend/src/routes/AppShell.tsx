@@ -9,7 +9,7 @@ import {
 } from "@/components/layout/ShellLayoutContext";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { ToastProvider } from "@/components/ui/toast";
 
 function ShellContent() {
@@ -63,7 +63,7 @@ function ShellContent() {
             style={{ maxWidth: "100%", overflowX: "clip" }}
           >
             {bootstrapError ? (
-              <Card variant="danger" className="mb-6">
+              <Section variant="danger" className="mb-6">
                 <p
                   className="text-sm font-semibold"
                   style={{ color: "var(--color-error)" }}
@@ -76,7 +76,7 @@ function ShellContent() {
                 >
                   {bootstrapError}
                 </p>
-              </Card>
+              </Section>
             ) : null}
 
             <Outlet />

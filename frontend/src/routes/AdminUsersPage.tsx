@@ -5,7 +5,7 @@ import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { DataTable } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -330,7 +330,7 @@ function AdminUsersContent(props: AdminUsersContentProps) {
         }
       />
       {props.error && (
-        <Card variant="danger" density="compact">
+        <Section variant="danger" density="compact">
           <p
             className="text-sm font-semibold"
             style={{ color: "var(--color-error)" }}
@@ -343,9 +343,9 @@ function AdminUsersContent(props: AdminUsersContentProps) {
           >
             {props.error}
           </p>
-        </Card>
+        </Section>
       )}
-      <Card density="compact">
+      <Section density="compact">
         <div className="mb-4 grid gap-3 md:grid-cols-[2fr_220px]">
           <Input
             placeholder="Search by email or name"
@@ -372,7 +372,7 @@ function AdminUsersContent(props: AdminUsersContentProps) {
           onToggleActive={props.onToggleActive}
           onDelete={props.onChooseDelete}
         />
-      </Card>
+      </Section>
       <InviteUserModal
         open={props.inviteModalOpen}
         onClose={props.onCloseInvite}

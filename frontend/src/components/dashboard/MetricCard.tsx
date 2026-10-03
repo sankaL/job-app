@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 
 type MetricCardProps = {
   icon: LucideIcon;
@@ -20,7 +20,7 @@ export function MetricCard({
   detail,
 }: MetricCardProps) {
   return (
-    <Card density="compact" className="relative overflow-hidden">
+    <Section density="compact" className="relative overflow-hidden">
       <span
         className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-xl"
         style={{ background: tint, color: accent }}
@@ -49,6 +49,6 @@ export function MetricCard({
           style={{ background: accent }}
         />
       </div>
-    </Card>
+    </Section>
   );
 }

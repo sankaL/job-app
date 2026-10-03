@@ -46,7 +46,7 @@ export function CompareHeroBar({
 
   return (
     <div
-      className="sticky top-[calc(var(--topbar-height)+0.5rem)] z-20 rounded-2xl border p-3.5 sm:p-4 shadow-sm backdrop-blur-md transition-all"
+      className="sticky top-[calc(var(--topbar-height)+0.5rem)] z-20 border-b p-3.5 sm:p-4 backdrop-blur-md transition-all"
       style={{
         background: "var(--color-background-surface)",
         borderColor: "var(--color-border)",
@@ -284,7 +284,7 @@ export function CompareHeroBar({
                   : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
               )}
               onClick={() => onViewLayoutChange("split")}
-              title="Side-by-side cards comparing base and tailored"
+              title="Side-by-side sections comparing base and tailored"
             >
               <Columns2 size={12} />
               <span>Side by Side</span>

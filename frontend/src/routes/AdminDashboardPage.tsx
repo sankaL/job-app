@@ -10,8 +10,8 @@ import {
 } from "lucide-react";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { Card } from "@/components/ui/card";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { Section } from "@/components/ui/card";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import type { AdminOperationMetric } from "@/lib/api";
 import { useAdminMetricsQuery } from "@/lib/queries";
 
@@ -72,7 +72,7 @@ function OperationCard({
     metric.total > 0 ? (metric.failure_count / metric.total) * 100 : 0;
 
   return (
-    <Card density="compact" className="relative overflow-hidden">
+    <Section density="compact" className="relative overflow-hidden">
       <span
         className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-xl"
         style={{ background: tint, color: accent }}
@@ -152,7 +152,7 @@ function OperationCard({
           </div>
         </div>
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -169,12 +169,12 @@ export function AdminDashboardPage() {
         />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
-            <SkeletonCard key={index} density="compact" />
+            <SkeletonSection key={index} density="compact" />
           ))}
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
-            <SkeletonCard key={index} density="compact" />
+            <SkeletonSection key={index} density="compact" />
           ))}
         </div>
       </div>
@@ -188,7 +188,7 @@ export function AdminDashboardPage() {
           title="Admin Metrics"
           subtitle="Invite and usage funnel performance."
         />
-        <Card variant="danger" density="compact">
+        <Section variant="danger" density="compact">
           <p
             className="text-sm font-semibold"
             style={{ color: "var(--color-error)" }}
@@ -201,7 +201,7 @@ export function AdminDashboardPage() {
           >
             {displayedError}
           </p>
-        </Card>
+        </Section>
       </div>
     );
   }
@@ -253,7 +253,7 @@ export function AdminDashboardPage() {
         />
       </div>
 
-      <Card density="compact">
+      <Section density="compact">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <BarChart3 size={16} style={{ color: "var(--color-accent)" }} />
@@ -308,7 +308,7 @@ export function AdminDashboardPage() {
             tint="var(--color-background-muted)"
           />
         </div>
-      </Card>
+      </Section>
     </div>
   );
 }

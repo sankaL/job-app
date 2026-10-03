@@ -40,3 +40,9 @@ Self-review found and fixed:
 - Public login retained its prior appearance after theme teardown. Marketing source and its original styles remain isolated.
 
 No live AI request or data migration was needed. No hosted service was used for testing. Admin writes and some asynchronous/error branches were verified through mocks rather than fresh browser mutations. User review of the converted screens and a wider responsive walkthrough would increase confidence in the remaining visual cases.
+
+## Card reduction follow-up
+
+Completed and reviewed 2026-10-03 16:11:48 EDT. Page regions, forms, dashboard metrics, lists, comparison entries and feedback now use a shared transparent Astryx Section adapter with dividers. Its decorative inner wrapper uses display: contents to preserve the existing flex/grid children and padding. Table and skeleton frames are flat. The resume paper and two distinct Judge/ATS widgets retain their surfaces; menus retain their shared overlay frame. Removed unused Card variants and nested box styling without changing actions or placement. Public routes remain unchanged.
+
+Verification: the full frontend suite passed 234 of 235 tests; the sole failure was the old comparison tooltip text. Updated its assertion and the focused five-test comparison suite passed. The final TypeScript/Vite build passed. Browser checked dashboard, applications table, generated workbench, profile and a narrow profile layout with equal document/viewport widths. Reviewed the shared wrapper's padding, nested layout, alert accents, scroll rules and loading treatment. No functional, AI or data-contract changes.

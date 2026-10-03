@@ -4,13 +4,14 @@ import {
   TableCell as AstryxCell,
   TableHeaderCell as AstryxHeaderCell,
 } from "@astryxdesign/core/Table";
+import { Section } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 type SkeletonProps = {
   className?: string;
 };
 
-type SkeletonCardProps = SkeletonProps & {
+type SkeletonSectionProps = SkeletonProps & {
   density?: "default" | "compact";
 };
 
@@ -22,27 +23,17 @@ function SkeletonBlock({ className }: SkeletonProps) {
   return <div className={cn("animate-skeleton h-10 rounded-lg", className)} />;
 }
 
-export function SkeletonCard({
+export function SkeletonSection({
   className,
   density = "default",
-}: SkeletonCardProps) {
+}: SkeletonSectionProps) {
   return (
-    <div
-      className={cn(
-        "rounded-xl border",
-        density === "compact" ? "p-4" : "p-5",
-        className,
-      )}
-      style={{
-        borderColor: "var(--color-border)",
-        background: "var(--color-background-card)",
-      }}
-    >
+    <Section density={density} className={className}>
       <SkeletonLine className="w-24" />
       <SkeletonBlock className="mt-3 w-3/4" />
       <SkeletonLine className="mt-3 w-full" />
       <SkeletonLine className="mt-2 w-4/5" />
-    </div>
+    </Section>
   );
 }
 
@@ -69,10 +60,10 @@ export function SkeletonTable({
 }) {
   return (
     <div
-      className="app-table-frame overflow-hidden rounded-xl border"
+      className="app-table-frame overflow-hidden border-y"
       style={{
         borderColor: "var(--color-border)",
-        background: "var(--color-background-card)",
+        background: "transparent",
       }}
     >
       <AstryxTable hasHover dividers="rows" className="w-full">

@@ -3,10 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, RefreshCcw, Save, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { updateSubscriptionTier, type SubscriptionTier } from "@/lib/api";
 import {
@@ -114,14 +114,14 @@ export function AdminSubscriptionsPage() {
         not use additional requests. Failed operations return the request.
       </p>
       {displayedError ? (
-        <Card variant="danger" density="compact">
+        <Section variant="danger" density="compact">
           <p>{displayedError}</p>
-        </Card>
+        </Section>
       ) : null}
       {!tiers && !displayedError ? (
         <div className="grid gap-4 xl:grid-cols-2">
-          <SkeletonCard density="compact" />
-          <SkeletonCard density="compact" />
+          <SkeletonSection density="compact" />
+          <SkeletonSection density="compact" />
         </div>
       ) : null}
       <div className="grid gap-4 xl:grid-cols-2">
@@ -132,7 +132,7 @@ export function AdminSubscriptionsPage() {
               forms[tier.key] ?? String(tier.monthly_resume_generation_limit);
             const saving = savingTier === tier.key;
             return (
-              <Card key={tier.key} density="compact">
+              <Section key={tier.key} density="compact">
                 <div className="mb-5 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     {tier.key === "pro" ? (
@@ -185,7 +185,7 @@ export function AdminSubscriptionsPage() {
                     Save
                   </Button>
                 </form>
-              </Card>
+              </Section>
             );
           })}
       </div>

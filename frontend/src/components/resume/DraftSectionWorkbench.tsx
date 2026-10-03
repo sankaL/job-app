@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import {
   ResumeContactSection,
   ResumeSectionWorkbench,
@@ -141,7 +141,7 @@ export function DraftSectionWorkbench({
         </p>
       )}
       {changedElsewhere && (
-        <Card variant="warning" className="mt-3">
+        <Section variant="warning" className="mt-3">
           <p className="text-xs">
             A newer draft is available. Your unsaved edits are preserved here.
             Reload the latest draft before saving.
@@ -156,7 +156,7 @@ export function DraftSectionWorkbench({
           >
             Reload latest draft
           </Button>
-        </Card>
+        </Section>
       )}
       <div className="draft-workbench-content flex min-h-0 flex-1 flex-col gap-4 py-4">
         {!draft.document && (

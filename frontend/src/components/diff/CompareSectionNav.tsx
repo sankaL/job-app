@@ -44,7 +44,7 @@ export function CompareSectionNav({
   return (
     <div
       ref={containerRef}
-      className="relative flex items-center gap-1 overflow-x-auto rounded-xl border p-1 no-scrollbar"
+      className="relative flex items-center gap-1 overflow-x-auto border-b p-1 no-scrollbar"
       style={{
         background: "var(--color-background-surface)",
         borderColor: "var(--color-border)",

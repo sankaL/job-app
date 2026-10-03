@@ -61,7 +61,7 @@ function ActivityPanelBody({
   if (errorMessage) {
     return (
       <div
-        className="rounded-lg border p-3"
+        className="border-l p-3"
         style={{
           borderColor: "var(--color-error-muted)",
           background: "var(--color-error-muted)",

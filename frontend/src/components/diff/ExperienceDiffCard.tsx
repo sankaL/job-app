@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import type { ExperienceEntryDiff, DiffHighlightMode } from "./diff-engine";
 import { InlineDiffText } from "./InlineDiffText";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 interface ExperienceDiffCardProps {
@@ -117,16 +117,12 @@ export function ExperienceDiffCard({
   };
 
   return (
-    <Card
-      className={cn(
-        "group relative overflow-hidden rounded-xl border p-4 sm:p-5 transition-all duration-200",
-        "hover:shadow-[var(--shadow-med)]",
-      )}
+    <Section
+      className="group relative overflow-hidden p-4 sm:p-5 transition-all duration-200"
       style={{
         borderColor: entryDiff.title.isRetitled
           ? "var(--color-success-muted)"
           : "var(--color-border)",
-        background: "var(--color-background-surface)",
       }}
     >
       {/* Top Header: Company + Metadata + Status */}
@@ -217,7 +213,7 @@ export function ExperienceDiffCard({
       <div className="my-3.5">
         {entryDiff.title.isRetitled ? (
           <div
-            className="rounded-lg border p-3"
+            className="border-l p-3"
             style={{
               background:
                 "linear-gradient(135deg, var(--color-success-muted) 0%, var(--color-success-muted) 100%)",
@@ -278,7 +274,7 @@ export function ExperienceDiffCard({
           <div className="grid gap-4 lg:grid-cols-2">
             {/* Base Bullets Column */}
             <div
-              className="rounded-lg border p-3"
+              className="border-l p-3"
               style={{
                 borderColor: "var(--color-border)",
                 background: "var(--color-background-muted)",
@@ -335,7 +331,7 @@ export function ExperienceDiffCard({
 
             {/* Tailored Bullets Column */}
             <div
-              className="rounded-lg border p-3"
+              className="border-l p-3"
               style={{
                 borderColor: "var(--color-success-muted)",
                 background: "var(--color-success-muted)",
@@ -404,7 +400,7 @@ export function ExperienceDiffCard({
                 <div
                   key={bullet.id}
                   className={cn(
-                    "group/bullet relative rounded-lg border p-3 text-xs leading-relaxed transition-all",
+                    "group/bullet relative border-l p-3 text-xs leading-relaxed transition-all",
                     isAdded &&
                       "border-[var(--color-success-muted)] bg-[var(--color-success-muted)]",
                     isRemoved &&
@@ -488,6 +484,6 @@ export function ExperienceDiffCard({
           </div>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }

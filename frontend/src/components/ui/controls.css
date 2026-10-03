@@ -70,7 +70,7 @@
   justify-content: flex-start;
 }
 
-/* Retain the existing table frame inside parent cards without Astryx edge bleed. */
+/* Retain the existing table frame inside page regions without Astryx edge bleed. */
 .app-table-frame {
   --container-padding-inline-start: 0px;
   --container-padding-inline-end: 0px;
@@ -90,7 +90,9 @@
   font: inherit;
 }
 
-.app-popover .app-button, .app-button.text-left, .resume-section-links .app-button {
+.app-popover .app-button,
+.app-button.text-left,
+.resume-section-links .app-button {
   justify-content: flex-start;
 }
 .resume-section-links .app-button > span:first-child,
@@ -98,4 +100,35 @@
 .resume-section-links .app-button-content {
   width: 100%;
   justify-content: flex-start;
+}
+
+/* Keep existing region padding and flex/grid children on Section's outer frame.
+   Its decorative inner wrapper must not become an extra layout item. */
+.app-section {
+  --container-padding-inline-start: 0px;
+  --container-padding-inline-end: 0px;
+  --container-padding-block-start: 0px;
+  --container-padding-block-end: 0px;
+  border-bottom: 1px solid var(--color-border);
+}
+.app-section > .astryx-section {
+  display: contents;
+}
+.app-section[data-tone="danger"],
+.app-section[data-tone="success"],
+.app-section[data-tone="warning"] {
+  border-inline-start: var(--spacing-1) solid var(--section-accent);
+  background: var(--section-background);
+}
+.app-section[data-tone="danger"] {
+  --section-accent: var(--color-error);
+  --section-background: var(--color-error-muted);
+}
+.app-section[data-tone="success"] {
+  --section-accent: var(--color-success);
+  --section-background: var(--color-success-muted);
+}
+.app-section[data-tone="warning"] {
+  --section-accent: var(--color-warning);
+  --section-background: var(--color-warning-muted);
 }
