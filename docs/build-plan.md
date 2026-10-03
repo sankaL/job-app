@@ -10,6 +10,8 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Astryx shared app design system
 
+Local login dropdown completed and reviewed (2026-10-03 17:49 EDT). Local dev login selects an existing active account through the shared DropdownMenu, with password entry removed locally. The user-list endpoint exposes emails only, disables caching and returns 404 outside dev mode. Added loading, empty/error/retry handling, a 10-second timeout and abort cleanup. Passed 17 frontend auth tests, 32 backend auth/config tests and the TypeScript/Vite production build through the Makefile-managed stack. Browser verified local options and password-free sign-in. Production login and fixture API behavior are preserved.
+
 Neutral color restoration completed and reviewed (2026-10-03 17:11 EDT). Restored Astryx neutral in the app shell and floating action portals, removed the custom orange theme/assets and secondary CTA color override, and retained floating placement, dropdowns, bar charts and compact spacing. Browser verified neutral dashboard accents, black primary CTAs and neutral secondary actions. All 239 frontend tests and the TypeScript/Vite production build passed.
 
 Header spacing follow-up completed and reviewed (2026-10-03 17:09:08 EDT). Pages with removed body headings share a 12px top inset, reduced from 32px on desktop and 20px on narrow screens. Fitted workbench heights use the same inset. Browser checks covered dashboard, application/resume lists, source editor, profile, extension and admin; individual application headings retain their existing spacing. The narrow dashboard had no horizontal overflow, and the TypeScript/Vite production build passed.

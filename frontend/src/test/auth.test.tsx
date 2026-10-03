@@ -1,7 +1,8 @@
 import { StrictMode, type ReactElement } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 async function loadAuthFixtures(appEnv = "development", appDevMode = false) {
   vi.resetModules();
@@ -341,6 +342,107 @@ describe("frontend phase 0 auth shell", () => {
     expect(passwordInput).toBeRequired();
     expect(screen.queryByText(/auth disabled/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/local dev/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toBeRequired();
+    expect(screen.queryByRole("button", { name: "Local user" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/local-users"))).toBe(false);
+  });
+
+  it("logs in with a selected existing local user without a password", async () => {
+    const { LoginPage, AuthProvider } = await loadAuthFixtures("development", true);
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/local-users")) return new Response(JSON.stringify({ emails: ["admin@test.invalid", "member@test.invalid"] }));
+      if (url.endsWith("/login")) return new Response(JSON.stringify({ access_token: "local-token", expires_in: 900 }));
+      if (url.endsWith("/me")) return new Response(JSON.stringify({ id: "local-user", email: "member@test.invalid" }));
+      return new Response("", { status: 401 });
+    });
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/login"]}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/app" element={<div>Target workspace</div>} />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
+    );
+    expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeDisabled();
+    expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    const picker = await screen.findByRole("button", { name: "Local user" });
+    await waitFor(() => expect(picker).toBeEnabled());
+    await userEvent.click(picker);
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "member@test.invalid" }));
+    await userEvent.click(screen.getByRole("button", { name: /enter the workspace/i }));
+    expect(await screen.findByText("Target workspace")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith("http://localhost:8000/api/auth/login", expect.objectContaining({
+      body: JSON.stringify({ email: "member@test.invalid", password: "" }),
+      credentials: "include",
+    }));
+  });
+
+  it("keeps empty local user lists closed to sign-in", async () => {
+    const { LoginPage, renderWithAuth } = await loadAuthFixtures("development", true);
+    vi.mocked(fetch).mockImplementation(async (input) => String(input).endsWith("/local-users")
+      ? new Response(JSON.stringify({ emails: [] }))
+      : new Response("", { status: 401 }));
+    renderWithAuth(<LoginPage />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("No local accounts are available");
+    expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Local user" })).toBeDisabled();
+  });
+
+  it("retries local user loading after an unavailable response", async () => {
+    const { LoginPage, renderWithAuth } = await loadAuthFixtures("development", true);
+    let attempts = 0;
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      if (!String(input).endsWith("/local-users")) return new Response("", { status: 401 });
+      attempts += 1;
+      return attempts === 1
+        ? new Response("", { status: 503 })
+        : new Response(JSON.stringify({ emails: ["member@test.invalid"] }));
+    });
+    renderWithAuth(<LoginPage />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load local users");
+    expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    const picker = screen.getByRole("button", { name: "Local user" });
+    await waitFor(() => expect(picker).toBeEnabled());
+    await userEvent.click(picker);
+    expect(await screen.findByRole("menuitemradio", { name: "member@test.invalid" })).toBeInTheDocument();
+  });
+
+  it("bounds local user loading and aborts on unmount", async () => {
+    const { LoginPage, renderWithAuth } = await loadAuthFixtures("development", true);
+    let requestSignal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (!String(input).endsWith("/local-users")) return new Response("", { status: 401 });
+      requestSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_, reject) => requestSignal?.addEventListener("abort", () =>
+        reject(new DOMException("Aborted", "AbortError")), { once: true }));
+    });
+    const view = renderWithAuth(<LoginPage />);
+    await waitFor(() => expect(requestSignal).toBeDefined());
+    expect(requestSignal?.aborted).toBe(false);
+    view.unmount();
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("shows a retry path when local user loading times out", async () => {
+    const { LoginPage, renderWithAuth } = await loadAuthFixtures("development", true);
+    vi.useFakeTimers();
+    try {
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        if (!String(input).endsWith("/local-users")) return new Response("", { status: 401 });
+        return new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError")), { once: true }));
+      });
+      await act(async () => { renderWithAuth(<LoginPage />); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_100); });
+      expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load local users");
+      expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("refreshes when the cached access token has expired", async () => {

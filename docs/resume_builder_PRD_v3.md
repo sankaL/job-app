@@ -81,6 +81,7 @@ This is an **invite-only** application.
 - All application data is private to the authenticated user
 - Supabase Row Level Security (RLS) must enforce per-user data isolation on all tables
 - All application APIs require a valid Supabase JWT. Unauthenticated endpoints are limited to login, invite-link preview/accept endpoints, and the public access-request endpoint.
+- Local dev login uses a dropdown of existing active accounts from the local database, including seeded users, with no password field. Its email-only user-list endpoint is available only in local dev mode and returns 404 otherwise. Production retains email/password login. The local login API still supports email-based fixture setup; selecting an account in the UI does not create users.
 
 ---
 

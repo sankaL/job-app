@@ -138,7 +138,7 @@ Local validation uses Makefile test targets and local Docker Postgres/Redis. `te
 - The initial Phase 0 migration is implemented as repo-owned SQL under `supabase/migrations/`.
 - Local development applies migrations through the Compose-managed `migration-runner` service instead of ad-hoc manual SQL execution.
 - Local dev mode does not send invite or recovery emails; app-level email tests should use the backend Resend gate instead.
-- When `APP_DEV_MODE=true`, the login surface accepts an email-only local sign-in and protected routes restore an existing session only after a refresh-cookie-backed auth check succeeds.
+- When `APP_DEV_MODE=true`, the login surface selects an existing active local account from a dropdown without a password. `/api/auth/local-users` returns only active local account emails and is unavailable outside dev mode. The email-only login API remains available for local fixture setup. Protected routes restore an existing session only after a refresh-cookie-backed auth check succeeds.
 - Auth provisioning is repo-owned: `public.users` stores credentials, `public.refresh_tokens` stores refresh-token hashes, and profile rows are created or aligned by backend code instead of `auth.users` triggers.
 - Post-deploy or post-reset verification for Phase 0 should confirm:
   - the schema migration applies before backend reads begin

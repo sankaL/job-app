@@ -40,6 +40,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Base document inclusion/order controls initial generation. Saved drafts own their structure for editing, regeneration and export; refresh the frozen source only through an explicit latest-base reset.
 
 ## Frontend Security Rules
+- Local dev login selects an existing active local account without a password. Keep the account-list request behind dev mode; production retains email/password login.
 - Do not store auth tokens in `localStorage`.
 - Treat all fetched job, resume, and notification data as private to the authenticated user.
 - Do not expose hidden internal processing details as substitutes for the user-facing status model.

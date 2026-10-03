@@ -4,8 +4,14 @@ import { AuthBrand, AuthPageShell } from "@/components/auth/AuthIllustration";
 import { Button } from "@/components/auth/login-button";
 import { Input } from "@/components/auth/login-input";
 import { Label } from "@/components/auth/login-label";
+import { Select } from "@/components/ui/select";
+import { Theme } from "@astryxdesign/core/theme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import { z } from "zod";
 import { env } from "@/lib/env";
 import { useAuth } from "@/lib/auth";
+
+const localUsersResponse = z.object({ emails: z.array(z.string().email()) });
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -15,6 +21,10 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [localUsers, setLocalUsers] = useState<string[] | null>(null);
+  const [localUsersError, setLocalUsersError] = useState<string | null>(null);
+  const [localUsersAttempt, setLocalUsersAttempt] = useState(0);
 
   useEffect(() => {
     if (user) {
@@ -22,11 +32,48 @@ export function LoginPage() {
       return;
     }
 
-    void ensureSession();
+    let active = true;
+    void ensureSession().finally(() => {
+      if (active) setSessionChecked(true);
+    });
+    return () => {
+      active = false;
+    };
   }, [user, ensureSession, navigate]);
+
+  useEffect(() => {
+    if (!isLocalDevMode || !sessionChecked || user) return;
+    const controller = new AbortController();
+    let active = true;
+    const timeout = window.setTimeout(() => controller.abort(), 10_000);
+    setLocalUsers(null);
+    setLocalUsersError(null);
+    setEmail("");
+    void (async () => {
+      try {
+        const response = await fetch(`${env.VITE_API_URL}/api/auth/local-users`, {
+          signal: controller.signal,
+          credentials: "omit",
+        });
+        if (!response.ok) throw new Error("Local users unavailable.");
+        const data = localUsersResponse.parse(await response.json());
+        if (active) setLocalUsers(data.emails);
+      } catch {
+        if (active) setLocalUsersError("Couldn't load local users. Try again.");
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    })();
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [isLocalDevMode, sessionChecked, user, localUsersAttempt]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting || (isLocalDevMode && !localUsers?.includes(email))) return;
     setError(null);
     setIsSubmitting(true);
 
@@ -77,6 +124,43 @@ export function LoginPage() {
 
             <div className="mt-8 max-w-md">
               <form className="space-y-5" onSubmit={handleSubmit}>
+                {isLocalDevMode ? (
+                  <div>
+                    <Label htmlFor="local-user">Local user</Label>
+                    <Theme theme={neutralTheme} mode="light">
+                      <Select
+                        id="local-user"
+                        name="email"
+                        aria-label="Local user"
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value)}
+                        disabled={isSubmitting || !localUsers?.length}
+                        required
+                      >
+                        <option value="" disabled>
+                          {localUsersError ? "Users unavailable" : localUsers === null ? "Loading local users…" : localUsers.length ? "Select a user" : "No local users available"}
+                        </option>
+                        {localUsers?.map((localEmail) => (
+                          <option key={localEmail} value={localEmail}>{localEmail}</option>
+                        ))}
+                      </Select>
+                    </Theme>
+                    <p className="mt-1.5 text-xs" style={{ color: "var(--color-spruce)" }}>
+                      Choose an existing local account. No password required.
+                    </p>
+                    {localUsersError || localUsers?.length === 0 ? (
+                      <div className="mt-3">
+                        <p role="alert" className="text-sm text-ember">
+                          {localUsersError ?? "No local accounts are available. Seed a local user first."}
+                        </p>
+                        <Button type="button" onClick={() => setLocalUsersAttempt((attempt) => attempt + 1)}>
+                          Retry
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
                 <div>
                   <Label htmlFor="email">Email</Label>
                   <Input
@@ -101,24 +185,20 @@ export function LoginPage() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
-                    placeholder={isLocalDevMode ? "Not required in dev mode" : "Your assigned password"}
-                    required={!isLocalDevMode}
-                    disabled={isLocalDevMode}
+                    placeholder="Your assigned password"
+                    required
                     data-gramm="false"
                     data-gramm_editor="false"
                   />
-                  {isLocalDevMode && (
-                    <p className="mt-1.5 text-xs" style={{ color: "var(--color-spruce)" }}>
-                      Auth disabled — enter any email to sign in.
-                    </p>
-                  )}
                 </div>
+                  </>
+                )}
                 {error ? (
                   <div className="rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-sm text-ember">
                     {error}
                   </div>
                 ) : null}
-                <Button className="w-full" disabled={isSubmitting} type="submit">
+                <Button className="w-full" disabled={isSubmitting || (isLocalDevMode && !localUsers?.includes(email))} type="submit">
                   {isSubmitting ? "Signing in…" : "Enter the workspace"}
                 </Button>
               </form>
