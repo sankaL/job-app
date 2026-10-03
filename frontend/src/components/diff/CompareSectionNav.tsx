@@ -104,7 +104,7 @@ export function CompareSectionNav({
             <span>{sec.heading}</span>
             {itemCount !== null && itemCount > 0 && (
               <span
-                className="rounded-full px-1.5 py-0.2 text-[10px] font-bold"
+                className="rounded-full px-1.5 py-0.2 text-xs font-bold"
                 style={{
                   background: isActive
                     ? "var(--color-success-muted)"

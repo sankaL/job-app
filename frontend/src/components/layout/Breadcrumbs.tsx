@@ -17,6 +17,7 @@ const DEFAULT_LABELS: Record<string, string> = {
   profile: "Profile",
   admin: "Admin",
   users: "User Management",
+  subscriptions: "Subscriptions",
   new: "New",
   dashboard: "Dashboard",
 };

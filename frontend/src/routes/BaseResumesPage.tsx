@@ -1,3 +1,4 @@
+import { Heading } from "@astryxdesign/core/Heading";
 import { useDeferredValue, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -63,7 +64,7 @@ function ResumeActions({
   );
 }
 
-function ResumeCard({
+function ResumeRow({
   resume,
   busy,
   onEdit,
@@ -77,19 +78,20 @@ function ResumeCard({
   onDelete: () => void;
 }) {
   return (
-    <Section density="compact" className="transition-all">
+    <Section density="compact" className="resume-library-row">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3
-              className="truncate font-display text-lg font-semibold"
+            <Heading
+              level={3}
+              className="truncate"
               style={{ color: "var(--color-text-primary)" }}
             >
               {resume.name}
-            </h3>
+            </Heading>
             {resume.is_default && (
               <span
-                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-bold"
                 style={{
                   background: "var(--color-accent-muted)",
                   color: "var(--color-accent)",
@@ -165,9 +167,9 @@ function ResumeCollection({
           onChange={(event) => onSearchChange(event.target.value)}
         />
       </div>
-      <div className="stagger-children grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr))]">
+      <div className="flex flex-col max-w-5xl">
         {resumes.map((resume) => (
-          <ResumeCard
+          <ResumeRow
             key={resume.id}
             resume={resume}
             busy={actionInProgress === resume.id}
@@ -204,7 +206,7 @@ function BaseResumeContent({
 }) {
   if (!resumes)
     return (
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
+      <div className="flex flex-col">
         {Array.from({ length: 2 }).map((_, index) => (
           <SkeletonSection key={index} density="compact" />
         ))}

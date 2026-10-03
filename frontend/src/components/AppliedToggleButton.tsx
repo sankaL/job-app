@@ -29,7 +29,7 @@ export function AppliedToggleButton({
       className={cn(
         "inline-flex items-center justify-center gap-1.5 rounded-full border font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50",
         compact
-          ? "h-8 min-w-[7.5rem] px-3 text-[11px]"
+          ? "h-8 min-w-[7.5rem] px-3 text-xs"
           : "h-9 min-w-[8.5rem] px-3.5 text-xs",
         className,
       )}

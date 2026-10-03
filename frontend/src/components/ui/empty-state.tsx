@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import type { ReactNode } from "react";
 
 type EmptyStateProps = {
@@ -33,19 +35,22 @@ export function EmptyState({
   return (
     <div className="animate-fadeIn flex flex-col items-center justify-center py-16 text-center">
       <div className="mb-4">{icon ?? <DefaultIcon />}</div>
-      <h3
-        className="font-display text-lg font-semibold"
+      <Heading
+        level={3}
         style={{ color: "var(--color-text-primary)" }}
       >
         {title}
-      </h3>
+      </Heading>
       {description && (
-        <p
-          className="mx-auto mt-2 max-w-md text-sm"
+        <Text
+          as="p"
+          display="block"
+          type="body"
+          className="mx-auto mt-2 max-w-md"
           style={{ color: "var(--color-text-secondary)" }}
         >
           {description}
-        </p>
+        </Text>
       )}
       {action && <div className="mt-5">{action}</div>}
     </div>

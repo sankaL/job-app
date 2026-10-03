@@ -1,3 +1,11 @@
+## 2026-10-03: Use Astryx templates for a minimal app layout
+
+The user expanded the design-system task to permit orientation, typography and icon changes, and requested template-based layouts with fewer cards. This supersedes the placement restriction in the earlier Astryx decision. Adapt the official Shell Nav, Searchable Table, Analytics Dashboard, Settings Form and Page Editor patterns around the existing product flows.
+
+Use Astryx AppShell, SideNav and MobileNav for the shared frame and navigation. Share Heading/Text typography and existing control adapters. Put application titles first in tables, show base resumes as rows, cap profile settings at a readable width, and group supporting content with whitespace and rules. Keep the resume paper and overlay surfaces distinct. Remove decorative metric tiles, review card frames and the floating save-bar frame. Preserve public pages, auth, data, AI and export contracts.
+
+The shell uses a configured MobileNav because a custom top bar does not implement Astryx TopNav's automatic drawer context. MobileNavToggle owns expanded/controls attributes. A regression check covers opening the drawer and selecting a route; browser checks cover Escape and focus restoration. See `docs/task-output/2026-10-03-astryx-template-redesign.md`.
+
 ## 2026-10-03: Share Astryx controls across the authenticated app
 
 Use Astryx core 0.6.5 with the neutral theme for app and admin screens. Keep the existing page frame, placement, density and responsive rules. The user requested a design-system conversion without new UI or features, so retain layout containers instead of scaffolding new Astryx page templates. Marketing and login keep their existing appearance through a scoped public palette and their original form adapters.

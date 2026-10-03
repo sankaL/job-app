@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useMemo, useState, useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import type { BaseResumeDetail, ResumeDraft } from "@/lib/api";
@@ -128,13 +130,20 @@ export function CompareWorkspace({
       data-testid="compare-workspace"
     >
       {/* Hidden baseline semantic anchors for screen readers & test assertions */}
-      <h2 className="sr-only">Base Resume</h2>
+      <Heading level={2} className="sr-only">
+        Base Resume
+      </Heading>
 
       {!draft?.source_snapshot && (
-        <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
           Legacy comparison uses the available base resume. Its text may have
           changed since generation, and matches use headings and text.
-        </p>
+        </Text>
       )}
       {/* Hero Control Bar */}
       <CompareHeroBar
@@ -156,12 +165,12 @@ export function CompareWorkspace({
       {editMode ? (
         <Section className="p-4 sm:p-6">
           <div className="mb-3 flex items-center justify-between border-b pb-2.5">
-            <h3
-              className="text-sm font-bold uppercase tracking-wider"
+            <Heading
+              level={3}
               style={{ color: "var(--color-accent)" }}
             >
               Edit Tailored Draft
-            </h3>
+            </Heading>
             <span
               className="text-xs"
               style={{ color: "var(--color-text-secondary)" }}

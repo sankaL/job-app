@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useId,
@@ -62,15 +64,18 @@ export function ResumeContactSection({
     <div>
       <div className="resume-section-header">
         <div className="min-w-0 flex-1">
-          <h3 className="resume-section-heading break-words">
+          <Heading level={3} className="resume-section-heading break-words">
             Contact information
-          </h3>
-          <p
-            className="mt-2 text-xs"
+          </Heading>
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="mt-2"
             style={{ color: "var(--color-text-secondary)" }}
           >
             Copied from your profile. Never sent for tailoring.
-          </p>
+          </Text>
         </div>
         <div className="resume-section-controls">
           <Link to="/app/profile" className="resume-profile-edit">
@@ -79,22 +84,24 @@ export function ResumeContactSection({
         </div>
       </div>
       <div className="resume-preview-copy">
-        <p className="font-semibold">
+        <Text as="p" display="block" type="label">
           {profile?.name ||
             [profile?.first_name, profile?.last_name]
               .filter(Boolean)
               .join(" ") ||
             "Add your name in your profile"}
-        </p>
-        <p>
+        </Text>
+        <Text as="p" display="block" type="body">
           {contact.join(" · ") || "Add your contact details in your profile."}
-        </p>
+        </Text>
         {suggestions && Object.values(suggestions).some(Boolean) && (
           <div
             className="resume-preview-entry mt-5 border-t pt-4"
             style={{ borderColor: "var(--color-border)" }}
           >
-            <p className="font-semibold">Contact found in your upload</p>
+            <Text as="p" display="block" type="label">
+              Contact found in your upload
+            </Text>
             <dl>
               {Object.entries(suggestions)
                 .filter(([, value]) => Boolean(value))
@@ -105,12 +112,14 @@ export function ResumeContactSection({
                   </div>
                 ))}
             </dl>
-            <p
-              className="text-xs"
+            <Text
+              as="p"
+              display="block"
+              type="supporting"
               style={{ color: "var(--color-text-secondary)" }}
             >
               Review these details in your profile before using them.
-            </p>
+            </Text>
           </div>
         )}
       </div>
@@ -263,12 +272,15 @@ function EntryEditor({
       </div>
       <div id={contentId} hidden={!expanded}>
         {onRegenerate && regenerationReason && (
-          <p
-            className="mb-3 text-xs"
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="mb-3"
             style={{ color: "var(--color-text-secondary)" }}
           >
             {regenerationReason}
-          </p>
+          </Text>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           {fieldKeys.map((key) => (
@@ -317,12 +329,15 @@ function EntryEditor({
                   }
                 />
                 {bullet.source_ids.length > 1 && (
-                  <p
-                    className="mt-1 text-[10px]"
+                  <Text
+                    as="p"
+                    display="block"
+                    type="supporting"
+                    className="mt-1"
                     style={{ color: "var(--color-text-secondary)" }}
                   >
                     Based on {bullet.source_ids.length} source bullets
-                  </p>
+                  </Text>
                 )}
               </div>
               <Button
@@ -500,9 +515,9 @@ export function ResumeSectionWorkbench({
     <div className="resume-workbench" data-testid="resume-section-workbench">
       <aside className="resume-index">
         <div className="resume-index-inner">
-          <h2 className="text-sm font-semibold">
+          <Heading level={2}>
             {source ? "Review your resume" : "Resume sections"}
-          </h2>
+          </Heading>
           <div
             role="tablist"
             aria-label="Resume sections"
@@ -556,22 +571,30 @@ export function ResumeSectionWorkbench({
           </div>
           {source && (
             <div className="mt-3">
-              <p className="text-xs" aria-live="polite">
+              <Text
+                as="p"
+                display="block"
+                type="supporting"
+                aria-live="polite"
+              >
                 {reviewed.length} of {active.length} populated sections reviewed
-              </p>
+              </Text>
               <progress
                 className="resume-review-progress"
                 aria-label="Source section review progress"
                 max={Math.max(active.length, 1)}
                 value={reviewed.length}
               />
-              <p
-                className="mt-2 text-xs"
+              <Text
+                as="p"
+                display="block"
+                type="supporting"
+                className="mt-2"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 Check every included section against your source. Saving does
                 not mark it reviewed.
-              </p>
+              </Text>
               {nextReview && (
                 <Button
                   variant="ghost"
@@ -586,14 +609,16 @@ export function ResumeSectionWorkbench({
               )}
             </div>
           )}
-          <p
-            className="text-xs"
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
             style={{ color: "var(--color-text-secondary)" }}
           >
             {source
               ? "Included sections and their order apply to new generations. Existing drafts keep their saved layout."
               : "Included sections and their order apply to this draft, its regeneration and exports. Excluded sections stay here so you can include them again."}
-          </p>
+          </Text>
         </div>
       </aside>
       <div className="resume-sheet">
@@ -632,16 +657,19 @@ export function ResumeSectionWorkbench({
         )}
         {document.sections.length === 0 && (
           <div className="resume-empty">
-            <h3 className="font-display text-lg font-semibold">
+            <Heading level={3}>
               Build your source resume one section at a time
-            </h3>
-            <p
-              className="mt-2 text-sm"
+            </Heading>
+            <Text
+              as="p"
+              display="block"
+              type="body"
+              className="mt-2"
               style={{ color: "var(--color-text-secondary)" }}
             >
               Start with experience, education, projects, or skills. Add any
               other section you need.
-            </p>
+            </Text>
           </div>
         )}
         {document.sections.map(
@@ -692,9 +720,12 @@ export function ResumeSectionWorkbench({
                         />
                       </>
                     ) : (
-                      <h3 className="resume-section-heading break-words">
+                      <Heading
+                        level={3}
+                        className="resume-section-heading break-words"
+                      >
                         {section.heading || "Untitled section"}
-                      </h3>
+                      </Heading>
                     )}
                     <div
                       className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs"
@@ -830,8 +861,11 @@ export function ResumeSectionWorkbench({
                           )}
                         </Select>
                       </label>
-                      <p
-                        className="self-center text-xs"
+                      <Text
+                        as="p"
+                        display="block"
+                        type="supporting"
+                        className="self-center"
                         style={{ color: "var(--color-text-secondary)" }}
                       >
                         {section.confidence !== null
@@ -839,7 +873,7 @@ export function ResumeSectionWorkbench({
                           : "Choose the type that matches this content."}{" "}
                         Changing type preserves entry content as text for
                         review.
-                      </p>
+                      </Text>
                     </div>
                   </details>
                 )}
@@ -847,12 +881,17 @@ export function ResumeSectionWorkbench({
                   section.kind === "professional_experience" &&
                   !section.entries.length &&
                   section.content_md.trim() && (
-                    <p className="resume-import-warning my-3 text-xs">
+                    <Text
+                      as="p"
+                      display="block"
+                      type="supporting"
+                      className="resume-import-warning my-3"
+                    >
                       These jobs are still source text. Check each job boundary
                       before marking reviewed. Add roles to organize them; the
                       original text will stay in the first role for you to
                       split.
-                    </p>
+                    </Text>
                   )}
                 {editingId === section.id ? (
                   <>
@@ -946,12 +985,15 @@ export function ResumeSectionWorkbench({
                 {source &&
                   hasSectionContent(section) &&
                   sourceSectionReviewError(section) && (
-                    <p
-                      className="mt-3 text-xs"
+                    <Text
+                      as="p"
+                      display="block"
+                      type="supporting"
+                      className="mt-3"
                       style={{ color: "var(--color-warning)" }}
                     >
                       {sourceSectionReviewError(section)}
-                    </p>
+                    </Text>
                   )}
                 <div className="resume-section-footer">
                   <div className="flex flex-wrap gap-2">
@@ -1014,12 +1056,15 @@ export function ResumeSectionWorkbench({
                   )}
                 </div>
                 {onRegenerate && regenerationReason?.(section) && (
-                  <p
-                    className="mt-2 text-xs"
+                  <Text
+                    as="p"
+                    display="block"
+                    type="supporting"
+                    className="mt-2"
                     style={{ color: "var(--color-text-secondary)" }}
                   >
                     {regenerationReason(section)}
-                  </p>
+                  </Text>
                 )}
               </section>
             ),

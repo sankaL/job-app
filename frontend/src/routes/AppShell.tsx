@@ -1,3 +1,6 @@
+import { MobileNav } from "@astryxdesign/core/MobileNav";
+import { Text } from "@astryxdesign/core/Text";
+import { AppShell as AstryxAppShell } from "@astryxdesign/core/AppShell";
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { useEffect, useState } from "react";
@@ -25,65 +28,61 @@ function ShellContent() {
   }, [immersive]);
 
   return (
-    <div
-      className="app-shell-root flex min-h-screen overflow-x-clip"
+    <AstryxAppShell
+      className="app-shell-root"
       data-shell-mode={mode}
+      variant="section"
+      height="auto"
+      contentPadding={0}
+      sideNav={
+        immersive ? undefined : (
+          <Sidebar onNavigate={() => setMobileSidebarOpen(false)} />
+        )
+      }
+      topNav={<TopBar />}
+      mobileNav={
+        immersive
+          ? false
+          : {
+              hasToggle: false,
+              isOpen: mobileSidebarOpen,
+              onOpenChange: setMobileSidebarOpen,
+              breakpoint: "md",
+              content: (
+                <MobileNav header="Applix" side="start">
+                  <Sidebar
+                    inDrawer
+                    onNavigate={() => setMobileSidebarOpen(false)}
+                  />
+                </MobileNav>
+              ),
+            }
+      }
     >
-      {/* Desktop sidebar */}
-      <div className="sidebar-desktop app-shell-sidebar-desktop">
-        <Sidebar />
+      <div className="app-shell-content">
+        {bootstrapError ? (
+          <Section variant="danger" className="mb-6">
+            <Text
+              as="p"
+              display="block"
+              type="label"
+              className="text-[var(--color-error)]"
+            >
+              Session bootstrap failed
+            </Text>
+            <Text
+              as="p"
+              display="block"
+              type="body"
+              className="mt-1 text-[var(--color-text-secondary)]"
+            >
+              {bootstrapError}
+            </Text>
+          </Section>
+        ) : null}
+        <Outlet />
       </div>
-
-      {/* Mobile sidebar overlay */}
-      {!immersive && mobileSidebarOpen && (
-        <>
-          <div
-            className="sidebar-overlay"
-            onClick={() => setMobileSidebarOpen(false)}
-          />
-          <div className="sidebar-mobile">
-            <Sidebar onNavigate={() => setMobileSidebarOpen(false)} />
-          </div>
-        </>
-      )}
-
-      <div
-        className="main-with-sidebar app-shell-frame min-w-0 flex flex-1 flex-col"
-        style={{ marginLeft: immersive ? 0 : "var(--sidebar-width)" }}
-      >
-        <TopBar
-          onMenuToggle={
-            immersive ? undefined : () => setMobileSidebarOpen((v) => !v)
-          }
-        />
-
-        <main className="app-shell-main flex-1" style={{ overflowX: "clip" }}>
-          <div
-            className="app-shell-content"
-            style={{ maxWidth: "100%", overflowX: "clip" }}
-          >
-            {bootstrapError ? (
-              <Section variant="danger" className="mb-6">
-                <p
-                  className="text-sm font-semibold"
-                  style={{ color: "var(--color-error)" }}
-                >
-                  Session bootstrap failed
-                </p>
-                <p
-                  className="mt-1 text-sm"
-                  style={{ color: "var(--color-text-secondary)" }}
-                >
-                  {bootstrapError}
-                </p>
-              </Section>
-            ) : null}
-
-            <Outlet />
-          </div>
-        </main>
-      </div>
-    </div>
+    </AstryxAppShell>
   );
 }
 

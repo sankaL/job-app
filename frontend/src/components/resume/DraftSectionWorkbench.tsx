@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
@@ -111,41 +113,53 @@ export function DraftSectionWorkbench({
         style={{ borderColor: "var(--color-border)" }}
       >
         <div>
-          <h3 className="text-sm font-semibold">Generated resume</h3>
-          <p
-            className="mt-1 text-xs"
+          <Heading level={3}>Generated resume</Heading>
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="mt-1"
             style={{ color: "var(--color-text-secondary)" }}
           >
             Preview your resume. Double-click a section or choose Edit to change
             it.
-          </p>
+          </Text>
         </div>
         <div
-          className="space-y-1 text-right text-[11px]"
+          className="space-y-1 text-right text-xs"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          <p>Generated {new Date(draft.last_generated_at).toLocaleString()}</p>
+          <Text as="p" display="block" type="body">
+            Generated {new Date(draft.last_generated_at).toLocaleString()}
+          </Text>
           {draft.last_exported_at && (
-            <p>Exported {new Date(draft.last_exported_at).toLocaleString()}</p>
+            <Text as="p" display="block" type="body">
+              Exported {new Date(draft.last_exported_at).toLocaleString()}
+            </Text>
           )}
-          <p>Revision {draft.document?.revision ?? 1}</p>
+          <Text as="p" display="block" type="body">
+            Revision {draft.document?.revision ?? 1}
+          </Text>
         </div>
       </div>
       {error && (
-        <p
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
           role="alert"
-          className="mt-3 text-xs"
+          className="mt-3"
           style={{ color: "var(--color-error)" }}
         >
           {error}
-        </p>
+        </Text>
       )}
       {changedElsewhere && (
         <Section variant="warning" className="mt-3">
-          <p className="text-xs">
+          <Text as="p" display="block" type="supporting">
             A newer draft is available. Your unsaved edits are preserved here.
             Reload the latest draft before saving.
-          </p>
+          </Text>
           <Button
             type="button"
             size="sm"
@@ -160,14 +174,16 @@ export function DraftSectionWorkbench({
       )}
       <div className="draft-workbench-content flex min-h-0 flex-1 flex-col gap-4 py-4">
         {!draft.document && (
-          <p
-            className="text-xs"
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
             style={{ color: "var(--color-text-secondary)" }}
           >
             This legacy draft will gain section IDs when you save it. To refresh
             source links, choose Use latest base resume during full
             regeneration.
-          </p>
+          </Text>
         )}
         <ResumeSectionWorkbench
           contactPanel={<ResumeContactSection profile={profile} />}
@@ -186,11 +202,16 @@ export function DraftSectionWorkbench({
         className="flex flex-wrap items-center justify-between gap-3 border-t pt-3"
         style={{ borderColor: "var(--color-border)" }}
       >
-        <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
           {dirty
             ? "Unsaved changes. Save before regenerating or exporting."
             : "All changes saved"}
-        </p>
+        </Text>
         {dirty && (
           <div className="flex gap-2">
             <Button

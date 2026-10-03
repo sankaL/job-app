@@ -27,22 +27,21 @@
   gap: 0.5rem;
   min-width: 0;
   max-width: 100%;
-  border: 1px solid var(--color-border);
+  border: 0;
   border-radius: var(--radius-element);
-  padding: 0.625rem 0.75rem;
+  padding: var(--spacing-2) var(--spacing-3);
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--text-body-size);
   text-align: left;
-  background: var(--color-background-surface);
+  background: transparent;
 }
 .resume-section-links button[aria-selected="true"] {
   color: var(--color-accent);
   background: var(--color-accent-muted);
-  border-color: var(--color-accent);
 }
 .resume-index-number {
   font-variant-numeric: tabular-nums;
-  font-size: 0.6875rem;
+  font-size: var(--text-supporting-size);
   opacity: 0.7;
 }
 .resume-index-dot {
@@ -240,7 +239,7 @@
   gap: 0.75rem;
   padding: 1.25rem;
   border-top: 1px solid var(--color-border);
-  background: var(--color-accent-muted);
+  background: transparent;
   border-radius: 0 0 var(--radius-container) var(--radius-container);
 }
 .resume-add-section select {
@@ -256,18 +255,16 @@
 .resume-save-bar {
   flex-shrink: 0;
   position: sticky;
-  bottom: 0.75rem;
+  bottom: 0;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
   z-index: 10;
-  padding: 0.875rem 1rem;
+  padding: var(--spacing-4) 0;
   background: var(--color-background-surface);
-  border: 1px solid var(--color-border-emphasized);
-  border-radius: var(--radius-container);
-  box-shadow: var(--shadow-med);
+  border-top: 1px solid var(--color-border);
   margin-top: 1rem;
 }
 .resume-save-bar button {
@@ -306,7 +303,6 @@
 }
 .resume-section-links .resume-reference-tab {
   margin-top: 0.75rem;
-  border-style: dashed;
   background: var(--color-background-muted);
 }
 .resume-section-links .resume-reference-tab[aria-selected="true"] {
@@ -330,7 +326,7 @@
   }
   .resume-save-bar {
     bottom: max(0.5rem, env(safe-area-inset-bottom));
-    padding: 0.75rem;
+    padding: var(--spacing-3) 0;
   }
   .resume-save-bar > div {
     flex: 1;

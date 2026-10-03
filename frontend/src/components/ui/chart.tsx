@@ -102,7 +102,7 @@ export function ChartTooltipContent({
       }}
     >
       <div
-        className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+        className="text-xs font-semibold"
         style={{ color: "var(--color-text-secondary)" }}
       >
         {labelFormatter ? labelFormatter(label ?? "") : label}

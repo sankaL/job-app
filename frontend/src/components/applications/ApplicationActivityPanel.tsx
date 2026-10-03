@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -54,9 +56,14 @@ function ActivityPanelBody({
 }) {
   if (isLoading)
     return (
-      <p className="text-sm text-[var(--color-text-secondary)]">
+      <Text
+        as="p"
+        display="block"
+        type="body"
+        className="text-[var(--color-text-secondary)]"
+      >
         Loading activity…
-      </p>
+      </Text>
     );
   if (errorMessage) {
     return (
@@ -67,20 +74,35 @@ function ActivityPanelBody({
           background: "var(--color-error-muted)",
         }}
       >
-        <p className="text-sm font-semibold text-[var(--color-error)]">
+        <Text
+          as="p"
+          display="block"
+          type="label"
+          className="text-[var(--color-error)]"
+        >
           Activity unavailable
-        </p>
-        <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+        </Text>
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-1 text-[var(--color-text-secondary)]"
+        >
           {errorMessage}
-        </p>
+        </Text>
       </div>
     );
   }
   if (grouped.length === 0)
     return (
-      <p className="text-sm text-[var(--color-text-secondary)]">
+      <Text
+        as="p"
+        display="block"
+        type="body"
+        className="text-[var(--color-text-secondary)]"
+      >
         No activity yet.
-      </p>
+      </Text>
     );
 
   return (
@@ -90,7 +112,7 @@ function ActivityPanelBody({
     >
       {grouped.map((group) => (
         <section key={group.label} className="space-y-4">
-          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--color-text-secondary)]">
+          <div className="text-xs font-bold text-[var(--color-text-secondary)]">
             {group.label}
           </div>
           <div className="space-y-4">
@@ -211,12 +233,17 @@ export function ApplicationActivityPanel({
           style={{ borderColor: "var(--color-border)" }}
         >
           <div>
-            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+            <Heading level={2} className="text-[var(--color-text-primary)]">
               Activity Log
-            </h2>
-            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+            </Heading>
+            <Text
+              as="p"
+              display="block"
+              type="supporting"
+              className="mt-1 text-[var(--color-text-secondary)]"
+            >
               Timeline of manual and AI actions for this application.
-            </p>
+            </Text>
           </div>
           <Button
             variant="ghost"

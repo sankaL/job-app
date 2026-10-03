@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries";
@@ -335,27 +337,33 @@ export function BaseResumeEditorPage() {
       />
       {error &&
         (uploadMode && !resume ? (
-          <p
+          <Text
+            as="p"
+            display="block"
+            type="body"
             role="alert"
-            className="text-sm"
             style={{ color: "var(--color-error)" }}
           >
             {error}
-          </p>
+          </Text>
         ) : (
           <Section variant="danger">
-            <p className="text-sm">{error}</p>
-            <p className="mt-2 text-xs">
+            <Text as="p" display="block" type="body">
+              {error}
+            </Text>
+            <Text as="p" display="block" type="supporting" className="mt-2">
               Your unsaved edits are still here. If another tab saved this
               resume, reload its latest revision before trying again.
-            </p>
+            </Text>
           </Section>
         ))}
       {loading ? (
         <SkeletonSection />
       ) : !isNew && !resume ? (
         <Section>
-          <p className="text-sm">This resume could not be loaded.</p>
+          <Text as="p" display="block" type="body">
+            This resume could not be loaded.
+          </Text>
           <Button
             className="mt-3"
             variant="secondary"
@@ -401,13 +409,15 @@ export function BaseResumeEditorPage() {
               />{" "}
               Use AI to extract roles, education and their details
             </label>
-            <p
-              className="text-xs"
+            <Text
+              as="p"
+              display="block"
+              type="supporting"
               style={{ color: "var(--color-text-secondary)" }}
             >
               Contact information stays local. Unknown or uncertain sections are
               kept for your review.
-            </p>
+            </Text>
             <Button type="submit" disabled={uploading}>
               {uploading ? "Import in progress" : "Upload & Parse"}
             </Button>
@@ -422,15 +432,15 @@ export function BaseResumeEditorPage() {
         >
           {resume?.needs_review && (
             <div className="resume-import-warning">
-              <p className="font-semibold">
+              <Text as="p" display="block" type="label">
                 Check your import before tailoring
-              </p>
-              <p className="mt-1">
+              </Text>
+              <Text as="p" display="block" type="body" className="mt-1">
                 {resume.import_warning ??
                   "Check the imported facts and section types."}{" "}
                 Confirm that each job has its own role, employer, dates and
                 bullets.
-              </p>
+              </Text>
             </div>
           )}
           <ResumeSectionWorkbench
@@ -448,16 +458,19 @@ export function BaseResumeEditorPage() {
             referencePanel={
               resume?.raw_source_md || reviewingUpload ? (
                 <div>
-                  <h3 className="resume-section-heading">
+                  <Heading level={3} className="resume-section-heading">
                     Original extracted text
-                  </h3>
-                  <p
-                    className="mt-2 text-xs"
+                  </Heading>
+                  <Text
+                    as="p"
+                    display="block"
+                    type="supporting"
+                    className="mt-2"
                     style={{ color: "var(--color-text-secondary)" }}
                   >
                     Check uncertain imports against this text. Add contact
                     details to your profile.
-                  </p>
+                  </Text>
                   <pre className="mt-4 whitespace-pre-wrap break-words text-sm">
                     {resume?.raw_source_md ||
                       "Original extracted text is unavailable."}
@@ -485,7 +498,7 @@ export function BaseResumeEditorPage() {
           />
           <div className="resume-save-bar">
             <div>
-              <p role="status" className="text-sm font-semibold">
+              <Text as="p" display="block" type="label" role="status">
                 {saving
                   ? "Saving your edits…"
                   : dirty
@@ -495,9 +508,12 @@ export function BaseResumeEditorPage() {
                       : saved
                         ? "Changes saved"
                         : "All changes saved"}
-              </p>
-              <p
-                className="mt-1 text-xs"
+              </Text>
+              <Text
+                as="p"
+                display="block"
+                type="supporting"
+                className="mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 {pendingReview
@@ -505,14 +521,17 @@ export function BaseResumeEditorPage() {
                   : included.length
                     ? "Included sections reviewed"
                     : "Add content to start review"}
-              </p>
-              <p
-                className="resume-save-hint mt-1 text-xs"
+              </Text>
+              <Text
+                as="p"
+                display="block"
+                type="supporting"
+                className="resume-save-hint mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 Changes apply to future generations. Existing drafts keep their
                 source revision.
-              </p>
+              </Text>
             </div>
             <Button
               type="submit"

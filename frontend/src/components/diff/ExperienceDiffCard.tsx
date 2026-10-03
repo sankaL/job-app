@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import {
@@ -105,7 +107,7 @@ export function ExperienceDiffCard({
     }
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
         style={{
           background: "var(--color-background-muted)",
           color: "var(--color-text-secondary)",
@@ -144,15 +146,15 @@ export function ExperienceDiffCard({
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h4
-                className="text-base font-bold tracking-tight"
+              <Heading
+                level={4}
                 style={{ color: "var(--color-text-primary)" }}
               >
                 <InlineDiffText
                   chunks={entryDiff.company.chunks}
                   mode={highlightMode}
                 />
-              </h4>
+              </Heading>
               {getStatusBadge()}
             </div>
             <div
@@ -221,7 +223,7 @@ export function ExperienceDiffCard({
             }}
           >
             <div
-              className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider"
+              className="flex items-center gap-1.5 text-xs font-bold"
               style={{ color: "var(--color-accent)" }}
             >
               <Sparkles size={13} /> Role Title Targeted
@@ -249,7 +251,7 @@ export function ExperienceDiffCard({
         ) : (
           <div className="flex items-center gap-2">
             <span
-              className="text-xs font-bold uppercase tracking-wider"
+              className="text-xs font-bold"
               style={{ color: "var(--color-text-secondary)" }}
             >
               Role:
@@ -285,13 +287,13 @@ export function ExperienceDiffCard({
                 style={{ borderColor: "var(--color-border)" }}
               >
                 <span
-                  className="text-xs font-bold uppercase tracking-wider"
+                  className="text-xs font-bold"
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   Base Resume
                 </span>
                 <span
-                  className="text-[11px]"
+                  className="text-xs"
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   {entryDiff.bullets.filter((b) => b.baseText).length} bullets
@@ -347,14 +349,14 @@ export function ExperienceDiffCard({
                     style={{ color: "var(--color-accent)" }}
                   />
                   <span
-                    className="text-xs font-bold uppercase tracking-wider"
+                    className="text-xs font-bold"
                     style={{ color: "var(--color-accent)" }}
                   >
                     Tailored Draft
                   </span>
                 </div>
                 <span
-                  className="text-[11px]"
+                  className="text-xs"
                   style={{ color: "var(--color-accent)" }}
                 >
                   {entryDiff.bullets.filter((b) => b.tailoredText).length}{" "}
@@ -415,15 +417,15 @@ export function ExperienceDiffCard({
                       {/* Status Icon */}
                       <span className="mt-0.5 shrink-0">
                         {isAdded ? (
-                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-success-muted)] text-[10px] font-bold text-[var(--color-success)]">
+                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-success-muted)] text-xs font-bold text-[var(--color-success)]">
                             +
                           </span>
                         ) : isRemoved ? (
-                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-error-muted)] text-[10px] font-bold text-[var(--color-error)]">
+                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-error-muted)] text-xs font-bold text-[var(--color-error)]">
                             -
                           </span>
                         ) : isModified ? (
-                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-warning-muted)] text-[10px] font-bold text-[var(--color-warning)]">
+                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-warning-muted)] text-xs font-bold text-[var(--color-warning)]">
                             ~
                           </span>
                         ) : (
@@ -435,15 +437,18 @@ export function ExperienceDiffCard({
                       <div className="flex-1">
                         {isRemoved ? (
                           <div>
-                            <span className="text-[11px] font-semibold text-[var(--color-error)]">
+                            <span className="text-xs font-semibold text-[var(--color-error)]">
                               Omitted Base Bullet:
                             </span>
-                            <p
+                            <Text
+                              as="p"
+                              display="block"
+                              type="body"
                               className="mt-0.5 line-through opacity-80"
                               style={{ color: "var(--color-text-secondary)" }}
                             >
                               {bullet.baseText}
-                            </p>
+                            </Text>
                           </div>
                         ) : (
                           <div>

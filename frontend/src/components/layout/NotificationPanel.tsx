@@ -1,3 +1,4 @@
+import { Text } from "@astryxdesign/core/Text";
 import { PopoverSurface } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SkeletonLine } from "@/components/ui/skeleton";
@@ -81,16 +82,21 @@ function NotificationRow({
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
-            <p className="text-sm font-medium leading-5 text-[var(--color-text-primary)]">
+            <Text
+              as="p"
+              display="block"
+              type="label"
+              className="leading-5 text-[var(--color-text-primary)]"
+            >
               {notification.message}
-            </p>
-            <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--color-text-secondary)]">
+            </Text>
+            <span className="shrink-0 text-xs font-medium text-[var(--color-text-secondary)]">
               {formatNotificationTimestamp(notification.created_at)}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]"
+              className="rounded-full px-2 py-0.5 text-xs font-semibold"
               style={{
                 background: tone.badgeBackground,
                 color: tone.badgeColor,
@@ -134,23 +140,43 @@ function NotificationContent({
   if (error)
     return (
       <div className="px-4 py-5">
-        <p className="text-sm font-semibold text-[var(--color-error)]">
+        <Text
+          as="p"
+          display="block"
+          type="label"
+          className="text-[var(--color-error)]"
+        >
           Notifications unavailable
-        </p>
-        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+        </Text>
+        <Text
+          as="p"
+          display="block"
+          type="body"
+          className="mt-1 text-[var(--color-text-secondary)]"
+        >
           {error}
-        </p>
+        </Text>
       </div>
     );
   if (notifications.length === 0)
     return (
       <div className="px-4 py-5">
-        <p className="text-sm font-medium text-[var(--color-text-primary)]">
+        <Text
+          as="p"
+          display="block"
+          type="label"
+          className="text-[var(--color-text-primary)]"
+        >
           No notifications yet
-        </p>
-        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+        </Text>
+        <Text
+          as="p"
+          display="block"
+          type="body"
+          className="mt-1 text-[var(--color-text-secondary)]"
+        >
           Workflow updates will appear here as your applications move forward.
-        </p>
+        </Text>
       </div>
     );
   return (

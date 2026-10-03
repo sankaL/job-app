@@ -1,3 +1,5 @@
+import { HStack } from "@astryxdesign/core/HStack";
+import { Text } from "@astryxdesign/core/Text";
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
@@ -8,7 +10,7 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { MetricCard } from "@/components/dashboard/MetricCard";
+import { Metric } from "@/components/dashboard/Metric";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/ui/card";
 import { SkeletonSection } from "@/components/ui/skeleton";
@@ -19,52 +21,50 @@ function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
 }
 
-function KpiCard({
+function KpiMetric({
   icon: Icon,
   label,
   value,
   sublabel,
   accent,
-  tint,
 }: {
   icon: LucideIcon;
   label: string;
   value: string | number;
   sublabel: string;
   accent: string;
-  tint: string;
 }) {
   return (
-    <MetricCard
+    <Metric
       icon={Icon}
       label={label}
       value={value}
       accent={accent}
-      tint={tint}
       detail={
-        <p
-          className="mt-1 text-xs leading-5"
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-1 leading-5"
           style={{ color: "var(--color-text-secondary)" }}
         >
           {sublabel}
-        </p>
+        </Text>
       }
     />
   );
 }
 
-function OperationCard({
+function OperationMetric({
   label,
   metric,
   icon: Icon,
   accent,
-  tint,
 }: {
   label: string;
   metric: AdminOperationMetric;
   icon: LucideIcon;
   accent: string;
-  tint: string;
 }) {
   const successRatio =
     metric.total > 0 ? (metric.success_count / metric.total) * 100 : 0;
@@ -73,37 +73,40 @@ function OperationCard({
 
   return (
     <Section density="compact" className="relative overflow-hidden">
-      <span
-        className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-xl"
-        style={{ background: tint, color: accent }}
-      >
-        <Icon size={16} />
-      </span>
-
-      <p
-        className="text-[11px] font-semibold uppercase tracking-[0.16em]"
-        style={{ color: "var(--color-text-secondary)" }}
-      >
-        {label}
-      </p>
+      <HStack gap={2} vAlign="center">
+        <Icon
+          size={16}
+          aria-hidden="true"
+          className="text-[var(--color-text-secondary)]"
+        />
+        <Text type="body" color="secondary">
+          {label}
+        </Text>
+      </HStack>
       <div className="mt-2 flex items-end justify-between gap-3">
-        <p
-          className="font-display text-2xl font-semibold tabular-nums"
+        <Text
+          as="p"
+          display="block"
+          type="display-3"
+          className="tabular-nums"
           style={{ color: accent }}
         >
           {formatPercent(metric.success_rate)}
-        </p>
-        <p
-          className="text-xs font-semibold tabular-nums"
+        </Text>
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="tabular-nums"
           style={{ color: "var(--color-text-secondary)" }}
         >
           {metric.total} total
-        </p>
+        </Text>
       </div>
 
       <div className="mt-4 space-y-3">
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.14em]">
+          <div className="flex items-center justify-between text-xs font-semibold">
             <span style={{ color: "var(--color-accent)" }}>Success</span>
             <span
               className="tabular-nums"
@@ -128,7 +131,7 @@ function OperationCard({
         </div>
 
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.14em]">
+          <div className="flex items-center justify-between text-xs font-semibold">
             <span style={{ color: "var(--color-error)" }}>Failure</span>
             <span
               className="tabular-nums"
@@ -189,18 +192,23 @@ export function AdminDashboardPage() {
           subtitle="Invite and usage funnel performance."
         />
         <Section variant="danger" density="compact">
-          <p
-            className="text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
             style={{ color: "var(--color-error)" }}
           >
             Metrics unavailable
-          </p>
-          <p
-            className="mt-1 text-sm"
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-1"
             style={{ color: "var(--color-text-secondary)" }}
           >
             {displayedError}
-          </p>
+          </Text>
         </Section>
       </div>
     );
@@ -219,37 +227,33 @@ export function AdminDashboardPage() {
       />
 
       <div className="stagger-children grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
+        <KpiMetric
           icon={Users}
           label="Users"
           value={metrics.total_users}
           sublabel={`${metrics.active_users} active · ${metrics.deactivated_users} deactivated`}
           accent="var(--color-text-primary)"
-          tint="var(--color-background-muted)"
         />
-        <KpiCard
+        <KpiMetric
           icon={MailCheck}
           label="Invites"
           value={metrics.invites_sent}
           sublabel={`${formatPercent(inviteAcceptanceRate)} acceptance · ${metrics.invites_pending} pending`}
           accent="var(--color-accent)"
-          tint="var(--color-accent-muted)"
         />
-        <KpiCard
+        <KpiMetric
           icon={FileStack}
           label="Applications"
           value={metrics.total_applications}
           sublabel={`${metrics.invited_users} users still onboarding`}
           accent="var(--color-warning)"
-          tint="var(--color-warning-muted)"
         />
-        <KpiCard
+        <KpiMetric
           icon={CheckCircle2}
           label="Exports"
           value={metrics.export.total}
           sublabel={`${metrics.export.success_count} succeeded`}
           accent="var(--color-accent)"
-          tint="var(--color-accent-muted)"
         />
       </div>
 
@@ -257,55 +261,56 @@ export function AdminDashboardPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <BarChart3 size={16} style={{ color: "var(--color-accent)" }} />
-            <p
-              className="text-sm font-semibold"
+            <Text
+              as="p"
+              display="block"
+              type="label"
               style={{ color: "var(--color-text-primary)" }}
             >
               Workflow outcomes
-            </p>
+            </Text>
           </div>
           <span
-            className="text-[11px] font-semibold uppercase tracking-[0.16em]"
+            className="text-xs font-semibold"
             style={{ color: "var(--color-text-secondary)" }}
           >
             success vs failure
           </span>
         </div>
-        <p
-          className="mt-1 text-xs"
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-1"
           style={{ color: "var(--color-text-secondary)" }}
         >
           Operation outcomes are aggregated from backend usage events.
-        </p>
+        </Text>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <OperationCard
+          <OperationMetric
             label="Extraction"
             metric={metrics.extraction}
             icon={BarChart3}
             accent="var(--color-accent)"
-            tint="var(--color-accent-muted)"
           />
-          <OperationCard
+          <OperationMetric
             label="Generation"
             metric={metrics.generation}
             icon={Sparkles}
             accent="var(--color-accent)"
-            tint="var(--color-accent-muted)"
           />
-          <OperationCard
+          <OperationMetric
             label="Regeneration"
             metric={metrics.regeneration}
             icon={RotateCcw}
             accent="var(--color-warning)"
-            tint="var(--color-warning-muted)"
           />
-          <OperationCard
+          <OperationMetric
             label="Export"
             metric={metrics.export}
             icon={FileStack}
             accent="var(--color-text-primary)"
-            tint="var(--color-background-muted)"
           />
         </div>
       </Section>

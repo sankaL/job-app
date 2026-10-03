@@ -1,387 +1,150 @@
-import { Button } from "@/components/ui/button";
-import { useEffect, useState, type ReactNode } from "react";
-import { CreditCard } from "lucide-react";
-import { NavLink, useLocation } from "react-router-dom";
+import {
+  forwardRef,
+  useEffect,
+  useState,
+  type AnchorHTMLAttributes,
+} from "react";
+import {
+  BarChart3,
+  CreditCard,
+  FileText,
+  LayoutDashboard,
+  ListChecks,
+  LogOut,
+  Puzzle,
+  Settings2,
+  Users,
+} from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { SideNav, SideNavItem } from "@astryxdesign/core/SideNav";
 import { useAppContext } from "@/components/layout/AppContext";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 
-type NavItem = {
-  to: string;
-  label: string;
-  icon: ReactNode;
-  badge?: number;
-  end?: boolean;
-};
+const RouterLink = forwardRef<
+  HTMLAnchorElement,
+  AnchorHTMLAttributes<HTMLAnchorElement>
+>(function RouterLink({ href, ...props }, ref) {
+  return <Link ref={ref} to={href ?? "/app"} {...props} />;
+});
 
-/* ── SVG Icons (inline, no deps) ── */
-const IconDashboard = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <rect x="2" y="2" width="7" height="8" rx="1.5" />
-    <rect x="11" y="2" width="7" height="5" rx="1.5" />
-    <rect x="2" y="12" width="7" height="6" rx="1.5" />
-    <rect x="11" y="9" width="7" height="9" rx="1.5" />
-  </svg>
-);
-
-const IconApplications = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M3 4h14M3 8h14M3 12h10M3 16h7" />
-  </svg>
-);
-
-const IconResumes = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M5 2h7l4 4v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" />
-    <path d="M12 2v4h4" />
-    <path d="M7 10h6M7 13h4" />
-  </svg>
-);
-
-const IconExtension = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M8 2h4v3H8zM2 8h3v4H2zM15 8h3v4h-3zM8 15h4v3H8z" />
-    <rect x="5" y="5" width="10" height="10" rx="1.5" />
-  </svg>
-);
-
-const IconSignOut = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M7 17H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h3M13 14l4-4-4-4M17 10H7" />
-  </svg>
-);
-
-const IconAdmin = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M10 2l2 2.5 3-.3.8 2.9 2.6 1.6-1.4 2.7 1.4 2.7-2.6 1.6-.8 2.9-3-.3L10 18l-2-2.5-3 .3-.8-2.9L1.6 11.3 3 8.6 1.6 5.9l2.6-1.6.8-2.9 3 .3L10 2z" />
-    <path d="M10 7.5v5M7.5 10h5" />
-  </svg>
-);
-
-const IconMetrics = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.7"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M3 16h14" />
-    <path d="M6 16V9" />
-    <path d="M10 16V5" />
-    <path d="M14 16v-3" />
-  </svg>
-);
-
-const IconUsers = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M14.5 17v-1a3 3 0 0 0-3-3H6.5a3 3 0 0 0-3 3v1" />
-    <circle cx="9" cy="7" r="3" />
-    <path d="M18 17v-1a2.5 2.5 0 0 0-2-2.45" />
-    <path d="M14.5 4.6a2.5 2.5 0 0 1 0 4.8" />
-  </svg>
-);
-
-const IconChevron = ({ open }: { open: boolean }) => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    className="transition-transform"
-    style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
-  >
-    <path
-      d="M6 4l4 4-4 4"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-type SidebarProps = {
-  onNavigate?: () => void;
-};
-
-function SidebarNavLink({
-  item,
-  compact = false,
+export function Sidebar({
   onNavigate,
+  inDrawer = false,
 }: {
-  item: NavItem;
-  compact?: boolean;
   onNavigate?: () => void;
+  inDrawer?: boolean;
 }) {
-  return (
-    <NavLink
-      to={item.to}
-      end={item.end}
-      className={({ isActive }) =>
-        `group flex items-center rounded-lg text-sm transition-all ${compact ? "gap-2.5 px-2.5 py-2" : "gap-3 px-3 py-2.5 font-medium"} ${
-          isActive ? "sidebar-nav-active" : "sidebar-nav-item"
-        }`
-      }
-      style={({ isActive }) => ({
-        background: isActive
-          ? compact
-            ? "var(--color-neutral)"
-            : "var(--color-accent-muted)"
-          : "transparent",
-        color: isActive
-          ? "var(--color-text-primary)"
-          : "var(--color-text-secondary)",
-      })}
-      onClick={onNavigate}
-    >
-      <span className="flex-shrink-0 transition-colors">{item.icon}</span>
-      <span className={`flex-1 ${compact ? "truncate" : ""}`}>
-        {item.label}
-      </span>
-      {item.badge ? <Badge count={item.badge} variant="warning" /> : null}
-    </NavLink>
-  );
-}
-
-function SidebarBrand() {
-  return (
-    <div className="flex h-16 items-center gap-2.5 border-b border-[var(--color-border)] px-5">
-      <div className="flex h-10 w-10 items-center justify-center overflow-hidden">
-        <img
-          src="/applix-logo.svg"
-          alt="Applix logo"
-          className="h-8 w-8 object-contain"
-        />
-      </div>
-      <div>
-        <div className="text-sm font-semibold text-[var(--color-text-primary)]">
-          Applix
-        </div>
-        <div className="text-[11px] text-[var(--color-text-secondary)]">
-          AI Job Applications
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AdminNavigation({
-  visible,
-  active,
-  expanded,
-  items,
-  onToggle,
-  onNavigate,
-}: {
-  visible: boolean;
-  active: boolean;
-  expanded: boolean;
-  items: NavItem[];
-  onToggle: () => void;
-  onNavigate?: () => void;
-}) {
-  if (!visible) return null;
-  return (
-    <div className="pt-1">
-      <div
-        className="group flex items-center rounded-lg transition-all"
-        style={{
-          background: active ? "var(--color-accent-muted)" : "transparent",
-          color: active
-            ? "var(--color-text-primary)"
-            : "var(--color-text-secondary)",
-        }}
-      >
-        <NavLink
-          to="/app/admin"
-          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-sm font-medium"
-          onClick={onNavigate}
-        >
-          <span className="flex-shrink-0">
-            <IconAdmin />
-          </span>
-          <span className="truncate">Admin</span>
-        </NavLink>
-        <Button
-          variant="ghost"
-          type="button"
-          aria-label={expanded ? "Collapse admin menu" : "Expand admin menu"}
-          aria-expanded={expanded}
-          className="mr-1 inline-flex h-7 w-7 items-center justify-center text-inherit transition-colors"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onToggle();
-          }}
-        >
-          <IconChevron open={expanded} />
-        </Button>
-      </div>
-      {expanded ? (
-        <div className="ml-4 mt-1 space-y-1 border-l border-[var(--color-border)] pl-2.5">
-          {items.map((item) => (
-            <SidebarNavLink
-              key={item.to}
-              item={item}
-              compact
-              onNavigate={onNavigate}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SidebarSignOut({ onSignOut }: { onSignOut: () => void }) {
-  return (
-    <div className="px-3 pb-4">
-      <Button
-        variant="ghost"
-        onClick={onSignOut}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-sm transition-all"
-      >
-        <IconSignOut />
-        <span>Sign Out</span>
-      </Button>
-    </div>
-  );
-}
-
-export function Sidebar({ onNavigate }: SidebarProps) {
   const { pathname } = useLocation();
   const { needsActionCount, bootstrap } = useAppContext();
   const { logout } = useAuth();
-  const isAdmin = Boolean(bootstrap?.profile?.is_admin);
-  const isOnAdminRoute =
+  const onAdminRoute =
     pathname === "/app/admin" || pathname.startsWith("/app/admin/");
-  const [adminExpanded, setAdminExpanded] = useState<boolean>(isOnAdminRoute);
-
+  const [adminCollapsed, setAdminCollapsed] = useState(!onAdminRoute);
   useEffect(() => {
-    if (isOnAdminRoute) {
-      setAdminExpanded(true);
-    }
-  }, [isOnAdminRoute]);
+    if (onAdminRoute) setAdminCollapsed(false);
+  }, [onAdminRoute]);
 
-  const navItems: NavItem[] = [
-    { to: "/app", label: "Dashboard", icon: <IconDashboard />, end: true },
+  const destinations = [
     {
-      to: "/app/applications",
+      href: "/app",
+      label: "Dashboard",
+      icon: <LayoutDashboard size={18} />,
+      selected: pathname === "/app",
+    },
+    {
+      href: "/app/applications",
       label: "Applications",
-      icon: <IconApplications />,
-      badge: needsActionCount > 0 ? needsActionCount : undefined,
+      icon: <ListChecks size={18} />,
+      selected: pathname.startsWith("/app/applications"),
+      endContent:
+        needsActionCount > 0 ? (
+          <Badge count={needsActionCount} variant="warning" />
+        ) : undefined,
     },
-    { to: "/app/resumes", label: "Resumes", icon: <IconResumes /> },
-    { to: "/app/extension", label: "Extension", icon: <IconExtension /> },
-  ];
-
-  const adminItems: NavItem[] = [
-    { to: "/app/admin", label: "Metrics", icon: <IconMetrics />, end: true },
-    { to: "/app/admin/users", label: "User Management", icon: <IconUsers /> },
     {
-      to: "/app/admin/subscriptions",
-      label: "Subscriptions",
-      icon: <CreditCard size={18} />,
+      href: "/app/resumes",
+      label: "Resumes",
+      icon: <FileText size={18} />,
+      selected: pathname.startsWith("/app/resumes"),
+    },
+    {
+      href: "/app/extension",
+      label: "Extension",
+      icon: <Puzzle size={18} />,
+      selected: pathname === "/app/extension",
     },
   ];
-
   return (
-    <aside
-      className="fixed left-0 top-0 z-30 flex min-h-screen flex-col border-r"
-      style={{
-        width: "var(--sidebar-width)",
-        height: "100dvh",
-        background: "var(--color-background-surface)",
-        borderColor: "var(--color-border)",
-      }}
+    <SideNav
+      aria-label="Primary navigation"
+      className="app-sidebar"
+      style={{ width: inDrawer ? "100%" : "var(--sidebar-width)" }}
+      footer={
+        <Button
+          variant="ghost"
+          className="w-full justify-start"
+          onClick={() => {
+            void logout();
+            onNavigate?.();
+          }}
+        >
+          <LogOut size={18} aria-hidden="true" />
+          Sign Out
+        </Button>
+      }
     >
-      <SidebarBrand />
-
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
-        <div className="space-y-1">
-          {navItems.map((item) => (
-            <SidebarNavLink key={item.to} item={item} onNavigate={onNavigate} />
+      {destinations.map(({ selected, ...item }) => (
+        <SideNavItem
+          key={item.href}
+          {...item}
+          as={RouterLink}
+          isSelected={selected}
+          onClick={onNavigate}
+        />
+      ))}
+      {bootstrap?.profile?.is_admin ? (
+        <SideNavItem
+          as={RouterLink}
+          href="/app/admin"
+          label="Admin"
+          icon={<Settings2 size={18} />}
+          isSelected={onAdminRoute}
+          onClick={onNavigate}
+          collapsible={{
+            isCollapsed: adminCollapsed,
+            onCollapsedChange: setAdminCollapsed,
+          }}
+        >
+          {[
+            {
+              href: "/app/admin",
+              label: "Metrics",
+              icon: <BarChart3 size={18} />,
+            },
+            {
+              href: "/app/admin/users",
+              label: "User Management",
+              icon: <Users size={18} />,
+            },
+            {
+              href: "/app/admin/subscriptions",
+              label: "Subscriptions",
+              icon: <CreditCard size={18} />,
+            },
+          ].map((item) => (
+            <SideNavItem
+              key={item.href}
+              {...item}
+              as={RouterLink}
+              size="sm"
+              isSelected={pathname === item.href}
+              onClick={onNavigate}
+            />
           ))}
-
-          <AdminNavigation
-            visible={isAdmin}
-            active={isOnAdminRoute}
-            expanded={adminExpanded}
-            items={adminItems}
-            onToggle={() => setAdminExpanded((value) => !value)}
-            onNavigate={onNavigate}
-          />
-        </div>
-      </nav>
-
-      <SidebarSignOut onSignOut={() => void logout()} />
-    </aside>
+        </SideNavItem>
+      ) : null}
+    </SideNav>
   );
 }

@@ -7,22 +7,6 @@ type SurfaceProps = PropsWithChildren<HTMLAttributes<HTMLDivElement>> & {
   density?: "default" | "compact";
 };
 
-// Cards are reserved for discrete review widgets; page regions use Section.
-export function Card({
-  className,
-  density = "default",
-  ...props
-}: SurfaceProps) {
-  return (
-    <AstryxCard
-      padding={density === "compact" ? 4 : 5}
-      elevation="none"
-      className={cn("app-card", className)}
-      {...props}
-    />
-  );
-}
-
 type SectionProps = SurfaceProps & {
   variant?: "default" | "danger" | "success" | "warning";
 };
@@ -40,7 +24,7 @@ export function Section({
       data-tone={variant}
       className={cn(
         "app-section",
-        density === "compact" ? "p-4" : "p-5",
+        density === "compact" ? "py-4" : "py-5",
         className,
       )}
       {...props}

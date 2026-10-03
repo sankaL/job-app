@@ -1,3 +1,6 @@
+import { VStack } from "@astryxdesign/core/VStack";
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -36,10 +39,10 @@ function ProfileLoading() {
         title="Profile & Preferences"
         subtitle="Manage your personal information and resume settings"
       />
-      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+      <VStack gap={8} maxWidth={720}>
         <SkeletonSection density="compact" />
         <SkeletonSection density="compact" />
-      </div>
+      </VStack>
     </div>
   );
 }
@@ -52,18 +55,28 @@ function ProfileUnavailable({ error }: { error: string | null }) {
         subtitle="Manage your personal information and resume settings"
       />
       <Section variant="danger" density="compact">
-        <p className="text-sm font-semibold text-[var(--color-error)]">
+        <Text
+          as="p"
+          display="block"
+          type="label"
+          className="text-[var(--color-error)]"
+        >
           Profile unavailable
-        </p>
-        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+        </Text>
+        <Text
+          as="p"
+          display="block"
+          type="body"
+          className="mt-1 text-[var(--color-text-secondary)]"
+        >
           {error ?? "Refresh the page or sign in again."}
-        </p>
+        </Text>
       </Section>
     </div>
   );
 }
 
-function PersonalInformationCard({
+function PersonalInformationSection({
   name,
   email,
   phone,
@@ -86,12 +99,17 @@ function PersonalInformationCard({
 }) {
   return (
     <Section density="compact">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+      <Heading level={3} className="text-[var(--color-text-secondary)]">
         Personal Information
-      </h3>
-      <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+      </Heading>
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        className="mt-1 text-[var(--color-text-secondary)]"
+      >
         Used in generated resumes.
-      </p>
+      </Text>
       <div className="mt-4 space-y-3">
         <div>
           <Label htmlFor="name">Name</Label>
@@ -110,9 +128,14 @@ function PersonalInformationCard({
             disabled
             className="cursor-not-allowed opacity-60"
           />
-          <p className="mt-1 text-[10px] text-[var(--color-text-secondary)]">
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="mt-1 text-[var(--color-text-secondary)]"
+          >
             Managed through your account.
-          </p>
+          </Text>
         </div>
         <div>
           <Label htmlFor="phone">Phone</Label>
@@ -287,23 +310,28 @@ export function ProfilePage() {
 
       {error && (
         <Section variant="danger" density="compact">
-          <p
-            className="text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
             style={{ color: "var(--color-error)" }}
           >
             Error
-          </p>
-          <p
-            className="mt-1 text-sm"
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-1"
             style={{ color: "var(--color-text-secondary)" }}
           >
             {error}
-          </p>
+          </Text>
         </Section>
       )}
 
-      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <PersonalInformationCard
+      <VStack gap={8} maxWidth={720}>
+        <PersonalInformationSection
           name={fields.name}
           email={profile.email}
           phone={fields.phone}
@@ -315,12 +343,17 @@ export function ProfilePage() {
           onLinkedinChange={(value) => updateField("linkedinUrl", value)}
         />
         <Section density="compact">
-          <h3 className="text-sm font-semibold">Resume sections</h3>
-          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+          <Heading level={3}>Resume sections</Heading>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-2 text-[var(--color-text-secondary)]"
+          >
             Choose sections and their order in each resume workbench, including
             custom sections. Base resume changes apply to new generations.
             Generated resumes keep their own saved layout.
-          </p>
+          </Text>
           <Link
             to="/app/resumes"
             className="mt-3 inline-block text-sm font-semibold underline text-[var(--color-accent)]"
@@ -328,7 +361,7 @@ export function ProfilePage() {
             Manage base resumes
           </Link>
         </Section>
-      </div>
+      </VStack>
     </div>
   );
 }

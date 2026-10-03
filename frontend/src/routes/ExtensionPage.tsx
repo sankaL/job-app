@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -119,7 +121,7 @@ function LastImport({ timestamp }: { timestamp: string | null | undefined }) {
   );
 }
 
-function ExtensionStatusCard({
+function ExtensionStatusSection({
   status,
   bridgeDetected,
   isConnecting,
@@ -137,9 +139,9 @@ function ExtensionStatusCard({
   const tokenLabel = getTokenLabel(status);
   return (
     <Section density="compact" className="flex h-full flex-col">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+      <Heading level={3} className="text-[var(--color-text-secondary)]">
         Connection Status
-      </h3>
+      </Heading>
       <div className="mt-3 space-y-2.5">
         <ConnectionRow
           connected={bridgeDetected}
@@ -173,9 +175,9 @@ function ExtensionStatusCard({
 function ExtensionSetupGuide() {
   return (
     <Section density="compact">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+      <Heading level={3} className="text-[var(--color-text-secondary)]">
         Setup Guide
-      </h3>
+      </Heading>
       <div className="mt-3 space-y-3">
         {SETUP_STEPS.map((step) => (
           <div key={step.num} className="flex gap-3">
@@ -183,9 +185,14 @@ function ExtensionSetupGuide() {
               {step.num}
             </span>
             <div>
-              <p className="text-sm text-[var(--color-text-primary)]">
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="text-[var(--color-text-primary)]"
+              >
                 {step.text}
-              </p>
+              </Text>
               {step.detail ? (
                 <code className="mt-1 inline-block rounded bg-[var(--color-background-muted)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
                   {step.detail}
@@ -283,31 +290,41 @@ export function ExtensionPage() {
 
       {error && (
         <Section variant="danger" density="compact">
-          <p
-            className="text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
             style={{ color: "var(--color-error)" }}
           >
             Error
-          </p>
-          <p
-            className="mt-1 text-sm"
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-1"
             style={{ color: "var(--color-text-secondary)" }}
           >
             {error}
-          </p>
+          </Text>
         </Section>
       )}
 
       {message && (
         <Section variant="success" density="compact">
-          <p className="text-sm" style={{ color: "var(--color-accent)" }}>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            style={{ color: "var(--color-accent)" }}
+          >
             {message}
-          </p>
+          </Text>
         </Section>
       )}
 
-      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <ExtensionStatusCard
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-w-5xl">
+        <ExtensionStatusSection
           status={status}
           bridgeDetected={bridgeDetected}
           isConnecting={isConnecting}

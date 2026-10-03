@@ -1,3 +1,4 @@
+import { Text } from "@astryxdesign/core/Text";
 import {
   useDeferredValue,
   useEffect,
@@ -173,14 +174,15 @@ function ApplicationTitleCell({
   return (
     <div className="flex min-w-0 flex-col justify-center">
       <div
-        className="truncate whitespace-nowrap text-sm font-medium"
+        className="line-clamp-2 text-sm font-medium"
+        title={application.job_title ?? "Awaiting extraction"}
         style={{ color: "var(--color-text-primary)" }}
       >
         {application.job_title ?? "Awaiting extraction"}
       </div>
       {notice && (
         <div
-          className="truncate text-[10px] font-medium leading-[1.2]"
+          className="truncate text-xs font-medium leading-[1.2]"
           style={{ color: noticeColor }}
         >
           {notice}
@@ -284,7 +286,7 @@ function buildApplicationColumns({
           />
         </div>
       ),
-      width: "56px",
+      width: "48px",
       hiddenOnMobile: true,
       render: (app) => (
         <div
@@ -300,29 +302,17 @@ function buildApplicationColumns({
       ),
     },
     {
-      key: "status",
-      header: "Status",
-      width: "132px",
-      sortable: true,
-      sortValue: (app) => STATUS_ORDER[app.visible_status] ?? 99,
-      render: (app) => (
-        <div className="flex items-start">
-          <StatusBadge status={app.visible_status} size="sm" layout="rail" />
-        </div>
-      ),
-    },
-    {
       key: "title",
       header: "Job Title",
       sortable: true,
-      width: "minmax(200px, 1fr)",
+
       sortValue: (app) => app.job_title?.toLowerCase() ?? "",
       render: (app) => <ApplicationTitleCell application={app} />,
     },
     {
       key: "company",
       header: "Company",
-      width: "180px",
+      width: "144px",
       sortable: true,
       sortValue: (app) => app.company?.toLowerCase() ?? "zzz",
       render: (app) => (
@@ -332,6 +322,18 @@ function buildApplicationColumns({
         >
           {app.company ?? "—"}
         </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: "132px",
+      sortable: true,
+      sortValue: (app) => STATUS_ORDER[app.visible_status] ?? 99,
+      render: (app) => (
+        <div className="flex items-start">
+          <StatusBadge status={app.visible_status} size="sm" layout="rail" />
+        </div>
       ),
     },
     {
@@ -353,7 +355,7 @@ function buildApplicationColumns({
     {
       key: "updated",
       header: "Updated",
-      width: "118px",
+      width: "108px",
       sortable: true,
       hiddenOnMobile: true,
       sortValue: (app) => new Date(app.updated_at).getTime(),
@@ -369,7 +371,7 @@ function buildApplicationColumns({
     {
       key: "actions",
       header: "",
-      width: "196px",
+      width: "172px",
       hiddenOnMobile: true,
       render: (app) => (
         <ApplicationActionsCell
@@ -535,7 +537,7 @@ function ApplicationsFilters({
   );
 }
 
-function BulkSelectionCard({
+function BulkSelectionSection({
   count,
   activeCount,
   applying,
@@ -559,16 +561,23 @@ function BulkSelectionCard({
     <Section variant="default" density="compact">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
-          <p
-            className="text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
             style={{ color: "var(--color-text-primary)" }}
           >
             {formatApplicationCount(count)} selected
-          </p>
+          </Text>
           {activeCount > 0 && (
-            <p className="text-xs" style={{ color: "var(--color-error)" }}>
+            <Text
+              as="p"
+              display="block"
+              type="supporting"
+              style={{ color: "var(--color-error)" }}
+            >
               {warning}
-            </p>
+            </Text>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -805,7 +814,7 @@ function ApplicationsListView(props: ApplicationsListViewProps) {
         onApplied={props.setAppliedFilter}
         onMobileOpen={props.setShowMobileFilters}
       />
-      <BulkSelectionCard
+      <BulkSelectionSection
         count={props.selectedIds.length}
         activeCount={props.activeSelectedCount}
         applying={props.isBulkApplying}

@@ -1,3 +1,4 @@
+import { Text } from "@astryxdesign/core/Text";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { RefreshCw } from "lucide-react";
@@ -114,12 +115,15 @@ export function ResumeSectionPreview({
                   <RefreshCw size={13} /> Regenerate role
                 </Button>
                 {regenerationReason?.(entry.id) && (
-                  <p
-                    className="mt-2 text-xs"
+                  <Text
+                    as="p"
+                    display="block"
+                    type="supporting"
+                    className="mt-2"
                     style={{ color: "var(--color-text-secondary)" }}
                   >
                     {regenerationReason(entry.id)}
-                  </p>
+                  </Text>
                 )}
               </div>
             )}
@@ -128,9 +132,14 @@ export function ResumeSectionPreview({
       ) : section.content_md.trim() ? (
         <Markdown text={section.content_md} />
       ) : (
-        <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
+        <Text
+          as="p"
+          display="block"
+          type="body"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
           This section is empty. Choose Edit to add content.
-        </p>
+        </Text>
       )}
     </div>
   );

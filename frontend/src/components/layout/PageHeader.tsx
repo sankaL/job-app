@@ -1,3 +1,7 @@
+import { Heading } from "@astryxdesign/core/Heading";
+import { Text } from "@astryxdesign/core/Text";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import type { ReactNode } from "react";
 
 type PageHeaderProps = {
@@ -18,36 +22,37 @@ export function PageHeader({
   actions,
 }: PageHeaderProps) {
   return (
-    <div
-      className="page-header-mobile relative z-20 animate-fadeIn flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-start sm:justify-between"
-      style={{ maxWidth: "100%" }}
+    <HStack
+      gap={4}
+      vAlign="start"
+      hAlign="between"
+      wrap="wrap"
+      className="app-page-header relative z-20"
     >
-      <div className="min-w-0 flex-1" style={{ maxWidth: "100%" }}>
-        <div className="flex items-center gap-2 sm:gap-3 overflow-hidden">
-          <h1
-            className="font-display text-xl font-semibold tracking-tight sm:text-2xl truncate"
-            style={{ color: "var(--color-text-primary)", maxWidth: "100%" }}
-            title={title}
-          >
+      <VStack gap={1} className="min-w-0 flex-1">
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <Heading level={1} className="min-w-0">
             {titleContent ?? title}
-          </h1>
+          </Heading>
           {titleAction}
-          {badge && <span className="flex-shrink-0">{badge}</span>}
-        </div>
-        {subtitle && (
-          <p
-            className="page-header-subtitle mt-1 text-sm"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
+          {badge}
+        </HStack>
+        {subtitle ? (
+          <Text as="p" type="body" color="secondary">
             {subtitle}
-          </p>
-        )}
-      </div>
-      {actions && (
-        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-shrink-0">
+          </Text>
+        ) : null}
+      </VStack>
+      {actions ? (
+        <HStack
+          gap={2}
+          wrap="wrap"
+          vAlign="center"
+          className="app-page-actions"
+        >
           {actions}
-        </div>
-      )}
-    </div>
+        </HStack>
+      ) : null}
+    </HStack>
   );
 }

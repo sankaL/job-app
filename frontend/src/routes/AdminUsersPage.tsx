@@ -1,3 +1,4 @@
+import { Text } from "@astryxdesign/core/Text";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Pencil, RefreshCcw, Send, Trash2, UserPlus } from "lucide-react";
@@ -56,15 +57,22 @@ function fullName(user: AdminUser) {
 function UserIdentityCell({ user }: { user: AdminUser }) {
   return (
     <div className="space-y-0.5">
-      <p
-        className="text-sm font-semibold"
+      <Text
+        as="p"
+        display="block"
+        type="label"
         style={{ color: "var(--color-text-primary)" }}
       >
         {fullName(user)}
-      </p>
-      <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
+      </Text>
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {user.email}
-      </p>
+      </Text>
     </div>
   );
 }
@@ -194,9 +202,15 @@ function AdminUsersTable({
           className="space-y-0.5 text-xs"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          <p>{user.latest_invite_status || "—"}</p>
-          <p>Sent: {formatDate(user.latest_invite_sent_at)}</p>
-          <p>Expires: {formatDate(user.latest_invite_expires_at)}</p>
+          <Text as="p" display="block" type="body">
+            {user.latest_invite_status || "—"}
+          </Text>
+          <Text as="p" display="block" type="body">
+            Sent: {formatDate(user.latest_invite_sent_at)}
+          </Text>
+          <Text as="p" display="block" type="body">
+            Expires: {formatDate(user.latest_invite_expires_at)}
+          </Text>
         </div>
       ),
     },
@@ -246,18 +260,23 @@ function AdminUsersTable({
             className="mx-auto mb-2"
             style={{ color: "var(--color-text-secondary)" }}
           />
-          <p
-            className="text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
             style={{ color: "var(--color-text-primary)" }}
           >
             No users found
-          </p>
-          <p
-            className="mt-1 text-sm"
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-1"
             style={{ color: "var(--color-text-secondary)" }}
           >
             Adjust filters or invite a new user.
-          </p>
+          </Text>
         </div>
       }
     />
@@ -331,18 +350,23 @@ function AdminUsersContent(props: AdminUsersContentProps) {
       />
       {props.error && (
         <Section variant="danger" density="compact">
-          <p
-            className="text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
             style={{ color: "var(--color-error)" }}
           >
             User list unavailable
-          </p>
-          <p
-            className="mt-1 text-sm"
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-1"
             style={{ color: "var(--color-text-secondary)" }}
           >
             {props.error}
-          </p>
+          </Text>
         </Section>
       )}
       <Section density="compact">

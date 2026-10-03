@@ -1,3 +1,4 @@
+import { Text } from "@astryxdesign/core/Text";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CreditCard, RefreshCcw, Save, Sparkles } from "lucide-react";
@@ -108,14 +109,21 @@ export function AdminSubscriptionsPage() {
           </Button>
         }
       />
-      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
+      <Text
+        as="p"
+        display="block"
+        type="body"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         Full generation, full regeneration, section regeneration and keyword
         optimization each use one request. Internal retries and validation do
         not use additional requests. Failed operations return the request.
-      </p>
+      </Text>
       {displayedError ? (
         <Section variant="danger" density="compact">
-          <p>{displayedError}</p>
+          <Text as="p" display="block" type="body">
+            {displayedError}
+          </Text>
         </Section>
       ) : null}
       {!tiers && !displayedError ? (
@@ -140,9 +148,9 @@ export function AdminSubscriptionsPage() {
                     ) : (
                       <CreditCard size={19} />
                     )}
-                    <p className="font-display text-xl font-semibold">
+                    <Text as="p" display="block" type="label">
                       {tier.name}
-                    </p>
+                    </Text>
                   </div>
                   <span className="text-sm">
                     {tier.monthly_resume_generation_limit} requests/month

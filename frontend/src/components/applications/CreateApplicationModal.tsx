@@ -1,3 +1,4 @@
+import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, FileText, Link2 } from "lucide-react";
@@ -136,11 +137,16 @@ function ApplicationSourceFields({
             onChange={(event) => onSourceTextChange(event.target.value)}
             required={pasteMode}
           />
-          <p className="mt-2 text-xs leading-5 text-[var(--color-text-secondary)]">
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="mt-2 leading-5 text-[var(--color-text-secondary)]"
+          >
             {pasteMode
               ? "Applix will infer the job details from this text and ask for manual entry only if required fields are missing."
               : "The pasted text is used to improve extraction startup for this new application."}
-          </p>
+          </Text>
         </div>
       ) : null}
     </>

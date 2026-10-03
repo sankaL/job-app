@@ -1,3 +1,8 @@
+import { MobileNavToggle } from "@astryxdesign/core/MobileNav";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
+import { Text } from "@astryxdesign/core/Text";
+import { Menu, UserRound, LogOut, Bell } from "lucide-react";
 import { PopoverSurface } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -63,40 +68,13 @@ function AccountMenu({
       <div className="py-1">
         <AccountMenuButton
           onClick={onProfile}
-          icon={
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="8" cy="5" r="3" />
-              <path d="M2 14c0-2.5 2.5-4.5 6-4.5s6 2 6 4.5" />
-            </svg>
-          }
+          icon={<UserRound size={16} aria-hidden="true" />}
         >
           Profile & Preferences
         </AccountMenuButton>
         <AccountMenuButton
           onClick={onSignOut}
-          icon={
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 14H3.5A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2H6M10.5 11.5L14 8l-3.5-3.5M14 8H6" />
-            </svg>
-          }
+          icon={<LogOut size={16} aria-hidden="true" />}
         >
           Sign Out
         </AccountMenuButton>
@@ -114,30 +92,6 @@ function getInitials(userName: string, userEmail: string) {
       .toUpperCase()
       .slice(0, 2);
   return userEmail ? userEmail[0].toUpperCase() : "?";
-}
-
-function MobileMenuToggle({ onToggle }: { onToggle?: () => void }) {
-  if (!onToggle) return null;
-  return (
-    <Button
-      variant="ghost"
-      onClick={onToggle}
-      className="sidebar-mobile-toggle flex h-9 w-9 items-center justify-center transition-colors"
-      aria-label="Toggle sidebar"
-    >
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      >
-        <path d="M3 5h14M3 10h14M3 15h14" />
-      </svg>
-    </Button>
-  );
 }
 
 function NotificationControl({
@@ -176,21 +130,9 @@ function NotificationControl({
         aria-haspopup="dialog"
         title={title}
       >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 20 20"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M10 2a5 5 0 0 0-5 5c0 3.5-1.5 5.5-2 6h14c-.5-.5-2-2.5-2-6a5 5 0 0 0-5-5z" />
-          <path d="M8.5 16a1.5 1.5 0 0 0 3 0" />
-        </svg>
+        <Bell size={18} aria-hidden="true" />
         {needsActionCount > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-error)] px-1 text-[10px] font-bold leading-none text-[var(--color-on-accent)]">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--color-error)] px-1 text-xs font-bold leading-none text-[var(--color-on-accent)]">
             {needsActionCount}
           </span>
         ) : null}
@@ -251,7 +193,7 @@ function AccountControl({
   );
 }
 
-export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
+export function TopBar() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { bootstrap, needsActionCount } = useAppContext();
@@ -337,16 +279,30 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
   }
 
   return (
-    <header
-      className="app-shell-header sticky top-0 z-20 flex items-center justify-between border-b"
-      style={{
-        height: "var(--topbar-height)",
-        background: "var(--color-background-body)",
-        borderColor: "var(--color-border)",
-      }}
+    <HStack
+      gap={4}
+      vAlign="center"
+      hAlign="between"
+      className="app-topbar"
+      height="var(--topbar-height)"
     >
+      <HStack gap={3} vAlign="center" className="app-brand">
+        <img src="/applix-logo.svg" alt="Applix logo" className="h-7 w-7" />
+        <VStack gap={0}>
+          <Text type="label">Applix</Text>
+          <Text
+            type="supporting"
+            color="secondary"
+            className="app-brand-description"
+          >
+            AI Job Applications
+          </Text>
+        </VStack>
+      </HStack>
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <MobileMenuToggle onToggle={onMenuToggle} />
+        <MobileNavToggle label="Toggle sidebar">
+          <Menu size={18} aria-hidden="true" />
+        </MobileNavToggle>
         <AppBreadcrumbs />
       </div>
 
@@ -375,6 +331,6 @@ export function TopBar({ onMenuToggle }: { onMenuToggle?: () => void }) {
           onSignOut={() => void logout()}
         />
       </div>
-    </header>
+    </HStack>
   );
 }

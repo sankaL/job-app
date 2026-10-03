@@ -92,7 +92,7 @@ export function CompareHeroBar({
 
           {aggressiveness && (
             <span
-              className="hidden sm:inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase"
+              className="hidden sm:inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
               style={{
                 borderColor: "var(--color-success-muted)",
                 background: "var(--color-accent-muted)",
@@ -105,7 +105,7 @@ export function CompareHeroBar({
 
           {pageLength && (
             <span
-              className="hidden md:inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium"
+              className="hidden md:inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium"
               style={{
                 borderColor: "var(--color-border)",
                 background: "var(--color-background-muted)",
@@ -211,7 +211,7 @@ export function CompareHeroBar({
               variant="ghost"
               type="button"
               className={cn(
-                "rounded-md px-2 py-1 text-[11px] font-semibold transition-all",
+                "rounded-md px-2 py-1 text-xs font-semibold transition-all",
                 highlightMode === "smart"
                   ? "bg-[var(--color-background-surface)] text-[var(--color-text-primary)] shadow-[var(--shadow-low)] font-bold"
                   : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
@@ -225,7 +225,7 @@ export function CompareHeroBar({
               variant="ghost"
               type="button"
               className={cn(
-                "rounded-md px-2 py-1 text-[11px] font-semibold transition-all",
+                "rounded-md px-2 py-1 text-xs font-semibold transition-all",
                 highlightMode === "additions-only"
                   ? "bg-[var(--color-background-surface)] text-[var(--color-text-primary)] shadow-[var(--shadow-low)] font-bold"
                   : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
@@ -239,7 +239,7 @@ export function CompareHeroBar({
               variant="ghost"
               type="button"
               className={cn(
-                "rounded-md px-2 py-1 text-[11px] font-semibold transition-all",
+                "rounded-md px-2 py-1 text-xs font-semibold transition-all",
                 highlightMode === "clean"
                   ? "bg-[var(--color-background-surface)] text-[var(--color-text-primary)] shadow-[var(--shadow-low)] font-bold"
                   : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
@@ -263,7 +263,7 @@ export function CompareHeroBar({
               variant="ghost"
               type="button"
               className={cn(
-                "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all",
+                "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-all",
                 viewLayout === "unified"
                   ? "bg-[var(--color-background-surface)] text-[var(--color-text-primary)] shadow-[var(--shadow-low)] font-bold"
                   : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",
@@ -278,7 +278,7 @@ export function CompareHeroBar({
               variant="ghost"
               type="button"
               className={cn(
-                "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-all",
+                "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-all",
                 viewLayout === "split"
                   ? "bg-[var(--color-background-surface)] text-[var(--color-text-primary)] shadow-[var(--shadow-low)] font-bold"
                   : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]",

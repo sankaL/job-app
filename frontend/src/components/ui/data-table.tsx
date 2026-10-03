@@ -139,14 +139,14 @@ function TableHeader<T>({
       <AstryxRow isHeaderRow className="border-b border-[var(--color-border)]">
         {columns.map((column) => {
           const active = sortKey === column.key;
-          const className = `${density === "compact" ? "px-4 py-2.5 text-[11px] tracking-[0.18em]" : "px-4 py-3 text-xs tracking-wider"} text-left font-semibold uppercase${column.hiddenOnMobile ? " dt-hide-mobile" : ""}`;
+          const className = `${density === "compact" ? "px-4 py-3" : "px-4 py-4"} text-left text-sm font-medium${column.hiddenOnMobile ? " dt-hide-mobile" : ""}`;
           return (
             <AstryxHeaderCell
               key={column.key}
               className={className}
               style={{
                 color: "var(--color-text-secondary)",
-                background: "var(--color-background-muted)",
+                background: "transparent",
                 width: column.width,
                 maxWidth: column.width ?? "none",
                 cursor: column.sortable ? "pointer" : "default",

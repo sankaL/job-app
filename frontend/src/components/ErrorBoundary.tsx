@@ -1,3 +1,4 @@
+import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@/components/ui/button";
 import { Component, type ReactNode } from "react";
 
@@ -65,14 +66,18 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center bg-[var(--color-background-body)] text-[var(--color-text-primary)] font-sans">
-          <p className="text-lg font-semibold">Something went wrong.</p>
-          <p
-            className="text-sm font-medium"
+          <Text as="p" display="block" type="label">
+            Something went wrong.
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="label"
             style={{ color: "var(--color-text-secondary)" }}
           >
             Try disabling browser extensions (Grammarly, password managers) and
             reload.
-          </p>
+          </Text>
           <Button
             variant="ghost"
             onClick={() => window.location.reload()}

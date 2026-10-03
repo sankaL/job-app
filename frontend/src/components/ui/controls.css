@@ -132,3 +132,23 @@
   --section-accent: var(--color-warning);
   --section-background: var(--color-warning-muted);
 }
+
+.app-field-label {
+  font-size: var(--text-label-size);
+  font-weight: var(--text-label-weight);
+  line-height: var(--text-label-leading);
+}
+
+.app-review-trigger {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+}
+.app-section[data-tone="danger"],
+.app-section[data-tone="success"],
+.app-section[data-tone="warning"] {
+  padding-inline: var(--spacing-4);
+}
+.resume-library-row {
+  padding-block: var(--spacing-5);
+}

@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -87,21 +89,24 @@ export function ModalShell({
               >
                 {icon}
               </div>
-              <h2
+              <Heading
+                level={2}
                 id={titleId}
-                className="text-base font-semibold"
                 style={{ color: "var(--color-text-primary)" }}
               >
                 {title}
-              </h2>
+              </Heading>
             </div>
-            <p
+            <Text
+              as="p"
+              display="block"
+              type="body"
               id={descriptionId}
-              className="text-sm leading-relaxed"
+              className="leading-relaxed"
               style={{ color: "var(--color-text-secondary)" }}
             >
               {description}
-            </p>
+            </Text>
           </div>
           <Button
             variant="ghost"

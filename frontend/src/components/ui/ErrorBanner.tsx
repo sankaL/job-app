@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -145,15 +147,15 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <h3
-                className="text-sm font-semibold"
+              <Heading
+                level={3}
                 style={{ color: "var(--color-text-primary)" }}
               >
                 {title}
-              </h3>
+              </Heading>
               {subtitle && (
                 <span
-                  className="text-[10px] font-bold uppercase tracking-wider"
+                  className="text-xs font-bold"
                   style={{
                     color:
                       variant === "danger"
@@ -165,19 +167,25 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
                 </span>
               )}
             </div>
-            <p
-              className="mt-1 text-sm leading-relaxed"
+            <Text
+              as="p"
+              display="block"
+              type="body"
+              className="mt-1 leading-relaxed"
               style={{ color: "var(--color-text-secondary)" }}
             >
               {description}
-            </p>
+            </Text>
             {description !== errorStr && (
-              <p
-                className="mt-1 text-xs"
+              <Text
+                as="p"
+                display="block"
+                type="supporting"
+                className="mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 Details: {errorStr}
-              </p>
+              </Text>
             )}
           </div>
         </div>

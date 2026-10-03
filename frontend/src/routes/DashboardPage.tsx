@@ -1,5 +1,9 @@
 import type { LucideIcon } from "lucide-react";
-import { MetricCard } from "@/components/dashboard/MetricCard";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Metric } from "@/components/dashboard/Metric";
 import {
   AlertTriangle,
   Briefcase,
@@ -14,7 +18,7 @@ import {
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { useAppContext } from "@/components/layout/AppContext";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -422,18 +426,23 @@ export function DashboardPage() {
             subtitle="Application analytics and activity overview"
           />
           <Section variant="danger" density="compact">
-            <p
-              className="text-sm font-semibold"
+            <Text
+              as="p"
+              display="block"
+              type="label"
               style={{ color: "var(--color-error)" }}
             >
               Dashboard unavailable
-            </p>
-            <p
-              className="mt-1 text-sm"
+            </Text>
+            <Text
+              as="p"
+              display="block"
+              type="body"
+              className="mt-1"
               style={{ color: "var(--color-text-secondary)" }}
             >
               {error}
-            </p>
+            </Text>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button onClick={() => void refetch()}>Retry</Button>
               <Button
@@ -476,7 +485,7 @@ export function DashboardPage() {
           title="Dashboard"
           subtitle="Application analytics and activity overview"
         />
-        <QuotaCard quota={quota} />
+        <QuotaSummary quota={quota} />
         <EmptyState
           title="No applications yet"
           description="Create your first application to start tracking your job search progress and see analytics here."
@@ -553,35 +562,31 @@ function DashboardContent({
         }
       />
 
-      <QuotaCard quota={quota} />
+      <QuotaSummary quota={quota} />
 
       <div className="stagger-children grid gap-3 grid-cols-2 lg:grid-cols-4 sm:gap-4">
-        <StatCard
+        <Metric
           label="Total Applications"
           value={total}
           accent="var(--color-text-primary)"
-          tint="var(--color-background-muted)"
           icon={Briefcase}
         />
-        <StatCard
+        <Metric
           label="Applied"
           value={appliedCount}
           accent="var(--color-accent)"
-          tint="var(--color-accent-muted)"
           icon={CheckCircle2}
         />
-        <StatCard
+        <Metric
           label="Needs Action"
           value={needsActionCount}
           accent="var(--color-error)"
-          tint="var(--color-error-muted)"
           icon={AlertTriangle}
         />
-        <StatCard
+        <Metric
           label="Extraction Failures"
           value={failedExtractions}
           accent="var(--color-warning)"
-          tint="var(--color-warning-muted)"
           icon={Building2}
         />
       </div>
@@ -631,12 +636,12 @@ function DashboardContent({
             <Section density="compact" className="mt-2 overflow-hidden !p-0">
               <div className="px-3 py-3">
                 <div className="flex items-center justify-between gap-2">
-                  <h3
-                    className="text-xs font-semibold uppercase tracking-[0.18em]"
+                  <Heading
+                    level={3}
                     style={{ color: "var(--color-text-secondary)" }}
                   >
                     Monthly Activity
-                  </h3>
+                  </Heading>
                   <div className="w-28">
                     <ActivityYearSelect
                       id="dashboard-monthly-year-mobile"
@@ -665,28 +670,31 @@ function DashboardContent({
                     />
                     <XAxis
                       dataKey="label"
+                      padding={{ left: 12, right: 12 }}
                       tickLine={false}
                       axisLine={false}
                       tickMargin={8}
                       interval={1}
                       tick={{
                         fill: "var(--color-text-secondary)",
-                        fontSize: 10,
-                        fontWeight: 700,
+                        fontSize: 12,
+                        fontWeight: 500,
                       }}
                     />
                     <YAxis hide domain={[0, "dataMax + 1"]} />
                     <Area
+                      isAnimationActive={false}
                       dataKey="created"
-                      type="natural"
+                      type="linear"
                       fill="var(--color-border)"
                       stroke="var(--color-text-secondary)"
                       strokeWidth={2}
                       dot={false}
                     />
                     <Area
+                      isAnimationActive={false}
                       dataKey="createdAndApplied"
-                      type="natural"
+                      type="linear"
                       fill="var(--color-success-muted)"
                       stroke="var(--color-accent)"
                       strokeWidth={2}
@@ -696,7 +704,7 @@ function DashboardContent({
                 </ChartContainer>
               </div>
               <div
-                className="flex flex-wrap items-center gap-2 border-t px-3 pb-3 pt-2 text-[10px] font-semibold uppercase tracking-[0.16em]"
+                className="flex flex-wrap items-center gap-2 border-t px-3 pb-3 pt-2 text-xs font-semibold"
                 style={{
                   color: "var(--color-text-secondary)",
                   borderColor: "var(--color-border)",
@@ -723,23 +731,25 @@ function DashboardContent({
       ) : (
         <Section density="compact" className="overflow-hidden !p-0">
           <div
-            className="flex flex-col gap-3 border-b px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-6 sm:py-5"
+            className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between sm:py-5"
             style={{ borderColor: "var(--color-border)" }}
           >
             <div className="grid flex-1 gap-1">
-              <h3
-                className="text-xs font-semibold uppercase tracking-[0.18em]"
+              <Heading
+                level={3}
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 Monthly Activity
-              </h3>
-              <p
-                className="text-sm"
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 Creation volume and how many of those applications are currently
                 marked applied.
-              </p>
+              </Text>
             </div>
             <div className="w-full sm:w-40">
               <ActivityYearSelect
@@ -751,12 +761,12 @@ function DashboardContent({
             </div>
           </div>
 
-          <div className="px-2 pb-4 pt-4 sm:px-4 sm:pb-5 sm:pt-5">
+          <div className="pb-4 pt-4 sm:pb-5 sm:pt-5">
             <MonthlyActivityChart data={monthlyData} year={selectedYear} />
           </div>
 
           <div
-            className="flex flex-wrap items-center gap-3 border-t px-4 pb-4 pt-3 text-[10px] font-semibold uppercase tracking-[0.16em] sm:px-6"
+            className="flex flex-wrap items-center gap-3 pb-4 pt-3 text-xs"
             style={{
               color: "var(--color-text-secondary)",
               borderColor: "var(--color-border)",
@@ -784,14 +794,11 @@ function DashboardContent({
       <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Section density="compact" className="h-full min-h-[198px]">
           <div className="flex items-center justify-between gap-3">
-            <h3
-              className="text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
+            <Heading level={3} style={{ color: "var(--color-text-secondary)" }}>
               Job Sources
-            </h3>
+            </Heading>
             <span
-              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+              className="text-xs font-semibold"
               style={{ color: "var(--color-text-secondary)" }}
             >
               capture mix
@@ -824,7 +831,7 @@ function DashboardContent({
                       >
                         {source.label}
                         <span
-                          className="ml-2 text-[10px] font-semibold uppercase tracking-[0.16em]"
+                          className="ml-2 text-xs font-semibold"
                           style={{ color: "var(--color-text-secondary)" }}
                         >
                           {source.share}%
@@ -846,14 +853,11 @@ function DashboardContent({
 
         <Section density="compact" className="h-full min-h-[198px]">
           <div className="flex items-center justify-between gap-3">
-            <h3
-              className="text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
+            <Heading level={3} style={{ color: "var(--color-text-secondary)" }}>
               Top Companies
-            </h3>
+            </Heading>
             <span
-              className="text-[10px] font-semibold uppercase tracking-[0.16em]"
+              className="text-xs font-semibold"
               style={{ color: "var(--color-text-secondary)" }}
             >
               by volume
@@ -881,12 +885,9 @@ function DashboardContent({
         </Section>
 
         <Section density="compact" className="h-full min-h-[198px]">
-          <h3
-            className="text-xs font-semibold uppercase tracking-[0.18em]"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
+          <Heading level={3} style={{ color: "var(--color-text-secondary)" }}>
             Status Breakdown
-          </h3>
+          </Heading>
           <div className="mt-4 flex h-[calc(100%-2rem)] flex-col justify-evenly gap-3">
             {(Object.keys(statusCounts) as StatusKey[]).map((status) => (
               <CompactRailRow
@@ -904,12 +905,9 @@ function DashboardContent({
 
       <Section density="compact">
         <div className="flex items-center justify-between">
-          <h3
-            className="text-xs font-semibold uppercase tracking-[0.18em]"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
+          <Heading level={3} style={{ color: "var(--color-text-secondary)" }}>
             Recent Activity
-          </h3>
+          </Heading>
           <Button
             size="sm"
             variant="secondary"
@@ -923,10 +921,10 @@ function DashboardContent({
           style={{ borderColor: "var(--color-border)" }}
         >
           {recentApps.map((app) => (
-            <div
+            <Link
               key={app.id}
               className="flex cursor-pointer items-center gap-3 py-2.5 transition-colors first:pt-0 last:pb-0"
-              onClick={() => navigate(`/app/applications/${app.id}`)}
+              to={`/app/applications/${app.id}`}
               onMouseEnter={(event) => {
                 event.currentTarget.style.background =
                   "var(--color-background-muted)";
@@ -953,7 +951,7 @@ function DashboardContent({
               </div>
               {app.applied && (
                 <span
-                  className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em]"
+                  className="rounded-full px-2.5 py-1 text-xs font-semibold"
                   style={{
                     color: "var(--color-accent)",
                     background: "var(--color-accent-muted)",
@@ -962,7 +960,7 @@ function DashboardContent({
                   Applied
                 </span>
               )}
-            </div>
+            </Link>
           ))}
         </div>
       </Section>
@@ -970,7 +968,7 @@ function DashboardContent({
   );
 }
 
-type QuotaCardProps = {
+type QuotaSummaryProps = {
   quota: SessionBootstrapResponse["generation_quota"] | null;
 };
 
@@ -984,7 +982,7 @@ function formatResetDate(value: string | undefined) {
   }).format(parsed);
 }
 
-function QuotaCard({ quota }: QuotaCardProps) {
+function QuotaSummary({ quota }: QuotaSummaryProps) {
   if (!quota) return null;
   const used = quota.generation_count;
   const limit = quota.monthly_resume_generation_limit;
@@ -992,54 +990,32 @@ function QuotaCard({ quota }: QuotaCardProps) {
   const percent =
     limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 100;
   const depleted = remaining <= 0;
-
   return (
-    <Section density="compact" className="overflow-hidden">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <span
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg"
-            style={{
-              background: depleted
-                ? "var(--color-error-muted)"
-                : "var(--color-accent-muted)",
-              color: depleted ? "var(--color-error)" : "var(--color-accent)",
-            }}
+    <Section density="compact">
+      <HStack gap={4} vAlign="center" hAlign="between" wrap="wrap">
+        <HStack gap={2} vAlign="center">
+          <Zap
+            size={16}
+            aria-hidden="true"
+            className="text-[var(--color-text-secondary)]"
+          />
+          <Text type="body" color="secondary">
+            Monthly Requests
+          </Text>
+          <Text
+            type="label"
+            color={depleted ? "inherit" : "primary"}
+            style={depleted ? { color: "var(--color-error)" } : undefined}
           >
-            <Zap size={18} />
-          </span>
-          <div>
-            <p
-              className="text-xs font-semibold uppercase tracking-[0.18em]"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              Monthly Requests
-            </p>
-            <p
-              className="mt-1 text-lg font-semibold"
-              style={{ color: "var(--color-text-primary)" }}
-            >
-              {remaining} left
-            </p>
-          </div>
-        </div>
-        <div className="min-w-[220px] sm:text-right">
-          <p
-            className="text-sm font-medium capitalize"
-            style={{ color: "var(--color-text-primary)" }}
-          >
-            {quota.subscription_tier} tier
-          </p>
-          <p
-            className="mt-1 text-xs"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
+            {remaining} left
+          </Text>
+        </HStack>
+        <VStack gap={1} className="min-w-0">
+          <Text type="supporting" color="secondary">
+            <span className="capitalize">{quota.subscription_tier} tier</span> ·{" "}
             {used} of {limit} used. Resets {formatResetDate(quota.resets_at)}.
-          </p>
-          <div
-            className="mt-3 h-2 overflow-hidden rounded-full"
-            style={{ background: "var(--color-neutral)" }}
-          >
+          </Text>
+          <div className="h-1 overflow-hidden rounded-full bg-[var(--color-background-muted)]">
             <div
               className="h-full rounded-full"
               style={{
@@ -1050,8 +1026,8 @@ function QuotaCard({ quota }: QuotaCardProps) {
               }}
             />
           </div>
-        </div>
-      </div>
+        </VStack>
+      </HStack>
     </Section>
   );
 }
@@ -1069,7 +1045,7 @@ function MonthlyActivityChart({
       data-testid="monthly-activity-chart"
       aria-label={`Monthly activity for ${year}`}
       role="img"
-      className="h-[320px] w-full"
+      className="h-[260px] w-full"
     >
       <AreaChart data={data} margin={{ left: 6, right: 6, top: 8, bottom: 0 }}>
         <defs>
@@ -1105,14 +1081,15 @@ function MonthlyActivityChart({
         />
         <XAxis
           dataKey="label"
+          padding={{ left: 12, right: 12 }}
           tickLine={false}
           axisLine={false}
           tickMargin={12}
           interval={0}
           tick={{
             fill: "var(--color-text-secondary)",
-            fontSize: 11,
-            fontWeight: 700,
+            fontSize: 12,
+            fontWeight: 500,
           }}
         />
         <YAxis hide domain={[0, "dataMax + 1"]} />
@@ -1126,8 +1103,9 @@ function MonthlyActivityChart({
           }
         />
         <Area
+          isAnimationActive={false}
           dataKey="created"
-          type="natural"
+          type="linear"
           fill="url(#fillCreated)"
           stroke="var(--color-created)"
           strokeWidth={3}
@@ -1135,8 +1113,9 @@ function MonthlyActivityChart({
           dot={{ r: 3, fill: "var(--color-created)", strokeWidth: 0 }}
         />
         <Area
+          isAnimationActive={false}
           dataKey="createdAndApplied"
-          type="natural"
+          type="linear"
           fill="url(#fillApplied)"
           stroke="var(--color-applied)"
           strokeWidth={3}
@@ -1261,29 +1240,5 @@ function CompactRailRow({
         {value}
       </span>
     </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  accent,
-  tint,
-  icon: Icon,
-}: {
-  label: string;
-  value: number;
-  accent: string;
-  tint: string;
-  icon: LucideIcon;
-}) {
-  return (
-    <MetricCard
-      icon={Icon}
-      label={label}
-      value={value}
-      accent={accent}
-      tint={tint}
-    />
   );
 }

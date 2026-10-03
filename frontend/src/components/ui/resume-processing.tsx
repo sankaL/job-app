@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useState, type ReactNode } from "react";
 import { FileText } from "lucide-react";
 import "./resume-processing.css";
@@ -60,34 +62,44 @@ export function ResumeProcessing({
         </span>
       </div>
       <div className="resume-processing-heading">
-        <h2>{title}</h2>
-        <p>{description}</p>
+        <Heading level={2}>{title}</Heading>
+        <Text as="p" display="block" type="body">
+          {description}
+        </Text>
       </div>
       <div className="resume-processing-status">
-        <p
+        <Text
+          as="p"
+          display="block"
+          type="body"
           aria-label="Resume processing status"
           role="status"
           aria-live="polite"
           aria-atomic="true"
         >
           {message}
-        </p>
+        </Text>
         <progress
           aria-label="Resume processing progress"
           max={100}
           value={measuredPercent}
         />
         {elapsed >= 20 && active && (
-          <p className="resume-processing-wait">
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="resume-processing-wait"
+          >
             Still working. Larger resumes and additional fact checks can take
             longer.
-          </p>
+          </Text>
         )}
       </div>
       <div className="resume-processing-plan">
-        <h3>
+        <Heading level={3}>
           {currentStep === null ? "What this includes" : "Processing steps"}
-        </h3>
+        </Heading>
         <ol>
           {steps.map((step, index) => (
             <li
@@ -99,18 +111,20 @@ export function ResumeProcessing({
                 {String(index + 1).padStart(2, "0")}
               </span>
               <div>
-                <h4>{step.title}</h4>
-                <p>{step.detail}</p>
+                <Heading level={4}>{step.title}</Heading>
+                <Text as="p" display="block" type="body">
+                  {step.detail}
+                </Text>
               </div>
             </li>
           ))}
         </ol>
       </div>
       <div className="resume-processing-footer">
-        <p>
+        <Text as="p" display="block" type="body">
           Your source facts stay grounded in your resume. You can review the
           result before using it.
-        </p>
+        </Text>
         {actions}
       </div>
     </section>

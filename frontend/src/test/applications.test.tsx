@@ -3632,6 +3632,48 @@ describe("phase 1 applications UI", () => {
     );
   });
 
+  it("opens the mobile navigation drawer and closes it after choosing a destination", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    const showModal = vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (this: HTMLDialogElement) {
+      this.setAttribute("open", "");
+    });
+    const close = vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (this: HTMLDialogElement) {
+      this.removeAttribute("open");
+    });
+    const queryClient = createAppQueryClient();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/app"]}>
+          <Routes>
+            <Route path="/app" element={<AppShell />}>
+              <Route index element={<h1>Mobile dashboard</h1>} />
+              <Route path="resumes" element={<h1>Mobile resumes</h1>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    try {
+      await screen.findByRole("heading", { name: "Mobile dashboard" });
+      const toggle = screen.getByRole("button", { name: "Toggle sidebar" });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(toggle);
+      const drawer = await screen.findByRole("dialog", { name: "Applix" });
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(drawer.id).toBe(toggle.getAttribute("aria-controls"));
+      await userEvent.click(within(drawer).getByRole("link", { name: "Resumes" }));
+      await screen.findByRole("heading", { name: "Mobile resumes" });
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Applix" })).not.toBeInTheDocument());
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      view.unmount();
+      showModal.mockRestore();
+      close.mockRestore();
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    }
+  });
+
   it("switches the shell into immersive mode during compare and restores the default shell on close", async () => {
     api.fetchApplicationDetail.mockResolvedValue(
       buildApplicationDetail({
@@ -3699,18 +3741,26 @@ describe("phase 1 applications UI", () => {
       name: /^actions$/i,
     });
     const shellRoot = actionsButton.closest(".app-shell-root");
-    const shellFrame = actionsButton.closest(".app-shell-frame");
+    const navigation = screen.getByRole("navigation", {
+      name: "Primary navigation",
+    });
 
     expect(shellRoot).not.toBeNull();
-    expect(shellFrame).not.toBeNull();
+    expect(navigation).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Skip to content" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(shellRoot).toHaveAttribute("data-shell-mode", "default");
-    expect(screen.getByLabelText(/toggle sidebar/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/toggle sidebar/i)).not.toBeInTheDocument();
 
     await userEvent.click(actionsButton);
     await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
     expect(shellRoot).toHaveAttribute("data-shell-mode", "immersive");
-    expect(shellFrame).toHaveStyle({ marginLeft: "0px" });
+    expect(
+      screen.queryByRole("navigation", { name: "Primary navigation" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/toggle sidebar/i)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));

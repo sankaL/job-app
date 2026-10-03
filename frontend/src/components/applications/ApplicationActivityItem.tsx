@@ -1,3 +1,4 @@
+import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@/components/ui/button";
 import { Clock3, TriangleAlert } from "lucide-react";
 import type { ApplicationActivityEvent } from "@/lib/api";
@@ -178,12 +179,15 @@ function InstructionBlock({
       >
         {label}:{" "}
       </span>
-      <p
-        className="mt-0.5 whitespace-pre-line font-normal italic"
+      <Text
+        as="p"
+        display="block"
+        type="body"
+        className="mt-0.5 whitespace-pre-line italic"
         style={{ color: "var(--color-text-secondary)" }}
       >
         &quot;{formatted}&quot;
-      </p>
+      </Text>
     </div>
   );
 }
@@ -405,29 +409,34 @@ function ActivityRow({
     <>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p
-            className="text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
             style={{ color: "var(--color-text-primary)" }}
           >
             {item.title}
-          </p>
-          <p
-            className="mt-0.5 text-xs"
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="mt-0.5"
             style={{ color: "var(--color-text-secondary)" }}
           >
             {item.summary}
-          </p>
+          </Text>
         </div>
         <span
-          className="shrink-0 text-[11px] font-medium"
+          className="shrink-0 text-xs font-medium"
           style={{ color: "var(--color-text-secondary)" }}
         >
           {formatTime(item.created_at)}
         </span>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <span
-          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold uppercase tracking-[0.12em]"
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold"
           style={{
             background: failure
               ? "var(--color-error-muted)"
@@ -495,15 +504,18 @@ export function ApplicationActivityItem({
         <div className="-m-1.5 rounded-md p-1.5">{row}</div>
       )}
       {failure && item.failure_message ? (
-        <p
-          className="mt-2 rounded-md border px-2 py-1.5 text-xs"
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-2 rounded-md border px-2 py-1.5"
           style={{
             borderColor: "var(--color-error-muted)",
             color: "var(--color-error)",
           }}
         >
           {item.failure_message}
-        </p>
+        </Text>
       ) : null}
       {expandable && expanded ? (
         <div

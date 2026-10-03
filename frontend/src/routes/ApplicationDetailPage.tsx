@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { PopoverSurface } from "@/components/ui/card";
 import {
   FormEvent,
@@ -34,7 +36,7 @@ import { useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ApplicationActivityPanel } from "@/components/applications/ApplicationActivityPanel";
 import { Button } from "@/components/ui/button";
-import { Card, Section } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -224,7 +226,7 @@ function JobInformationFields({
   );
 }
 
-function NotesCard({
+function NotesSection({
   value,
   state,
   onChange,
@@ -243,24 +245,27 @@ function NotesCard({
         : "Autosaves when you pause typing.";
   return (
     <Section density="compact" className="p-4">
-      <h3
-        className="text-xs font-semibold uppercase tracking-wider"
+      <Heading
+        level={3}
         style={{ color: "var(--color-text-secondary)" }}
       >
         Notes
-      </h3>
+      </Heading>
       <Textarea
         className={`mt-3 min-h-24${compact ? " text-sm" : ""}`}
         placeholder="Add your own notes…"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
-      <p
-        className="mt-2 text-xs"
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        className="mt-2"
         style={{ color: "var(--color-text-secondary)" }}
       >
         {status}
-      </p>
+      </Text>
     </Section>
   );
 }
@@ -812,7 +817,7 @@ function KeywordCoverageBody({
   return (
     <div className="mt-3">
       <div
-        className="flex items-center justify-between gap-3 text-[11px]"
+        className="flex items-center justify-between gap-3 text-xs"
         style={{ color: "var(--color-text-secondary)" }}
       >
         <span>Target {match.target_percentage}%</span>
@@ -832,17 +837,20 @@ function KeywordCoverageBody({
           }}
         />
       </div>
-      <p
-        className="mt-2 text-[11px]"
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        className="mt-2"
         style={{ color: "var(--color-text-secondary)" }}
       >
         {manualLabel}
-      </p>
+      </Text>
     </div>
   );
 }
 
-function KeywordMatchCard({
+function KeywordMatchSection({
   jobKeywords,
   match,
   onOpen,
@@ -866,13 +874,12 @@ function KeywordMatchCard({
     ? `${percentage.toFixed(1)}% matched`
     : `${entries.length} total`;
   return (
-    <Card
+    <Section
       density="compact"
       className="p-0"
       data-testid="keyword-match-card"
       style={{
         borderColor: tone.border,
-        background: `linear-gradient(145deg, ${tone.bg} 0%, var(--color-background-surface) 88%)`,
       }}
     >
       <Button
@@ -891,23 +898,28 @@ function KeywordMatchCard({
               <Target size={14} aria-hidden="true" />
             </span>
             <div>
-              <p
-                className="text-[10px] font-semibold uppercase tracking-[0.22em]"
+              <Text
+                as="p"
+                display="block"
+                type="supporting"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 ATS Keywords
-              </p>
-              <p
-                className="mt-1 text-sm font-semibold"
+              </Text>
+              <Text
+                as="p"
+                display="block"
+                type="label"
+                className="mt-1"
                 style={{ color: "var(--color-text-primary)" }}
               >
                 {summary}
-              </p>
+              </Text>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{
                 background: "var(--color-background-surface)",
                 color: tone.accent,
@@ -930,15 +942,18 @@ function KeywordMatchCard({
             tone={tone}
           />
         ) : (
-          <p
-            className="mt-3 text-xs leading-5"
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="mt-3 leading-5"
             style={{ color: "var(--color-text-secondary)" }}
           >
             {keywordEmptyMessage(jobKeywords, updating)}
-          </p>
+          </Text>
         )}
       </Button>
-    </Card>
+    </Section>
   );
 }
 
@@ -1009,7 +1024,7 @@ function KeywordPill({
   const presentation = getKeywordPillPresentation(entry, matched, missing);
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+      className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium"
       aria-label={`${entry.text}, ${presentation.label}`}
       style={{
         borderColor: presentation.border,
@@ -1043,12 +1058,14 @@ function KeywordGroup({
   return (
     <section>
       <div className="flex items-center justify-between gap-3">
-        <p
-          className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
           style={{ color: "var(--color-text-secondary)" }}
         >
           {label}
-        </p>
+        </Text>
         <span
           className="text-xs font-semibold"
           style={{ color: "var(--color-text-secondary)" }}
@@ -1070,12 +1087,15 @@ function KeywordGroup({
             />
           ))
         ) : (
-          <p
-            className="text-xs leading-5"
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="leading-5"
             style={{ color: "var(--color-text-secondary)" }}
           >
             No {label.toLowerCase()} keywords.
-          </p>
+          </Text>
         )}
       </div>
     </section>
@@ -1141,24 +1161,30 @@ function KeywordDialogHeader({
     <div className="px-6 pb-5 pt-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p
-            className="text-[11px] font-semibold uppercase tracking-[0.24em]"
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
             style={{ color: "var(--color-text-secondary)" }}
           >
             ATS Keywords
-          </p>
-          <h2
-            className="mt-2 text-xl font-semibold"
+          </Text>
+          <Heading
+            level={2}
+            className="mt-2"
             style={{ color: "var(--color-text-primary)" }}
           >
             Keyword breakdown
-          </h2>
-          <p
-            className="mt-2 text-sm font-semibold"
+          </Heading>
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            className="mt-2"
             style={{ color: tone.accent }}
           >
             {score}
-          </p>
+          </Text>
         </div>
         <div className="flex items-center gap-2">
           <span
@@ -1197,12 +1223,14 @@ function KeywordOptimization({
       className="border-t pt-5"
       style={{ borderColor: "var(--color-border)" }}
     >
-      <p
-        className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
         style={{ color: "var(--color-text-secondary)" }}
       >
         Optimization
-      </p>
+      </Text>
       <div className="mt-3 flex items-center justify-between gap-3 text-sm">
         <span>Missing keywords</span>
         <span className="font-semibold">{missingCount}</span>
@@ -1218,12 +1246,15 @@ function KeywordOptimization({
         {optimizing ? "Starting..." : "Optimize for missing keywords"}
       </Button>
       {blocker && (
-        <p
-          className="mt-2 text-xs leading-5"
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-2 leading-5"
           style={{ color: "var(--color-text-secondary)" }}
         >
           {blocker}
-        </p>
+        </Text>
       )}
     </section>
   );
@@ -1396,35 +1427,36 @@ function KeywordDialog(props: KeywordDialogProps) {
 
 type ResumeJudgeResult = ApplicationDetail["resume_judge_result"];
 
-function PendingResumeJudgeCard() {
+function PendingResumeJudgeSection() {
   return (
-    <Card
+    <Section
       density="compact"
       className="w-full p-3"
       data-testid="resume-judge-card"
       style={{
         borderColor: "var(--color-accent-muted)",
-        background:
-          "linear-gradient(145deg, color-mix(in srgb, var(--color-accent) 8%, white) 0%, var(--color-background-surface) 88%)",
       }}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <span
-            className="text-[10px] font-semibold uppercase tracking-[0.22em]"
+            className="text-xs font-semibold"
             style={{ color: "var(--color-text-secondary)" }}
           >
             Resume Judge
           </span>
-          <p
-            className="mt-1.5 text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            className="mt-1.5"
             style={{ color: "var(--color-text-primary)" }}
           >
             Scoring draft
-          </p>
+          </Text>
         </div>
         <span
-          className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+          className="rounded-full px-2.5 py-1 text-xs font-semibold"
           style={{
             background: "var(--color-accent-muted)",
             color: "var(--color-accent)",
@@ -1448,7 +1480,7 @@ function PendingResumeJudgeCard() {
           The draft is ready. Judge feedback will appear here shortly.
         </span>
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -1537,7 +1569,7 @@ function getUnavailableJudgeCopy(
   return { ...base, message, action };
 }
 
-function UnavailableResumeJudgeCard({
+function UnavailableResumeJudgeSection({
   result,
   stale,
   runLimit,
@@ -1557,7 +1589,7 @@ function UnavailableResumeJudgeCard({
     ? "var(--color-error)"
     : "var(--color-text-secondary)";
   return (
-    <Card
+    <Section
       density="compact"
       className="w-full p-3"
       data-testid="resume-judge-card"
@@ -1565,28 +1597,28 @@ function UnavailableResumeJudgeCard({
         borderColor: copy.alert
           ? "var(--color-error-muted)"
           : "var(--color-border)",
-        background: copy.alert
-          ? "linear-gradient(145deg, var(--color-error-muted) 0%, white 86%)"
-          : "linear-gradient(145deg, var(--color-background-muted) 0%, white 86%)",
       }}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
           <span
-            className="text-[10px] font-semibold uppercase tracking-[0.22em]"
+            className="text-xs font-semibold"
             style={{ color: "var(--color-text-secondary)" }}
           >
             Resume Judge
           </span>
-          <p
-            className="mt-1.5 text-sm font-semibold"
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            className="mt-1.5"
             style={{ color: "var(--color-text-primary)" }}
           >
             {copy.title}
-          </p>
+          </Text>
         </div>
         <span
-          className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+          className="rounded-full px-2.5 py-1 text-xs font-semibold"
           style={{
             background: copy.alert
               ? "var(--color-error-muted)"
@@ -1597,12 +1629,15 @@ function UnavailableResumeJudgeCard({
           {copy.badge}
         </span>
       </div>
-      <p
-        className="mt-2.5 text-xs leading-5"
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        className="mt-2.5 leading-5"
         style={{ color: "var(--color-text-secondary)" }}
       >
         {copy.message}
-      </p>
+      </Text>
       <div className="mt-3">
         <Button
           size="sm"
@@ -1613,11 +1648,11 @@ function UnavailableResumeJudgeCard({
           {copy.action}
         </Button>
       </div>
-    </Card>
+    </Section>
   );
 }
 
-function CompletedResumeJudgeCard({
+function CompletedResumeJudgeSection({
   result,
   stale,
   tone,
@@ -1634,46 +1669,43 @@ function CompletedResumeJudgeCard({
     <Button
       variant="ghost"
       type="button"
-      className="block w-full text-left transition-transform duration-150 hover:-translate-y-0.5"
+      className="app-review-trigger w-full text-left"
+      title={summary}
       data-testid="resume-judge-card"
       onClick={onOpen}
     >
-      <Card
+      <Section
         density="compact"
         className="p-3"
         style={{
           borderColor: stale ? "var(--color-warning)" : tone.border,
-          background: stale
-            ? "linear-gradient(145deg, var(--color-warning-muted) 0%, white 90%)"
-            : `linear-gradient(145deg, ${tone.bg} 0%, var(--color-background-surface) 88%)`,
-          boxShadow: "var(--shadow-med)",
         }}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <span
-              className="text-[10px] font-semibold uppercase tracking-[0.22em]"
+              className="text-xs font-semibold"
               style={{ color: "var(--color-text-secondary)" }}
             >
               Resume Judge
             </span>
-            <p
-              className="mt-2 text-[11px] leading-5"
-              title={summary}
+            <Text
+              as="p"
+              display="block"
+              type="supporting"
+              className="mt-2 leading-5"
+              maxLines={2}
+              hasTruncateTooltip={false}
               style={{
                 color: "var(--color-text-secondary)",
-                display: "-webkit-box",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: 2,
-                overflow: "hidden",
               }}
             >
               {summary}
-            </p>
+            </Text>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <span
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{
                 background: stale
                   ? "var(--color-warning-muted)"
@@ -1684,7 +1716,7 @@ function CompletedResumeJudgeCard({
               {stale ? "Stale" : resumeJudgeVerdictLabel(result.verdict)}
             </span>
             <span
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{
                 background: "var(--color-background-surface)",
                 color: stale ? "var(--color-warning)" : tone.accent,
@@ -1696,24 +1728,24 @@ function CompletedResumeJudgeCard({
         </div>
         <div className="mt-3 flex items-end justify-between gap-3">
           <span
-            className="text-[10px]"
+            className="text-xs"
             style={{ color: "var(--color-text-secondary)" }}
           >
             Hover to read more.
           </span>
           <span
-            className="text-[10px] font-semibold"
+            className="text-xs font-semibold"
             style={{ color: "var(--color-error)" }}
           >
             Click for details.
           </span>
         </div>
-      </Card>
+      </Section>
     </Button>
   );
 }
 
-function ResumeJudgeCard({
+function ResumeJudgeSection({
   hasDraft,
   result,
   pending,
@@ -1741,10 +1773,10 @@ function ResumeJudgeCard({
   onOpen: () => void;
 }) {
   if (!hasDraft) return null;
-  if (pending) return <PendingResumeJudgeCard />;
+  if (pending) return <PendingResumeJudgeSection />;
   if (!result || !completed)
     return (
-      <UnavailableResumeJudgeCard
+      <UnavailableResumeJudgeSection
         result={result}
         stale={stale}
         runLimit={runLimit}
@@ -1754,7 +1786,7 @@ function ResumeJudgeCard({
       />
     );
   return (
-    <CompletedResumeJudgeCard
+    <CompletedResumeJudgeSection
       result={result}
       stale={stale}
       tone={tone}
@@ -1765,7 +1797,7 @@ function ResumeJudgeCard({
 }
 
 const WORKSPACE_META_CHIP_CLASS =
-  "inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none";
+  "inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-xs font-medium leading-none";
 const WORKSPACE_META_CHIP_STYLE = {
   borderColor: "var(--color-border)",
   background: "var(--color-background-muted)",
@@ -1792,12 +1824,13 @@ function GeneratedWorkspaceHeader({
   return (
     <div className="flex min-w-0 flex-col gap-2 overflow-visible sm:min-h-8 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-        <h3
-          className="shrink-0 text-xs font-semibold uppercase tracking-wider"
+        <Heading
+          level={3}
+          className="shrink-0"
           style={{ color: "var(--color-text-secondary)" }}
         >
           Generated Resume
-        </h3>
+        </Heading>
         {generated && (
           <span
             className={WORKSPACE_META_CHIP_CLASS}
@@ -1868,12 +1901,15 @@ function GeneratedWorkspaceNotices({
   return (
     <>
       {!comparing && baselineMessage && (
-        <p
-          className="mt-3 text-xs"
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-3"
           style={{ color: "var(--color-text-secondary)" }}
         >
           {baselineMessage}
-        </p>
+        </Text>
       )}
       {!comparing && sourceLimitedText && resumeReady && (
         <div
@@ -1890,7 +1926,9 @@ function GeneratedWorkspaceNotices({
           >
             Shorter Than Target
           </div>
-          <p className="mt-1">{sourceLimitedText}</p>
+          <Text as="p" display="block" type="body" className="mt-1">
+            {sourceLimitedText}
+          </Text>
         </div>
       )}
     </>
@@ -3491,9 +3529,9 @@ export function ApplicationDetailPage() {
     });
   }
 
-  function renderKeywordCard() {
+  function renderKeywordSection() {
     return (
-      <KeywordMatchCard
+      <KeywordMatchSection
         jobKeywords={detail?.job_keywords ?? null}
         match={draft?.keyword_match ?? null}
         onOpen={() => setShowKeywordDialog(true)}
@@ -3521,9 +3559,9 @@ export function ApplicationDetailPage() {
     );
   }
 
-  function renderResumeJudgeCard() {
+  function renderResumeJudgeSection() {
     return (
-      <ResumeJudgeCard
+      <ResumeJudgeSection
         hasDraft={Boolean(draft)}
         result={resumeJudge}
         pending={resumeJudgePending}
@@ -3617,7 +3655,7 @@ export function ApplicationDetailPage() {
                 {detail.has_action_required_notification &&
                   detail.visible_status !== "needs_action" && (
                     <span
-                      className="rounded-md px-2 py-1 text-[10px] font-bold uppercase"
+                      className="rounded-md px-2 py-1 text-xs font-bold"
                       style={{
                         background: "var(--color-error-muted)",
                         color: "var(--color-error)",
@@ -3911,12 +3949,12 @@ export function ApplicationDetailPage() {
               detail.internal_state,
             ) && (
               <Section variant="success" density="compact" className="p-4">
-                <h3
-                  className="text-xs font-semibold uppercase tracking-wider"
+                <Heading
+                  level={3}
                   style={{ color: "var(--color-accent)" }}
                 >
                   Extraction Progress
-                </h3>
+                </Heading>
                 <div
                   className="mt-3 h-2 overflow-hidden rounded-full"
                   style={{ background: "var(--color-accent-muted)" }}
@@ -3929,31 +3967,37 @@ export function ApplicationDetailPage() {
                     }}
                   />
                 </div>
-                <p
-                  className="mt-2 text-sm"
+                <Text
+                  as="p"
+                  display="block"
+                  type="body"
+                  className="mt-2"
                   style={{ color: "var(--color-text-primary)" }}
                 >
                   {progress.message}
-                </p>
+                </Text>
               </Section>
             )}
 
           {/* Blocked Source */}
           {detail.extraction_failure_details?.kind === "blocked_source" && (
             <Section variant="danger" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
+              <Heading
+                level={3}
                 style={{ color: "var(--color-error)" }}
               >
                 Blocked Source
-              </h3>
-              <p
-                className="mt-1 text-sm"
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 The job site blocked automated retrieval. Use pasted text or
                 manual entry below.
-              </p>
+              </Text>
               <div
                 className="mt-3 grid gap-2 border-l p-3 text-xs sm:grid-cols-2"
                 style={{
@@ -3996,39 +4040,45 @@ export function ApplicationDetailPage() {
 
           {detail.extraction_failure_details?.kind === "user_cancelled" && (
             <Section variant="warning" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
+              <Heading
+                level={3}
                 style={{ color: "var(--color-warning)" }}
               >
                 Extraction Stopped
-              </h3>
-              <p
-                className="mt-1 text-sm"
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 Extraction was stopped. Retry from the URL, retry with pasted
                 text, or delete this application.
-              </p>
+              </Text>
             </Section>
           )}
 
           {/* Duplicate Warning */}
           {detail.duplicate_warning && (
             <Section variant="warning" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
+              <Heading
+                level={3}
                 style={{ color: "var(--color-warning)" }}
               >
                 Duplicate Detected
-              </h3>
-              <p
-                className="mt-1 text-sm"
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 Confidence{" "}
                 {detail.duplicate_warning.similarity_score.toFixed(2)} based on{" "}
                 {detail.duplicate_warning.matched_fields.join(", ")}.
-              </p>
+              </Text>
               <div
                 className="mt-2 border-l p-3 text-sm"
                 style={{ borderColor: "var(--color-border)" }}
@@ -4071,50 +4121,58 @@ export function ApplicationDetailPage() {
             detail.internal_state === "generation_pending" &&
             !detail.failure_reason && (
               <Section variant="success" density="compact" className="p-4">
-                <p
-                  className="text-sm font-medium"
+                <Text
+                  as="p"
+                  display="block"
+                  type="label"
                   style={{ color: "var(--color-accent)" }}
                 >
                   Company is missing from extraction. Add it to enable duplicate
                   review.
-                </p>
+                </Text>
               </Section>
             )}
 
           {sourceLimitedLengthFlag &&
             detail.internal_state === "resume_ready" && (
               <Section variant="warning" density="compact" className="p-4">
-                <h3
-                  className="text-sm font-semibold"
+                <Heading
+                  level={3}
                   style={{ color: "var(--color-warning)" }}
                 >
                   Shorter Than Target
-                </h3>
-                <p
-                  className="mt-1 text-sm"
+                </Heading>
+                <Text
+                  as="p"
+                  display="block"
+                  type="body"
+                  className="mt-1"
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   {sourceLimitedLengthFlag.text}
-                </p>
+                </Text>
               </Section>
             )}
 
           {/* Generation Timeout */}
           {detail.failure_reason === "generation_timeout" && (
             <Section variant="warning" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
+              <Heading
+                level={3}
                 style={{ color: "var(--color-warning)" }}
               >
                 Generation Timed Out
-              </h3>
-              <p
-                className="mt-1 text-sm"
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "The AI provider may be experiencing delays."}
-              </p>
+              </Text>
               <GenerationFailureDiagnostics
                 details={detail.generation_failure_details}
               />
@@ -4131,19 +4189,22 @@ export function ApplicationDetailPage() {
           {/* Generation Cancelled */}
           {detail.failure_reason === "generation_cancelled" && (
             <Section variant="success" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
+              <Heading
+                level={3}
                 style={{ color: "var(--color-accent)" }}
               >
                 Generation Cancelled
-              </h3>
-              <p
-                className="mt-1 text-sm"
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "You can adjust settings and try again."}
-              </p>
+              </Text>
               <Button
                 className="mt-3"
                 size="sm"
@@ -4158,19 +4219,22 @@ export function ApplicationDetailPage() {
           {(detail.failure_reason === "generation_failed" ||
             detail.failure_reason === "regeneration_failed") && (
             <Section variant="danger" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
+              <Heading
+                level={3}
                 style={{ color: "var(--color-error)" }}
               >
                 Generation Failed
-              </h3>
-              <p
-                className="mt-1 text-sm"
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "Resume generation encountered errors."}
-              </p>
+              </Text>
               {detail.generation_failure_details?.validation_errors?.length ? (
                 <ul
                   className="mt-2 list-disc space-y-1 pl-5 text-xs"
@@ -4203,12 +4267,12 @@ export function ApplicationDetailPage() {
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)] 2xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.8fr)]">
               {/* Job Information */}
               <Section density="compact" className="p-4">
-                <h3
-                  className="text-xs font-semibold uppercase tracking-wider"
+                <Heading
+                  level={3}
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   Job Information
-                </h3>
+                </Heading>
                 <form className="mt-3 space-y-3" onSubmit={handleSaveJobInfo}>
                   <JobInformationFields form={jobForm} setForm={setJobForm} />
                   <div className="flex gap-2">
@@ -4236,7 +4300,7 @@ export function ApplicationDetailPage() {
 
               {/* Notes + Manual Entry */}
               <div className="space-y-4">
-                <NotesCard
+                <NotesSection
                   value={notesDraft}
                   state={notesState}
                   onChange={(value) => {
@@ -4246,14 +4310,17 @@ export function ApplicationDetailPage() {
                 />
 
                 <Section variant="danger" density="compact" className="p-4">
-                  <h3
-                    className="text-sm font-semibold"
+                  <Heading
+                    level={3}
                     style={{ color: "var(--color-error)" }}
                   >
                     Manual Entry Required
-                  </h3>
-                  <p
-                    className="mt-1 text-sm"
+                  </Heading>
+                  <Text
+                    as="p"
+                    display="block"
+                    type="body"
+                    className="mt-1"
                     style={{ color: "var(--color-text-secondary)" }}
                   >
                     {detail.extraction_failure_details?.kind ===
@@ -4263,7 +4330,7 @@ export function ApplicationDetailPage() {
                           "user_cancelled"
                         ? "Extraction was stopped. Retry with text, retry the URL, or delete this application."
                         : "Extraction incomplete. Paste text or fill in details."}
-                  </p>
+                  </Text>
                   <form
                     className="mt-3 space-y-3"
                     onSubmit={handleRecoverFromSource}
@@ -4418,19 +4485,23 @@ export function ApplicationDetailPage() {
                           style={{ color: "var(--color-text-secondary)" }}
                         />
                       </div>
-                      <h3
-                        className="text-lg font-semibold mb-2"
+                      <Heading
+                        level={3}
+                        className="mb-2"
                         style={{ color: "var(--color-text-primary)" }}
                       >
                         No Resume Generated Yet
-                      </h3>
-                      <p
-                        className="text-sm mb-4"
+                      </Heading>
+                      <Text
+                        as="p"
+                        display="block"
+                        type="body"
+                        className="mb-4"
                         style={{ color: "var(--color-text-secondary)" }}
                       >
                         Configure your settings and click "Generate Resume" to
                         get started.
-                      </p>
+                      </Text>
                       <Button
                         variant="ghost"
                         type="button"
@@ -4442,12 +4513,15 @@ export function ApplicationDetailPage() {
                         Generate Resume
                       </Button>
                       {generationStartBlocker ? (
-                        <p
-                          className="mt-3 text-xs"
+                        <Text
+                          as="p"
+                          display="block"
+                          type="supporting"
+                          className="mt-3"
                           style={{ color: "var(--color-text-secondary)" }}
                         >
                           {generationStartBlocker}
-                        </p>
+                        </Text>
                       ) : null}
                     </Section>
                   )}
@@ -4463,8 +4537,8 @@ export function ApplicationDetailPage() {
                   }
                   aria-hidden={compareMode}
                 >
-                  {renderResumeJudgeCard()}
-                  {renderKeywordCard()}
+                  {renderResumeJudgeSection()}
+                  {renderKeywordSection()}
 
                   {/* Job Description */}
                   <Section
@@ -4474,12 +4548,12 @@ export function ApplicationDetailPage() {
                   >
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-1.5">
-                        <h3
-                          className="text-xs font-semibold uppercase tracking-wider"
+                        <Heading
+                          level={3}
                           style={{ color: "var(--color-text-secondary)" }}
                         >
                           Job Description
-                        </h3>
+                        </Heading>
                         <Button
                           variant="ghost"
                           type="button"
@@ -4538,17 +4612,17 @@ export function ApplicationDetailPage() {
                     )}
                   </Section>
 
-                  {/* Generation Settings Card */}
+                  {/* Generation settings */}
                   {detail.internal_state !== "duplicate_review_required" && (
                     <Section density="compact" className="p-4">
                       <form className="space-y-3" onSubmit={handleSaveSettings}>
                         <div className="flex items-start justify-between gap-3">
-                          <h3
-                            className="text-xs font-semibold uppercase tracking-wider"
+                          <Heading
+                            level={3}
                             style={{ color: "var(--color-text-secondary)" }}
                           >
                             Generation Settings
-                          </h3>
+                          </Heading>
                           <Button
                             size="sm"
                             disabled={
@@ -4715,7 +4789,7 @@ export function ApplicationDetailPage() {
                                       {o.label}
                                     </div>
                                     <div
-                                      className="text-[10px]"
+                                      className="text-xs"
                                       style={{
                                         color: "var(--color-text-secondary)",
                                       }}
@@ -4728,16 +4802,18 @@ export function ApplicationDetailPage() {
                                       label={`${o.label} aggressiveness details`}
                                     >
                                       <div className="space-y-2">
-                                        <p
-                                          className="text-xs font-semibold"
+                                        <Text
+                                          as="p"
+                                          display="block"
+                                          type="supporting"
                                           style={{
                                             color: "var(--color-text-primary)",
                                           }}
                                         >
                                           {o.label} affects:
-                                        </p>
+                                        </Text>
                                         <ul
-                                          className="space-y-1 text-[11px]"
+                                          className="space-y-1 text-xs"
                                           style={{
                                             color:
                                               "var(--color-text-secondary)",
@@ -4759,7 +4835,7 @@ export function ApplicationDetailPage() {
                           {selectedAggressivenessOption?.warning ? (
                             <div
                               role="alert"
-                              className="mt-2 rounded-md border px-3 py-2 text-[11px]"
+                              className="mt-2 rounded-md border px-3 py-2 text-xs"
                               style={{
                                 borderColor: "var(--color-warning)",
                                 background: "var(--color-warning-muted)",
@@ -4797,8 +4873,8 @@ export function ApplicationDetailPage() {
                     </Section>
                   )}
 
-                  {/* Notes Card */}
-                  <NotesCard
+                  {/* Notes */}
+                  <NotesSection
                     compact
                     value={notesDraft}
                     state={notesState}
@@ -4863,12 +4939,12 @@ export function ApplicationDetailPage() {
             title="Fully Regenerate Resume?"
             message={
               <div className="flex flex-col gap-3">
-                <p style={{ margin: 0 }}>
+                <Text as="p" display="block" type="body" style={{ margin: 0 }}>
                   Regenerate source-backed sections using your saved section
                   inclusion, order and headings. Fixed sections and sections
                   with added or reordered entries keep their current content.
                   This may take up to four minutes.
-                </p>
+                </Text>
                 <label className="flex items-start gap-2 text-sm">
                   <Input
                     type="checkbox"
@@ -4886,11 +4962,11 @@ export function ApplicationDetailPage() {
                   </span>
                 </label>
                 {(!draft?.document || !draft?.source_snapshot) && (
-                  <p className="text-xs">
+                  <Text as="p" display="block" type="supporting">
                     This legacy draft has no frozen source links. Select Use
                     latest base resume to replace it. The existing draft stays
                     available if generation fails.
-                  </p>
+                  </Text>
                 )}
                 <div className="flex flex-col gap-1.5 mt-2">
                   <label
@@ -4982,7 +5058,8 @@ export function ApplicationDetailPage() {
                     width: "calc(100% - 48px)",
                   }}
                 >
-                  <h3
+                  <Heading
+                    level={3}
                     style={{
                       fontSize: "17px",
                       fontWeight: 600,
@@ -4992,8 +5069,11 @@ export function ApplicationDetailPage() {
                     }}
                   >
                     Regenerate a Section
-                  </h3>
-                  <p
+                  </Heading>
+                  <Text
+                    as="p"
+                    display="block"
+                    type="body"
                     style={{
                       marginTop: "8px",
                       fontSize: "14px",
@@ -5004,7 +5084,7 @@ export function ApplicationDetailPage() {
                     {regenEntryId
                       ? "Only this role will be regenerated. Other roles and sections stay as they are."
                       : "Select a section and describe how you want to improve it."}
-                  </p>
+                  </Text>
 
                   <div className="mt-4 space-y-3">
                     <div>
@@ -5058,12 +5138,15 @@ export function ApplicationDetailPage() {
                         )}
                       </Select>
                       {sectionSourceBlocker && (
-                        <p
-                          className="mt-2 text-xs"
+                        <Text
+                          as="p"
+                          display="block"
+                          type="supporting"
+                          className="mt-2"
                           style={{ color: "var(--color-text-secondary)" }}
                         >
                           {sectionSourceBlocker}
-                        </p>
+                        </Text>
                       )}
                     </div>
                     <div>
@@ -5174,12 +5257,14 @@ export function ApplicationDetailPage() {
                     style={{ borderColor: "var(--color-border)" }}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <p
-                        className="text-[11px] font-semibold uppercase tracking-[0.24em]"
+                      <Text
+                        as="p"
+                        display="block"
+                        type="supporting"
                         style={{ color: "var(--color-text-secondary)" }}
                       >
                         Resume Judge
-                      </p>
+                      </Text>
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         <span
                           className="inline-flex items-center rounded-full px-3 py-1.5 text-sm font-semibold"
@@ -5205,25 +5290,30 @@ export function ApplicationDetailPage() {
                       </div>
                     </div>
                     <div className="mt-3 min-w-0">
-                      <p
-                        className="text-xs font-semibold uppercase tracking-[0.16em]"
+                      <Text
+                        as="p"
+                        display="block"
+                        type="supporting"
                         style={{ color: "var(--color-text-secondary)" }}
                       >
                         Summary
-                      </p>
-                      <p
-                        className="mt-2 text-[15px] leading-6"
+                      </Text>
+                      <Text
+                        as="p"
+                        display="block"
+                        type="body"
+                        className="mt-2 leading-6"
                         style={{ color: "var(--color-text-primary)" }}
                       >
                         {resumeJudge.score_summary ?? "Resume score breakdown"}
-                      </p>
+                      </Text>
                     </div>
                     <div
                       className="mt-3 flex flex-wrap items-center gap-2 text-xs"
                       style={{ color: "var(--color-text-secondary)" }}
                     >
                       <span
-                        className="rounded-full px-2.5 py-1 font-semibold uppercase tracking-wide"
+                        className="rounded-full px-2.5 py-1 font-semibold"
                         style={{
                           background: resumeJudgeStale
                             ? "var(--color-warning-muted)"
@@ -5247,14 +5337,17 @@ export function ApplicationDetailPage() {
                         </span>
                       ) : null}
                     </div>
-                    <p
-                      className="mt-3 text-xs leading-5"
+                    <Text
+                      as="p"
+                      display="block"
+                      type="supporting"
+                      className="mt-3 leading-5"
                       style={{ color: "var(--color-text-secondary)" }}
                     >
                       {resumeJudgeStale
                         ? "This score was calculated for an older draft. Re-evaluate after reviewing the breakdown."
                         : `Verdict: ${resumeJudgeVerdictLabel(resumeJudge.verdict)} at ${resumeJudge.final_score?.toFixed(1) ?? "0.0"} / 100.`}
-                    </p>
+                    </Text>
                   </div>
 
                   <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
@@ -5286,20 +5379,22 @@ export function ApplicationDetailPage() {
                             >
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <p
-                                    className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                                  <Text
+                                    as="p"
+                                    display="block"
+                                    type="supporting"
                                     style={{
                                       color: "var(--color-text-secondary)",
                                     }}
                                   >
                                     {RESUME_JUDGE_DIMENSION_LABELS[key] ?? key}
-                                  </p>
+                                  </Text>
                                   {(
                                     resumeJudge.regeneration_priority_dimensions ??
                                     []
                                   ).includes(key) ? (
                                     <span
-                                      className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                      className="rounded-full px-2 py-0.5 text-xs font-semibold"
                                       style={{
                                         background: "var(--color-error-muted)",
                                         color: "var(--color-error)",
@@ -5401,12 +5496,14 @@ export function ApplicationDetailPage() {
                           background: "var(--color-background-surface)",
                         }}
                       >
-                        <p
-                          className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                        <Text
+                          as="p"
+                          display="block"
+                          type="supporting"
                           style={{ color: "var(--color-text-secondary)" }}
                         >
                           Verdict
-                        </p>
+                        </Text>
                         <div className="mt-3 flex items-center justify-between gap-3">
                           <span
                             className="text-sm font-semibold"
@@ -5417,7 +5514,7 @@ export function ApplicationDetailPage() {
                               : resumeJudgeVerdictLabel(resumeJudge.verdict)}
                           </span>
                           <span
-                            className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                            className="rounded-full px-2.5 py-1 text-xs font-semibold"
                             style={{
                               background: resumeJudgeStale
                                 ? "var(--color-warning-muted)"
@@ -5433,18 +5530,20 @@ export function ApplicationDetailPage() {
                         {resumeJudge.regeneration_priority_dimensions
                           ?.length ? (
                           <div className="mt-4">
-                            <p
-                              className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                            <Text
+                              as="p"
+                              display="block"
+                              type="supporting"
                               style={{ color: "var(--color-text-secondary)" }}
                             >
                               Priority Dimensions
-                            </p>
+                            </Text>
                             <div className="mt-2 flex flex-wrap gap-2">
                               {resumeJudge.regeneration_priority_dimensions.map(
                                 (dimension) => (
                                   <span
                                     key={dimension}
-                                    className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
                                     style={{
                                       background:
                                         "var(--color-background-muted)",
@@ -5471,23 +5570,28 @@ export function ApplicationDetailPage() {
                             background: "var(--color-warning-muted)",
                           }}
                         >
-                          <p
-                            className="text-sm font-semibold"
+                          <Text
+                            as="p"
+                            display="block"
+                            type="label"
                             style={{ color: "var(--color-text-primary)" }}
                           >
                             {resumeJudgeStale
                               ? "This score is stale."
                               : "Resume Judge needs another run."}
-                          </p>
-                          <p
-                            className="mt-2 text-xs leading-5"
+                          </Text>
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
+                            className="mt-2 leading-5"
                             style={{ color: "var(--color-text-secondary)" }}
                           >
                             {resumeJudgeStale
                               ? "You edited the draft after it was scored. Re-evaluate to refresh the breakdown."
                               : (resumeJudge.message ??
                                 "Run Resume Judge again to restore the score.")}
-                          </p>
+                          </Text>
                           <Button
                             className="mt-4"
                             size="sm"
@@ -5510,30 +5614,38 @@ export function ApplicationDetailPage() {
                             background: "var(--color-background-muted)",
                           }}
                         >
-                          <p
-                            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
                             style={{ color: "var(--color-text-secondary)" }}
                           >
                             Regeneration Instructions
-                          </p>
-                          <p
-                            className="mt-3 text-xs leading-5"
+                          </Text>
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
+                            className="mt-3 leading-5"
                             style={{ color: "var(--color-text-primary)" }}
                           >
                             {formatJudgeInstructions(
                               resumeJudge.regeneration_instructions,
                             )}
-                          </p>
+                          </Text>
                           {resumeJudgeCanRegenerateWithFeedback ? (
                             <>
-                              <p
-                                className="mt-3 text-xs"
+                              <Text
+                                as="p"
+                                display="block"
+                                type="supporting"
+                                className="mt-3"
                                 style={{ color: "var(--color-text-secondary)" }}
                               >
                                 Full regeneration will keep your current
                                 instructions and append the judge’s corrective
                                 guidance.
-                              </p>
+                              </Text>
                               <Button
                                 variant="ghost"
                                 type="button"
@@ -5554,12 +5666,15 @@ export function ApplicationDetailPage() {
                           ) : null}
                           {fullRegenerationBlocker &&
                           resumeJudgeCanRegenerateWithFeedback ? (
-                            <p
-                              className="mt-2 text-xs"
+                            <Text
+                              as="p"
+                              display="block"
+                              type="supporting"
+                              className="mt-2"
                               style={{ color: "var(--color-text-secondary)" }}
                             >
                               {fullRegenerationBlocker}
-                            </p>
+                            </Text>
                           ) : null}
                         </div>
                       ) : null}
@@ -5572,18 +5687,23 @@ export function ApplicationDetailPage() {
                             background: "var(--color-background-surface)",
                           }}
                         >
-                          <p
-                            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
                             style={{ color: "var(--color-text-secondary)" }}
                           >
                             Evaluator Notes
-                          </p>
-                          <p
-                            className="mt-3 text-xs leading-5"
+                          </Text>
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
+                            className="mt-3 leading-5"
                             style={{ color: "var(--color-text-secondary)" }}
                           >
                             {resumeJudge.evaluator_notes}
-                          </p>
+                          </Text>
                         </div>
                       ) : null}
                     </div>

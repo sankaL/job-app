@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -93,15 +95,15 @@ export function SectionDiffCard({
           >
             {getSectionIcon()}
           </span>
-          <h3
-            className="text-xs font-bold uppercase tracking-[0.14em]"
+          <Heading
+            level={3}
             style={{ color: "var(--color-text-primary)" }}
           >
             {sectionDiff.heading}
-          </h3>
+          </Heading>
           {sectionDiff.status !== "unchanged" && (
             <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
               style={{
                 background: "var(--color-accent-muted)",
                 color: "var(--color-accent)",
@@ -123,7 +125,7 @@ export function SectionDiffCard({
           <Button
             variant="ghost"
             type="button"
-            className="inline-flex items-center gap-1 text-[11px] transition-colors hover:text-[var(--color-text-primary)]"
+            className="inline-flex items-center gap-1 text-xs transition-colors hover:text-[var(--color-text-primary)]"
             onClick={() =>
               handleCopySection(sectionDiff.tailoredSection!.rawMarkdown)
             }
@@ -145,13 +147,15 @@ export function SectionDiffCard({
       </div>
 
       {copyError && (
-        <p
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
           role="alert"
-          className="text-xs"
           style={{ color: "var(--color-error)" }}
         >
           Unable to copy. Try selecting the section text instead.
-        </p>
+        </Text>
       )}
       {/* Experience Entries */}
       {isExperience && sectionDiff.experienceDiffs && (
@@ -181,17 +185,20 @@ export function SectionDiffCard({
                 }}
               >
                 <span
-                  className="mb-2 block text-xs font-bold uppercase tracking-wider"
+                  className="mb-2 block text-xs font-bold"
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   Base Summary
                 </span>
-                <p
-                  className="text-xs sm:text-sm leading-relaxed"
+                <Text
+                  as="p"
+                  display="block"
+                  type="supporting"
+                  className="leading-relaxed"
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   {sectionDiff.summaryDiff.baseText}
-                </p>
+                </Text>
               </div>
               <div
                 className="border-l p-3.5"
@@ -206,14 +213,17 @@ export function SectionDiffCard({
                     style={{ color: "var(--color-accent)" }}
                   />
                   <span
-                    className="text-xs font-bold uppercase tracking-wider"
+                    className="text-xs font-bold"
                     style={{ color: "var(--color-accent)" }}
                   >
                     Tailored Summary
                   </span>
                 </div>
-                <p
-                  className="text-xs sm:text-sm leading-relaxed"
+                <Text
+                  as="p"
+                  display="block"
+                  type="supporting"
+                  className="leading-relaxed"
                   style={{ color: "var(--color-text-primary)" }}
                 >
                   <InlineDiffText
@@ -221,7 +231,7 @@ export function SectionDiffCard({
                     mode={highlightMode}
                     showRemoved={false}
                   />
-                </p>
+                </Text>
               </div>
             </div>
           ) : (
@@ -246,12 +256,14 @@ export function SectionDiffCard({
                     }}
                   >
                     <span
-                      className="mb-1 block text-[11px] font-bold uppercase tracking-wider"
+                      className="mb-1 block text-xs font-bold"
                       style={{ color: "var(--color-text-secondary)" }}
                     >
                       Base Summary
                     </span>
-                    <p>{sectionDiff.summaryDiff.baseText}</p>
+                    <Text as="p" display="block" type="body">
+                      {sectionDiff.summaryDiff.baseText}
+                    </Text>
                   </div>
                 )}
             </div>
@@ -267,7 +279,7 @@ export function SectionDiffCard({
             {sectionDiff.skillsDiff.addedSkills.length > 0 && (
               <div>
                 <span
-                  className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider"
+                  className="mb-2 flex items-center gap-1.5 text-xs font-bold"
                   style={{ color: "var(--color-accent)" }}
                 >
                   <Sparkles size={12} /> Target ATS Keywords Added (
@@ -296,7 +308,7 @@ export function SectionDiffCard({
             {sectionDiff.skillsDiff.retainedSkills.length > 0 && (
               <div>
                 <span
-                  className="mb-2 block text-xs font-bold uppercase tracking-wider"
+                  className="mb-2 block text-xs font-bold"
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   Retained Core Skills (
@@ -323,7 +335,7 @@ export function SectionDiffCard({
             {sectionDiff.skillsDiff.removedSkills.length > 0 && (
               <div>
                 <span
-                  className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider"
+                  className="mb-2 flex items-center gap-1.5 text-xs font-bold"
                   style={{ color: "var(--color-error)" }}
                 >
                   <Minus size={12} /> Omitted Skills (
@@ -360,8 +372,8 @@ export function SectionDiffCard({
                 style={{ borderColor: "var(--color-border)" }}
               >
                 <div>
-                  <h4
-                    className="text-sm font-bold"
+                  <Heading
+                    level={4}
                     style={{ color: "var(--color-text-primary)" }}
                   >
                     {edu.institutionChunks ? (
@@ -372,16 +384,19 @@ export function SectionDiffCard({
                     ) : (
                       edu.institution
                     )}
-                  </h4>
-                  <p
-                    className="text-xs font-medium mt-0.5"
+                  </Heading>
+                  <Text
+                    as="p"
+                    display="block"
+                    type="supporting"
+                    className="mt-0.5"
                     style={{ color: "var(--color-accent)" }}
                   >
                     <InlineDiffText
                       chunks={edu.degree.chunks}
                       mode={highlightMode}
                     />
-                  </p>
+                  </Text>
                 </div>
                 <div
                   className="text-right text-xs"

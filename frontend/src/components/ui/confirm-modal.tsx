@@ -1,3 +1,4 @@
+import { Heading } from "@astryxdesign/core/Heading";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -67,9 +68,12 @@ function ConfirmDialog({
         aria-label={title}
         className="animate-scaleIn relative z-[1] w-[calc(100%-32px)] max-w-[420px] rounded-[var(--radius-container)] bg-[var(--color-background-surface)] px-7 pb-6 pt-7 shadow-[var(--shadow-high)]"
       >
-        <h3 className="m-0 text-[17px] font-semibold leading-[1.3] text-[var(--color-text-primary)]">
+        <Heading
+          level={3}
+          className="m-0 leading-[1.3] text-[var(--color-text-primary)]"
+        >
           {title}
-        </h3>
+        </Heading>
         {message ? (
           <div className="mt-2.5 text-sm leading-[1.55] text-[var(--color-text-secondary)]">
             {message}
