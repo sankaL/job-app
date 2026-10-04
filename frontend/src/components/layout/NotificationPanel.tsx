@@ -70,43 +70,46 @@ function NotificationRow({
     >
       <Button
         variant="ghost"
+        contentLayout="block"
         type="button"
         onClick={() => onSelect(notification)}
         disabled={isDisabled}
         className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors disabled:cursor-default"
       >
-        <span
-          className="mt-1 h-2.5 w-2.5 flex-none rounded-full"
-          style={{ background: tone.accent }}
-          aria-hidden="true"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <Text
-              as="p"
-              display="block"
-              type="label"
-              className="leading-5 text-[var(--color-text-primary)]"
-            >
-              {notification.message}
-            </Text>
-            <span className="shrink-0 text-xs font-medium text-[var(--color-text-secondary)]">
-              {formatNotificationTimestamp(notification.created_at)}
-            </span>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span
-              className="rounded-full px-2 py-0.5 text-xs font-semibold"
-              style={{
-                background: tone.badgeBackground,
-                color: tone.badgeColor,
-              }}
-            >
-              {tone.badgeLabel}
-            </span>
-            <span className="text-xs text-[var(--color-text-secondary)]">
-              {isDisabled ? "No linked application" : "Open application"}
-            </span>
+        <div className="flex items-start gap-3">
+          <span
+            className="mt-1 h-2.5 w-2.5 flex-none rounded-full"
+            style={{ background: tone.accent }}
+            aria-hidden="true"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-col items-start gap-1">
+              <Text
+                as="p"
+                display="block"
+                type="label"
+                className="w-full break-words leading-5 text-[var(--color-text-primary)]"
+              >
+                {notification.message}
+              </Text>
+              <span className="shrink-0 text-xs font-medium text-[var(--color-text-secondary)]">
+                {formatNotificationTimestamp(notification.created_at)}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span
+                className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                style={{
+                  background: tone.badgeBackground,
+                  color: tone.badgeColor,
+                }}
+              >
+                {tone.badgeLabel}
+              </span>
+              <span className="text-xs text-[var(--color-text-secondary)]">
+                {isDisabled ? "No linked application" : "Open application"}
+              </span>
+            </div>
           </div>
         </div>
       </Button>

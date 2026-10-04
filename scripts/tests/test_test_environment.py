@@ -32,6 +32,19 @@ LOCAL_VALUES = {
 
 
 class EnvironmentGuardTests(unittest.TestCase):
+    def test_compose_example_keeps_tracing_an_explicit_opt_in(self):
+        example = ROOT / '.env.compose.example'
+        keys = ['LANGSMITH_TRACING', 'LANGSMITH_PROJECT', 'LANGSMITH_WORKSPACE_ID', 'LANGSMITH_API_KEY']
+        assignments = [line.split('=', 1)[0] for line in example.read_text().splitlines()
+                       if line and not line.startswith('#') and '=' in line]
+        for key in keys:
+            with self.subTest(key=key):
+                self.assertEqual(assignments.count(key), 1)
+        effective = GUARD.effective_values(example, {})
+        self.assertEqual(effective['LANGSMITH_TRACING'], 'false')
+        self.assertEqual(effective['LANGSMITH_PROJECT'], 'applix-dev')
+        self.assertEqual(effective['LANGSMITH_API_KEY'], '')
+
     def test_local_browser_values_are_allowed(self):
         GUARD.validate_values(LOCAL_VALUES, browser=True)
 

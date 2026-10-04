@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Callable, TypeVar
+from time import perf_counter
 
 import httpx
 from pydantic import BaseModel
+
+from app.core.tracing import TraceConfig, end_trace_safely, trace_llm_scope
 
 Output = TypeVar("Output", bound=BaseModel)
 
@@ -37,7 +40,7 @@ def _portable_openrouter_import_profile(model_name: str) -> Any:
     return {**profile, "json_schema_transformer": GoogleImportSchemaTransformer}
 
 
-async def invoke_import_output(
+async def _invoke_import_output(
     *,
     api_key: str,
     base_url: str,
@@ -47,6 +50,7 @@ async def invoke_import_output(
     output_type: type[Output],
     timeout_seconds: float,
     validator: Callable[[Output], None] | None = None,
+    usage: Any,
 ) -> Output:
     # Import lazily: purely local PDF parsing does not initialize a provider.
     from openai import AsyncOpenAI
@@ -84,7 +88,53 @@ async def invoke_import_output(
                 return output
 
         result = await asyncio.wait_for(
-            agent.run(user_prompt, usage_limits=UsageLimits(request_limit=2, total_tokens_limit=60000)),
+            agent.run(user_prompt, usage=usage, usage_limits=UsageLimits(request_limit=2, total_tokens_limit=60000)),
             timeout=timeout_seconds,
         )
         return result.output
+
+
+async def invoke_import_output(
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    output_type: type[Output],
+    timeout_seconds: float,
+    validator: Callable[[Output], None] | None = None,
+    trace_config: TraceConfig = TraceConfig(),
+    operation: str = "resume_import",
+    is_fallback: bool = False,
+) -> Output:
+    """Trace every import invocation using counts, never prompt or output bodies."""
+    from pydantic_ai.usage import RunUsage
+
+    safe_operation = operation if operation in {"resume_cleanup", "resume_entry_extraction"} else "resume_import"
+    usage = RunUsage()
+    started = perf_counter()
+    with trace_llm_scope(
+        enabled=trace_config.enabled, api_key=trace_config.api_key,
+        project_name=trace_config.project_name, workspace_id=trace_config.workspace_id,
+        name=f"applix.{safe_operation}.pydantic_ai",
+        inputs={"message_count": 2, "prompt_chars": len(system_prompt) + len(user_prompt)},
+        metadata={"operation": safe_operation, "model": model, "is_fallback": is_fallback,
+            "transport_mode": "pydantic_ai", "timeout_seconds": timeout_seconds, "request_limit": 2},
+    ) as run_tree:
+        outcome = "failed"
+        try:
+            output = await _invoke_import_output(
+                api_key=api_key, base_url=base_url, model=model, system_prompt=system_prompt,
+                user_prompt=user_prompt, output_type=output_type, timeout_seconds=timeout_seconds,
+                validator=validator, usage=usage,
+            )
+            outcome = "success"
+            return output
+        except (TimeoutError, asyncio.TimeoutError):
+            outcome = "timeout"
+            raise
+        finally:
+            end_trace_safely(run_tree, outputs={"outcome": outcome,
+                "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens, "elapsed_ms": round((perf_counter() - started) * 1000)})

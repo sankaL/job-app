@@ -1,3 +1,4 @@
+import { ActionButtons } from "@/components/ui/button-group";
 import { Heading } from "@astryxdesign/core/Heading";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
@@ -80,23 +81,26 @@ function ConfirmDialog({
           </div>
         ) : null}
         <div className="mt-6 flex justify-end gap-2.5">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={loading}
-            onClick={onCancel}
-          >
-            {cancelLabel}
-          </Button>
-          <Button
-            type="button"
-            variant={variant === "danger" ? "danger" : "primary"}
-            loading={loading}
-            onClick={onConfirm}
-          >
-            {confirmLabel}
-          </Button>
-        </div>
+          <ActionButtons label="Confirmation actions" size="sm">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={loading}
+              onClick={onCancel}
+            >
+              {cancelLabel}
+            </Button>
+            <Button
+              type="button"
+              variant={variant === "danger" ? "danger" : "primary"}
+              loading={loading}
+              onClick={onConfirm}
+            >
+              {confirmLabel}
+            </Button>
+
+          </ActionButtons>
+</div>
       </div>
     </div>
   );

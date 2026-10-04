@@ -72,6 +72,16 @@ For detailed architecture, schema designs, and setup workflows, consult the foll
     *   Frontend: `http://localhost:5173`
     *   Backend API: `http://localhost:8000`
 
+### LangSmith tracing
+
+Configure `LANGSMITH_TRACING=true`, `LANGSMITH_PROJECT=applix-dev`, and `LANGSMITH_API_KEY` in the ignored `.env.compose` file, then refresh the stack with `make up`. Compose forwards the same settings to the backend and worker. For Railway, configure both services with the desired project, currently `applix-prod`. Changing `LANGSMITH_PROJECT` separates this app's traces from other projects without code changes. Organization-scoped service keys and keys covering multiple workspaces also require `LANGSMITH_WORKSPACE_ID`, available in LangSmith workspace settings. Compose forwards the workspace to both services; shared trace clients and live evaluations use the same workspace. After changing local runtime settings, run `make dev-runtime` to refresh only the API and worker without reassigning ports or rebuilding the frontend.
+
+Workflow roots summarize settings, counts and completion. Select a nested model run to inspect its model, primary/fallback choice, outcome and usage. Model identity and available token counts use LangSmith's native metadata format. Actual prompt/response content remains excluded under the counts-only tracing policy. New formatting applies to new runs; earlier traces retain their original fields.
+
+Tracing covers import classification and entry extraction, job/keyword extraction, writing and regeneration, repairs, grounding audits, and requested Resume Judge scoring. Traces contain operation/model metadata, counts, usage and outcomes rather than private resume/job bodies or provider error payloads. Missing project/key values block enabled configuration; telemetry outages do not fail LLM workflows.
+
+`make eval-resumes` honors these settings for live fictional evaluations and tags each model run with its case. Automated tests and offline evaluations always disable tracing. New installations default to tracing off until configured; keys never belong in committed env examples.
+
 ***
 
 ## Security & Privacy

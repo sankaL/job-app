@@ -3,6 +3,8 @@ import { createContext, useContext, useState, type PropsWithChildren } from "rea
 type ShellLayoutMode = "default" | "immersive";
 
 type ShellLayoutContextValue = {
+  actionHost: HTMLElement | null;
+  setActionHost: (element: HTMLElement | null) => void;
   mode: ShellLayoutMode;
   setMode: (mode: ShellLayoutMode) => void;
   clearMode: () => void;
@@ -11,11 +13,14 @@ type ShellLayoutContextValue = {
 const ShellLayoutContext = createContext<ShellLayoutContextValue | null>(null);
 
 export function ShellLayoutProvider({ children }: PropsWithChildren) {
+  const [actionHost, setActionHost] = useState<HTMLElement | null>(null);
   const [mode, setMode] = useState<ShellLayoutMode>("default");
 
   return (
     <ShellLayoutContext.Provider
       value={{
+        actionHost,
+        setActionHost,
         mode,
         setMode,
         clearMode: () => setMode("default"),
@@ -32,4 +37,8 @@ export function useShellLayout() {
     throw new Error("useShellLayout must be used inside ShellLayoutProvider");
   }
   return ctx;
+}
+
+export function usePageActionHost() {
+  return useContext(ShellLayoutContext)?.actionHost ?? null;
 }

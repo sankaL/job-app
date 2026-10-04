@@ -1,3 +1,4 @@
+import { ActionButtons } from "@/components/ui/button-group";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { useNavigate } from "react-router-dom";
@@ -191,24 +192,27 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
-          {cta && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => navigate(cta.path)}
-              className="flex items-center gap-1 hover:border-[var(--color-border-emphasized)]"
-            >
-              <cta.icon size={13} />
-              {cta.text}
-              <ArrowRight size={13} />
-            </Button>
-          )}
-          {onClear && (
-            <Button size="sm" variant="secondary" onClick={onClear}>
-              Dismiss
-            </Button>
-          )}
-        </div>
+          <ActionButtons label="Error recovery" size="sm" primaryIndex={0}>
+            {cta && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => navigate(cta.path)}
+                className="flex items-center gap-1 hover:border-[var(--color-border-emphasized)]"
+              >
+                <cta.icon size={13} />
+                {cta.text}
+                <ArrowRight size={13} />
+              </Button>
+            )}
+            {onClear && (
+              <Button size="sm" variant="secondary" onClick={onClear}>
+                Dismiss
+              </Button>
+            )}
+
+          </ActionButtons>
+</div>
       </div>
     </Section>
   );

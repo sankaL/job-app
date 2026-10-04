@@ -43,8 +43,10 @@ export function CompareSectionNav({
 
   return (
     <div
+      role="navigation"
+      aria-label="Comparison sections"
       ref={containerRef}
-      className="relative flex items-center gap-1 overflow-x-auto border-b p-1 no-scrollbar"
+      className="relative flex min-w-0 max-w-full items-center gap-1 overflow-x-auto p-1 no-scrollbar"
       style={{
         background: "var(--color-background-surface)",
         borderColor: "var(--color-border)",

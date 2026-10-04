@@ -165,3 +165,44 @@ async def test_pydantic_ai_does_not_loop_on_permanently_invalid_import(monkeypat
     with pytest.raises(UnexpectedModelBehavior):
         await invoke_import_output(api_key="test-key", base_url="https://openrouter.ai/api/v1", model="test-model", system_prompt="Extract fields.", user_prompt="source", output_type=ImportOutput, timeout_seconds=1.0)
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_import_traces_corrections_usage_and_fallback_without_private_bodies(monkeypatch):
+    from contextlib import contextmanager
+    from app.core.tracing import TraceConfig
+    from pydantic_ai.messages import ModelResponse, ToolCallPart, RequestUsage
+    from pydantic_ai.models.function import FunctionModel
+
+    captured = []
+    calls = []
+    class Run:
+        def end(self, **kwargs):
+            captured.append(kwargs)
+    @contextmanager
+    def scope(**kwargs):
+        captured.append(kwargs)
+        yield Run()
+    def response(_messages, info):
+        calls.append(info)
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name,
+            {"value": "invalid" if len(calls) == 1 else 2})],
+            usage=RequestUsage(input_tokens=12, output_tokens=8))
+    monkeypatch.setattr("app.services.import_ai.trace_llm_scope", scope)
+    monkeypatch.setattr("pydantic_ai.models.openrouter.OpenRouterModel", lambda *_args, **_kwargs: FunctionModel(response))
+    result = await invoke_import_output(api_key="provider-secret", base_url="https://provider.invalid/v1",
+        model="fallback-model", system_prompt="Private formatting rules", user_prompt="Private resume user@example.test",
+        output_type=ImportOutput, timeout_seconds=2,
+        trace_config=TraceConfig(enabled=True, api_key="telemetry-key", project_name="test-project"),
+        operation="resume_entry_extraction", is_fallback=True)
+    assert result.value == 2
+    assert captured[0]["project_name"] == "test-project"
+    assert captured[0]["metadata"]["is_fallback"] is True
+    assert captured[0]["name"] == "applix.resume_entry_extraction.pydantic_ai"
+    assert captured[1]["outputs"]["request_count"] == 2
+    assert captured[1]["outputs"]["input_tokens"] == 24
+    assert captured[1]["outputs"]["output_tokens"] == 16
+    assert "Private resume" not in str(captured)
+    assert "Private formatting" not in str(captured)
+    assert "user@example.test" not in str(captured)
+    assert "provider-secret" not in str(captured)

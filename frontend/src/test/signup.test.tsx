@@ -46,7 +46,7 @@ describe("invite signup flow", () => {
 
     renderSignup("/signup");
 
-    expect(screen.getByRole("heading", { name: /request access to applix/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^request access$/i })).toBeInTheDocument();
     expect(api.fetchInvitePreview).not.toHaveBeenCalled();
 
     await userEvent.type(screen.getByLabelText(/full name/i), "Jane Doe");

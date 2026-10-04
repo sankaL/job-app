@@ -1,3 +1,5 @@
+import { Check, CircleCheck } from "lucide-react";
+import { IconButton } from "@/components/ui/icon-button";
 import { Button } from "@/components/ui/button";
 import type { ButtonHTMLAttributes, MouseEvent } from "react";
 import { cn } from "@/lib/utils";
@@ -19,6 +21,26 @@ export function AppliedToggleButton({
   disabled,
   ...props
 }: AppliedToggleButtonProps) {
+  if (compact)
+    return (
+      <IconButton
+        {...props}
+        aria-label={applied ? "Applied" : "Mark Applied"}
+        aria-pressed={applied}
+        title={
+          applied ? "Applied. Click to mark as not applied" : "Mark as applied"
+        }
+        onClick={onClick}
+        disabled={disabled}
+        className={className}
+      >
+        {applied ? (
+          <CircleCheck size={18} aria-hidden="true" />
+        ) : (
+          <Check size={18} aria-hidden="true" />
+        )}
+      </IconButton>
+    );
   return (
     <Button
       variant={applied ? "primary" : "secondary"}
@@ -26,13 +48,7 @@ export function AppliedToggleButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={cn(
-        "inline-flex items-center justify-center gap-1.5 rounded-full border font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50",
-        compact
-          ? "h-8 min-w-[7.5rem] px-3 text-xs"
-          : "h-9 min-w-[8.5rem] px-3.5 text-xs",
-        className,
-      )}
+      className={cn(className)}
       {...props}
     >
       {applied ? (

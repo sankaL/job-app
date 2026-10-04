@@ -100,6 +100,8 @@ export function Sidebar({
           key={item.href}
           {...item}
           as={RouterLink}
+          size="lg"
+          className="mb-1"
           isSelected={selected}
           onClick={onNavigate}
         />
@@ -109,6 +111,8 @@ export function Sidebar({
           as={RouterLink}
           href="/app/admin"
           label="Admin"
+          size="lg"
+          className="mb-1"
           icon={<Settings2 size={18} />}
           isSelected={onAdminRoute}
           onClick={onNavigate}

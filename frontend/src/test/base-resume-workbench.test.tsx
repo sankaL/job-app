@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 
 describe("base resume save dock", () => {
-  it("submits the form from the floating action group and keeps offscreen section edits and review gates", async () => {
+  it("submits the form from the header action group and keeps offscreen section edits and review gates", async () => {
     const user = userEvent.setup();
     vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, document: { ...payload.document!, revision: 4 } }));
     renderEditor();
@@ -41,13 +41,14 @@ describe("base resume save dock", () => {
     await user.click(screen.getByRole("button", { name: "Edit Experience" }));
     const save = screen.getByRole("button", { name: "Save Changes" });
     expect(save.closest("form")).toBeNull();
-    expect(save.closest(".app-floating-page-actions")).not.toBeNull();
+    expect(save.closest(".app-floating-page-actions")).toBeNull();
+    expect(save.closest("[role=group]")).toHaveAttribute("aria-label", "Source resume actions");
     expect(save).toHaveAttribute("form", "base-resume-edit-form");
     await user.type(screen.getByRole("textbox", { name: "Employer" }), " Ltd");
     await user.click(screen.getByRole("tab", { name: /Skills/ }));
     await user.click(screen.getByRole("button", { name: "Edit Skills" }));
     await user.type(screen.getByRole("textbox", { name: /Section content/ }), ", SQL");
-    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
     await user.click(save);
     await waitFor(() => expect(api.updateBaseResume).toHaveBeenCalledWith("base", expect.objectContaining({ expected_revision: 3 })));
     const saved = vi.mocked(api.updateBaseResume).mock.calls[0][1].document!;
@@ -56,8 +57,8 @@ describe("base resume save dock", () => {
     expect(saved.sections[0].entries[0].bullets[0].id).toBe("fact");
     expect(saved.sections[1].content_md).toBe("Python, SQL");
     expect(saved.sections.every((section) => section.review_state === "needs_review")).toBe(true);
-    expect(await screen.findByText("Changes saved")).toBeInTheDocument();
-    expect(screen.getByText("2 sections need review before tailoring")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Saved" })).toBeInTheDocument();
+    expect(screen.getByText("0 of 2 populated sections reviewed")).toBeInTheDocument();
   });
 
   it("keeps edits and unsaved state after a revision conflict", async () => {
@@ -70,16 +71,20 @@ describe("base resume save dock", () => {
     await user.click(screen.getByRole("button", { name: "Save Changes" }));
     expect(await screen.findByText(/A newer revision was saved/)).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Entry 1 bullet 1" })).toHaveValue("Built services for clients");
-    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
   });
 });
 
-it("keeps the page label and breadcrumb aligned after a floating rename", async () => {
+it("renames beside the title and keeps the page label and breadcrumb aligned", async () => {
   const user = userEvent.setup();
   vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({ ...resume, name: payload.name!, document: { ...payload.document!, revision: 4 } }));
   renderEditor();
   expect(await screen.findByRole("heading", { name: "Source resume", level: 1 })).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: "Resume Name" })).not.toBeInTheDocument();
+  const rename = screen.getByRole("button", { name: "Edit resume name" });
+  expect(rename.closest(".app-page-header")).not.toBeNull();
+  expect(rename.closest(".astryx-button-group")).toBeNull();
+  expect(rename).toHaveAttribute("data-variant", "ghost");
   await user.click(screen.getByRole("button", { name: "Edit resume name" }));
   const input = screen.getByRole("textbox", { name: "Resume Name" });
   expect(input).toHaveAttribute("form", "base-resume-edit-form");
@@ -100,7 +105,7 @@ it("preserves edits when a duplicate name is rejected", async () => {
   await user.click(screen.getByRole("button", { name: "Save Changes" }));
   expect(await screen.findByText(/Choose a different name/)).toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: /Section content/ })).toHaveValue("Python, SQL");
-  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
 });
 
 it("cancels a floating rename without discarding section edits", async () => {
@@ -116,7 +121,7 @@ it("cancels a floating rename without discarding section edits", async () => {
   expect(screen.getByRole("heading", { name: "Source resume", level: 1 })).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: "Resume Name" })).not.toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: /Section content/ })).toHaveValue("Python, SQL");
-  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
   expect(api.updateBaseResume).not.toHaveBeenCalled();
 });
 

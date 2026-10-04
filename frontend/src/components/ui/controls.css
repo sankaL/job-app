@@ -68,10 +68,6 @@
   --container-padding-block-start: 0px;
   --container-padding-block-end: 0px;
 }
-.app-button[data-size="sm"] {
-  font-size: var(--font-size-sm);
-  padding-block: calc(var(--spacing-3) / 2);
-}
 .app-button-content {
   word-break: normal;
   overflow-wrap: normal;
@@ -139,9 +135,6 @@
 .app-section[data-tone="success"],
 .app-section[data-tone="warning"] {
   padding-inline: var(--spacing-4);
-}
-.resume-library-row {
-  padding-block: var(--spacing-5);
 }
 
 .app-select-field {

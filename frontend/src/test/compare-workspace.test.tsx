@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
@@ -70,11 +70,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={false}
         editContent=""
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={vi.fn()}
         onContentChange={vi.fn()}
         onSaveDraft={vi.fn()}
-        onCloseCompare={vi.fn()}
       />,
     );
 
@@ -97,11 +95,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={false}
         editContent=""
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={vi.fn()}
         onContentChange={vi.fn()}
         onSaveDraft={vi.fn()}
-        onCloseCompare={vi.fn()}
       />,
     );
 
@@ -123,11 +119,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={false}
         editContent=""
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={vi.fn()}
         onContentChange={vi.fn()}
         onSaveDraft={vi.fn()}
-        onCloseCompare={vi.fn()}
       />,
     );
 
@@ -157,11 +151,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={true}
         editContent="# Custom Content"
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={handleCancel}
         onContentChange={handleChange}
         onSaveDraft={handleSave}
-        onCloseCompare={vi.fn()}
       />,
     );
 
@@ -175,9 +167,7 @@ Software QA/QC Test Manager | Jan 2022 - Present
     expect(handleCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("triggers close compare callback", async () => {
-    const user = userEvent.setup();
-    const handleClose = vi.fn();
+  it("places section navigation beside display controls without duplicate page actions", () => {
 
     render(
       <CompareWorkspace
@@ -186,16 +176,16 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={false}
         editContent=""
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={vi.fn()}
         onContentChange={vi.fn()}
         onSaveDraft={vi.fn()}
-        onCloseCompare={handleClose}
       />,
     );
 
-    const closeBtn = screen.getByRole("button", { name: /close comparison/i });
-    await user.click(closeBtn);
-    expect(handleClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /close comparison/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /export pdf/i })).not.toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "Comparison sections" });
+    expect(within(navigation.parentElement!).getByRole("button", { name: "Smart Diff" })).toBeInTheDocument();
   });
 });

@@ -43,6 +43,7 @@ def get_resume_parser() -> ResumeParserService:
         confidence_threshold=settings.resume_import_confidence_threshold,
         langsmith_tracing=settings.langsmith_tracing,
         langsmith_project=settings.langsmith_project,
+        langsmith_workspace_id=settings.langsmith_workspace_id,
         langsmith_api_key=settings.langsmith_api_key,
     )
 
@@ -103,6 +104,7 @@ class UpdateBaseResumeRequest(BaseModel):
 
 
 class BaseResumeSummary(BaseModel):
+    summary: str = ""
     id: str
     name: str
     is_default: bool

@@ -1,7 +1,7 @@
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Button } from "@/components/ui/button";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { ApplicationActivityItem } from "@/components/applications/ApplicationActivityItem";
@@ -105,11 +105,41 @@ function ActivityPanelBody({
       </Text>
     );
 
+  return <ActivityTimeline grouped={grouped} expandedIds={expandedIds} onToggle={onToggle} />;
+}
+
+function ActivityTimeline({ grouped, expandedIds, onToggle }: {
+  grouped: ActivityGroup[];
+  expandedIds: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const lineRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const timeline = timelineRef.current;
+    const line = lineRef.current;
+    if (!timeline || !line) return;
+    const measure = () => {
+      const dots = timeline.querySelectorAll<HTMLElement>("[data-activity-dot]");
+      const first = dots[0]?.getBoundingClientRect();
+      const last = dots[dots.length - 1]?.getBoundingClientRect();
+      if (!first || !last) return;
+      const top = first.top + first.height / 2;
+      line.style.top = `${top - timeline.getBoundingClientRect().top}px`;
+      line.style.height = `${last.top + last.height / 2 - top}px`;
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(timeline);
+    return () => observer?.disconnect();
+  }, [grouped, expandedIds]);
+
   return (
     <div
-      className="relative ml-3 space-y-6 border-l pl-6"
-      style={{ borderColor: "var(--color-border)" }}
+      className="relative ml-3 flex flex-col gap-6 pl-6"
+      ref={timelineRef}
     >
+      <div ref={lineRef} aria-hidden="true" data-testid="activity-timeline-line" className="absolute left-0 w-px bg-[var(--color-border)] pointer-events-none" />
       {grouped.map((group) => (
         <section key={group.label} className="space-y-4">
           <div className="text-xs font-bold text-[var(--color-text-secondary)]">

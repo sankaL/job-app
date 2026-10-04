@@ -52,40 +52,6 @@
   font-weight: 600;
   color: var(--color-accent);
 }
-.resume-processing-status progress {
-  appearance: none;
-  display: block;
-  width: 100%;
-  height: 4px;
-  margin-top: 0.875rem;
-  border: 0;
-  border-radius: var(--radius-inner);
-  overflow: hidden;
-  background: var(--color-accent-muted);
-  accent-color: var(--color-accent);
-}
-.resume-processing-status progress::-webkit-progress-bar {
-  background: var(--color-accent-muted);
-}
-.resume-processing-status progress::-webkit-progress-value {
-  background: var(--color-accent);
-}
-.resume-processing-status progress::-moz-progress-bar {
-  background: var(--color-accent);
-}
-.resume-processing-status progress:indeterminate {
-  background: linear-gradient(
-    90deg,
-    var(--color-accent-muted) 0%,
-    var(--color-accent) 45%,
-    var(--color-accent-muted) 90%
-  );
-  background-size: 200% 100%;
-  animation: resume-processing-flow 2s ease-in-out infinite;
-}
-.resume-processing-status progress:indeterminate::-webkit-progress-bar {
-  background: transparent;
-}
 .resume-processing-wait {
   margin-top: 0.75rem;
   color: var(--color-text-secondary);
@@ -148,16 +114,9 @@
   font-size: 0.75rem;
   line-height: 1.6;
 }
-@keyframes resume-processing-flow {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
+/* The paper and its staggered Astryx skeleton lines animate independently of job progress. */
+.resume-generation-paper {
+  border-color: var(--color-border);
+  background: var(--color-background-surface);
 }
-@media (prefers-reduced-motion: reduce) {
-  .resume-processing-status progress:indeterminate {
-    animation: none;
-  }
-}
+.resume-processing[data-active="false"] .astryx-skeleton { animation: none; }

@@ -1,8 +1,9 @@
-import { useQuery, type QueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import {
   fetchAdminMetrics,
   fetchBaseResume,
   fetchApplicationDetail,
+  fetchCreationActivity,
   listApplicationActivity,
   fetchApplicationProgress,
   fetchDraft,
@@ -12,6 +13,7 @@ import {
   listApplications,
   listBaseResumes,
   listNotifications,
+  type CreationActivityRange,
   type ProfileData,
   type SessionBootstrapResponse,
 } from "@/lib/api";
@@ -24,6 +26,9 @@ const ADMIN_USERS_QUERY_KEY = ["adminUsers"] as const;
 export const queryKeys = {
   bootstrap: ["bootstrap"] as const,
   applications: ["applications"] as const,
+  // Nested under applications so application invalidation also refreshes the chart.
+  creationActivity: (range: CreationActivityRange, timezone: string) =>
+    ["applications", "creationActivity", range, timezone] as const,
   application: (applicationId: string) => ["application", applicationId] as const,
   applicationDraft: (applicationId: string) => ["applicationDraft", applicationId] as const,
   applicationProgress: (applicationId: string) => ["applicationProgress", applicationId] as const,
@@ -50,6 +55,15 @@ export function useApplicationsQuery() {
     queryKey: queryKeys.applications,
     queryFn: listApplications,
     staleTime: THIRTY_SECONDS_MS,
+  });
+}
+
+export function useCreationActivityQuery(range: CreationActivityRange, timezone: string) {
+  return useQuery({
+    queryKey: queryKeys.creationActivity(range, timezone),
+    queryFn: () => fetchCreationActivity(range, timezone),
+    staleTime: THIRTY_SECONDS_MS,
+    placeholderData: keepPreviousData,
   });
 }
 

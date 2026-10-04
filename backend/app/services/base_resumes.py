@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from html.parser import HTMLParser
 from typing import Optional
+
+import markdown
 
 import psycopg
 from fastapi import Depends
@@ -28,6 +31,7 @@ def _render_source_document(document) -> str:
 
 
 class ResumeWithDefaultFlag(BaseModel):
+    summary: str = ""
     id: str
     name: str
     user_id: str
@@ -51,6 +55,35 @@ class ResumeDetailWithDefaultFlag(BaseModel):
     created_at: str
     updated_at: str
     is_default: bool
+
+
+class _SummaryText(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"p", "li", "div", "h1", "h2", "h3"}:
+            self.parts.append(" ")
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag == "br":
+            self.parts.append(" ")
+
+
+def _summary_excerpt(record: BaseResumeListRecord) -> str:
+    source = record.summary_md
+    if record.legacy_content_md:
+        document = parse_resume_document(record.legacy_content_md)
+        source = next((section.content_md for section in document.sections
+                       if section.kind == "summary" and section.content_md.strip()), "")
+    parser = _SummaryText()
+    parser.feed(markdown.markdown(source))
+    text = " ".join("".join(parser.parts).split())
+    return text if len(text) <= 240 else text[:237].rsplit(" ", 1)[0] + "…"
 
 
 class BaseResumeService:
@@ -90,6 +123,7 @@ class BaseResumeService:
         return [
             ResumeWithDefaultFlag(
                 **record.model_dump(),
+                summary=_summary_excerpt(record),
                 is_default=self._is_default(user_id, record.id),
             )
             for record in records

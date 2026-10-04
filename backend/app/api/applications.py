@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import date
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -22,6 +23,12 @@ from app.services.application_manager import (
     ResumeJudgeResultPayload,
     SourceCapturePayload,
     get_application_service,
+)
+from app.services.creation_activity import (
+    TIMEZONE_MAX_LENGTH,
+    ActivityGranularity,
+    ActivityRange,
+    CreationActivity,
 )
 from app.services.resume_render import build_render_document
 from app.services.progress import ProgressRecord, now_iso
@@ -516,6 +523,45 @@ class ApplicationActivityEntry(BaseModel):
     attempts: Optional[list[ApplicationActivityAttempt]] = None
 
 
+class CreationActivityBucketResponse(BaseModel):
+    start_date: date
+    end_date: date
+    created: int
+    applied: int
+
+
+class CreationActivityResponse(BaseModel):
+    range: ActivityRange
+    granularity: ActivityGranularity
+    timezone: str
+    start_date: date
+    end_date: date
+    total_created: int
+    total_applied: int
+    buckets: list[CreationActivityBucketResponse]
+
+
+def to_creation_activity_response(activity: CreationActivity) -> CreationActivityResponse:
+    return CreationActivityResponse(
+        range=activity.range_key,
+        granularity=activity.granularity,
+        timezone=activity.timezone,
+        start_date=activity.start_date,
+        end_date=activity.end_date,
+        total_created=activity.total_created,
+        total_applied=activity.total_applied,
+        buckets=[
+            CreationActivityBucketResponse(
+                start_date=bucket.start_date,
+                end_date=bucket.end_date,
+                created=bucket.created,
+                applied=bucket.applied,
+            )
+            for bucket in activity.buckets
+        ],
+    )
+
+
 def to_application_summary(record: ApplicationListRecord) -> ApplicationSummary:
     return ApplicationSummary(
         **record.model_dump(),
@@ -627,6 +673,24 @@ async def list_applications(
         visible_status=visible_status,
     )
     return [to_application_summary(record) for record in records]
+
+
+@router.get("/creation-activity", response_model=CreationActivityResponse)
+async def get_creation_activity(
+    current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
+    service: Annotated[ApplicationService, Depends(get_application_service)],
+    range_key: Annotated[ActivityRange, Query(alias="range")] = "30d",
+    timezone: Annotated[str, Query(min_length=1, max_length=TIMEZONE_MAX_LENGTH)] = "UTC",
+) -> CreationActivityResponse:
+    try:
+        activity = await service.get_creation_activity(
+            user_id=current_user.id,
+            range_key=range_key,
+            timezone_name=timezone,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return to_creation_activity_response(activity)
 
 
 @router.post("", response_model=ApplicationDetail, status_code=status.HTTP_201_CREATED)

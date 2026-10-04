@@ -107,6 +107,7 @@ class WorkerSettingsEnv(BaseSettings):
     tier2_fallback_model: str = "openai/gpt-6-luna"
     langsmith_tracing: bool = False
     langsmith_project: Optional[str] = None
+    langsmith_workspace_id: Optional[str] = None
     langsmith_api_key: Optional[str] = None
 
     @field_validator("tier1_model", "tier1_fallback_model", "tier2_model", "tier2_fallback_model")

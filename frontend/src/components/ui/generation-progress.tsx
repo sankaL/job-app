@@ -1,3 +1,4 @@
+import { ResumeGenerationSkeleton } from "./resume-generation-skeleton";
 import { Button } from "@/components/ui/button";
 import { ResumeProcessing } from "@/components/ui/resume-processing";
 import type { ExtractionProgress } from "@/lib/api";
@@ -8,6 +9,7 @@ type GenerationProgressProps = {
   isActive: boolean;
   isCancelling: boolean;
   onCancel: () => void;
+  scope?: "resume" | "section";
 };
 
 const GENERATION_STEPS = [
@@ -17,8 +19,9 @@ const GENERATION_STEPS = [
   { title: "Assemble your editable draft", detail: "Bring the accepted sections together and attach profile details locally." },
 ];
 
-export function GenerationProgress({ progress, isOptimistic, isActive, isCancelling, onCancel }: GenerationProgressProps) {
+export function GenerationProgress({ progress, isOptimistic, isActive, isCancelling, onCancel, scope = "resume" }: GenerationProgressProps) {
   const reported = isOptimistic ? null : progress;
+  const section = reported ? reported.workflow_kind === "regeneration_section" : scope === "section";
   const hasReportedProgress = Boolean(reported);
   const terminal = Boolean(reported?.completed_at || reported?.terminal_error_code);
   const percent = reported?.percent_complete;
@@ -28,8 +31,15 @@ export function GenerationProgress({ progress, isOptimistic, isActive, isCancell
     : /validat|audit|check|repair/i.test(message) || percent >= 85 ? 2
     : percent >= 10 ? 1 : 0;
   const sessionKey = isActive || isOptimistic ? `${reported?.workflow_kind ?? "optimistic"}:${reported?.job_id ?? "optimistic"}` : "inactive";
-  return <ResumeProcessing title="Preparing your tailored resume" description="Your reviewed experience is being tailored to this job, then checked before the draft is saved."
-    message={message} steps={GENERATION_STEPS} currentStep={isCancelling ? null : currentStep} percent={percent}
+  return <ResumeProcessing title={section ? "Updating your resume section" : "Preparing your tailored resume"}
+    description={section ? "Rewriting the selected content using your instructions and source experience. The rest of your draft stays unchanged." : "Your reviewed experience is being tailored to this job, then checked before the draft is saved."}
+    preview={<ResumeGenerationSkeleton section={section} />}
+    message={message} steps={section ? [
+      { title: "Prepare the selected source content", detail: "Use the original section, job requirements and your instructions." },
+      { title: "Rewrite the selected content", detail: "Tailor this section or role while preserving your source facts." },
+      GENERATION_STEPS[2],
+      { title: "Save the updated section", detail: "Keep the rest of the draft unchanged and reopen it for review." },
+    ] : GENERATION_STEPS} currentStep={isCancelling ? null : currentStep} percent={percent}
     active={(isActive || isOptimistic) && !terminal} sessionKey={sessionKey}
     actions={isActive && !terminal ? <Button type="button" variant="secondary" size="sm" disabled={isCancelling} onClick={onCancel}>{isCancelling ? "Cancelling..." : "Cancel"}</Button> : undefined} />;
 }

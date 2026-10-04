@@ -2,19 +2,21 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Theme } from "@astryxdesign/core/theme";
-import { neutralTheme } from "@astryxdesign/theme-neutral/built";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { usePageActionHost } from "./ShellLayoutContext";
+import type { ReactNode } from "react";
+import { ActionButtons } from "@/components/ui/button-group";
 
 type PageHeaderProps = {
   title: string;
   titleContent?: ReactNode;
   titleAction?: ReactNode;
-  subtitle?: string;
+  subtitle?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
   hasBodyHeading?: boolean;
+  groupActions?: boolean;
+  primaryActionIndex?: number;
 };
 
 export function PageHeader({
@@ -25,36 +27,20 @@ export function PageHeader({
   badge,
   actions,
   hasBodyHeading = false,
+  groupActions = true,
+  primaryActionIndex,
 }: PageHeaderProps) {
-  const floatingRef = useRef<HTMLElement>(null);
-  const hasFloatingActions = Boolean(
-    actions || (!hasBodyHeading && (titleContent || titleAction)),
-  );
-
-  useLayoutEffect(() => {
-    const element = floatingRef.current;
-    if (!element) return;
-    const bodyStyle = document.body.style;
-    const property = "--floating-page-actions-height";
-    const previousHeight = bodyStyle.getPropertyValue(property);
-    const measure = () =>
-      bodyStyle.setProperty(
-        property,
-        `${Math.max(48, Math.ceil(element.getBoundingClientRect().height))}px`,
-      );
-    measure();
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(measure);
-    observer?.observe(element);
-    return () => {
-      observer?.disconnect();
-      if (previousHeight) bodyStyle.setProperty(property, previousHeight);
-      else bodyStyle.removeProperty(property);
-    };
-  }, [hasFloatingActions]);
-
+  const actionHost = usePageActionHost();
+  const actionContent = actions || (!hasBodyHeading && titleAction) ? (
+        <HStack gap={2} wrap="wrap" hAlign="end" className="max-w-full">
+          {groupActions ? (
+            <ActionButtons label={`${title} actions`} primaryIndex={primaryActionIndex}>
+              {!hasBodyHeading && titleAction}
+              {actions}
+            </ActionButtons>
+          ) : <>{!hasBodyHeading && titleAction}{actions}</>}
+        </HStack>
+      ) : null;
   return (
     <>
       {hasBodyHeading ? (
@@ -67,56 +53,19 @@ export function PageHeader({
         >
           <VStack gap={1} className="min-w-0 flex-1">
             <HStack gap={2} vAlign="center" wrap="wrap">
-              <Heading level={1} className="min-w-0">
+              <Heading level={1} className={hasBodyHeading ? "min-w-0" : "sr-only"}>
                 {titleContent ?? title}
               </Heading>
               {titleAction}
               {badge}
             </HStack>
             {subtitle ? (
-              <Text as="p" type="body" color="secondary">
-                {subtitle}
-              </Text>
+              <HStack gap={2} className="text-secondary">{typeof subtitle === "string" ? <Text as="p" type="body" color="secondary">{subtitle}</Text> : subtitle}</HStack>
             ) : null}
           </VStack>
         </HStack>
-      ) : (
-        <Heading level={1} className="sr-only app-page-heading-hidden">
-          {title}
-        </Heading>
-      )}
-      {hasFloatingActions && typeof document !== "undefined"
-        ? createPortal(
-            <Theme theme={neutralTheme} mode="light">
-              <VStack
-                ref={floatingRef}
-                gap={2}
-                hAlign="end"
-                className="app-floating-page-actions"
-              >
-                {!hasBodyHeading && titleContent ? (
-                  <HStack className="app-floating-name-editor">
-                    {titleContent}
-                  </HStack>
-                ) : null}
-                {actions || (!hasBodyHeading && titleAction) ? (
-                  <HStack
-                    gap={2}
-                    wrap="wrap"
-                    hAlign="end"
-                    role="group"
-                    aria-label={`${title} actions`}
-                    className="app-floating-action-buttons"
-                  >
-                    {!hasBodyHeading && titleAction}
-                    {actions}
-                  </HStack>
-                ) : null}
-              </VStack>
-            </Theme>,
-            document.body,
-          )
-        : null}
+      ) : <Heading level={1} className="sr-only app-page-heading-hidden">{title}</Heading>}
+      {actionHost ? createPortal(actionContent, actionHost) : actionContent}
     </>
   );
 }

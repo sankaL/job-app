@@ -24,7 +24,7 @@ export function StatusBadge({
       color={colors[status]}
       size={size}
       className={cn(
-        "shrink-0",
+        "shrink-0 rounded-full justify-center",
         layout === "rail" &&
           (size === "sm" ? "min-w-[7.25rem]" : "min-w-[8rem]"),
       )}

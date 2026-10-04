@@ -21,6 +21,7 @@ from app.db.subscriptions import (
 )
 from app.db.usage_events import UsageEventRepository, get_usage_event_repository
 from app.services.email import EmailMessage, EmailSender, build_email_sender
+from app.services.email_templates import render_branded_email
 from app.services.user_manager import UserManager, build_user_manager
 
 logger = logging.getLogger(__name__)
@@ -390,29 +391,20 @@ class AdminService:
 
     async def _send_invite_email(self, *, to_email: str, invite_link: str, expires_at: str) -> None:
         expiry_label = self._parse_timestamp(expires_at).strftime("%B %d, %Y")
-        html = (
-            "<div style=\"font-family: 'Source Sans 3', Helvetica, Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #101828;\">"
-            "<div style=\"padding: 24px; border: 1px solid rgba(16,24,40,0.08); border-radius: 16px; background: #ffffff;\">"
-            "<p style=\"margin: 0 0 8px; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #184a45;\">Applix Invite</p>"
-            "<h1 style=\"margin: 0 0 12px; font-size: 28px; line-height: 1.2;\">You're invited to Applix</h1>"
-            "<p style=\"margin: 0 0 20px; font-size: 16px; line-height: 1.5;\">Finish your account setup and sign in to your invite-only workspace.</p>"
-            f"<a href=\"{invite_link}\" style=\"display: inline-block; padding: 12px 18px; border-radius: 10px; background: #184a45; color: #ffffff; text-decoration: none; font-weight: 600;\">Accept Invite</a>"
-            f"<p style=\"margin: 16px 0 0; font-size: 13px; color: rgba(16,24,40,0.65);\">This link expires on {expiry_label}.</p>"
-            f"<p style=\"margin: 8px 0 0; font-size: 13px; color: rgba(16,24,40,0.65);\">If the button doesn't work, copy and paste this link:<br>{invite_link}</p>"
-            "</div>"
-            "</div>"
-        )
-        text = (
-            "You're invited to Applix.\n\n"
-            f"Accept invite: {invite_link}\n\n"
-            f"This link expires on {expiry_label}."
+        email = render_branded_email(
+            eyebrow="Invitation",
+            heading="You're invited to Applix",
+            body="Finish your account setup and sign in to your invite-only workspace.",
+            cta_label="Accept invite",
+            cta_url=invite_link,
+            footnote=f"This link expires on {expiry_label}.",
         )
         await self.email_sender.send(
             EmailMessage(
                 to=[to_email],
                 subject="You are invited to Applix",
-                html=html,
-                text=text,
+                html=email.html,
+                text=email.text,
             )
         )
 

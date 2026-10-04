@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Button as AstryxButton } from "@astryxdesign/core/Button";
 import { cn } from "@/lib/utils";
+import { useActionGroup } from "./button-group";
 
 type ButtonProps = PropsWithChildren<
   ButtonHTMLAttributes<HTMLButtonElement>
@@ -44,7 +45,8 @@ export function Button({
   contentLayout = "inline",
   ...props
 }: ButtonProps) {
-  const geometry: Record<string, string> = { height: "auto" };
+  const group = useActionGroup();
+  const geometry: Record<string, string> = contentLayout === "block" ? { height: "auto" } : {};
   for (const token of className?.split(/\s+/) ?? []) {
     const match = token.match(/^([wh])-(\d+)$/);
     if (match)
@@ -59,8 +61,8 @@ export function Button({
       // Let complex visible children and aria-labelledby supply the accessible name.
       aria-label={props["aria-label"]}
       {...{ title }}
-      variant={variant === "danger" ? "destructive" : variant}
-      size={size}
+      variant={group?.isPrimary ? "primary" : variant === "danger" ? "destructive" : group ? "secondary" : variant}
+      size={group?.size ?? size}
       isLoading={loading}
       isDisabled={disabled}
       className={cn("app-button", className)}

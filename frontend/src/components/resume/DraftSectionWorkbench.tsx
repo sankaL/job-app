@@ -1,11 +1,12 @@
+import { ActionButtons } from "@/components/ui/button-group";
 import { Text } from "@astryxdesign/core/Text";
-import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
 import {
   ResumeContactSection,
   ResumeSectionWorkbench,
+  type SectionProcessing,
 } from "./ResumeSectionWorkbench";
 import type {
   ProfileData,
@@ -28,10 +29,12 @@ export function DraftSectionWorkbench({
   onDirtyChange,
   canRegenerate,
   regenerationReason,
+  processing,
 }: {
   draft: ResumeDraft;
   profile: ProfileData | null;
   locked?: boolean;
+  processing?: SectionProcessing;
   saving?: boolean;
   onSave: (
     document: ResumeDocument,
@@ -48,6 +51,10 @@ export function DraftSectionWorkbench({
   const [document, setDocument] = useState(
     () => draft.document ?? documentFromMarkdown(draft.content_md),
   );
+  const processingSection = processing?.sectionId
+    ? document.sections.find((section) => section.id === processing.sectionId || section.kind === processing.sectionId)
+    : undefined;
+  const inlineProcessing = processing && { ...processing, sectionId: processingSection?.id };
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [changedElsewhere, setChangedElsewhere] = useState(false);
@@ -108,40 +115,6 @@ export function DraftSectionWorkbench({
       className="draft-workbench flex min-h-0 flex-1 flex-col"
       data-testid="draft-section-workbench"
     >
-      <div
-        className="flex flex-wrap items-start justify-between gap-3 border-b pb-3"
-        style={{ borderColor: "var(--color-border)" }}
-      >
-        <div>
-          <Heading level={3}>Generated resume</Heading>
-          <Text
-            as="p"
-            display="block"
-            type="supporting"
-            className="mt-1"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            Preview your resume. Double-click a section or choose Edit to change
-            it.
-          </Text>
-        </div>
-        <div
-          className="space-y-1 text-right text-xs"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          <Text as="p" display="block" type="body">
-            Generated {new Date(draft.last_generated_at).toLocaleString()}
-          </Text>
-          {draft.last_exported_at && (
-            <Text as="p" display="block" type="body">
-              Exported {new Date(draft.last_exported_at).toLocaleString()}
-            </Text>
-          )}
-          <Text as="p" display="block" type="body">
-            Revision {draft.document?.revision ?? 1}
-          </Text>
-        </div>
-      </div>
       {error && (
         <Text
           as="p"
@@ -185,9 +158,11 @@ export function DraftSectionWorkbench({
             regeneration.
           </Text>
         )}
+        {inlineProcessing && !inlineProcessing.sectionId && inlineProcessing.content}
         <ResumeSectionWorkbench
           contactPanel={<ResumeContactSection profile={profile} />}
           document={document}
+          processing={inlineProcessing}
           disabled={locked || saving}
           onChange={(next) => {
             setDocument(next);
@@ -214,25 +189,28 @@ export function DraftSectionWorkbench({
         </Text>
         {dirty && (
           <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={locked || saving}
-              onClick={discardChanges}
-            >
-              Discard edits
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={locked || saving || changedElsewhere}
-              loading={saving}
-              onClick={() => void saveChanges()}
-            >
-              {saving ? "Saving…" : "Save Draft"}
-            </Button>
-          </div>
+            <ActionButtons label="Draft changes" size="sm">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={locked || saving}
+                onClick={discardChanges}
+              >
+                Discard edits
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={locked || saving || changedElsewhere}
+                loading={saving}
+                onClick={() => void saveChanges()}
+              >
+                {saving ? "Saving…" : "Save Draft"}
+              </Button>
+
+            </ActionButtons>
+</div>
         )}
       </div>
     </div>

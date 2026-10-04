@@ -1,3 +1,4 @@
+import { ActionButtons } from "@/components/ui/button-group";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Textarea } from "@/components/ui/textarea";
@@ -246,29 +247,32 @@ function EntryEditor({
           />
         </Button>
         <div className="resume-entry-actions">
-          {onRegenerate && (
+          <ActionButtons label="Resume entry actions" size="sm" primaryIndex={0}>
+            {onRegenerate && (
+              <Button
+                size="sm"
+                variant="secondary"
+                type="button"
+                disabled={disabled || regenerationDisabled}
+                title={regenerationReason ?? undefined}
+                onClick={onRegenerate}
+              >
+                <RefreshCw size={13} /> Regenerate role
+              </Button>
+            )}
             <Button
               size="sm"
               variant="secondary"
               type="button"
-              disabled={disabled || regenerationDisabled}
-              title={regenerationReason ?? undefined}
-              onClick={onRegenerate}
+              disabled={disabled}
+              aria-label={`Remove entry ${index + 1}`}
+              onClick={onRemove}
             >
-              <RefreshCw size={13} /> Regenerate role
+              <Trash2 size={13} />
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant="secondary"
-            type="button"
-            disabled={disabled}
-            aria-label={`Remove entry ${index + 1}`}
-            onClick={onRemove}
-          >
-            <Trash2 size={13} />
-          </Button>
-        </div>
+
+          </ActionButtons>
+</div>
       </div>
       <div id={contentId} hidden={!expanded}>
         {onRegenerate && regenerationReason && (
@@ -382,6 +386,8 @@ function EntryEditor({
   );
 }
 
+export type SectionProcessing = { sectionId?: string; entryId?: string; content: ReactNode };
+
 export function ResumeSectionWorkbench({
   document,
   onChange,
@@ -392,9 +398,11 @@ export function ResumeSectionWorkbench({
   regenerationReason,
   contactPanel,
   referencePanel,
+  processing,
 }: {
   contactPanel?: ReactNode;
   referencePanel?: ReactNode;
+  processing?: SectionProcessing;
   document: ResumeDocument;
   onChange: (document: ResumeDocument) => void;
   disabled?: boolean;
@@ -420,6 +428,12 @@ export function ResumeSectionWorkbench({
   const [selectedId, setSelectedId] = useState<string | null>(
     contactPanel ? "contact" : null,
   );
+  useEffect(() => {
+    if (processing?.sectionId) {
+      setSelectedId(`section:${processing.sectionId}`);
+      setEditingId(null);
+    }
+  }, [processing?.sectionId]);
   const [newKind, setNewKind] = useState<ResumeSectionKind>(
     "professional_experience",
   );
@@ -471,9 +485,6 @@ export function ResumeSectionWorkbench({
   );
   const reviewed = active.filter(
     (section) => section.review_state === "reviewed",
-  );
-  const nextReview = active.find(
-    (section) => section.review_state !== "reviewed",
   );
   const tabs = [
     ...(contactPanel ? [{ id: "contact", label: "Contact information" }] : []),
@@ -550,10 +561,10 @@ export function ResumeSectionWorkbench({
                       ? "↗"
                       : String(index + 1).padStart(2, "0")}
                   </span>
-                  <span className="min-w-0 break-words">{tab.label}</span>
+                  <span className="resume-index-label" title={tab.label}>{tab.label}</span>
                   {section && (
                     <span
-                      className={`resume-index-dot ${!section.enabled ? "excluded" : source && section.review_state !== "reviewed" ? "pending" : ""}`}
+                      className={`resume-index-dot ${!section.enabled ? "excluded" : source ? section.review_state === "reviewed" ? "reviewed" : "pending" : ""}`}
                       aria-label={
                         !section.enabled
                           ? "Excluded"
@@ -570,7 +581,7 @@ export function ResumeSectionWorkbench({
             })}
           </div>
           {source && (
-            <div className="mt-3">
+            <div className="resume-review-summary">
               <Text
                 as="p"
                 display="block"
@@ -585,40 +596,8 @@ export function ResumeSectionWorkbench({
                 max={Math.max(active.length, 1)}
                 value={reviewed.length}
               />
-              <Text
-                as="p"
-                display="block"
-                type="supporting"
-                className="mt-2"
-                style={{ color: "var(--color-text-secondary)" }}
-              >
-                Check every included section against your source. Saving does
-                not mark it reviewed.
-              </Text>
-              {nextReview && (
-                <Button
-                  variant="ghost"
-                  className="resume-next-review"
-                  type="button"
-                  onClick={() => {
-                    selectTab(`section:${nextReview.id}`);
-                  }}
-                >
-                  Continue review <ArrowDown size={13} />
-                </Button>
-              )}
             </div>
           )}
-          <Text
-            as="p"
-            display="block"
-            type="supporting"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            {source
-              ? "Included sections and their order apply to new generations. Existing drafts keep their saved layout."
-              : "Included sections and their order apply to this draft, its regeneration and exports. Excluded sections stay here so you can include them again."}
-          </Text>
         </div>
       </aside>
       <div className="resume-sheet">
@@ -747,10 +726,10 @@ export function ResumeSectionWorkbench({
                             : "Needs review"}
                         </span>
                       )}
-                      {!section.enabled && <span>Excluded from resume</span>}
+                      {!section.enabled && <span className="resume-excluded-label">Excluded from resume</span>}
                     </div>
                   </div>
-                  <div className="resume-section-controls">
+                  <ActionButtons label={`${section.heading} controls`} size="sm" primaryIndex={0}>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -771,22 +750,18 @@ export function ResumeSectionWorkbench({
                       )}
                       {editingId === section.id ? "Preview" : "Edit"}
                     </Button>
-                    <label className="inline-flex items-center gap-2 text-xs">
-                      <Input
-                        type="checkbox"
-                        aria-label={`Include ${section.heading}`}
-                        checked={section.enabled}
-                        disabled={disabled}
-                        onChange={(event) =>
-                          updateSection(
-                            section.id,
-                            { enabled: event.target.checked },
-                            false,
-                          )
-                        }
-                      />{" "}
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      type="button"
+                      aria-label={`Include ${section.heading}`}
+                      aria-pressed={section.enabled}
+                      disabled={disabled}
+                      onClick={() => updateSection(section.id, { enabled: !section.enabled }, false)}
+                    >
+                      {section.enabled && <Check size={14} aria-hidden="true" />}
                       Include
-                    </label>
+                    </Button>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -828,7 +803,7 @@ export function ResumeSectionWorkbench({
                         <Trash2 size={14} />
                       </Button>
                     )}
-                  </div>
+                  </ActionButtons>
                 </div>
                 {editingId === section.id && source && (
                   <details className="resume-section-settings">
@@ -893,7 +868,9 @@ export function ResumeSectionWorkbench({
                       split.
                     </Text>
                   )}
-                {editingId === section.id ? (
+                {processing?.sectionId === section.id && !processing.entryId ? (
+                  processing.content
+                ) : editingId === section.id ? (
                   <>
                     {section.entries.length === 0 && (
                       <div className="my-4">
@@ -962,6 +939,7 @@ export function ResumeSectionWorkbench({
                 ) : (
                   <ResumeSectionPreview
                     section={section}
+                    processing={processing?.sectionId === section.id ? processing : undefined}
                     disabled={disabled}
                     onRegenerate={
                       onRegenerate &&
@@ -997,47 +975,50 @@ export function ResumeSectionWorkbench({
                   )}
                 <div className="resume-section-footer">
                   <div className="flex flex-wrap gap-2">
-                    {[
-                      "professional_experience",
-                      "education",
-                      "projects",
-                      "certifications",
-                    ].includes(section.kind) && (
-                      <Button
-                        size="sm"
-                        type="button"
-                        variant="secondary"
-                        disabled={disabled}
-                        onClick={() => addEntry(section)}
-                      >
-                        <Plus size={13} /> Add{" "}
-                        {section.kind === "professional_experience"
-                          ? "role"
-                          : "entry"}
-                      </Button>
-                    )}
-                    {source && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        type="button"
-                        disabled={
-                          disabled ||
-                          Boolean(sourceSectionReviewError(section)) ||
-                          section.review_state === "reviewed"
-                        }
-                        onClick={() =>
-                          updateSection(
-                            section.id,
-                            { review_state: "reviewed" },
-                            false,
-                          )
-                        }
-                      >
-                        <Check size={13} /> Mark reviewed
-                      </Button>
-                    )}
-                  </div>
+                    <ActionButtons label="Section actions" size="sm">
+                      {[
+                        "professional_experience",
+                        "education",
+                        "projects",
+                        "certifications",
+                      ].includes(section.kind) && (
+                        <Button
+                          size="sm"
+                          type="button"
+                          variant="secondary"
+                          disabled={disabled}
+                          onClick={() => addEntry(section)}
+                        >
+                          <Plus size={13} /> Add{" "}
+                          {section.kind === "professional_experience"
+                            ? "role"
+                            : "entry"}
+                        </Button>
+                      )}
+                      {source && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          type="button"
+                          disabled={
+                            disabled ||
+                            Boolean(sourceSectionReviewError(section)) ||
+                            section.review_state === "reviewed"
+                          }
+                          onClick={() =>
+                            updateSection(
+                              section.id,
+                              { review_state: "reviewed" },
+                              false,
+                            )
+                          }
+                        >
+                          <Check size={13} /> Mark reviewed
+                        </Button>
+                      )}
+
+                    </ActionButtons>
+</div>
                   {onRegenerate && (
                     <Button
                       size="sm"

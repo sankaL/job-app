@@ -354,6 +354,7 @@ export type ExtensionTokenResponse = {
 };
 
 export type BaseResumeSummary = {
+  summary?: string;
   id: string;
   name: string;
   is_default: boolean;
@@ -784,6 +785,37 @@ export async function clearNotifications(): Promise<void> {
 
 export async function listApplications(): Promise<ApplicationSummary[]> {
   return authenticatedRequest<ApplicationSummary[]>("/api/applications");
+}
+
+export const CREATION_ACTIVITY_RANGES = ["7d", "30d", "3m", "1y"] as const;
+export type CreationActivityRange = (typeof CREATION_ACTIVITY_RANGES)[number];
+
+export type CreationActivityBucket = {
+  start_date: string;
+  end_date: string;
+  created: number;
+  applied: number;
+};
+
+export type CreationActivity = {
+  range: CreationActivityRange;
+  granularity: "day" | "week";
+  timezone: string;
+  start_date: string;
+  end_date: string;
+  total_created: number;
+  total_applied: number;
+  buckets: CreationActivityBucket[];
+};
+
+export async function fetchCreationActivity(
+  range: CreationActivityRange,
+  timezone: string,
+): Promise<CreationActivity> {
+  const query = new URLSearchParams({ range, timezone });
+  return authenticatedRequest<CreationActivity>(
+    `/api/applications/creation-activity?${query.toString()}`,
+  );
 }
 
 export type CreateApplicationPayload = {

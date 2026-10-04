@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ResponsiveContainer, Tooltip } from "recharts";
+import { ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 
 export type ChartConfig = Record<
@@ -15,39 +15,7 @@ type ChartContainerProps = React.HTMLAttributes<HTMLDivElement> & {
   children: React.ReactElement;
 };
 
-type ChartPayloadItem = {
-  color?: string;
-  dataKey?: string | number;
-  name?: string | number;
-  value?: string | number;
-};
-
-type ChartTooltipContentProps = {
-  active?: boolean;
-  payload?: ChartPayloadItem[];
-  label?: string | number;
-  labelFormatter?: (value: string | number) => React.ReactNode;
-  indicator?: "dot" | "line";
-};
-
-const ChartConfigContext = React.createContext<ChartConfig | null>(null);
-
-function useChartConfig() {
-  const config = React.useContext(ChartConfigContext);
-
-  if (!config) {
-    throw new Error("Chart components must be used inside <ChartContainer />.");
-  }
-
-  return config;
-}
-
-function getPayloadKey(item: ChartPayloadItem) {
-  if (typeof item.dataKey === "string") return item.dataKey;
-  if (typeof item.name === "string") return item.name;
-  return "";
-}
-
+// Exposes each series color as `--color-<key>` so marks reference config, not raw values.
 export function ChartContainer({
   config,
   className,
@@ -66,81 +34,14 @@ export function ChartContainer({
   );
 
   return (
-    <ChartConfigContext.Provider value={config}>
-      <div
-        className={cn("w-full", className)}
-        style={{ ...(chartVars as React.CSSProperties), ...style }}
-        {...props}
-      >
-        <ResponsiveContainer width="100%" height="100%">
-          {children}
-        </ResponsiveContainer>
-      </div>
-    </ChartConfigContext.Provider>
-  );
-}
-
-export const ChartTooltip = Tooltip;
-
-export function ChartTooltipContent({
-  active,
-  payload,
-  label,
-  labelFormatter,
-  indicator = "dot",
-}: ChartTooltipContentProps) {
-  const config = useChartConfig();
-
-  if (!active || !payload?.length) return null;
-
-  return (
     <div
-      className="min-w-[160px] rounded-xl border px-3 py-2.5 shadow-sm"
-      style={{
-        borderColor: "var(--color-border)",
-        background: "var(--color-background-surface)",
-      }}
+      className={cn("w-full", className)}
+      style={{ ...(chartVars as React.CSSProperties), ...style }}
+      {...props}
     >
-      <div
-        className="text-xs font-semibold"
-        style={{ color: "var(--color-text-secondary)" }}
-      >
-        {labelFormatter ? labelFormatter(label ?? "") : label}
-      </div>
-      <div className="mt-2 space-y-1.5">
-        {payload.map((item) => {
-          const key = getPayloadKey(item);
-          const chartItem = config[key];
-          const tone =
-            item.color ?? chartItem?.color ?? "var(--color-text-primary)";
-
-          return (
-            <div
-              key={key}
-              className="flex items-center justify-between gap-3 text-sm"
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn(
-                    "inline-block shrink-0 rounded-full",
-                    indicator === "line" ? "h-0.5 w-3" : "h-2.5 w-2.5",
-                  )}
-                  style={{ background: tone }}
-                />
-                <span style={{ color: "var(--color-text-primary)" }}>
-                  {chartItem?.label ?? key}
-                </span>
-              </div>
-              <span
-                className="font-semibold tabular-nums"
-                style={{ color: "var(--color-text-primary)" }}
-              >
-                {item.value ?? 0}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      <ResponsiveContainer width="100%" height="100%">
+        {children}
+      </ResponsiveContainer>
     </div>
   );
 }

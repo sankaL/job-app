@@ -1,3 +1,6 @@
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useState, type ReactNode } from "react";
@@ -16,6 +19,7 @@ export function ResumeProcessing({
   active = true,
   sessionKey = "import",
   actions,
+  preview,
 }: {
   title: string;
   description: string;
@@ -26,6 +30,7 @@ export function ResumeProcessing({
   active?: boolean;
   sessionKey?: string;
   actions?: ReactNode;
+  preview?: ReactNode;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -79,11 +84,16 @@ export function ResumeProcessing({
         >
           {message}
         </Text>
-        <progress
-          aria-label="Resume processing progress"
-          max={100}
-          value={measuredPercent}
-        />
+        <VStack className="mt-4">
+          <ProgressBar
+            label="Resume processing progress"
+            isLabelHidden
+            value={measuredPercent}
+            isIndeterminate={measuredPercent === undefined && active}
+            hasValueLabel={measuredPercent !== undefined}
+            variant="neutral"
+          />
+        </VStack>
         {elapsed >= 20 && active && (
           <Text
             as="p"
@@ -96,30 +106,33 @@ export function ResumeProcessing({
           </Text>
         )}
       </div>
-      <div className="resume-processing-plan">
-        <Heading level={3}>
-          {currentStep === null ? "What this includes" : "Processing steps"}
-        </Heading>
-        <ol>
-          {steps.map((step, index) => (
-            <li
-              key={step.title}
-              aria-current={currentStep === index ? "step" : undefined}
-              data-current={currentStep === index}
-            >
-              <span className="resume-processing-number" aria-hidden="true">
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <div>
-                <Heading level={4}>{step.title}</Heading>
-                <Text as="p" display="block" type="body">
-                  {step.detail}
-                </Text>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </div>
+      <HStack gap={6} vAlign="start" className="flex-col lg:flex-row">
+        {preview}
+        <VStack gap={2} className="resume-processing-plan min-w-0 flex-1">
+          <Heading level={3}>
+            {currentStep === null ? "What this includes" : "Processing steps"}
+          </Heading>
+          <ol>
+            {steps.map((step, index) => (
+              <li
+                key={step.title}
+                aria-current={currentStep === index ? "step" : undefined}
+                data-current={currentStep === index}
+              >
+                <span className="resume-processing-number" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <Heading level={4}>{step.title}</Heading>
+                  <Text as="p" display="block" type="body">
+                    {step.detail}
+                  </Text>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </VStack>
+      </HStack>
       <div className="resume-processing-footer">
         <Text as="p" display="block" type="body">
           Your source facts stay grounded in your resume. You can review the

@@ -397,7 +397,7 @@ async def call_with_fallback(*, models: tuple[str, str], **kwargs):
     """One explicit fallback; corrections and both attempts share the budget."""
     for index, candidate in enumerate(dict.fromkeys(models)):
         try:
-            return await structured_call(model_name=candidate, **kwargs), candidate
+            return await structured_call(model_name=candidate, is_fallback=index > 0, **kwargs), candidate
         except Exception as error:
             if isinstance(error, AIRequestError) and not error.can_fallback:
                 raise

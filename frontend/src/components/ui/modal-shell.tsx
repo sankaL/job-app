@@ -1,3 +1,4 @@
+import { ActionButtons } from "@/components/ui/button-group";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useId, type ReactNode } from "react";
@@ -158,17 +159,20 @@ export function ModalActions({
       className="mt-5 flex items-center justify-end gap-2 border-t pt-5"
       style={{ borderColor: "var(--color-border)" }}
     >
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={onCancel}
-        disabled={submitting}
-      >
-        Cancel
-      </Button>
-      <Button type="submit" loading={submitting} disabled={submitting}>
-        {submitLabel}
-      </Button>
-    </div>
+      <ActionButtons label="Form actions" size="sm">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" loading={submitting} disabled={submitting}>
+          {submitLabel}
+        </Button>
+
+      </ActionButtons>
+</div>
   );
 }

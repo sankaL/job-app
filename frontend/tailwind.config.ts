@@ -11,6 +11,8 @@ export default {
         spruce: "var(--color-spruce)",
         ember: "var(--color-ember)",
         amber: "var(--color-amber)",
+        control: "var(--color-border-emphasized)",
+        error: "var(--color-error)",
         surface: "var(--color-surface)",
       },
       fontFamily: {

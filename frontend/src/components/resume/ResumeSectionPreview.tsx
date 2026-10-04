@@ -1,3 +1,4 @@
+import type { SectionProcessing } from "./ResumeSectionWorkbench";
 import { Text } from "@astryxdesign/core/Text";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -24,9 +25,11 @@ export function ResumeSectionPreview({
   onRegenerate,
   canRegenerate,
   regenerationReason,
+  processing,
 }: {
   section: ResumeSection;
   disabled: boolean;
+  processing?: SectionProcessing;
   onRegenerate?: (entryId: string) => void;
   canRegenerate?: (entryId: string) => boolean;
   regenerationReason?: (entryId: string) => string | null;
@@ -92,7 +95,7 @@ export function ResumeSectionPreview({
             data-entry-id={entry.id}
             className="resume-preview-entry"
           >
-            {structured ? (
+            {processing?.entryId === entry.id ? processing.content : structured ? (
               entryFacts(entry)
             ) : (
               <Markdown

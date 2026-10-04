@@ -91,3 +91,24 @@ async def test_email_sender_retries_retryable_resend_failures(monkeypatch: pytes
 
     assert message_id == "email_retry_success"
     assert len(requests) == 2
+
+
+def test_branded_email_escapes_values_and_renders_cta():
+    from app.services.email_templates import render_branded_email
+
+    email = render_branded_email(
+        eyebrow="Test",
+        heading="Hello <b>",
+        body="Line one\n\nLine two",
+        cta_label="Open",
+        cta_url="https://app.example.com/x?a=1&b=2",
+        details=[("Name", "<script>alert(1)</script>")],
+        footnote="Expires soon.",
+    )
+
+    assert "<script>" not in email.html
+    assert "&lt;script&gt;" in email.html
+    assert "Hello &lt;b&gt;" in email.html
+    assert 'href="https://app.example.com/x?a=1&amp;b=2"' in email.html
+    assert "Open: https://app.example.com/x?a=1&b=2" in email.text
+    assert "Name: <script>alert(1)</script>" in email.text

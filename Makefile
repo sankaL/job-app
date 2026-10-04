@@ -1,7 +1,7 @@
 ENV_FILE ?= .env.compose
 COMPOSE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
 
-.PHONY: dev-frontend ensure-env auto-ports up down reset logs health test-prepare compose-config test-stack test-migrate test-backend test-agents test-frontend test test-build test-browser test-browser-seed test-browser-seed-check test-browser-export test-local-guards test-resume-evals eval-resumes
+.PHONY: dev-runtime dev-frontend ensure-env auto-ports up down reset logs health test-prepare compose-config test-stack test-migrate test-backend test-agents test-frontend test test-build test-browser test-browser-seed test-browser-seed-check test-browser-export test-local-guards test-resume-evals eval-resumes
 
 ensure-env:
 	@test -f $(ENV_FILE) || (echo "Missing $(ENV_FILE). Copy .env.compose.example to $(ENV_FILE)." && exit 1)
@@ -12,6 +12,10 @@ auto-ports: ensure-env
 dev-frontend: ensure-env
 	@python3 scripts/check-test-env.py $(ENV_FILE)
 	$(COMPOSE) up -d --no-deps --build frontend
+
+dev-runtime: ensure-env
+	@python3 scripts/check-test-env.py $(ENV_FILE)
+	$(COMPOSE) up -d --no-deps --force-recreate backend agents
 
 up: auto-ports
 	$(COMPOSE) up -d --build --remove-orphans
@@ -88,6 +92,6 @@ test-resume-evals: ensure-env
 
 eval-resumes: ensure-env
 	@python3 scripts/check-test-env.py $(ENV_FILE)
-	$(COMPOSE) run --rm --no-deps -e LANGSMITH_TRACING=false -e LANGSMITH_API_KEY= agents python evals/run_sections.py --live $(EVAL_ARGS)
+	$(COMPOSE) run --rm --no-deps agents python evals/run_sections.py --live $(EVAL_ARGS)
 
 test: test-backend test-agents test-frontend test-build

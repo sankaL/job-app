@@ -1,60 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 378 362" role="img" aria-labelledby="title desc">
-  <title id="title">Applix logo mark</title>
-  <desc id="desc">A stylized letter A built from dark and light teal rounded geometric panels with an orange check mark and white spacing.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
   <defs>
-    <linearGradient id="darkTeal" x1="39" y1="313" x2="253" y2="42" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#155b58"/>
-      <stop offset="1" stop-color="#0e4b4c"/>
+    <linearGradient id="applix-logo-teal" x1="14" y1="8" x2="50" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#246a62"/>
+      <stop offset="1" stop-color="#103a36"/>
     </linearGradient>
-    <linearGradient id="lightTeal" x1="221" y1="313" x2="310" y2="151" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#55a39c"/>
-      <stop offset="1" stop-color="#34827e"/>
-    </linearGradient>
-    <linearGradient id="orange" x1="79" y1="260" x2="276" y2="108" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f47721"/>
-      <stop offset="1" stop-color="#e9601f"/>
-    </linearGradient>
+    <clipPath id="applix-logo-base">
+      <path d="M32 37.98 -48.00 86.05 112.00 86.05Z"/>
+    </clipPath>
+    <mask id="applix-logo-gap" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+      <rect width="64" height="64" fill="#fff"/>
+      <path d="M32 37.98 -48.00 86.05M32 37.98 112.00 86.05" stroke="#000" stroke-width="1.8"/>
+    </mask>
   </defs>
-
-  <!-- Upper-left and crossbar section -->
-  <path fill="url(#darkTeal)" d="
-    M64 185
-    L108 72
-    C115 54 130 42 149 42
-    H216
-    C237 42 253 57 258 78
-    L267 119
-    C250 119 240 124 229 137
-    L145 230
-    C141 235 134 235 130 230
-    L100 199
-    C89 188 76 181 64 185
-    Z"/>
-
-  <!-- Lower-left leg -->
-  <path fill="url(#darkTeal)" d="
-    M50 313
-    C35 313 26 299 31 286
-    L64 185
-    C78 181 91 188 101 199
-    L132 296
-    C136 307 126 313 111 313
-    Z"/>
-
-  <!-- Right leg -->
-  <path fill="url(#lightTeal)" d="
-    M250 313
-    C237 313 226 305 222 293
-    L203 235
-    L271 157
-    C280 147 293 150 298 162
-    L337 286
-    C342 301 332 313 316 313
-    Z"/>
-
-  <!-- White separation around the check -->
-  <path d="M78 197 L139 260 L273 108" fill="none" stroke="#fbfaf7" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
-
-  <!-- Orange check -->
-  <path d="M80 200 L140 260 L274 108" fill="none" stroke="url(#orange)" stroke-width="28" stroke-linecap="butt" stroke-linejoin="miter"/>
+  <g mask="url(#applix-logo-gap)">
+    <path d="M12.00 50.00 32 12.39 52.00 50.00Z" stroke="url(#applix-logo-teal)" stroke-width="12" stroke-linejoin="round"/>
+    <path d="M12.00 50.00 32 12.39 52.00 50.00Z" stroke="#f07c3f" stroke-width="12" stroke-linejoin="round" clip-path="url(#applix-logo-base)"/>
+  </g>
 </svg>

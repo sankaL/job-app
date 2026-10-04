@@ -1,6 +1,5 @@
 import { MobileNavToggle } from "@astryxdesign/core/MobileNav";
 import { HStack } from "@astryxdesign/core/HStack";
-import { VStack } from "@astryxdesign/core/VStack";
 import { Text } from "@astryxdesign/core/Text";
 import { Menu, UserRound, LogOut, Bell } from "lucide-react";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
@@ -8,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { NotificationPanel } from "@/components/layout/NotificationPanel";
 import { useAppContext } from "@/components/layout/AppContext";
@@ -142,6 +142,7 @@ function AccountControl({
 }
 
 export function TopBar() {
+  const { setActionHost } = useShellLayout();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { bootstrap, needsActionCount } = useAppContext();
@@ -232,18 +233,11 @@ export function TopBar() {
       className="app-topbar"
       height="var(--topbar-height)"
     >
-      <HStack gap={3} vAlign="center" className="app-brand">
-        <img src="/applix-logo.svg" alt="Applix logo" className="h-7 w-7" />
-        <VStack gap={0}>
-          <Text type="label">Applix</Text>
-          <Text
-            type="supporting"
-            color="secondary"
-            className="app-brand-description"
-          >
-            AI Job Applications
-          </Text>
-        </VStack>
+      <HStack gap={3} vAlign="center" className="app-brand -ms-2">
+        <img src="/applix-logo.svg" alt="Applix logo" className="h-10 w-10" />
+        <Text type="label" size="2xl" weight="semibold">
+          Applix
+        </Text>
       </HStack>
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <MobileNavToggle label="Toggle sidebar">
@@ -252,6 +246,7 @@ export function TopBar() {
         <AppBreadcrumbs />
       </div>
 
+      <HStack ref={setActionHost} gap={2} className="app-topbar-page-actions" />
       <div ref={menusRef} className="flex items-center gap-3">
         <NotificationControl
           open={notificationsOpen}

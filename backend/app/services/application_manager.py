@@ -31,8 +31,15 @@ from app.db.subscriptions import (
     get_subscription_repository,
 )
 from app.db.usage_events import UsageEventRecord, UsageEventRepository, get_usage_event_repository
+from app.services.creation_activity import (
+    CreationActivity,
+    DailyCreationCount,
+    build_activity_window,
+    summarize_activity,
+)
 from app.services.duplicates import DuplicateDetector
 from app.services.email import EmailMessage, EmailSender, build_email_sender
+from app.services.email_templates import BrandedEmail, render_branded_email
 from app.services.jobs import (
     ExtractionJobQueue,
     GenerationJobQueue,
@@ -439,6 +446,33 @@ class ApplicationService:
             user_id,
             search=search,
             visible_status=visible_status,
+        )
+
+    async def get_creation_activity(
+        self,
+        *,
+        user_id: str,
+        range_key: str,
+        timezone_name: str,
+        now: Optional[datetime] = None,
+    ) -> CreationActivity:
+        window = build_activity_window(range_key, timezone_name, now or datetime.now(timezone.utc))
+        records = self.repository.fetch_daily_creation_counts(
+            user_id,
+            timezone=window.timezone,
+            start_at=window.start_at,
+            end_before=window.end_before,
+        )
+        return summarize_activity(
+            window,
+            (
+                DailyCreationCount(
+                    local_date=record.local_date,
+                    created=record.created_count,
+                    applied=record.applied_count,
+                )
+                for record in records
+            ),
         )
 
     async def create_application(self, *, user_id: str, job_url: str) -> ApplicationRecord:
@@ -3437,14 +3471,18 @@ class ApplicationService:
             },
         )
         try:
+            email = self._application_email(
+                record=record,
+                eyebrow="Export",
+                heading=f"{format_label} export failed",
+                body=message,
+            )
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
                     subject=f"Applix: {format_label} export failed",
-                    text=(
-                        f"{message}\n\n"
-                        f"Open the application: {self._application_url(record.id)}"
-                    ),
+                    text=email.text,
+                    html=email.html,
                 )
             )
         except Exception:
@@ -3637,14 +3675,18 @@ class ApplicationService:
         body: str,
     ) -> None:
         try:
+            email = self._application_email(
+                record=record,
+                eyebrow="Resume generation",
+                heading=subject.removeprefix("Applix: "),
+                body=body,
+            )
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
                     subject=subject,
-                    text=(
-                        f"{body}\n\n"
-                        f"Open the application: {self._application_url(record.id)}"
-                    ),
+                    text=email.text,
+                    html=email.html,
                 )
             )
         except Exception:
@@ -3672,14 +3714,18 @@ class ApplicationService:
         )
         if send_email:
             subject = email_subject or "Applix: extraction needs manual entry"
+            email = self._application_email(
+                record=record,
+                eyebrow="Action needed",
+                heading=subject.removeprefix("Applix: "),
+                body=message,
+            )
             await self.email_sender.send(
                 EmailMessage(
                     to=[self._recipient_email(record)],
                     subject=subject,
-                    text=(
-                        f"{message}\n\n"
-                        f"Open the application: {self._application_url(record.id)}"
-                    ),
+                    text=email.text,
+                    html=email.html,
                 )
             )
 
@@ -5376,6 +5422,22 @@ class ApplicationService:
 
     def _application_url(self, application_id: str) -> str:
         return f"{self.settings.app_url.rstrip('/')}/app/applications/{application_id}"
+
+    def _application_email(
+        self,
+        *,
+        record: ApplicationRecord,
+        eyebrow: str,
+        heading: str,
+        body: str,
+    ) -> BrandedEmail:
+        return render_branded_email(
+            eyebrow=eyebrow,
+            heading=heading,
+            body=body,
+            cta_label="Open application",
+            cta_url=self._application_url(record.id),
+        )
 
     def _record_usage_event(
         self,

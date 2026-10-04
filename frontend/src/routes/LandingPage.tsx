@@ -142,14 +142,14 @@ function AppPreview() {
         }}
       >
         <div className="relative overflow-hidden rounded-xl border border-[rgba(16,24,40,0.12)] bg-white shadow-[0_24px_70px_rgba(16,24,40,0.12)] ring-1 ring-white">
-        <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[#f6f5f2] px-4 pt-2.5 pb-2">
+        <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[#f7f6f4] px-4 pt-2.5 pb-2">
           <div className="flex items-center gap-1.5">
             <span className="block h-[11px] w-[11px] rounded-full bg-[#ff5f57]" />
             <span className="block h-[11px] w-[11px] rounded-full bg-[#febc2e]" />
             <span className="block h-[11px] w-[11px] rounded-full bg-[#28c840]" />
           </div>
         </div>
-        <div className="grid min-h-[620px] grid-cols-[240px_360px_minmax(0,1fr)] overflow-hidden border-t border-[var(--color-border)] bg-[#fbfaf7]">
+        <div className="grid min-h-[620px] grid-cols-[240px_360px_minmax(0,1fr)] overflow-hidden border-t border-[var(--color-border)] bg-[#fcfbfa]">
           <aside className="border-r border-[var(--color-border)] bg-white/82 p-4">
             <div className="rounded-lg border border-[var(--color-border)] bg-white p-3 shadow-xs">
               <div className="flex items-center gap-2">
@@ -237,7 +237,7 @@ function AppPreview() {
                 <div className="mt-2 h-2 w-11/12 rounded-full bg-[var(--color-ink-10)]" />
               </div>
 
-              <div className="rounded-lg border border-[var(--color-border)] bg-[#fbfaf7] p-4">
+              <div className="rounded-lg border border-[var(--color-border)] bg-[#fcfbfa] p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-spruce">Professional Experience</p>
                 <div className="mt-4 space-y-3">
                   <div>
@@ -349,7 +349,7 @@ export function LandingPage() {
             className="pointer-events-none absolute left-[-18rem] top-4 hidden h-[48rem] w-[48rem] rounded-full opacity-70 blur-3xl lg:block"
             style={{
               background:
-                "radial-gradient(circle, rgba(24,74,69,0.10) 0%, rgba(180,83,9,0.05) 34%, rgba(245,243,238,0) 70%)",
+                "radial-gradient(circle, rgba(24,74,69,0.07) 0%, rgba(24,74,69,0.02) 34%, rgba(249,248,246,0) 70%)",
             }}
           />
           <div className="mx-auto max-w-6xl px-5 text-center">
@@ -364,7 +364,7 @@ export function LandingPage() {
               </span>
             </Link>
 
-            <h1 className="mx-auto mt-10 max-w-5xl text-balance text-4xl sm:text-6xl md:text-7xl xl:text-[5.25rem] font-normal leading-[1.02] tracking-normal text-ink">
+            <h1 className="mx-auto mt-10 max-w-5xl text-balance text-4xl sm:text-6xl md:text-7xl xl:text-[5rem] font-semibold leading-[1.04] tracking-tight text-ink">
               Tailor Your Resume for Your Dream Role in Seconds
             </h1>
             <p className="mx-auto mt-8 max-w-2xl text-balance text-lg leading-8 text-[var(--color-ink-65)]">
@@ -389,7 +389,7 @@ export function LandingPage() {
         <section id="features" className="mx-auto max-w-6xl px-5 py-20 md:py-24">
           <div className="mx-auto max-w-2xl text-center">
             <p className="text-sm font-semibold text-spruce">Features</p>
-            <h2 className="mt-3 text-4xl font-normal leading-tight text-ink sm:text-5xl">
+            <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-tight text-ink sm:text-5xl">
               Designed for serious job seekers
             </h2>
             <p className="mt-4 text-base leading-7 text-[var(--color-ink-65)]">
@@ -410,7 +410,7 @@ export function LandingPage() {
                   <div className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all duration-300 ${feature.iconColor}`}>
                     <Icon size={24} className={`transition-transform duration-500 ${feature.iconAnimation}`} />
                   </div>
-                  <h3 className="mt-6 text-lg font-semibold text-ink transition-colors duration-300 group-hover:text-spruce">
+                  <h3 className="mt-6 text-lg font-semibold tracking-tight text-ink transition-colors duration-300 group-hover:text-spruce">
                     {feature.title}
                   </h3>
                   <p className="mt-3 text-sm leading-6 text-[var(--color-ink-65)]">
@@ -426,7 +426,7 @@ export function LandingPage() {
           <div className="mx-auto max-w-6xl px-5">
             <div className="mx-auto max-w-2xl text-center">
               <p className="text-sm font-semibold text-spruce">Pricing</p>
-              <h2 className="mt-3 text-4xl font-normal leading-tight text-ink sm:text-5xl">
+              <h2 className="mt-3 text-4xl font-semibold leading-tight tracking-tight text-ink sm:text-5xl">
                 Simple beta pricing
               </h2>
               <p className="mt-4 text-base leading-7 text-[var(--color-ink-65)]">
@@ -450,10 +450,10 @@ export function LandingPage() {
                       Popular
                     </span>
                   ) : null}
-                  <h3 className="text-xl font-semibold text-ink">{plan.name}</h3>
+                  <h3 className="text-xl font-semibold tracking-tight text-ink">{plan.name}</h3>
                   <p className="mt-3 max-w-md text-sm leading-6 text-[var(--color-ink-65)]">{plan.description}</p>
                   <div className="mt-7 flex items-end gap-3">
-                    <span className="text-5xl font-normal text-ink">{plan.price}</span>
+                    <span className="text-5xl font-medium tracking-tight text-ink">{plan.price}</span>
                     <span className="pb-1 text-sm text-[var(--color-ink-50)]">/month</span>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">

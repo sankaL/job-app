@@ -1,7 +1,7 @@
 # AI Resume Builder Database Schema
 
 **Document status:** Source of truth for the MVP database contract  
-**Last updated:** 2026-06-17
+**Last updated:** 2026-10-03
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Related rollout guide:** `docs/backend-database-migration-runbook.md`
 
@@ -187,6 +187,9 @@ Monthly quota counter for resume-writing operations.
 - Table-level RLS enforces the same authenticated-user boundary as a second layer.
 
 ### `base_resumes`
+
+The resume library API derives a plain-text `summary` excerpt (up to 240 characters) from the first nonempty Summary section in `document`, falling back to parsing `content_md` only for legacy rows without a document. This is response metadata, not a stored column; no migration or backfill is required. Original upload format is not stored and must not be inferred from `raw_source_md`.
+
 
 Versioned section source resumes owned by a single user, with a stored Markdown projection.
 
@@ -443,6 +446,7 @@ If implementation constraints require equivalent ownership validation outside a 
 | `base_resumes (user_id, lower(btrim(name)))` unique index | Enforce names unique within each user, including concurrent writes |
 | `applications (user_id, updated_at DESC)` | Dashboard default sort |
 | `applications (user_id, visible_status, updated_at DESC)` | Status filtering on dashboard |
+| `applications (user_id, created_at DESC)` | Bounded dashboard creation-activity windows |
 | Search index over `applications.job_title` and `applications.company` within user scope | Dashboard search by job title or company |
 | `applications (user_id, duplicate_resolution_status)` with a partial index for unresolved duplicates | Fast duplicate-attention queries |
 | `resume_drafts (application_id)` unique index | Current draft lookup for an application |

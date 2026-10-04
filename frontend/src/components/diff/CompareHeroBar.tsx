@@ -1,8 +1,6 @@
+import type { ReactNode } from "react";
 import {
   Sparkles,
-  Edit3,
-  FileDown,
-  X,
   Layers,
   CheckCircle2,
   FileText,
@@ -22,10 +20,7 @@ interface CompareHeroBarProps {
   highlightMode: DiffHighlightMode;
   onViewLayoutChange: (layout: "unified" | "split" | "clean") => void;
   onHighlightModeChange: (mode: DiffHighlightMode) => void;
-  onEnterEdit: () => void;
-  onExportPdf?: () => void;
-  onCloseCompare: () => void;
-  isExporting?: boolean;
+  sectionNavigation?: ReactNode;
 }
 
 export function CompareHeroBar({
@@ -37,22 +32,19 @@ export function CompareHeroBar({
   highlightMode,
   onViewLayoutChange,
   onHighlightModeChange,
-  onEnterEdit,
-  onExportPdf,
-  onCloseCompare,
-  isExporting = false,
+  sectionNavigation,
 }: CompareHeroBarProps) {
   const { stats } = summary;
 
   return (
     <div
-      className="sticky top-[calc(var(--topbar-height)+0.5rem)] z-20 border-b p-3.5 sm:p-4 backdrop-blur-md transition-all"
+      className="sticky top-[var(--topbar-height)] z-20 border-b p-3.5 sm:p-4 backdrop-blur-md transition-all"
       style={{
         background: "var(--color-background-surface)",
         borderColor: "var(--color-border)",
       }}
     >
-      {/* Top row: Title, Badges, and Global Action Buttons */}
+      {/* Comparison context */}
       <div
         className="flex flex-wrap items-center justify-between gap-3 border-b pb-3"
         style={{ borderColor: "var(--color-border)" }}
@@ -117,45 +109,6 @@ export function CompareHeroBar({
           )}
         </div>
 
-        {/* Right side: Action Buttons */}
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            className="h-8 gap-1.5 text-xs"
-            onClick={onEnterEdit}
-            title="Edit tailored markdown draft"
-          >
-            <Edit3 size={13} />
-            <span>Edit</span>
-          </Button>
-
-          {onExportPdf && (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-8 gap-1.5 text-xs hidden sm:inline-flex"
-              disabled={isExporting}
-              onClick={onExportPdf}
-            >
-              <FileDown size={13} />
-              <span>{isExporting ? "Exporting…" : "Export PDF"}</span>
-            </Button>
-          )}
-
-          <Button
-            size="sm"
-            className="h-8 gap-1.5 text-xs"
-            onClick={onCloseCompare}
-          >
-            <X size={13} />
-            <span>Close Comparison</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* Bottom row: Diff Stats & Layout Controls */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
         {/* Key Metrics */}
         <div
           className="flex flex-wrap items-center gap-x-4 gap-y-1.5"
@@ -196,6 +149,13 @@ export function CompareHeroBar({
             </div>
           )}
         </div>
+
+
+      </div>
+
+      {/* Bottom row: Diff Stats & Layout Controls */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+        {sectionNavigation}
 
         {/* View Controls & Highlighting Switch */}
         <div className="flex flex-wrap items-center gap-2.5">

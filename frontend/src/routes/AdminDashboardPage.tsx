@@ -1,161 +1,110 @@
+import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Text } from "@astryxdesign/core/Text";
-import type { LucideIcon } from "lucide-react";
+import { VStack } from "@astryxdesign/core/VStack";
+import { Activity, FileStack, MailCheck, Users } from "lucide-react";
 import {
-  BarChart3,
-  CheckCircle2,
-  FileStack,
-  MailCheck,
-  RotateCcw,
-  Sparkles,
-  Users,
-} from "lucide-react";
+  CompositionBar,
+  CompositionChart,
+  PanelGroup,
+  SectionTitle,
+  Swatch,
+} from "@/components/dashboard/Composition";
 import { Metric } from "@/components/dashboard/Metric";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Section } from "@/components/ui/card";
 import { SkeletonSection } from "@/components/ui/skeleton";
-import type { AdminOperationMetric } from "@/lib/api";
+import type { AdminMetrics, AdminOperationMetric } from "@/lib/api";
 import { useAdminMetricsQuery } from "@/lib/queries";
 
-function formatPercent(value: number) {
-  return `${value.toFixed(1)}%`;
+// Outcome colors are status colors: they carry state, and every value is also labeled.
+const OUTCOME_COLORS = {
+  success: "var(--color-success)",
+  failure: "var(--color-error)",
+};
+
+const OPERATIONS: Array<{
+  key: keyof Pick<
+    AdminMetrics,
+    "extraction" | "generation" | "regeneration" | "export"
+  >;
+  label: string;
+}> = [
+  { key: "extraction", label: "Extraction" },
+  { key: "generation", label: "Generation" },
+  { key: "regeneration", label: "Regeneration" },
+  { key: "export", label: "Export" },
+];
+
+function formatRate(numerator: number, denominator: number) {
+  return denominator > 0
+    ? `${((numerator / denominator) * 100).toFixed(1)}%`
+    : "—";
 }
 
-function KpiMetric({
-  icon: Icon,
-  label,
-  value,
-  sublabel,
-  accent,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string | number;
-  sublabel: string;
-  accent: string;
-}) {
+function Detail({ children }: { children: string }) {
   return (
-    <Metric
-      icon={Icon}
-      label={label}
-      value={value}
-      accent={accent}
-      detail={
-        <Text
-          as="p"
-          display="block"
-          type="supporting"
-          className="mt-1 leading-5"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          {sublabel}
-        </Text>
-      }
-    />
+    <Text type="supporting" color="secondary">
+      {children}
+    </Text>
   );
 }
 
-function OperationMetric({
+function OperationRow({
   label,
   metric,
-  icon: Icon,
-  accent,
 }: {
   label: string;
   metric: AdminOperationMetric;
-  icon: LucideIcon;
-  accent: string;
 }) {
-  const successRatio =
-    metric.total > 0 ? (metric.success_count / metric.total) * 100 : 0;
-  const failureRatio =
-    metric.total > 0 ? (metric.failure_count / metric.total) * 100 : 0;
-
+  const hasRuns = metric.total > 0;
   return (
-    <Section density="compact" className="relative overflow-hidden">
-      <HStack gap={2} vAlign="center">
-        <Icon
-          size={16}
-          aria-hidden="true"
-          className="text-[var(--color-text-secondary)]"
-        />
-        <Text type="body" color="secondary">
+    <Grid
+      columns={{ minWidth: 220, repeat: "fit" }}
+      gap={3}
+      align="center"
+      className="py-3"
+      data-testid={`operation-row-${label.toLowerCase()}`}
+    >
+      <HStack gap={3} hAlign="between" vAlign="center">
+        <Text type="body" weight="medium">
           {label}
         </Text>
+        <Text type="label" hasTabularNumbers>
+          {hasRuns ? formatRate(metric.success_count, metric.total) : "No runs"}
+        </Text>
       </HStack>
-      <div className="mt-2 flex items-end justify-between gap-3">
+      <HStack gap={3} vAlign="center">
+        <VStack gap={0} className="min-w-0 flex-1">
+          <CompositionBar
+            ariaLabel={`${label} outcomes`}
+            total={metric.total}
+            items={[
+              {
+                key: "success",
+                label: "Succeeded",
+                count: metric.success_count,
+                color: OUTCOME_COLORS.success,
+              },
+              {
+                key: "failure",
+                label: "Failed",
+                count: metric.failure_count,
+                color: OUTCOME_COLORS.failure,
+              },
+            ]}
+          />
+        </VStack>
         <Text
-          as="p"
-          display="block"
-          type="display-3"
-          className="tabular-nums"
-          style={{ color: accent }}
-        >
-          {formatPercent(metric.success_rate)}
-        </Text>
-        <Text
-          as="p"
-          display="block"
           type="supporting"
-          className="tabular-nums"
-          style={{ color: "var(--color-text-secondary)" }}
+          color="secondary"
+          hasTabularNumbers
+          className="w-36 shrink-0 text-right"
         >
-          {metric.total} total
+          {metric.success_count} ok · {metric.failure_count} failed
         </Text>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs font-semibold">
-            <span style={{ color: "var(--color-accent)" }}>Success</span>
-            <span
-              className="tabular-nums"
-              style={{ color: "var(--color-accent)" }}
-            >
-              {metric.success_count}
-            </span>
-          </div>
-          <div
-            className="h-2 rounded-full"
-            style={{ background: "var(--color-accent-muted)" }}
-          >
-            <div
-              className="h-full rounded-full transition-all"
-              style={{
-                width: `${successRatio}%`,
-                minWidth: metric.success_count > 0 ? "10px" : "0",
-                background: "var(--color-accent)",
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-xs font-semibold">
-            <span style={{ color: "var(--color-error)" }}>Failure</span>
-            <span
-              className="tabular-nums"
-              style={{ color: "var(--color-error)" }}
-            >
-              {metric.failure_count}
-            </span>
-          </div>
-          <div
-            className="h-2 rounded-full"
-            style={{ background: "var(--color-error-muted)" }}
-          >
-            <div
-              className="h-full rounded-full transition-all"
-              style={{
-                width: `${failureRatio}%`,
-                minWidth: metric.failure_count > 0 ? "10px" : "0",
-                background: "var(--color-error)",
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    </Section>
+      </HStack>
+    </Grid>
   );
 }
 
@@ -170,16 +119,17 @@ export function AdminDashboardPage() {
           title="Admin Metrics"
           subtitle="Invite and usage funnel performance."
         />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Grid columns={{ minWidth: 150, repeat: "fit" }} gap={4}>
           {Array.from({ length: 4 }).map((_, index) => (
             <SkeletonSection key={index} density="compact" />
           ))}
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, index) => (
+        </Grid>
+        <Grid columns={{ minWidth: 280, repeat: "fit" }} gap={6}>
+          {Array.from({ length: 2 }).map((_, index) => (
             <SkeletonSection key={index} density="compact" />
           ))}
-        </div>
+        </Grid>
+        <SkeletonSection density="compact" />
       </div>
     );
   }
@@ -192,32 +142,40 @@ export function AdminDashboardPage() {
           subtitle="Invite and usage funnel performance."
         />
         <Section variant="danger" density="compact">
-          <Text
-            as="p"
-            display="block"
-            type="label"
-            style={{ color: "var(--color-error)" }}
-          >
-            Metrics unavailable
-          </Text>
-          <Text
-            as="p"
-            display="block"
-            type="body"
-            className="mt-1"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            {displayedError}
-          </Text>
+          <VStack gap={1}>
+            <Text type="label" style={{ color: "var(--color-error)" }}>
+              Metrics unavailable
+            </Text>
+            <Text type="body" color="secondary">
+              {displayedError}
+            </Text>
+          </VStack>
         </Section>
       </div>
     );
   }
 
-  const inviteAcceptanceRate =
-    metrics.invites_sent > 0
-      ? (metrics.invites_accepted / metrics.invites_sent) * 100
-      : 0;
+  const onboardedUsers = Math.max(
+    0,
+    metrics.active_users - metrics.invited_users,
+  );
+  const closedInvites = Math.max(
+    0,
+    metrics.invites_sent - metrics.invites_accepted - metrics.invites_pending,
+  );
+  const operations = OPERATIONS.map((operation) => ({
+    ...operation,
+    metric: metrics[operation.key],
+  }));
+  const totalRuns = operations.reduce((sum, op) => sum + op.metric.total, 0);
+  const totalSucceeded = operations.reduce(
+    (sum, op) => sum + op.metric.success_count,
+    0,
+  );
+  const totalFailed = operations.reduce(
+    (sum, op) => sum + op.metric.failure_count,
+    0,
+  );
 
   return (
     <div className="page-enter space-y-5">
@@ -226,93 +184,143 @@ export function AdminDashboardPage() {
         subtitle="Invite and usage funnel performance."
       />
 
-      <div className="stagger-children grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiMetric
+      <Grid columns={{ minWidth: 150, repeat: "fit" }} gap={4}>
+        <Metric
           icon={Users}
           label="Users"
           value={metrics.total_users}
-          sublabel={`${metrics.active_users} active · ${metrics.deactivated_users} deactivated`}
           accent="var(--color-text-primary)"
+          detail={<Detail>{`${metrics.active_users} active`}</Detail>}
         />
-        <KpiMetric
+        <Metric
           icon={MailCheck}
-          label="Invites"
-          value={metrics.invites_sent}
-          sublabel={`${formatPercent(inviteAcceptanceRate)} acceptance · ${metrics.invites_pending} pending`}
-          accent="var(--color-accent)"
+          label="Invite acceptance"
+          value={formatRate(metrics.invites_accepted, metrics.invites_sent)}
+          accent="var(--color-text-primary)"
+          detail={
+            <Detail>{`${metrics.invites_accepted} of ${metrics.invites_sent} invites`}</Detail>
+          }
         />
-        <KpiMetric
+        <Metric
           icon={FileStack}
           label="Applications"
           value={metrics.total_applications}
-          sublabel={`${metrics.invited_users} users still onboarding`}
-          accent="var(--color-warning)"
+          accent="var(--color-text-primary)"
+          detail={<Detail>Across all users</Detail>}
         />
-        <KpiMetric
-          icon={CheckCircle2}
-          label="Exports"
-          value={metrics.export.total}
-          sublabel={`${metrics.export.success_count} succeeded`}
-          accent="var(--color-accent)"
+        <Metric
+          icon={Activity}
+          label="Workflow success"
+          value={formatRate(totalSucceeded, totalRuns)}
+          accent="var(--color-text-primary)"
+          detail={
+            <Detail>{`${totalFailed} failed of ${totalRuns} runs`}</Detail>
+          }
         />
-      </div>
+      </Grid>
+
+      <PanelGroup
+        columns={2}
+        panels={[
+          {
+            key: "users",
+            title: "Users",
+            content: (
+              <CompositionChart
+                centerCaption="users"
+                ariaLabel="User status"
+                total={metrics.total_users}
+                items={[
+                  {
+                    key: "onboarded",
+                    label: "Active",
+                    count: onboardedUsers,
+                    color: "var(--color-success)",
+                  },
+                  {
+                    key: "onboarding",
+                    label: "Still onboarding",
+                    count: metrics.invited_users,
+                    color: "var(--color-icon-blue)",
+                  },
+                  {
+                    key: "deactivated",
+                    label: "Deactivated",
+                    count: metrics.deactivated_users,
+                    color: "var(--color-border-emphasized)",
+                  },
+                ]}
+              />
+            ),
+          },
+          {
+            key: "invites",
+            title: "Invites",
+            content: (
+              <CompositionChart
+                centerCaption="invites"
+                ariaLabel="Invite status"
+                total={metrics.invites_sent}
+                items={[
+                  {
+                    key: "accepted",
+                    label: "Accepted",
+                    count: metrics.invites_accepted,
+                    color: "var(--color-success)",
+                  },
+                  {
+                    key: "pending",
+                    label: "Pending",
+                    count: metrics.invites_pending,
+                    color: "var(--color-icon-blue)",
+                  },
+                  {
+                    key: "closed",
+                    label: "Expired or revoked",
+                    count: closedInvites,
+                    color: "var(--color-border-emphasized)",
+                  },
+                ]}
+              />
+            ),
+          },
+        ]}
+      />
 
       <Section density="compact">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <BarChart3 size={16} style={{ color: "var(--color-accent)" }} />
-            <Text
-              as="p"
-              display="block"
-              type="label"
-              style={{ color: "var(--color-text-primary)" }}
-            >
-              Workflow outcomes
-            </Text>
+        <VStack gap={2}>
+          <SectionTitle
+            title="Workflow outcomes"
+            caption={
+              <HStack gap={4} wrap="wrap">
+                <HStack gap={2} vAlign="center">
+                  <Swatch color={OUTCOME_COLORS.success} />
+                  <Text type="supporting" color="secondary">
+                    Succeeded
+                  </Text>
+                </HStack>
+                <HStack gap={2} vAlign="center">
+                  <Swatch color={OUTCOME_COLORS.failure} />
+                  <Text type="supporting" color="secondary">
+                    Failed
+                  </Text>
+                </HStack>
+              </HStack>
+            }
+          />
+          <Text type="supporting" color="secondary">
+            Aggregated from backend usage events.
+          </Text>
+          <div className="divide-y divide-[var(--color-border)]">
+            {operations.map((operation) => (
+              <OperationRow
+                key={operation.key}
+                label={operation.label}
+                metric={operation.metric}
+              />
+            ))}
           </div>
-          <span
-            className="text-xs font-semibold"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            success vs failure
-          </span>
-        </div>
-        <Text
-          as="p"
-          display="block"
-          type="supporting"
-          className="mt-1"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          Operation outcomes are aggregated from backend usage events.
-        </Text>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <OperationMetric
-            label="Extraction"
-            metric={metrics.extraction}
-            icon={BarChart3}
-            accent="var(--color-accent)"
-          />
-          <OperationMetric
-            label="Generation"
-            metric={metrics.generation}
-            icon={Sparkles}
-            accent="var(--color-accent)"
-          />
-          <OperationMetric
-            label="Regeneration"
-            metric={metrics.regeneration}
-            icon={RotateCcw}
-            accent="var(--color-warning)"
-          />
-          <OperationMetric
-            label="Export"
-            metric={metrics.export}
-            icon={FileStack}
-            accent="var(--color-text-primary)"
-          />
-        </div>
+        </VStack>
       </Section>
     </div>
   );

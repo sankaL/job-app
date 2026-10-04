@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { Button } from "@/components/ui/button";
+import { ActionButtons } from "@/components/ui/button-group";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,11 +14,20 @@ import { DataTable } from "@/components/ui/data-table";
 import { ToastProvider, useToast } from "@/components/ui/toast";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { ModalShell } from "@/components/ui/modal-shell";
+import { ShellLayoutProvider, useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { PageHeader } from "@/components/layout/PageHeader";
+
+function ActionHost() {
+  const { setActionHost } = useShellLayout();
+  return <header><div ref={setActionHost} data-testid="shell-actions" /></header>;
+}
+function HeaderTestShell({ children }: { children: React.ReactNode }) {
+  return <ShellLayoutProvider><ActionHost />{children}</ShellLayoutProvider>;
+}
 
 // Exercise the contracts that must survive the Astryx migration.
 describe("shared app controls", () => {
-  it("keeps page actions usable in one floating group and cleans up on navigation", async () => {
+  it("portals page actions into the app shell header and clears them on navigation", async () => {
     const upload = vi.fn();
     const create = vi.fn();
     const { rerender, unmount } = render(
@@ -30,6 +41,7 @@ describe("shared app controls", () => {
           </>
         }
       />,
+      { wrapper: HeaderTestShell },
     );
     expect(
       screen.getByRole("heading", { name: "Resumes", level: 1 }),
@@ -38,6 +50,9 @@ describe("shared app controls", () => {
       screen.queryByText("Duplicate page introduction"),
     ).not.toBeInTheDocument();
     const group = screen.getByRole("group", { name: "Resumes actions" });
+    expect(screen.getByTestId("shell-actions")).toContainElement(group);
+    expect(document.querySelector(".app-floating-page-actions")).toBeNull();
+    expect(group).toHaveClass("astryx-button-group");
     expect(group).toContainElement(
       screen.getByRole("button", { name: "Upload Resume" }),
     );
@@ -51,7 +66,7 @@ describe("shared app controls", () => {
     expect(create).toHaveBeenCalledOnce();
     expect(
       document.body.style.getPropertyValue("--floating-page-actions-height"),
-    ).not.toBe("");
+    ).toBe("");
     rerender(<PageHeader title="Profile" />);
     expect(screen.queryByRole("group")).not.toBeInTheDocument();
     expect(
@@ -75,9 +90,58 @@ describe("shared app controls", () => {
       "Senior Engineering Practice Lead for Enterprise Platforms",
     );
     expect(screen.getByText("Acme")).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: /actions$/ })).toContainElement(
-      screen.getByRole("button", { name: "Activity" }),
+    expect(screen.getByRole("button", { name: "Activity" })).toHaveClass("astryx-button");
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+  });
+
+  it("groups icon and form actions across fragments and skips disabled actions with arrow keys", async () => {
+    const submit = vi.fn((event) => event.preventDefault());
+    render(<>
+      <form id="grouped-form" onSubmit={submit} />
+      <ActionButtons label="Resume editing">
+        <IconButton aria-label="Rename">Edit</IconButton>
+        <>
+          <Button disabled>Unavailable</Button>
+          <Button type="submit" form="grouped-form">Save</Button>
+        </>
+      </ActionButtons>
+    </>);
+    const rename = screen.getByRole("button", { name: "Rename" });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(rename).toHaveAttribute("data-size", "md");
+    expect(save).toHaveAttribute("data-variant", "primary");
+    expect(rename).toHaveAttribute("data-variant", "secondary");
+    expect(screen.getByRole("group", { name: "Resume editing" }).querySelectorAll('[data-variant="primary"]')).toHaveLength(1);
+    rename.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(save).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(submit).toHaveBeenCalledOnce();
+    await userEvent.keyboard("{Home}");
+    expect(rename).toHaveFocus();
+  });
+
+  it("renders a lone action as a regular button", () => {
+    render(<ActionButtons label="Save"><>{false}<Button>Save</Button></></ActionButtons>);
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toHaveAttribute("data-variant", "primary");
+  });
+
+  it("keeps an explicitly chosen main action primary while disabled or loading", () => {
+    const { rerender } = render(
+      <ActionButtons label="Review" primaryIndex={0}>
+        <Button loading>Review</Button>
+        <Button variant="danger">Delete</Button>
+      </ActionButtons>,
     );
+    expect(screen.getByRole("button", { name: /Review/ })).toHaveAttribute("data-variant", "primary");
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveAttribute("data-variant", "destructive");
+    rerender(<ActionButtons label="Review" primaryIndex={0}>
+      <IconButton aria-label="Edit" disabled>Edit</IconButton>
+      <IconButton aria-label="Delete" variant="danger">Delete</IconButton>
+    </ActionButtons>);
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveAttribute("data-variant", "primary");
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveAttribute("data-variant", "secondary");
   });
 
   it("cleans up toast removal and automatic-dismiss timers on unmount", () => {

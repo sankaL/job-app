@@ -6,6 +6,7 @@ import { queryKeys } from "@/lib/queries";
 import { Pencil, Trash2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAppContext } from "@/components/layout/AppContext";
+import { ActionButtons } from "@/components/ui/button-group";
 import { PageHeader } from "@/components/layout/PageHeader";
 import {
   ResumeContactSection,
@@ -34,7 +35,6 @@ import {
 import {
   documentFromMarkdown,
   emptyResumeDocument,
-  hasSectionContent,
   renderResumeDocument,
   resumeDocumentError,
 } from "@/lib/resume-document";
@@ -248,18 +248,14 @@ export function BaseResumeEditorPage() {
   const dirty = savedSnapshot
     ? JSON.stringify({ name, document }) !== savedSnapshot
     : Boolean(name.trim() || document.sections.length);
-  const included = document.sections.filter(
-    (section) => section.enabled && hasSectionContent(section),
-  );
-  const pendingReview = included.filter(
-    (section) => section.review_state !== "reviewed",
-  ).length;
   const reviewingUpload = uploadMode && Boolean(resume);
   return (
     <div
       className={`resume-editor page-enter w-full ${!loading && (resume || (!uploadMode && isNew)) ? "resume-editor--workbench" : "space-y-5"}`}
     >
       <PageHeader
+        hasBodyHeading
+        groupActions={false}
         title={resume?.name ?? (uploadMode ? "Upload resume" : "New resume")}
         titleContent={
           editingName ? (
@@ -299,6 +295,8 @@ export function BaseResumeEditorPage() {
           !editingName && !loading && (resume || (!uploadMode && isNew)) ? (
             <IconButton
               aria-label="Edit resume name"
+              title="Edit resume name"
+              className="text-secondary"
               disabled={saving}
               onClick={() => {
                 nameBeforeEdit.current = name;
@@ -316,7 +314,7 @@ export function BaseResumeEditorPage() {
         }
         actions={
           !loading && (resume || isNew) ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <ActionButtons label={`${resume?.name ?? "Resume"} actions`}>
               {resume && !isNew ? (
                 <>
                   {!resume.is_default && (
@@ -342,6 +340,7 @@ export function BaseResumeEditorPage() {
                 <Button
                   type="submit"
                   form="base-resume-edit-form"
+                  title={dirty ? "Save unsaved changes" : "Save resume"}
                   loading={saving}
                   disabled={saving}
                 >
@@ -362,7 +361,7 @@ export function BaseResumeEditorPage() {
                   {uploading ? "Import in progress" : "Upload & Parse"}
                 </Button>
               ) : null}
-            </div>
+            </ActionButtons>
           ) : undefined
         }
       />
@@ -525,44 +524,7 @@ export function BaseResumeEditorPage() {
               ) : undefined
             }
           />
-          <div className="resume-save-bar">
-            <div>
-              <Text as="p" display="block" type="label" role="status">
-                {saving
-                  ? "Saving your edits…"
-                  : dirty
-                    ? "Unsaved changes"
-                    : !resume
-                      ? "Not saved yet"
-                      : saved
-                        ? "Changes saved"
-                        : "All changes saved"}
-              </Text>
-              <Text
-                as="p"
-                display="block"
-                type="supporting"
-                className="mt-1"
-                style={{ color: "var(--color-text-secondary)" }}
-              >
-                {pendingReview
-                  ? `${pendingReview} ${pendingReview === 1 ? "section needs" : "sections need"} review before tailoring`
-                  : included.length
-                    ? "Included sections reviewed"
-                    : "Add content to start review"}
-              </Text>
-              <Text
-                as="p"
-                display="block"
-                type="supporting"
-                className="resume-save-hint mt-1"
-                style={{ color: "var(--color-text-secondary)" }}
-              >
-                Changes apply to future generations. Existing drafts keep their
-                source revision.
-              </Text>
-            </div>
-          </div>
+
         </form>
       )}
       <ConfirmModal

@@ -1,6 +1,8 @@
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@/components/ui/button";
-import { Clock3, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ChevronDown, Clock3, TriangleAlert } from "lucide-react";
 import type { ApplicationActivityEvent } from "@/lib/api";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
 
@@ -406,60 +408,39 @@ function ActivityRow({
       ? "Completed"
       : "Info";
   return (
-    <>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Text
-            as="p"
-            display="block"
-            type="label"
-            style={{ color: "var(--color-text-primary)" }}
-          >
-            {item.title}
-          </Text>
-          <Text
-            as="p"
-            display="block"
-            type="supporting"
-            className="mt-0.5"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            {item.summary}
-          </Text>
-        </div>
-        <span
-          className="shrink-0 text-xs font-medium"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
+    <VStack gap={2} className="w-full min-w-0">
+      <HStack gap={3} vAlign="start" hAlign="between" className="w-full">
+        <Text as="p" type="label" className="min-w-0 flex-1 break-words">
+          {item.title}
+        </Text>
+        <time dateTime={item.created_at} className="shrink-0 whitespace-nowrap text-xs font-medium text-[var(--color-text-secondary)]">
           {formatTime(item.created_at)}
-        </span>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        </time>
+      </HStack>
+      <Text as="p" type="supporting" color="secondary" className="w-full break-words">
+        {item.summary}
+      </Text>
+      <HStack gap={3} vAlign="center" hAlign="between" className="w-full text-xs">
         <span
           className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold"
           style={{
-            background: failure
-              ? "var(--color-error-muted)"
-              : "var(--color-background-muted)",
-            color: failure
-              ? "var(--color-error)"
-              : "var(--color-text-secondary)",
+            background: failure ? "var(--color-error-muted)" : "var(--color-background-muted)",
+            color: failure ? "var(--color-error)" : "var(--color-text-secondary)",
           }}
         >
-          {failure ? (
-            <TriangleAlert size={11} aria-hidden="true" />
-          ) : (
-            <Clock3 size={11} aria-hidden="true" />
-          )}
+          {failure ? <TriangleAlert size={11} aria-hidden="true" />
+            : item.status === "success" ? <CheckCircle2 size={11} aria-hidden="true" />
+            : <Clock3 size={11} aria-hidden="true" />}
           {label}
         </span>
-        {expandable ? (
-          <span style={{ color: "var(--color-accent)" }}>
-            {expanded ? "Hide details" : "Details"}
-          </span>
-        ) : null}
-      </div>
-    </>
+        {expandable && (
+          <HStack gap={1} vAlign="center" className="text-[var(--color-text-secondary)]">
+            <Text type="supporting" color="secondary">{expanded ? "Hide details" : "Details"}</Text>
+            <ChevronDown size={12} aria-hidden="true" className={expanded ? "rotate-180" : undefined} />
+          </HStack>
+        )}
+      </HStack>
+    </VStack>
   );
 }
 
@@ -484,17 +465,19 @@ export function ApplicationActivityItem({
   );
 
   return (
-    <article className="group/item relative">
+    <article className="group/item relative border-b border-[var(--color-border)] pb-4">
       <div
-        className="absolute left-[-29px] top-1.5 h-2.5 w-2.5 rounded-full border-2 bg-[var(--color-background-surface)] transition-transform group-hover/item:scale-110"
+        data-activity-dot
+        className="absolute z-10 left-[-29px] top-1.5 h-2.5 w-2.5 rounded-full border-2 bg-[var(--color-background-surface)] transition-transform group-hover/item:scale-110"
         style={{ borderColor: dotColor }}
       />
       {expandable ? (
         <Button
           variant="ghost"
+          contentLayout="block"
           type="button"
           onClick={onToggle}
-          className="-m-1.5 w-full p-1.5 text-left transition-colors"
+          className="-m-1.5 w-[calc(100%+0.75rem)] max-w-none p-1.5 text-left transition-colors"
           aria-expanded={expanded}
           aria-controls={`activity-details-${item.id}`}
         >

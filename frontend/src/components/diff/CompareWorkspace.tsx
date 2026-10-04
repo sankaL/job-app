@@ -1,3 +1,4 @@
+import { ActionButtons } from "@/components/ui/button-group";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { useMemo, useState, useEffect, useRef } from "react";
@@ -19,13 +20,9 @@ interface CompareWorkspaceProps {
   editMode: boolean;
   editContent: string;
   isSavingDraft: boolean;
-  onEnterEdit: () => void;
   onCancelEdit: () => void;
   onContentChange: (val: string) => void;
   onSaveDraft: () => void;
-  onCloseCompare: () => void;
-  onExportPdf?: () => void;
-  isExporting?: boolean;
   pageLength?: string | null;
   aggressiveness?: string | null;
   className?: string;
@@ -37,13 +34,9 @@ export function CompareWorkspace({
   editMode,
   editContent,
   isSavingDraft,
-  onEnterEdit,
   onCancelEdit,
   onContentChange,
   onSaveDraft,
-  onCloseCompare,
-  onExportPdf,
-  isExporting = false,
   pageLength,
   aggressiveness,
   className = "",
@@ -155,10 +148,9 @@ export function CompareWorkspace({
         highlightMode={highlightMode}
         onViewLayoutChange={setViewLayout}
         onHighlightModeChange={setHighlightMode}
-        onEnterEdit={onEnterEdit}
-        onExportPdf={onExportPdf}
-        onCloseCompare={onCloseCompare}
-        isExporting={isExporting}
+        sectionNavigation={!editMode && summary.sections.length > 1 ? (
+          <CompareSectionNav sections={summary.sections} activeSectionId={activeSectionId} onSelectSection={setActiveSectionId} />
+        ) : undefined}
       />
 
       {/* Edit Mode Panel or Comparison Stream */}
@@ -194,31 +186,25 @@ export function CompareWorkspace({
               <span>Tab = 2 spaces</span>
             </div>
             <div className="mt-3 flex flex-shrink-0 items-center gap-3">
-              <Button
-                size="sm"
-                loading={isSavingDraft}
-                disabled={isSavingDraft || !editContent.trim()}
-                onClick={onSaveDraft}
-              >
-                {isSavingDraft ? "Saving…" : "Save Draft"}
-              </Button>
-              <Button size="sm" variant="secondary" onClick={onCancelEdit}>
-                Cancel
-              </Button>
-            </div>
+              <ActionButtons label="Draft editing" size="sm" primaryIndex={0}>
+                <Button
+                  size="sm"
+                  loading={isSavingDraft}
+                  disabled={isSavingDraft || !editContent.trim()}
+                  onClick={onSaveDraft}
+                >
+                  {isSavingDraft ? "Saving…" : "Save Draft"}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={onCancelEdit}>
+                  Cancel
+                </Button>
+
+              </ActionButtons>
+</div>
           </div>
         </Section>
       ) : (
         <div className="space-y-4">
-          {/* Section Navigation Tabs */}
-          {summary.sections.length > 1 && (
-            <CompareSectionNav
-              sections={summary.sections}
-              activeSectionId={activeSectionId}
-              onSelectSection={setActiveSectionId}
-            />
-          )}
-
           {/* Section Cards Stream */}
           <div ref={sectionsContainerRef} className="space-y-6">
             {displayedSections.map((sec, idx) => (

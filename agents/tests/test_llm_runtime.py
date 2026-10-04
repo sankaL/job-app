@@ -314,3 +314,22 @@ async def test_authentication_failure_is_not_eligible_for_model_fallback(monkeyp
         await structured_call(prompt=[('human','Return count.')],output_type=ExampleOutput,
             model_name='test/primary',api_key='test',base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3))
     assert caught.value.can_fallback is False
+
+
+@pytest.mark.asyncio
+async def test_adapter_preserves_fallback_trace_metadata(monkeypatch):
+    from contextlib import contextmanager
+    import llm_runtime
+    captures = []
+    @contextmanager
+    def scoped(name, **kwargs):
+        captures.append(kwargs)
+        yield None
+    monkeypatch.setattr(llm_runtime, "trace_scope", scoped)
+    mock_provider(monkeypatch, [{"count": 7}])
+    adapter = llm_runtime.StructuredLLM(model="test/fallback", api_key="test",
+        base_url="https://provider.invalid/v1", request_timeout=3)
+    await adapter.with_structured_output(ExampleOutput).ainvoke([("human", "Count.")],
+        config={"metadata": {"operation": "resume_judge", "is_fallback": True}})
+    assert captures[0]["metadata"]["is_fallback"] is True
+    assert captures[0]["metadata"]["operation"] == "resume_judge"

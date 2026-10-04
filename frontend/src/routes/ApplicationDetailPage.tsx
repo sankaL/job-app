@@ -1,3 +1,8 @@
+import { ActionButtons } from "@/components/ui/button-group";
+import { SectionRegenerationProgress } from "@/components/ui/section-regeneration-progress";
+import type { SectionProcessing } from "@/components/resume/ResumeSectionWorkbench";
+
+import { HStack } from "@astryxdesign/core/HStack";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
@@ -11,16 +16,13 @@ import {
   type SetStateAction,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
   CircleStop,
   FileText,
-  Gauge,
   History,
-  MessageSquare,
-  Ruler,
   Sparkles,
   Trash2,
   ExternalLink,
@@ -29,12 +31,14 @@ import {
   RefreshCw,
   Check,
   X,
-  Target,
 } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ApplicationActivityPanel } from "@/components/applications/ApplicationActivityPanel";
+import { InlineDetailField } from "@/components/applications/InlineDetailField";
+import { GenerationSettingsFields } from "@/components/applications/GenerationSettingsFields";
+import { ApplicationDetailsPanel } from "@/components/applications/ApplicationDetailsPanel";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
@@ -44,7 +48,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import { InfoPopover } from "@/components/ui/info-popover";
 import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
@@ -122,108 +125,37 @@ function JobInformationFields({
   setForm: Dispatch<SetStateAction<JobFormState>>;
   compact?: boolean;
 }) {
-  const controlClass = compact ? "text-sm" : undefined;
-  const labelClass = compact ? "text-xs" : undefined;
   const setField = (field: keyof JobFormState, value: string) =>
     setForm((current) => ({ ...current, [field]: value }));
-  return (
-    <>
-      <div>
-        <Label htmlFor="job-title" className={labelClass}>
-          Job Title
-        </Label>
-        <Input
-          id="job-title"
-          className={controlClass}
-          placeholder="Job title"
-          value={form.job_title}
-          onChange={(event) => setField("job_title", event.target.value)}
-        />
-      </div>
-      <div>
-        <Label htmlFor="company" className={labelClass}>
-          Company
-        </Label>
-        <Input
-          id="company"
-          className={controlClass}
-          placeholder="Company"
-          value={form.company}
-          onChange={(event) => setField("company", event.target.value)}
-        />
-      </div>
-      <div>
-        <Label htmlFor="origin" className={labelClass}>
-          Posting Source
-        </Label>
-        <Select
-          id="origin"
-          className={controlClass}
-          value={form.job_posting_origin}
-          onChange={(event) =>
-            setField("job_posting_origin", event.target.value)
-          }
-        >
+  const fields: { field: keyof JobFormState; label: string; id: string; multiline?: boolean }[] = [
+    { field: "job_title", label: "Job Title", id: "job-title" },
+    { field: "company", label: "Company", id: "company" },
+    { field: "job_posting_origin", label: "Posting Source", id: "origin" },
+    { field: "job_description", label: "Job Description", id: "jd", multiline: true },
+    { field: "job_location_text", label: "Location", id: "job-location-detail" },
+    { field: "compensation_text", label: "Compensation", id: "compensation-detail" },
+  ];
+  return <>{fields.map(({ field, label, id, multiline }) => {
+    const editor = field === "job_posting_origin" ? (
+      <>
+        <Select id={id} aria-label={label} value={form[field]} onChange={(event) => setField(field, event.target.value)}>
           <option value="">Unknown</option>
-          {jobPostingOriginOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
+          {jobPostingOriginOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </Select>
-      </div>
-      {form.job_posting_origin === "other" ? (
-        <Input
-          className={controlClass}
-          placeholder="Other source label"
-          value={form.job_posting_origin_other_text}
-          onChange={(event) =>
-            setField("job_posting_origin_other_text", event.target.value)
-          }
-        />
-      ) : null}
-      <div>
-        <Label htmlFor="jd" className={labelClass}>
-          Job Description
-        </Label>
-        <Textarea
-          id="jd"
-          className={`${controlClass ?? ""} min-h-32`.trim()}
-          placeholder="Job description"
-          value={form.job_description}
-          onChange={(event) => setField("job_description", event.target.value)}
-        />
-      </div>
-      <div>
-        <Label htmlFor="job-location-detail" className={labelClass}>
-          Location
-        </Label>
-        <Input
-          id="job-location-detail"
-          className={controlClass}
-          placeholder="e.g. British Columbia/Ontario or Toronto, Ontario"
-          value={form.job_location_text}
-          onChange={(event) =>
-            setField("job_location_text", event.target.value)
-          }
-        />
-      </div>
-      <div>
-        <Label htmlFor="compensation-detail" className={labelClass}>
-          Compensation
-        </Label>
-        <Input
-          id="compensation-detail"
-          className={controlClass}
-          placeholder="e.g. $140,000 - $175,000 base salary"
-          value={form.compensation_text}
-          onChange={(event) =>
-            setField("compensation_text", event.target.value)
-          }
-        />
-      </div>
-    </>
-  );
+        {form.job_posting_origin === "other" && <Input aria-label="Other source label" placeholder="Other source label" value={form.job_posting_origin_other_text} onChange={(event) => setField("job_posting_origin_other_text", event.target.value)} />}
+      </>
+    ) : multiline ? (
+      <Textarea id={id} aria-label={label} className="min-h-32" placeholder="Job description" value={form[field]} onChange={(event) => setField(field, event.target.value)} />
+    ) : (
+      <Input id={id} aria-label={label} placeholder={label} value={form[field]} onChange={(event) => setField(field, event.target.value)} />
+    );
+    const displayValue = field === "job_posting_origin"
+      ? form.job_posting_origin === "other" ? form.job_posting_origin_other_text || "Other" : jobPostingOriginOptions.find((option) => option.value === form[field])?.label
+      : form[field];
+    return compact ? (
+      <InlineDetailField key={field} label={label} value={displayValue} multiline={multiline}>{editor}</InlineDetailField>
+    ) : <div key={field}><Label htmlFor={id}>{label}</Label>{editor}</div>;
+  })}</>;
 }
 
 function NotesSection({
@@ -243,6 +175,14 @@ function NotesSection({
       : state === "saved"
         ? "Saved."
         : "Autosaves when you pause typing.";
+  if (compact) return (
+    <Section density="compact" className="p-4">
+      <InlineDetailField label="Notes" value={value} multiline>
+        <Textarea aria-label="Notes" className="min-h-24" placeholder="Add your own notes…" value={value} onChange={(event) => onChange(event.target.value)} />
+        <Text as="p" type="supporting" color="secondary" role="status">{status}</Text>
+      </InlineDetailField>
+    </Section>
+  );
   return (
     <Section density="compact" className="p-4">
       <Heading
@@ -795,7 +735,7 @@ function keywordEmptyMessage(
     );
   if (updating)
     return "Keyword extraction is updating from the latest job description.";
-  return "Keywords will appear after the job description is extracted, saved, or added manually.";
+  return "Save a job description to extract keywords.";
 }
 
 function KeywordCoverageBody({
@@ -891,21 +831,8 @@ function KeywordMatchSection({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <span
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-              style={{ background: tone.bg, color: tone.accent }}
-            >
-              <Target size={14} aria-hidden="true" />
-            </span>
             <div>
-              <Text
-                as="p"
-                display="block"
-                type="supporting"
-                style={{ color: "var(--color-text-secondary)" }}
-              >
-                ATS Keywords
-              </Text>
+              <Heading level={3}>ATS Keywords</Heading>
               <Text
                 as="p"
                 display="block"
@@ -1439,12 +1366,7 @@ function PendingResumeJudgeSection() {
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <span
-            className="text-xs font-semibold"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            Resume Judge
-          </span>
+          <Heading level={3}>Resume Judge</Heading>
           <Text
             as="p"
             display="block"
@@ -1516,7 +1438,7 @@ const UNAVAILABLE_JUDGE_COPY: Record<
     title: "Scoring unavailable",
     badge: "Stale",
     message:
-      "The saved score no longer matches the current draft or job details. Run Resume Judge again to refresh it.",
+      "Resume or job details changed. Re-evaluate to refresh the score.",
     action: "Re-evaluate",
     alert: true,
   },
@@ -1532,7 +1454,7 @@ const UNAVAILABLE_JUDGE_COPY: Record<
     title: "Pending review",
     badge: "Pending",
     message:
-      "This draft has not been reviewed yet. Run Resume Judge any time after generation.",
+      "Run Judge to review this draft.",
     action: "Run Judge",
     alert: false,
   },
@@ -1601,12 +1523,7 @@ function UnavailableResumeJudgeSection({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <span
-            className="text-xs font-semibold"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            Resume Judge
-          </span>
+          <Heading level={3}>Resume Judge</Heading>
           <Text
             as="p"
             display="block"
@@ -1669,6 +1586,7 @@ function CompletedResumeJudgeSection({
     <Button
       variant="ghost"
       type="button"
+      contentLayout="block"
       className="app-review-trigger w-full text-left"
       title={summary}
       data-testid="resume-judge-card"
@@ -1683,12 +1601,7 @@ function CompletedResumeJudgeSection({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <span
-              className="text-xs font-semibold"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              Resume Judge
-            </span>
+            <Heading level={3}>Resume Judge</Heading>
             <Text
               as="p"
               display="block"
@@ -1731,13 +1644,13 @@ function CompletedResumeJudgeSection({
             className="text-xs"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Hover to read more.
+            Review summary
           </span>
           <span
             className="text-xs font-semibold"
             style={{ color: "var(--color-error)" }}
           >
-            Click for details.
+            Details
           </span>
         </div>
       </Section>
@@ -1965,18 +1878,21 @@ function GeneratedDraftEditor({
         <span>Tab = 2 spaces</span>
       </div>
       <div className="mt-3 flex flex-shrink-0 items-center gap-3">
-        <Button
-          size="sm"
-          loading={saving}
-          disabled={saving || !content.trim()}
-          onClick={onSave}
-        >
-          {saving ? "Saving…" : "Save Draft"}
-        </Button>
-        <Button size="sm" variant="secondary" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
+        <ActionButtons label="Draft editing" size="sm" primaryIndex={0}>
+          <Button
+            size="sm"
+            loading={saving}
+            disabled={saving || !content.trim()}
+            onClick={onSave}
+          >
+            {saving ? "Saving…" : "Save Draft"}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+
+        </ActionButtons>
+</div>
     </div>
   );
 }
@@ -2167,6 +2083,13 @@ export function ApplicationDetailPage() {
   const [regenInstructions, setRegenInstructions] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showOptimisticProgress, setShowOptimisticProgress] = useState(false);
+  const [generationScope, setGenerationScope] = useState<"resume" | "section">("resume");
+  const [sectionTarget, setSectionTarget] = useState<{ applicationId: string; sectionId: string; entryId?: string } | null>(null);
+  useEffect(() => {
+    if (!showOptimisticProgress && detail && detail.internal_state !== "regenerating_section") {
+      setSectionTarget(null);
+    }
+  }, [detail?.internal_state, showOptimisticProgress]);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isCancellingExtraction, setIsCancellingExtraction] = useState(false);
   const [isRetryingExtraction, setIsRetryingExtraction] = useState(false);
@@ -2185,6 +2108,7 @@ export function ApplicationDetailPage() {
   const [fullRegenInstructions, setFullRegenInstructions] = useState("");
   const [fullRegenUseLatestBase, setFullRegenUseLatestBase] = useState(false);
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [showResumeJudgeDialog, setShowResumeJudgeDialog] = useState(false);
   const [expandedResumeJudgeDimension, setExpandedResumeJudgeDimension] =
     useState<string | null>(null);
@@ -2295,13 +2219,6 @@ export function ApplicationDetailPage() {
     additionalInstructions,
     savedSettings,
   ]);
-  const selectedAggressivenessOption = useMemo(
-    () =>
-      AGGRESSIVENESS_OPTIONS.find(
-        (option) => option.value === aggressiveness,
-      ) ?? null,
-    [aggressiveness],
-  );
   const generationStartBlocker = getGenerationStartBlocker(
     detail,
     selectedResumeId,
@@ -2456,6 +2373,7 @@ export function ApplicationDetailPage() {
 
   useEffect(() => {
     setActivityPanelOpen(false);
+    setDetailsCollapsed(false);
   }, [applicationId]);
 
   useEffect(() => {
@@ -3047,6 +2965,7 @@ export function ApplicationDetailPage() {
       return;
     }
     setIsGenerating(true);
+    setGenerationScope("resume");
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
@@ -3155,6 +3074,7 @@ export function ApplicationDetailPage() {
       return false;
     }
     setIsRegenerating(true);
+    setGenerationScope("resume");
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
@@ -3204,6 +3124,8 @@ export function ApplicationDetailPage() {
       return;
     }
     setIsRegenerating(true);
+    setGenerationScope("section");
+    setSectionTarget({ applicationId: activeApplicationId, sectionId: regenSectionName, entryId: regenEntryId });
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
@@ -3352,6 +3274,7 @@ export function ApplicationDetailPage() {
     }
     if (!draft || generationActive || isOptimizingKeywords) return;
     setIsOptimizingKeywords(true);
+    setGenerationScope("resume");
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
@@ -3454,6 +3377,9 @@ export function ApplicationDetailPage() {
       detail.internal_state,
     );
   const generationActive = isGenerationWorkflowActive(detail);
+  const sectionGenerationActive = showOptimisticProgress
+    ? generationScope === "section"
+    : detail?.internal_state === "regenerating_section" || generationProgress?.workflow_kind === "regeneration_section";
   const extractionActive = detail
     ? EXTRACTION_POLL_STATES.includes(detail.internal_state)
     : false;
@@ -3556,6 +3482,7 @@ export function ApplicationDetailPage() {
 
   function renderGeneratedWorkspacePane(options?: {
     lockInteractions?: boolean;
+    processing?: SectionProcessing;
   }) {
     if (draft)
       return (
@@ -3563,6 +3490,7 @@ export function ApplicationDetailPage() {
           <DraftSectionWorkbench
             key={`${activeApplicationId}:${draft.id}`}
             draft={draft}
+            processing={options?.processing}
             profile={bootstrap?.profile ?? null}
             locked={options?.lockInteractions ?? false}
             saving={isSavingDraft}
@@ -3599,33 +3527,18 @@ export function ApplicationDetailPage() {
     );
   }
 
-  return (
-    <div
-      className={`application-detail-page page-enter ${isPastExtraction && detail?.internal_state !== "manual_entry_required" && !compareMode ? "application-detail-page--workspace" : "space-y-4"}`}
-    >
-      {/* Error banner */}
-      <ErrorBanner
-        error={error}
-        className="mb-4"
-        onClear={() => setError(null)}
-      />
-
-      {/* Loading skeleton */}
-      {!detail ? (
-        <div className="space-y-4">
-          <SkeletonSection />
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SkeletonSection />
-            <SkeletonSection />
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* ── Page Header ── */}
+  const pageHeader = detail ? (
           <PageHeader
             hasBodyHeading
+            groupActions={false}
             title={detail.job_title ?? "Awaiting extracted title"}
-            subtitle={detail.company ?? "Company pending extraction"}
+            subtitle={<HStack gap={3} wrap="wrap" vAlign="center">
+              <Text type="body" color="secondary">{detail.company ?? "Company pending extraction"}</Text>
+              {draft && <Text type="supporting" color="secondary" className="application-resume-metadata">
+                {generatedTimestampLabel} · Revision {draft.document?.revision ?? 1}
+                {exportedTimestampLabel ? ` · ${exportedTimestampLabel}` : ""}
+              </Text>}
+            </HStack>}
             badge={
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={detail.visible_status} size="md" />
@@ -3662,125 +3575,126 @@ export function ApplicationDetailPage() {
               </div>
             }
             actions={
-              <div className="flex flex-wrap items-center gap-2">
-                {compareMode && (
-                  <Button size="sm" onClick={handleToggleCompareMode}>
-                    Close Comparison
+              <HStack gap={2} wrap="wrap">
+                <ActionButtons label="Application actions" size="sm" primaryIndex={compareMode ? 0 : 1}>
+                  {compareMode && (
+                    <Button size="sm" onClick={handleToggleCompareMode}>
+                      Close Comparison
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setActivityPanelOpen(true)}
+                  >
+                    <History size={14} aria-hidden="true" />
+                    Activity
                   </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => setActivityPanelOpen(true)}
-                >
-                  <History size={14} aria-hidden="true" />
-                  Activity
-                </Button>
-                <DropdownMenu
-                  presentation="popover"
-                  placement="above"
-                  alignment="end"
-                  menuWidth="max-content"
-                  isMenuOpen={actionsMenuOpen}
-                  onOpenChange={setActionsMenuOpen}
-                  button={{
-                    label: "Actions",
-                    size: "sm",
-                    variant: "secondary",
-                    className: "app-button",
-                  }}
-                  items={[
-                    ...(detail.job_url
-                      ? [
-                          {
-                            label: "View Posting",
-                            icon: <ExternalLink size={16} />,
-                            onClick: () =>
-                              window.open(
-                                detail.job_url!,
-                                "_blank",
-                                "noopener,noreferrer",
-                              ),
-                          },
-                        ]
-                      : []),
-                    {
-                      label: detail.applied
-                        ? "Mark unapplied instead"
-                        : "Mark Applied",
-                      icon: detail.applied ? (
-                        <X size={16} />
-                      ) : (
-                        <Check size={16} />
-                      ),
-                      onClick: handleAppliedButtonClick,
-                    },
-                    ...(draft
-                      ? [
-                          { type: "divider" as const },
-                          {
-                            label:
-                              exportingFormat === "pdf"
-                                ? "Exporting PDF…"
-                                : "Export PDF",
-                            icon: <FileDown size={16} />,
-                            isDisabled:
-                              exportingFormat !== null ||
-                              isRegenerating ||
-                              generationActive,
-                            onClick: () => void handleExport("pdf"),
-                          },
-                          {
-                            label:
-                              exportingFormat === "docx"
-                                ? "Exporting DOCX…"
-                                : "Export DOCX",
-                            icon: <FileDown size={16} />,
-                            isDisabled:
-                              exportingFormat !== null ||
-                              isRegenerating ||
-                              generationActive,
-                            onClick: () => void handleExport("docx"),
-                          },
-                          {
-                            label: compareMode ? "Close comparison" : "Compare",
-                            icon: <Columns size={16} />,
-                            isDisabled:
-                              isRegenerating ||
-                              exportingFormat !== null ||
-                              generationActive,
-                            onClick: handleToggleCompareMode,
-                          },
-                        ]
-                      : []),
-                    ...(draft && !generationActive
-                      ? [
-                          {
-                            label: "Regen Section",
-                            icon: <Sparkles size={16} />,
-                            isDisabled:
-                              isRegenerating || exportingFormat !== null,
-                            onClick: () => {
-                              setRegenEntryId(undefined);
-                              setRegenSectionName("");
-                              setShowSectionRegen(true);
+                  <DropdownMenu
+                    presentation="popover"
+                    placement="below"
+                    alignment="end"
+                    menuWidth="max-content"
+                    isMenuOpen={actionsMenuOpen}
+                    onOpenChange={setActionsMenuOpen}
+                    button={{
+                      label: "Actions",
+                      size: "sm",
+                      variant: compareMode ? "secondary" : "primary",
+                      className: "app-button",
+                    }}
+                    items={[
+                      ...(detail.job_url
+                        ? [
+                            {
+                              label: "View Posting",
+                              icon: <ExternalLink size={16} />,
+                              onClick: () =>
+                                window.open(
+                                  detail.job_url!,
+                                  "_blank",
+                                  "noopener,noreferrer",
+                                ),
                             },
-                          },
-                          {
-                            label: isRegenerating ? "Starting…" : "Full Regen",
-                            icon: <RefreshCw size={16} />,
-                            isDisabled:
-                              isRegenerating || exportingFormat !== null,
-                            onClick: () => {
-                              setFullRegenInstructions("");
-                              setFullRegenUseLatestBase(false);
-                              setShowFullRegenConfirm(true);
+                          ]
+                        : []),
+                      {
+                        label: detail.applied
+                          ? "Mark unapplied instead"
+                          : "Mark Applied",
+                        icon: detail.applied ? (
+                          <X size={16} />
+                        ) : (
+                          <Check size={16} />
+                        ),
+                        onClick: handleAppliedButtonClick,
+                      },
+                      ...(draft
+                        ? [
+                            { type: "divider" as const },
+                            {
+                              label:
+                                exportingFormat === "pdf"
+                                  ? "Exporting PDF…"
+                                  : "Export PDF",
+                              icon: <FileDown size={16} />,
+                              isDisabled:
+                                exportingFormat !== null ||
+                                isRegenerating ||
+                                generationActive,
+                              onClick: () => void handleExport("pdf"),
                             },
-                          },
-                        ]
-                      : []),
-                  ]}
-                />
+                            {
+                              label:
+                                exportingFormat === "docx"
+                                  ? "Exporting DOCX…"
+                                  : "Export DOCX",
+                              icon: <FileDown size={16} />,
+                              isDisabled:
+                                exportingFormat !== null ||
+                                isRegenerating ||
+                                generationActive,
+                              onClick: () => void handleExport("docx"),
+                            },
+                            {
+                              label: compareMode ? "Close comparison" : "Compare",
+                              icon: <Columns size={16} />,
+                              isDisabled:
+                                isRegenerating ||
+                                exportingFormat !== null ||
+                                generationActive,
+                              onClick: handleToggleCompareMode,
+                            },
+                          ]
+                        : []),
+                      ...(draft && !generationActive
+                        ? [
+                            {
+                              label: "Regen Section",
+                              icon: <Sparkles size={16} />,
+                              isDisabled:
+                                isRegenerating || exportingFormat !== null,
+                              onClick: () => {
+                                setRegenEntryId(undefined);
+                                setRegenSectionName("");
+                                setShowSectionRegen(true);
+                              },
+                            },
+                            {
+                              label: isRegenerating ? "Starting…" : "Full Regen",
+                              icon: <RefreshCw size={16} />,
+                              isDisabled:
+                                isRegenerating || exportingFormat !== null,
+                              onClick: () => {
+                                setFullRegenInstructions("");
+                                setFullRegenUseLatestBase(false);
+                                setShowFullRegenConfirm(true);
+                              },
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
                 {extractionActive ? (
                   <IconButton
                     variant="danger"
@@ -3810,9 +3724,36 @@ export function ApplicationDetailPage() {
                     <Trash2 size={16} aria-hidden="true" />
                   </IconButton>
                 )}
-              </div>
+                </ActionButtons>
+              </HStack>
             }
           />
+  ) : null;
+
+  return (
+    <div
+      className={`application-detail-page page-enter ${isPastExtraction && detail?.internal_state !== "manual_entry_required" && !compareMode ? "application-detail-page--workspace" : "space-y-4"}`}
+    >
+      {/* Error banner */}
+      <ErrorBanner
+        error={error}
+        className="mb-4"
+        onClear={() => setError(null)}
+      />
+
+      {/* Loading skeleton */}
+      {!detail ? (
+        <div className="space-y-4">
+          <SkeletonSection />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SkeletonSection />
+            <SkeletonSection />
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* ── Page Header ── */}
+          {(!isPastExtraction || compareMode) && pageHeader}
 
           {/* ── Alert Banners (full width, above two-column layout) ── */}
 
@@ -3972,20 +3913,23 @@ export function ApplicationDetailPage() {
                 </div>
               </div>
               <div className="mt-3 flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => void handleDuplicateDismissal()}
-                >
-                  Proceed Anyway
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void handleOpenExistingApplication()}
-                >
-                  Open Existing
-                </Button>
-              </div>
+                <ActionButtons label="Duplicate review actions" size="sm" primaryIndex={0}>
+                  <Button
+                    size="sm"
+                    onClick={() => void handleDuplicateDismissal()}
+                  >
+                    Proceed Anyway
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleOpenExistingApplication()}
+                  >
+                    Open Existing
+                  </Button>
+
+                </ActionButtons>
+</div>
             </Section>
           )}
 
@@ -4149,25 +4093,28 @@ export function ApplicationDetailPage() {
                 <form className="mt-3 space-y-3" onSubmit={handleSaveJobInfo}>
                   <JobInformationFields form={jobForm} setForm={setJobForm} />
                   <div className="flex gap-2">
-                    <Button
-                      loading={isSavingJobInfo}
-                      disabled={isSavingJobInfo}
-                      type="submit"
-                    >
-                      {isSavingJobInfo ? "Saving…" : "Save"}
-                    </Button>
-                    {detail.job_url && (
+                    <ActionButtons label="Extraction recovery" size="sm" primaryIndex={0}>
                       <Button
-                        type="button"
-                        variant="secondary"
-                        loading={isRetryingExtraction}
-                        disabled={isRetryingExtraction}
-                        onClick={() => void handleRetryExtraction()}
+                        loading={isSavingJobInfo}
+                        disabled={isSavingJobInfo}
+                        type="submit"
                       >
-                        Retry Extraction
+                        {isSavingJobInfo ? "Saving…" : "Save"}
                       </Button>
-                    )}
-                  </div>
+                      {detail.job_url && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          loading={isRetryingExtraction}
+                          disabled={isRetryingExtraction}
+                          onClick={() => void handleRetryExtraction()}
+                        >
+                          Retry Extraction
+                        </Button>
+                      )}
+
+                    </ActionButtons>
+</div>
                 </form>
               </Section>
 
@@ -4215,27 +4162,30 @@ export function ApplicationDetailPage() {
                       onChange={(e) => setSourceTextDraft(e.target.value)}
                     />
                     <div className="flex gap-2">
-                      <Button
-                        loading={isRecoveringFromSource}
-                        disabled={
-                          isRecoveringFromSource || !sourceTextDraft.trim()
-                        }
-                        type="submit"
-                      >
-                        Retry with Text
-                      </Button>
-                      {detail.job_url && (
+                      <ActionButtons label="Source recovery" size="sm" primaryIndex={0}>
                         <Button
-                          type="button"
-                          variant="secondary"
-                          loading={isRetryingExtraction}
-                          disabled={isRetryingExtraction}
-                          onClick={() => void handleRetryExtraction()}
+                          loading={isRecoveringFromSource}
+                          disabled={
+                            isRecoveringFromSource || !sourceTextDraft.trim()
+                          }
+                          type="submit"
                         >
-                          Retry URL
+                          Retry with Text
                         </Button>
-                      )}
-                    </div>
+                        {detail.job_url && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            loading={isRetryingExtraction}
+                            disabled={isRetryingExtraction}
+                            onClick={() => void handleRetryExtraction()}
+                          >
+                            Retry URL
+                          </Button>
+                        )}
+
+                      </ActionButtons>
+</div>
                   </form>
                   <form
                     className="mt-4 space-y-3 border-t pt-4"
@@ -4293,7 +4243,7 @@ export function ApplicationDetailPage() {
                 className={
                   compareMode
                     ? "space-y-4"
-                    : "application-workspace grid gap-4 xl:items-start xl:[grid-template-columns:minmax(0,1fr)_minmax(300px,340px)]"
+                    : `application-workspace grid gap-4 xl:items-start${detailsCollapsed ? " application-workspace--details-collapsed" : ""}`
                 }
                 data-compare-mode={compareMode ? "open" : "closed"}
               >
@@ -4305,13 +4255,30 @@ export function ApplicationDetailPage() {
                       : "application-resume-column min-w-0"
                   }
                 >
+                  {!compareMode && pageHeader}
                   {/* Resume Content Area */}
-                  {generationActive || showOptimisticProgress ? (
+                  {(generationActive || showOptimisticProgress) && draft &&
+                    sectionGenerationActive ? (
+                    renderGeneratedWorkspacePane({
+                      lockInteractions: true,
+                      processing: {
+                        ...(sectionTarget?.applicationId === activeApplicationId ? sectionTarget : {}),
+                        content: <SectionRegenerationProgress
+                          progress={generationProgress}
+                          isOptimistic={showOptimisticProgress}
+                          isActive={generationActive}
+                          isCancelling={isCancelling}
+                          onCancel={() => void handleCancelGeneration()}
+                        />,
+                      },
+                    })
+                  ) : generationActive || showOptimisticProgress ? (
                     <div
                       className="application-resume-placeholder min-h-0 overflow-y-auto"
                       aria-label="Resume generation workspace"
                     >
                       <GenerationProgress
+                        scope={generationScope}
                         progress={generationProgress}
                         isOptimistic={showOptimisticProgress}
                         isActive={generationActive}
@@ -4331,13 +4298,9 @@ export function ApplicationDetailPage() {
                         editMode={editMode}
                         editContent={editContent}
                         isSavingDraft={isSavingDraft}
-                        onEnterEdit={() => setCompareMode(false)}
                         onCancelEdit={handleCancelEdit}
                         onContentChange={setEditContent}
                         onSaveDraft={() => void handleSaveDraft()}
-                        onCloseCompare={handleToggleCompareMode}
-                        onExportPdf={() => void handleExport("pdf")}
-                        isExporting={exportingFormat === "pdf"}
                         pageLength={pageLength}
                         aggressiveness={aggressiveness}
                       />
@@ -4400,15 +4363,11 @@ export function ApplicationDetailPage() {
                   )}
                 </div>
                 {/* Supporting panels follow the resume and sit on its right on desktop. */}
-                <aside
-                  aria-label="Application details"
-                  tabIndex={compareMode ? -1 : 0}
-                  className={
-                    compareMode
-                      ? "hidden"
-                      : "application-support-column min-w-0 space-y-4"
-                  }
-                  aria-hidden={compareMode}
+                <ApplicationDetailsPanel
+                  key={activeApplicationId}
+                  hidden={compareMode}
+                  collapsed={detailsCollapsed}
+                  onToggle={() => setDetailsCollapsed((value) => !value)}
                 >
                   {renderResumeJudgeSection()}
                   {renderKeywordSection()}
@@ -4460,7 +4419,7 @@ export function ApplicationDetailPage() {
                           </svg>
                         </Button>
                       </div>
-                      <form onSubmit={handleSaveJobInfo}>
+                      <form onSubmit={handleSaveJobInfo} hidden={!jobFormDirty && !isSavingJobInfo}>
                         <Button
                           size="sm"
                           loading={isSavingJobInfo}
@@ -4496,6 +4455,7 @@ export function ApplicationDetailPage() {
                           >
                             Generation Settings
                           </Heading>
+                          {(settingsDirty || isSavingSettings) && (
                           <Button
                             size="sm"
                             disabled={
@@ -4513,235 +4473,21 @@ export function ApplicationDetailPage() {
                           >
                             {isSavingSettings ? "Saving…" : "Save"}
                           </Button>
-                        </div>
-
-                        {/* Base Resume */}
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <FileText
-                              size={14}
-                              className="flex-shrink-0"
-                              style={{ color: "var(--color-text-secondary)" }}
-                            />
-                            <Label className="inline text-xs font-medium">
-                              Base Resume
-                            </Label>
-                          </div>
-                          {baseResumes.length === 0 ? (
-                            <div
-                              className="border-l p-2 text-xs"
-                              style={{
-                                borderColor: "var(--color-border)",
-                                color: "var(--color-text-secondary)",
-                              }}
-                            >
-                              No base resumes yet.{" "}
-                              <Link
-                                className="font-medium"
-                                style={{ color: "var(--color-accent)" }}
-                                to="/app/resumes"
-                              >
-                                Create one
-                              </Link>
-                            </div>
-                          ) : (
-                            <Select
-                              className="text-sm"
-                              value={selectedResumeId ?? ""}
-                              onChange={(e) =>
-                                setSelectedResumeId(e.target.value || null)
-                              }
-                            >
-                              <option value="">Select a base resume</option>
-                              {baseResumes.map((r) => (
-                                <option key={r.id} value={r.id}>
-                                  {r.name}
-                                  {r.is_default ? " (default)" : ""}
-                                </option>
-                              ))}
-                            </Select>
                           )}
                         </div>
 
-                        {/* Target Length */}
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <Ruler
-                              size={14}
-                              className="flex-shrink-0"
-                              style={{ color: "var(--color-text-secondary)" }}
-                            />
-                            <Label className="inline text-xs font-medium">
-                              Target Length
-                            </Label>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {PAGE_LENGTH_OPTIONS.map((o) => (
-                              <label
-                                key={o.value}
-                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors"
-                                style={{
-                                  borderColor:
-                                    pageLength === o.value
-                                      ? "var(--color-accent)"
-                                      : "var(--color-border)",
-                                  background:
-                                    pageLength === o.value
-                                      ? "var(--color-accent-muted)"
-                                      : "var(--color-background-surface)",
-                                  color:
-                                    pageLength === o.value
-                                      ? "var(--color-accent)"
-                                      : "var(--color-text-primary)",
-                                }}
-                              >
-                                <Input
-                                  checked={pageLength === o.value}
-                                  className="sr-only"
-                                  name="pageLength"
-                                  type="radio"
-                                  value={o.value}
-                                  onChange={() => {
-                                    setPageLength(o.value);
-                                    setHasUserModifiedSettings(true);
-                                  }}
-                                />
-                                {o.label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Aggressiveness */}
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <Gauge
-                              size={14}
-                              className="flex-shrink-0"
-                              style={{ color: "var(--color-text-secondary)" }}
-                            />
-                            <Label className="inline text-xs font-medium">
-                              Aggressiveness
-                            </Label>
-                          </div>
-                          <div className="space-y-1.5">
-                            {AGGRESSIVENESS_OPTIONS.map((o) => (
-                              <label
-                                key={o.value}
-                                className="cursor-pointer rounded-md border p-2 transition-colors block"
-                                style={{
-                                  borderColor:
-                                    aggressiveness === o.value
-                                      ? "var(--color-accent)"
-                                      : "var(--color-border)",
-                                  background:
-                                    aggressiveness === o.value
-                                      ? "var(--color-accent-muted)"
-                                      : "var(--color-background-surface)",
-                                }}
-                              >
-                                <Input
-                                  checked={aggressiveness === o.value}
-                                  className="sr-only"
-                                  name="aggressiveness"
-                                  type="radio"
-                                  value={o.value}
-                                  onChange={() => {
-                                    setAggressiveness(o.value);
-                                    setHasUserModifiedSettings(true);
-                                  }}
-                                />
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div
-                                      className="text-xs font-medium"
-                                      style={{
-                                        color: "var(--color-text-primary)",
-                                      }}
-                                    >
-                                      {o.label}
-                                    </div>
-                                    <div
-                                      className="text-xs"
-                                      style={{
-                                        color: "var(--color-text-secondary)",
-                                      }}
-                                    >
-                                      {o.description}
-                                    </div>
-                                  </div>
-                                  <div className="shrink-0">
-                                    <InfoPopover
-                                      label={`${o.label} aggressiveness details`}
-                                    >
-                                      <div className="space-y-2">
-                                        <Text
-                                          as="p"
-                                          display="block"
-                                          type="supporting"
-                                          style={{
-                                            color: "var(--color-text-primary)",
-                                          }}
-                                        >
-                                          {o.label} affects:
-                                        </Text>
-                                        <ul
-                                          className="space-y-1 text-xs"
-                                          style={{
-                                            color:
-                                              "var(--color-text-secondary)",
-                                          }}
-                                        >
-                                          {o.details.map((detailLine) => (
-                                            <li key={detailLine}>
-                                              {detailLine}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    </InfoPopover>
-                                  </div>
-                                </div>
-                              </label>
-                            ))}
-                          </div>
-                          {selectedAggressivenessOption?.warning ? (
-                            <div
-                              role="alert"
-                              className="mt-2 rounded-md border px-3 py-2 text-xs"
-                              style={{
-                                borderColor: "var(--color-warning)",
-                                background: "var(--color-warning-muted)",
-                                color: "var(--color-text-primary)",
-                              }}
-                            >
-                              {selectedAggressivenessOption.warning}
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {/* Additional Instructions */}
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <MessageSquare
-                              size={14}
-                              className="flex-shrink-0"
-                              style={{ color: "var(--color-text-secondary)" }}
-                            />
-                            <Label className="inline text-xs font-medium">
-                              Additional Instructions
-                            </Label>
-                          </div>
-                          <Textarea
-                            className="text-sm min-h-16"
-                            placeholder="e.g., emphasize API architecture…"
-                            value={additionalInstructions}
-                            onChange={(e) => {
-                              setAdditionalInstructions(e.target.value);
-                              setHasUserModifiedSettings(true);
-                            }}
-                          />
-                        </div>
+                        <GenerationSettingsFields
+                          baseResumes={baseResumes}
+                          selectedResumeId={selectedResumeId}
+                          setSelectedResumeId={setSelectedResumeId}
+                          pageLength={pageLength}
+                          onPageLengthChange={(value) => { setPageLength(value); setHasUserModifiedSettings(true); }}
+                          aggressiveness={aggressiveness}
+                          onAggressivenessChange={(value) => { setAggressiveness(value); setHasUserModifiedSettings(true); }}
+                          additionalInstructions={additionalInstructions}
+                          onAdditionalInstructionsChange={(value) => { setAdditionalInstructions(value); setHasUserModifiedSettings(true); }}
+                          disabled={isSavingSettings}
+                        />
                       </form>
                     </Section>
                   )}
@@ -4756,7 +4502,7 @@ export function ApplicationDetailPage() {
                       setNotesState("idle");
                     }}
                   />
-                </aside>
+                </ApplicationDetailsPanel>
               </div>
             )}
 
@@ -5046,35 +4792,38 @@ export function ApplicationDetailPage() {
                       marginTop: "20px",
                     }}
                   >
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => {
-                        setShowSectionRegen(false);
-                        setRegenSectionName("");
-                        setRegenEntryId(undefined);
-                        setRegenInstructions("");
-                      }}
-                      disabled={isRegenerating}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      type="button"
-                      disabled={
-                        isRegenerating ||
-                        Boolean(sectionRegenerationBlocker) ||
-                        !regenSectionName ||
-                        !regenInstructions.trim()
-                      }
-                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => void handleSectionRegeneration()}
-                    >
-                      <Sparkles size={14} />
-                      {isRegenerating ? "Regenerating…" : "Regenerate"}
-                    </Button>
-                  </div>
+                    <ActionButtons label="Section regeneration" size="sm">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          setShowSectionRegen(false);
+                          setRegenSectionName("");
+                          setRegenEntryId(undefined);
+                          setRegenInstructions("");
+                        }}
+                        disabled={isRegenerating}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        type="button"
+                        disabled={
+                          isRegenerating ||
+                          Boolean(sectionRegenerationBlocker) ||
+                          !regenSectionName ||
+                          !regenInstructions.trim()
+                        }
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => void handleSectionRegeneration()}
+                      >
+                        <Sparkles size={14} />
+                        {isRegenerating ? "Regenerating…" : "Regenerate"}
+                      </Button>
+
+                    </ActionButtons>
+</div>
                 </div>
               </div>,
               document.body,

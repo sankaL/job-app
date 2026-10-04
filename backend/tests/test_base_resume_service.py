@@ -236,3 +236,27 @@ def test_historical_base_resume_detail_sanitizes_contact_without_external_calls(
     assert detail.contact_suggestions["name"] == "Jane Doe"
     assert detail.needs_review and not detail.ready_for_generation
     assert repository.record.content_md == MANUAL_CONTACT_SOURCE
+
+
+@pytest.mark.parametrize("source,legacy,expected", [
+    ("**Product leader** with [platform experience](https://example.com).", None, "Product leader with platform experience."),
+    ("", "# Jane Doe\n\n## Professional Summary\nBuilds reliable tools.\n\n## Skills\nPython", "Builds reliable tools."),
+    ("", None, ""),
+    ("", "## Skills\nPython", ""),
+])
+def test_library_summary_uses_saved_summary_without_inventing_content(source, legacy, expected):
+    from app.db.base_resumes import BaseResumeListRecord
+    from app.services.base_resumes import _summary_excerpt
+    record = BaseResumeListRecord(id="resume-1", user_id="owner", name="Resume", summary_md=source,
+                                  legacy_content_md=legacy, created_at="2026-10-03", updated_at="2026-10-03")
+    assert _summary_excerpt(record) == expected
+
+
+def test_library_summary_bounds_long_text():
+    from app.db.base_resumes import BaseResumeListRecord
+    from app.services.base_resumes import _summary_excerpt
+    record = BaseResumeListRecord(id="resume-1", user_id="owner", name="Resume", summary_md="Long summary. " * 100,
+                                  created_at="2026-10-03", updated_at="2026-10-03")
+    excerpt = _summary_excerpt(record)
+    assert len(excerpt) <= 240
+    assert excerpt.endswith("…")

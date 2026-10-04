@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes, PropsWithChildren } from "react";
-import { Button } from "@/components/ui/button";
+import { IconButton as AstryxIconButton } from "@astryxdesign/core/IconButton";
 import { cn } from "@/lib/utils";
+import { useActionGroup } from "./button-group";
 
 type IconButtonProps = PropsWithChildren<
   ButtonHTMLAttributes<HTMLButtonElement>
@@ -11,16 +12,23 @@ type IconButtonProps = PropsWithChildren<
 export function IconButton({
   className,
   variant = "default",
-  style,
+  children,
+  disabled,
+  title,
   ...props
 }: IconButtonProps) {
+  const group = useActionGroup();
   return (
-    <Button
-      type="button"
-      variant={variant === "danger" ? "danger" : "ghost"}
-      className={cn("h-9 w-9 p-0", className)}
-      style={{ width: "2.25rem", height: "2.25rem", padding: 0, ...style }}
+    <AstryxIconButton
       {...props}
+      label={props["aria-label"] ?? title ?? "Action"}
+      tooltip={disabled ? undefined : title}
+      {...{ title }}
+      icon={children}
+      variant={group?.isPrimary ? "primary" : group ? "secondary" : "ghost"}
+      size={group?.size ?? "sm"}
+      isDisabled={disabled}
+      className={cn(variant === "danger" && !group?.isPrimary && "text-error", className)}
     />
   );
 }

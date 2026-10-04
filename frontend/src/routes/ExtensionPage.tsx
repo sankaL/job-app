@@ -264,9 +264,10 @@ export function ExtensionPage() {
     <div className="page-enter space-y-5">
       <PageHeader
         title="Chrome Extension"
+        primaryActionIndex={0}
         subtitle="Capture job postings directly from your browser"
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <Button
               size="sm"
               loading={isConnecting}
@@ -282,7 +283,7 @@ export function ExtensionPage() {
             >
               Revoke Access
             </Button>
-          </div>
+          </>
         }
       />
 

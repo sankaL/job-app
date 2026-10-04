@@ -54,14 +54,14 @@ describe("frontend phase 0 auth shell", () => {
       renderWithAuth(<LoginPage />);
     });
 
-    expect(screen.getByText("Applix")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /ai-powered resume tailoring/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^sign in$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^sign in$/i })).toBeInTheDocument();
     expect(screen.getByText(/local dev/i)).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /applix logo/i })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /applix logo/i })).toHaveAttribute("src", "/applix-logo.svg");
     expect(
-      screen.getByRole("img", { name: /businessman seated with a laptop, representing the applix workspace/i }),
+      screen.getByRole("img", { name: /illustration of a person working on a laptop in an armchair/i }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /request access/i })).toHaveAttribute("href", "/signup");
   });
 
   it("opens at the landing page and attempts a session refresh", async () => {
@@ -366,13 +366,13 @@ describe("frontend phase 0 auth shell", () => {
         </MemoryRouter>
       </AuthProvider>,
     );
-    expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^sign in$/i })).toBeDisabled();
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
     const picker = await screen.findByRole("button", { name: "Local user" });
     await waitFor(() => expect(picker).toBeEnabled());
     await userEvent.click(picker);
     await userEvent.click(await screen.findByRole("menuitemradio", { name: "member@test.invalid" }));
-    await userEvent.click(screen.getByRole("button", { name: /enter the workspace/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^sign in$/i }));
     expect(await screen.findByText("Target workspace")).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith("http://localhost:8000/api/auth/login", expect.objectContaining({
       body: JSON.stringify({ email: "member@test.invalid", password: "" }),
@@ -387,7 +387,7 @@ describe("frontend phase 0 auth shell", () => {
       : new Response("", { status: 401 }));
     renderWithAuth(<LoginPage />);
     expect(await screen.findByRole("alert")).toHaveTextContent("No local accounts are available");
-    expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^sign in$/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Local user" })).toBeDisabled();
   });
 
@@ -403,7 +403,7 @@ describe("frontend phase 0 auth shell", () => {
     });
     renderWithAuth(<LoginPage />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load local users");
-    expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^sign in$/i })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     const picker = screen.getByRole("button", { name: "Local user" });
     await waitFor(() => expect(picker).toBeEnabled());
@@ -439,7 +439,7 @@ describe("frontend phase 0 auth shell", () => {
       await act(async () => { renderWithAuth(<LoginPage />); });
       await act(async () => { await vi.advanceTimersByTimeAsync(10_100); });
       expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load local users");
-      expect(screen.getByRole("button", { name: /enter the workspace/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^sign in$/i })).toBeDisabled();
     } finally {
       vi.useRealTimers();
     }

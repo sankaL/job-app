@@ -23,7 +23,8 @@ dependencies = [
   "redis>=5.2.1",
   "uvicorn[standard]>=0.34.0",
   "weasyprint>=61.0",
-  "markdown>=3.6"
+  "markdown>=3.6",
+  "tzdata>=2024.1"
 ]
 
 [project.optional-dependencies]
