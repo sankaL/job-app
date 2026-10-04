@@ -13,10 +13,12 @@ import {
   LogOut,
   Puzzle,
   Settings2,
+  UserRound,
   Users,
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { SideNav, SideNavItem } from "@astryxdesign/core/SideNav";
+import { VStack } from "@astryxdesign/core/VStack";
 import { useAppContext } from "@/components/layout/AppContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,6 +77,12 @@ export function Sidebar({
       icon: <Puzzle size={18} />,
       selected: pathname === "/app/extension",
     },
+    {
+      href: "/app/profile",
+      label: "Profile",
+      icon: <UserRound size={18} />,
+      selected: pathname === "/app/profile",
+    },
   ];
   return (
     <SideNav
@@ -95,60 +103,62 @@ export function Sidebar({
         </Button>
       }
     >
-      {destinations.map(({ selected, ...item }) => (
-        <SideNavItem
-          key={item.href}
-          {...item}
-          as={RouterLink}
-          size="lg"
-          className="mb-1"
-          isSelected={selected}
-          onClick={onNavigate}
-        />
-      ))}
-      {bootstrap?.profile?.is_admin ? (
-        <SideNavItem
-          as={RouterLink}
-          href="/app/admin"
-          label="Admin"
-          size="lg"
-          className="mb-1"
-          icon={<Settings2 size={18} />}
-          isSelected={onAdminRoute}
-          onClick={onNavigate}
-          collapsible={{
-            isCollapsed: adminCollapsed,
-            onCollapsedChange: setAdminCollapsed,
-          }}
-        >
-          {[
-            {
-              href: "/app/admin",
-              label: "Metrics",
-              icon: <BarChart3 size={18} />,
-            },
-            {
-              href: "/app/admin/users",
-              label: "User Management",
-              icon: <Users size={18} />,
-            },
-            {
-              href: "/app/admin/subscriptions",
-              label: "Subscriptions",
-              icon: <CreditCard size={18} />,
-            },
-          ].map((item) => (
-            <SideNavItem
-              key={item.href}
-              {...item}
-              as={RouterLink}
-              size="sm"
-              isSelected={pathname === item.href}
-              onClick={onNavigate}
-            />
-          ))}
-        </SideNavItem>
-      ) : null}
+      <VStack gap={0.5}>
+        {destinations.map(({ selected, ...item }) => (
+          <SideNavItem
+            key={item.href}
+            {...item}
+            as={RouterLink}
+            size="lg"
+            isSelected={selected}
+            onClick={onNavigate}
+          />
+        ))}
+        {bootstrap?.profile?.is_admin ? (
+          <SideNavItem
+            as={RouterLink}
+            href="/app/admin"
+            label="Admin"
+            size="lg"
+            icon={<Settings2 size={18} />}
+            isSelected={onAdminRoute}
+            onClick={onNavigate}
+            collapsible={{
+              isCollapsed: adminCollapsed,
+              onCollapsedChange: setAdminCollapsed,
+            }}
+          >
+            <VStack gap={0.5} className="pt-0.5">
+              {[
+                {
+                  href: "/app/admin",
+                  label: "Metrics",
+                  icon: <BarChart3 size={18} />,
+                },
+                {
+                  href: "/app/admin/users",
+                  label: "User Management",
+                  icon: <Users size={18} />,
+                },
+                {
+                  href: "/app/admin/subscriptions",
+                  label: "Subscriptions",
+                  icon: <CreditCard size={18} />,
+                },
+              ].map((item) => (
+                <SideNavItem
+                  key={item.href}
+                  {...item}
+                  as={RouterLink}
+                  size="sm"
+                  isSelected={pathname === item.href}
+                  onClick={onNavigate}
+                />
+              ))}
+            </VStack>
+          </SideNavItem>
+        ) : null}
+      </VStack>
     </SideNav>
   );
 }

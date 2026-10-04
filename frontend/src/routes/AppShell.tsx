@@ -31,7 +31,7 @@ function ShellContent() {
     <AstryxAppShell
       className="app-shell-root"
       data-shell-mode={mode}
-      variant="section"
+      variant="elevated"
       height="auto"
       contentPadding={0}
       sideNav={

@@ -8,12 +8,6 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
-## Uncommitted branch review and regression fixes
-
-**Status:** Complete; verified snapshot ready for commit and push (2026-10-03 22:06:31 EDT).
-
-Reviewed the uncommitted UI, dashboard activity, tracing, email and asset changes on `astryx-ui`. Fixed five confirmed defects: shell remounts that discarded comparison/editor state, grouped-column sort direction, hidden cached-chart refresh failures, missing classifier usage on invalid answers, and duplicate tracing defaults in the Compose example. All 1,021 tests and the TypeScript/Vite production build passed through the Makefile-managed local stack. Concurrent edits made after the verified snapshot are preserved outside the reviewed commit. See [review results](task-output/2026-10-03-uncommitted-code-review.md).
-
 ## Notification inbox layout fix
 
 **Status:** Complete; local verification passed (2026-10-03 19:55 EDT).
@@ -22,7 +16,13 @@ Notification rows now use the shared Button adapter's content-sized block layout
 
 ## Shared logo and navigation shell
 
-Review correction (2026-10-03 22:06:31 EDT): retain the `section` shell variant. Astryx 0.6.5 changes the elevated variant’s content tree when inline navigation hides, remounting the route and discarding comparison mode or unsaved edits. Comparison-close and responsive-breakpoint regressions now verify mounted editor identity and pending values. This supersedes the elevated-variant choice below.
+Shell shape restoration complete (2026-10-03 22:08 EDT). Restored Astryx's elevated shell variant, with gray top/sidebar navigation and a white content area with rounded corners, as requested. Branding, navigation destinations and 2px row gaps remain unchanged. The Makefile-managed TypeScript/Vite build passed.
+
+Profile navigation complete (2026-10-03 22:06 EDT). Added Profile as a standalone destination before Admin for every authenticated user, linking to their existing `/app/profile` page with active-route highlighting. Updated the product contract. Both regular-user and admin navigation regressions passed, the local browser showed the new item, and the Makefile-managed TypeScript/Vite build passed.
+
+Sidebar gap refinement complete (2026-10-03 22:04 EDT). Reduced top-level and nested Admin row gaps, including the gap above the first Admin child, from 8px to 2px to match the user's reference. Row sizing is unchanged. Verified the expanded Admin sidebar in the local browser; the Makefile-managed TypeScript/Vite build passed.
+
+Sidebar highlight separation complete (2026-10-03 22:03 EDT). Replaced ineffective item margin classes with Astryx vertical stacks providing an 8px gap between top-level destinations and between Admin children, plus 8px above the first child. Verified the expanded Admin navigation in the local browser and passed the Makefile-managed TypeScript/Vite build.
 
 Reference spacing follow-up complete (2026-10-03 21:53 EDT). Matched the Astryx App Shell reference with a larger logo beside a smaller semibold brand label, large sidebar rows with an extra spacing step between destinations, and the standard elevated shell's gray navigation background. Verified the local dev preview and passed the Makefile-managed TypeScript/Vite build.
 

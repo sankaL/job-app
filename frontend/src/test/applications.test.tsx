@@ -17,6 +17,7 @@ import { TopBar } from "@/components/layout/TopBar";
 import { ToastProvider } from "@/components/ui/toast";
 import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { AppShell } from "@/routes/AppShell";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
 import { ApplicationsListPage } from "@/routes/ApplicationsListPage";
 import { AdminDashboardPage } from "@/routes/AdminDashboardPage";
@@ -3973,6 +3974,24 @@ describe("phase 1 applications UI", () => {
     expect(within(basePane as HTMLElement).getByText("Cypress").tagName).toBe(
       "LI",
     );
+  });
+
+  it.each([false, true])("offers the current user's profile in navigation, admin=%s", async (isAdmin) => {
+    api.fetchSessionBootstrap.mockResolvedValue({
+      ...defaultBootstrap,
+      profile: { ...defaultBootstrap.profile, is_admin: isAdmin },
+    });
+    renderWithAppProvider(<Sidebar />, { initialEntries: ["/app/profile"] });
+    const navigation = screen.getByRole("navigation", { name: "Primary navigation" });
+    const profile = within(navigation).getByRole("link", { name: "Profile" });
+    expect(profile).toHaveAttribute("href", "/app/profile");
+    expect(profile).toHaveAttribute("aria-current", "page");
+    await waitFor(() => expect(api.fetchSessionBootstrap).toHaveBeenCalled());
+    if (isAdmin) {
+      expect(await within(navigation).findByRole("link", { name: "Admin" })).toBeInTheDocument();
+    } else {
+      expect(within(navigation).queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    }
   });
 
   it("opens the mobile navigation drawer and closes it after choosing a destination", async () => {
