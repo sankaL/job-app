@@ -1,4 +1,6 @@
 :root {
+  --brand-orange: #ff5941;
+  --brand-orange-hover: #e44730;
   --sidebar-width: 240px;
   --topbar-height: 64px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -36,7 +38,7 @@
   --color-ember-light: #c4501e;
   --color-ember-10: rgba(159, 58, 22, 0.1);
   --color-ember-05: rgba(159, 58, 22, 0.05);
-  --color-hero-orange: #ff5941;
+  --color-hero-orange: var(--brand-orange);
   --color-amber: #b45309;
   --color-amber-10: rgba(180, 83, 9, 0.1);
 
@@ -681,11 +683,11 @@ body,
 }
 .app-topbar-page-actions:empty { display: none; }
 .app-topbar-page-actions :is(.astryx-button, .astryx-icon-button)[data-variant="primary"] {
-  background-color: #c4501e;
+  background-color: var(--brand-orange);
   color: var(--color-on-accent);
 }
 .app-topbar-page-actions :is(.astryx-button, .astryx-icon-button)[data-variant="primary"]:hover:not(:disabled):not([aria-disabled="true"]) {
-  background-color: #9f3a16;
+  background-color: var(--brand-orange-hover);
 }
 .app-shell-content:has(.app-page-heading-hidden) {
   --app-content-padding-top: var(--spacing-3);

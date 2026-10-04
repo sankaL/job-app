@@ -8,6 +8,12 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Shared orange CTA accent
+
+**Status:** Complete; local verification passed (2026-10-04 10:12 EDT).
+
+Orange app-shell actions and marketing primary buttons now share the rotating headline's `#ff5941` background and one hover colour through shared brand tokens. Updated the PRD and frontend guidance. Thirty-six focused frontend tests and the TypeScript/Vite production build pass through the Makefile-managed local stack. Browser inspection confirms New Application renders as `rgb(255, 89, 65)`. No schema or AI behavior changed.
+
 ## Rotating landing-page headline
 
 **Status:** Complete; local verification passed (2026-10-04 09:59 EDT).
@@ -17,6 +23,8 @@ Replaced the hero with "Make it" and the sequence "short", "long", "polished", "
 Follow-up (2026-10-04 10:01 EDT): the sequence now loops continuously, with two seconds on each word and five seconds on "work". The animated paper character appears inside the orange highlight during "work". A regression test checks two full cycles, the longer pause and character placement. Twenty-two focused frontend tests and the production build pass through the Makefile-managed local stack.
 
 Follow-up (2026-10-04 10:04 EDT): restored the darker orange on marketing primary buttons. The paper character now drops from above into the bright orange highlight when "work" appears, with reduced-motion behavior preserved. Twenty-two focused frontend tests, the production build and local browser verification pass.
+
+Follow-up (2026-10-04 10:07 EDT): changed the hero prefix and accessible heading to "Make my resume". Updated the PRD and landing-page regression assertion. Twenty-two focused frontend tests and the production build pass; desktop and 375px mobile checks confirm the longer text fits.
 
 ## Review and commit the full uncommitted snapshot
 

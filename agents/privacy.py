@@ -26,11 +26,11 @@ PHONE_RE = re.compile(
     r"(?:(?:\+?\d{1,3}[\s.-]*)?(?:\(?\d{3}\)?[\s.-]*)\d{3}[\s.-]*\d{4})"
 )
 URL_RE = re.compile(
-    r"(?:https?://|www\.|linkedin\.com/|github\.com/|gitlab\.com/|portfolio\.|behance\.net/|dribbble\.com/)",
+    r"(?:https?://|www\.|linkedin\.com/|github\.com/|gitlab\.com/|portfolio\.(?=[a-z0-9])|behance\.net/|dribbble\.com/)",
     re.I,
 )
 CONTACT_URL_RE = re.compile(
-    r"(?:linkedin\.com/|github\.com/|gitlab\.com/|portfolio\.|behance\.net/|dribbble\.com/)",
+    r"(?:linkedin\.com/|github\.com/|gitlab\.com/|portfolio\.(?=[a-z0-9])|behance\.net/|dribbble\.com/)",
     re.I,
 )
 CONTACT_MARKER_RE = re.compile(r"\b(?:email|phone|mobile|address|location|city|linkedin|github|portfolio)\b", re.I)

@@ -1064,3 +1064,17 @@ async def test_verified_sections_are_reported_per_group_as_they_finish(monkeypat
     # Summary/custom are reported as soon as their group passes; Experience after its repair.
     assert ready == [['summary-id', 'custom-id'], ['experience-id']]
     assert result['document']
+
+
+@pytest.mark.parametrize('text,flagged', [
+    ('Built a regression suite across a multi-application client portfolio. Manual cycles shrank to hours.', False),
+    ('Maintained the product portfolio.', False),
+    ('See portfolio.janedoe.dev for samples.', True),
+    ('Profile at github.com/janedoe.', True),
+])
+def test_sentence_ending_in_portfolio_is_not_a_profile_url(text, flagged):
+    if flagged:
+        with pytest.raises(pipeline.SectionValidationError, match='contact_information_profile_url'):
+            pipeline._check_privacy(text)
+    else:
+        pipeline._check_privacy(text)

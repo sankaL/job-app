@@ -78,7 +78,7 @@ describe("frontend phase 0 auth shell", () => {
       );
     });
 
-    expect(screen.getByRole("heading", { name: /make it work/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /make my resume work/i })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /^login$/i })[0]).toHaveAttribute("href", "/login");
     expect(screen.getAllByRole("link", { name: /^sign up$/i })[0]).toHaveAttribute("href", "/signup");
     expect(screen.getByRole("heading", { name: /designed for serious job seekers/i })).toBeInTheDocument();

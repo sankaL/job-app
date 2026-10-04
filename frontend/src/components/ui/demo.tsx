@@ -16,7 +16,7 @@ function Preview() {
   return (
     <LayoutGroup>
       <motion.span className="inline-flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-2 sm:gap-x-4" layout={!reducedMotion} transition={SPRING}>
-        <motion.span className="whitespace-nowrap" layout={!reducedMotion} transition={SPRING}>Make it</motion.span>
+        <motion.span className="whitespace-nowrap" layout={!reducedMotion} transition={SPRING}>Make my resume</motion.span>
         <motion.span className="inline-flex items-center justify-center gap-2 rounded-lg bg-hero-orange px-3 py-1 text-white sm:gap-3 sm:px-4 sm:py-2"
           layout={!reducedMotion} transition={SPRING}>
           <TextRotate texts={WORDS} loop onNext={setWordIndex}
