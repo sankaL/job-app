@@ -1,3 +1,10 @@
+## 2026-10-04 04:30:00 EDT - Jev decision model as first-pass grounding auditor
+
+- Context: The Gemini auditor took 18-32s at Medium; fast LLM auditors missed invented claims. The user prioritised speed, then robustness, then cost, and chose speed-favouring thresholds.
+- Decision: Audit claims (bullets, Summary sentences, Skills groups) with `typesafe/jev-1.13` in batches of at most 6, evidence = cited text plus the whole reviewed role. Accept P(pass) >= 0.80, reject <= 0.20 with the most likely issue code, escalate the middle band to the Sonnet LLM audit (Gemini fallback). Full LLM audit when Jev is unavailable or answers are invalid; retitled roles always use the LLM audit. Jev judges High plausibility as well (eval gate passed).
+- Evidence: 684 labelled claims: Medium 99.2% caught / 0% false rejects / 1.2% escalated; High 96.6% / 9.5% / 7.6%. Real drafts escalate ~10% of claims and still catch the known invented phrase (reject) and overclaim (escalate). See `docs/task-output/2026-10-04-jev-audit-evaluation.md`.
+- Consequences: Audits drop from 10-32s to ~0.3-1s plus occasional small Sonnet checks; cost per audit falls to ~$0.0001 plus escalations. Jev's Decisions API is alpha, so the LLM audit remains the fallback.
+
 ## 2026-10-04 03:32:57 EDT - Review the full uncommitted snapshot and fence extraction recovery
 
 The owner requested review, repair and a commit of all uncommitted changes. Intentional High job-fit claims, eased visual progress and copy-only prompt exemptions remain in place. Higher server percentages raise the eased target; the display catches up smoothly and can briefly lag. This corrects the previous instantaneous-floor wording without changing the curve.
