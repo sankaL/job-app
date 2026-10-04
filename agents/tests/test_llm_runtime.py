@@ -462,3 +462,16 @@ async def test_failed_model_run_is_marked_as_error_with_fixed_label(monkeypatch)
     assert captures[0]['error'] == 'ModelHTTPError: provider_unavailable'
     assert captures[0]['outputs']['outcome'] == 'failed'
     assert 'Private upstream' not in str(captures)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_name,pinned', [('google/gemini-3.8-flash', ['google-ai-studio']), ('anthropic/claude-sonnet-5.5', None), ('openai/gpt-6-luna', None)])
+async def test_requests_deny_data_retention_route_by_latency_and_record_served_provider(monkeypatch, model_name, pinned):
+    requests = mock_provider(monkeypatch, [{'count': 3}])
+    budget = CallBudget.for_seconds(3)
+    await structured_call(prompt=[('human', 'Count.')], output_type=ExampleOutput, model_name=model_name, api_key='test',
+        base_url='https://provider.invalid/v1', budget=budget)
+    provider = requests[0]['provider']
+    assert provider['data_collection'] == 'deny' and provider['require_parameters'] is True and provider['sort'] == 'latency'
+    assert provider.get('only') == pinned
+    assert budget.attempts[-1]['served_provider'] == 'Synthetic'

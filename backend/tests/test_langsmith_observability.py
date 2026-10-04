@@ -350,3 +350,11 @@ def test_resume_parser_factory_forwards_trace_content_setting(monkeypatch):
         assert base_resumes.get_resume_parser().trace_config.include_content is True
     finally:
         config.get_settings.cache_clear()
+
+
+def test_import_provider_settings_deny_retention_and_pin_gemini():
+    from app.services.import_ai import _provider_settings_for
+
+    assert _provider_settings_for("google/gemini-3.8-flash") == {"require_parameters": True, "data_collection": "deny",
+        "sort": "latency", "only": ["google-ai-studio"]}
+    assert "only" not in _provider_settings_for("openai/gpt-6-luna")

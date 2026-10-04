@@ -157,6 +157,29 @@ def reasoning_settings_for(model_name: str) -> dict[str, Any]:
     return {"exclude": True}
 
 
+def provider_settings_for(model_name: str) -> dict[str, Any]:
+    """OpenRouter routing: no data retention/training, fastest compatible host.
+
+    Gemini is pinned to Google AI Studio; Vertex and flex endpoints showed
+    10-70s first-token latency in live routing statistics.
+    """
+    family = model_name.removeprefix("~").split("/", 1)[0]
+    settings: dict[str, Any] = {"require_parameters": True, "data_collection": "deny", "sort": "latency"}
+    if family == "google":
+        settings["only"] = ["google-ai-studio"]
+    return settings
+
+
+def _served_details(result: Any) -> dict[str, Any]:
+    details = getattr(getattr(result, "response", None), "provider_details", None) or {}
+    served: dict[str, Any] = {}
+    if isinstance(details.get("downstream_provider"), str):
+        served["served_provider"] = details["downstream_provider"][:64]
+    if isinstance(details.get("cost"), (int, float)) and not isinstance(details.get("cost"), bool):
+        served["cost_usd"] = round(float(details["cost"]), 6)
+    return served
+
+
 @dataclass
 class CallBudget:
     deadline: float
@@ -220,6 +243,7 @@ def _request_trace_metadata(settings: dict[str, Any], *, output_type: Any, nativ
         "reasoning_max_tokens": reasoning.get("max_tokens"),
         "reasoning_text_excluded": reasoning.get("exclude") is True,
         "output_retries": retries,
+        "provider_routing": ",".join(f"{key}={value}" for key, value in sorted((settings.get("openrouter_provider") or {}).items())),
     }
 
 
@@ -257,7 +281,7 @@ async def structured_call(
     started = perf_counter()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=call_timeout)
     native_output = model_name.removeprefix("~") in {"anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "openai/gpt-6-luna"}
-    settings: dict[str, Any] = { "max_tokens": min(MAX_CALL_OUTPUT_TOKENS, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": {"require_parameters": True}}
+    settings: dict[str, Any] = { "max_tokens": min(MAX_CALL_OUTPUT_TOKENS, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": provider_settings_for(model_name)}
     if not native_output:
         settings["temperature"] = temperature
     settings["openrouter_reasoning"] = reasoning_settings_for(model_name) if native_output else reasoning
@@ -269,6 +293,7 @@ async def structured_call(
     include_content = False
     output_value: Any = None
     trace_error: Optional[str] = None
+    served: dict[str, Any] = {}
     outcome = "failed"
     try:
         include_content = trace_content_enabled()
@@ -322,12 +347,14 @@ async def structured_call(
         )
         outcome = "success"
         output_value = result.output
+        served = _served_details(result)
         budget.attempts.append({
             "model": model_name,
             "transport_mode": "pydantic_ai",
             "outcome": "success",
             "elapsed_ms": round((perf_counter() - started) * 1000),
             "operation": operation,
+            **served,
         })
         return result.output
     except Exception as error:
@@ -356,6 +383,7 @@ async def structured_call(
         budget.requests += max(1, usage.requests)
         budget.output_tokens += usage.output_tokens
         trace_outputs: dict[str, Any] = {"outcome": outcome, "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens}
+        trace_outputs.update(served)
         reasoning_tokens = (getattr(usage, "details", None) or {}).get("reasoning_tokens")
         if type(reasoning_tokens) is int:
             trace_outputs["reasoning_tokens"] = reasoning_tokens

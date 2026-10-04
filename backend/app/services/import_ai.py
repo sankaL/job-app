@@ -24,6 +24,14 @@ def _reasoning_settings_for(model_name: str) -> dict[str, Any]:
     return {"exclude": True}
 
 
+def _provider_settings_for(model_name: str) -> dict[str, Any]:
+    """Mirrors agents/llm_runtime.provider_settings_for: no retention/training, fastest host."""
+    settings: dict[str, Any] = {"require_parameters": True, "data_collection": "deny", "sort": "latency"}
+    if model_name.removeprefix("~").split("/", 1)[0] == "google":
+        settings["only"] = ["google-ai-studio"]
+    return settings
+
+
 def _portable_openrouter_import_profile(model_name: str) -> Any:
     """Keep Google's tool transport subset separate from local validation."""
     if model_name.removeprefix("~").split("/", 1)[0] != "google":
@@ -86,7 +94,8 @@ async def _invoke_import_output(
             # validators enforce the complete contract locally.
             output_type=NativeOutput(output_type, strict=False) if model in NATIVE_OUTPUT_MODELS else ToolOutput(output_type, strict=False),
             retries=1,
-            model_settings={"openrouter_reasoning": _reasoning_settings_for(model), "max_tokens": 16000, "timeout": timeout_seconds},
+            model_settings={"openrouter_reasoning": _reasoning_settings_for(model), "openrouter_provider": _provider_settings_for(model),
+                "max_tokens": 16000, "timeout": timeout_seconds},
         )
         if validator is not None:
             @agent.output_validator
