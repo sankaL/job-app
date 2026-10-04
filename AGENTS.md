@@ -47,6 +47,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
 ## Sources of Truth (consult before changing behavior)
 - Product contract: `docs/resume_builder_PRD_v3.md`
 - Database schema source of truth: `docs/database_schema.md`
+- Model roles, per-model reasoning and provider routing: `shared/model-config.json` (copies bundled in `agents/` and `backend/app/core/`; tests enforce they match)
 - Backend/database migration runbook: `docs/backend-database-migration-runbook.md`
 - Task tracking: `docs/build-plan.md`
 - Decisions log: `docs/decisions-made/`

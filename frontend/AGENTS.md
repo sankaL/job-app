@@ -33,6 +33,7 @@ Keep this file focused on durable frontend rules for the AI Resume Builder. Do n
 - Show clear transient success and error feedback.
 - Surface action-required states prominently on dashboard and detail views.
 - Application supporting details start read-only with per-field editing and compact empty states. Keep job/settings Save semantics and notes autosave; use the three-stop aggressiveness slider with full descriptions on hover/focus/touch and a visible High warning.
+- A section with `generation_notice: kept_original_unverified` shows a concise warning ("Kept your original wording.") in the workbench until the user edits it.
 - Open base and application section workbenches in preview. Use each section's Edit action or double-click to open only that section's inline Markdown/entry editor. Preserve unsaved edits, section controls and section/entry regeneration. Contact information is managed through the profile.
 - Use optimistic UI only where the operation is low-risk and can be rolled back cleanly, such as toggling the `applied` flag.
 - Preserve clear empty states and next-step calls to action for first use and failure recovery.
