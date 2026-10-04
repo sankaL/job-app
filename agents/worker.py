@@ -183,6 +183,24 @@ class WorkerSettingsEnv(BaseSettings):
         return self
 
 
+def _keep_original_after_revalidation(gen_result: dict[str, Any], generated_sections: list[dict[str, Any]],
+                                      validation_result: dict[str, Any], generation_settings: dict[str, Any]
+                                      ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Keep originals for sections that fail the deterministic recheck instead of failing the job."""
+    if validation_result.get("valid") or not gen_result.get("document"):
+        return generated_sections, validation_result
+    from section_generation import keep_original_for_invalid_sections
+    kept = keep_original_for_invalid_sections(
+        document_payload=gen_result["document"], validation_errors=validation_result.get("errors") or [],
+        generation_settings=generation_settings, operation=str(gen_result.get("operation") or ""),
+        expected_ids=list(gen_result.get("section_ids") or []))
+    if kept is None:
+        return generated_sections, validation_result
+    gen_result["document"] = kept["document"]
+    gen_result["fallback_sections"] = [*(gen_result.get("fallback_sections") or []), *kept["fallback_sections"]]
+    return kept["sections"], kept["validation"]
+
+
 def _pipeline_model_settings(settings: "WorkerSettingsEnv") -> dict[str, Any]:
     """Internal routing keys for the section pipeline; stripped before persistence."""
     return {
@@ -2367,6 +2385,8 @@ async def run_generation_job(
         if not await is_current_job(writer, application_id, job_id):
             return
 
+        generated_sections, validation_result = _keep_original_after_revalidation(
+            gen_result, generated_sections, validation_result, public_generation_settings)
         if not validation_result["valid"]:
             length_diagnostics = _build_length_diagnostics(
                 generated_sections=generated_sections,
@@ -2845,6 +2865,8 @@ async def run_regeneration_job(
             if not await is_current_job(writer, application_id, job_id):
                 return
 
+            generated_sections, validation_result = _keep_original_after_revalidation(
+                gen_result, generated_sections, validation_result, public_generation_settings)
             if not validation_result["valid"]:
                 length_diagnostics = _build_length_diagnostics(
                     generated_sections=generated_sections,

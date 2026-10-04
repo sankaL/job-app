@@ -7,6 +7,13 @@
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
 
+## 2026-10-04 generation speed and keep-original sections
+
+- No SQL migration or backfill. Section document v1 gains optional `generation_notice` (`"kept_original_unverified"` or null) inside `resume_drafts.document` JSONB. Existing documents remain valid; older readers that ignore unknown keys are unaffected, but the agents and backend `ResumeSection` models both forbid extra keys, so **deploy backend and frontend before the worker**. The backend must accept the field before any worker sends it.
+- The worker now needs `JEV_AUDIT_ENABLED` (default `true`) and `JEV_AUDIT_MODEL` (default `typesafe/jev-1.13`); defaults apply when unset. Writing actions share ten model requests; Jev calls do not count. OpenRouter requests deny provider data collection, sort by latency and pin Gemini to Google AI Studio.
+- Verify after deploy: a generation trace in LangSmith shows `applix.section_grounding_audit` with a Jev decisions child, `served_provider` on model runs, and two concurrent `section_generation` runs. A generation whose Summary cannot be verified completes, keeps the source Summary text and shows "Kept your original wording." Editing that section and saving clears the notice. Usage events record `kept_original_sections`.
+- Rollback: redeploy the previous worker first, then backend/frontend. Stored notices stay harmless (a null-safe optional field); no schema rollback is needed.
+
 ## 2026-10-04 extraction recovery and claim-policy compatibility
 
 - No SQL migration or backfill. New extraction diagnostics use the existing JSONB field: `timed_out`, `posting_unavailable` and `no_job_posting`. Older rows and their existing kinds remain readable. Deploy backend, worker and frontend together so persisted outcomes keep their specific recovery messages after navigation.

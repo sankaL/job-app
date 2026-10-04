@@ -53,6 +53,8 @@ class ResumeSection(BaseModel):
     content_md: str = Field(default='', max_length=100000)
     source_ids: list[ResumeId] = Field(default_factory=list, max_length=500)
     entries: list[ResumeEntry] = Field(default_factory=list, max_length=100)
+    # Set when generation could not verify a tailored version and kept the original text.
+    generation_notice: Literal['kept_original_unverified'] | None = None
 
     @model_validator(mode='after')
     def safe_heading(self):

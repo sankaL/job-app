@@ -767,14 +767,16 @@ async def test_audit_fallback_still_leaves_room_to_audit_the_final_repair(monkey
         writes.append(kwargs['model_name'])
         outputs = {'summary-id': summary_output(), 'experience-id': experience_output(), 'custom-id': custom_output()}
         return pipeline.SectionBatch.model_validate({'sections': [outputs[s['id']] for s in payload['requested_sections']]})
-    with pytest.raises(pipeline.SectionGenerationError) as raised:
-        await _generate(monkeypatch, call)
+    result = await _generate(monkeypatch, call)
     # Two writes + three audits (one fallback) in round 0, then write + audit in rounds 1 and 2.
     assert len(calls) == 9 <= pipeline.WRITING_MAX_REQUESTS
     assert calls[-1][0] == 'section_grounding_audit'
-    assert len(raised.value.attempt_diagnostics) == 9
-    assert raised.value.validation_errors[0]['section'] == 'summary-id'
-    assert raised.value.safe_trace_reason == 'unsupported_scope'
+    # The unverifiable Summary keeps its source text; the generation still succeeds.
+    assert result['fallback_sections'] == [{'section_id': 'summary-id', 'codes': 'unsupported_scope'}]
+    summary = result['document']['sections'][0]
+    assert summary['generation_notice'] == 'kept_original_unverified'
+    assert summary['content_md'] == source_document()['sections'][0]['content_md']
+    assert result['document']['sections'][1]['generation_notice'] is None
 
 
 @pytest.mark.asyncio
@@ -782,11 +784,10 @@ async def test_repair_round_is_not_started_without_budget_for_its_audit(monkeypa
     # Every primary call fails, so each write and audit spends two requests.
     writes = []
     call, calls = _budgeted_call(writes, [{'summary-id'}] * 6, failing_models=('tier1-primary',))
-    with pytest.raises(pipeline.SectionGenerationError) as raised:
-        await _generate(monkeypatch, call)
+    result = await _generate(monkeypatch, call)
     assert len(calls) == pipeline.WRITING_MAX_REQUESTS
-    assert len(raised.value.attempt_diagnostics) == pipeline.WRITING_MAX_REQUESTS
-    assert raised.value.validation_errors[0]['section'] == 'summary-id'
+    assert len(result['attempt_diagnostics']) == pipeline.WRITING_MAX_REQUESTS
+    assert [item['section_id'] for item in result['fallback_sections']] == ['summary-id']
 
 
 @pytest.mark.asyncio
@@ -993,3 +994,57 @@ def test_writer_groups_split_experience_from_other_sections():
     groups = pipeline._writer_groups([doc.sections[0], doc.sections[1], doc.sections[3]])
     assert [[s.id for s in group] for group in groups] == [['experience-id'], ['summary-id', 'custom-id']]
     assert [[s.id for s in group] for group in pipeline._writer_groups([doc.sections[0]])] == [['summary-id']]
+
+
+@pytest.mark.asyncio
+async def test_every_writable_section_failing_still_fails_the_generation(monkeypatch):
+    with pytest.raises(pipeline.SectionGenerationError):
+        await run_pipeline(monkeypatch, [{'sections': []}, {'sections': []}, {'sections': []}])
+
+
+@pytest.mark.asyncio
+async def test_targeted_section_regeneration_does_not_keep_original_on_failure(monkeypatch):
+    current = validate_resume_document(source_document()).model_dump(mode='json')
+    with pytest.raises(pipeline.SectionGenerationError):
+        await run_pipeline(monkeypatch, [{'sections': []}, {'sections': []}, {'sections': []}],
+            generation_settings={'_current_document': current}, target_section_id='summary-id', instructions='Tighten it.')
+
+
+def _generated_like_document():
+    """The source as a writer would return it: every prose section and bullet cites its source."""
+    doc = validate_resume_document(source_document())
+    for section in doc.sections:
+        if not section.entries:
+            section.source_ids = [section.id]
+        for entry in section.entries:
+            for bullet in entry.bullets:
+                bullet.source_ids = [bullet.id]
+    return doc
+
+
+def test_kept_original_must_match_source_exactly_to_revalidate():
+    doc = _generated_like_document()
+    kept = pipeline.keep_original_sections(doc, {'summary-id'}, source=doc, current=None)
+    sections = pipeline.document_sections(kept)
+    ids = [section['name'] for section in sections]
+    assert pipeline.validate_document_sections(generated_sections=sections, source_payload=source_document(),
+        generation_settings={}, expected_ids=ids)['valid']
+    tampered = kept.model_copy(deep=True)
+    tampered.sections[0].content_md = 'Invented summary text.'
+    sections = pipeline.document_sections(tampered)
+    checked = pipeline.validate_document_sections(generated_sections=sections, source_payload=source_document(),
+        generation_settings={}, expected_ids=ids)
+    assert not checked['valid'] and checked['errors'][0]['type'] == 'kept_original_changed'
+
+
+def test_worker_revalidation_fallback_keeps_only_failed_sections():
+    doc = _generated_like_document()
+    ids = [section['name'] for section in pipeline.document_sections(doc)]
+    fixed = pipeline.keep_original_for_invalid_sections(document_payload=doc.model_dump(mode='json'),
+        validation_errors=[{'section': 'summary-id', 'type': 'unsupported_numeric_fact'}],
+        generation_settings={'_source_document': source_document()}, operation='generation', expected_ids=ids)
+    assert fixed and fixed['validation']['valid']
+    assert [s['id'] for s in fixed['document']['sections'] if s['generation_notice']] == ['summary-id']
+    assert pipeline.keep_original_for_invalid_sections(document_payload=doc.model_dump(mode='json'),
+        validation_errors=[{'type': 'section_identity_or_order'}], generation_settings={'_source_document': source_document()},
+        operation='generation', expected_ids=ids) is None

@@ -503,6 +503,64 @@ def _summary_experience_overlaps(document: ResumeDocument) -> int:
     return overlaps
 
 
+KEPT_ORIGINAL_NOTICE = "kept_original_unverified"
+
+
+def keep_original_sections(document: ResumeDocument, section_ids: set[str], *, source: ResumeDocument,
+                           current: Optional[ResumeDocument]) -> ResumeDocument:
+    """Replace unverifiable sections with their original text and flag them for review.
+
+    The original is the current draft section for full regeneration and the reviewed
+    source section otherwise; both are truthful by construction.
+    """
+    originals = {section.id: section for section in (current or source).sections}
+    sources = {section.id: section for section in source.sections}
+    result = document.model_copy(deep=True)
+    for index, section in enumerate(result.sections):
+        if section.id not in section_ids:
+            continue
+        original = originals.get(section.id) or sources.get(section.id)
+        if original is None:
+            continue
+        kept = original.model_copy(deep=True)
+        kept.heading = section.heading
+        kept.enabled = section.enabled
+        kept.generation_notice = KEPT_ORIGINAL_NOTICE
+        result.sections[index] = kept
+    return result
+
+
+def keep_original_for_invalid_sections(*, document_payload: Any, validation_errors: list[dict[str, Any]],
+                                       generation_settings: dict[str, Any], operation: str,
+                                       expected_ids: list[str]) -> Optional[dict[str, Any]]:
+    """Worker second-check fallback: keep originals for sections that failed revalidation.
+
+    Returns None when the failure is structural, when every writable section would be
+    kept (the generation should fail), or when the fallback does not revalidate.
+    """
+    if operation not in {"generation", "regeneration_full"} or not generation_settings.get("_source_document"):
+        return None
+    ids = {str(error.get("section") or "") for error in validation_errors}
+    if not ids or "" in ids or not ids.issubset(set(expected_ids)):
+        return None
+    source = validate_resume_document(generation_settings["_source_document"])
+    current = (validate_resume_document(generation_settings["_current_document"])
+               if operation == "regeneration_full" and generation_settings.get("_current_document") else None)
+    document = validate_resume_document(document_payload)
+    aggressiveness = str(generation_settings.get("aggressiveness") or "medium")
+    writable = {section.id for section in source.sections if section.id in expected_ids and not _frozen(section, aggressiveness)}
+    if writable and writable.issubset(ids):
+        return None
+    kept = keep_original_sections(document, ids, source=source, current=current)
+    sections = [section for section in document_sections(kept) if section["name"] in expected_ids]
+    checked = validate_document_sections(generated_sections=sections, source_payload=generation_settings["_source_document"],
+        generation_settings={**generation_settings, "_operation": operation}, expected_ids=expected_ids)
+    if not checked["valid"]:
+        return None
+    return {"document": kept.model_dump(mode="json"), "sections": sections, "validation": checked,
+            "fallback_sections": [{"section_id": identifier, "codes": "revalidation_failed"} for identifier in sorted(ids)]}
+
+
 def _writer_groups(sections: list[ResumeSection]) -> list[list[ResumeSection]]:
     """Professional Experience and everything else are written concurrently."""
     experience = [section for section in sections if section.kind == "professional_experience"]
@@ -846,6 +904,12 @@ async def generate_document(
                 largest = max(editable, key=lambda section: len(render_section_content(retained[section.id]).split()))
                 pending = [largest]
                 errors = {largest.id: "draft_above_word_hard_cap_reduce_this_section"}
+    fallback_sections: list[dict[str, str]] = []
+    writable = [section for section in targets if not _frozen(section, aggressiveness)]
+    if pending and not target_section_id and len(pending) < len(writable):
+        # One unverifiable section must not fail the whole resume: keep its original text.
+        fallback_sections = [{"section_id": section.id, "codes": errors.get(section.id, "unverified")} for section in pending]
+        pending = []
     if pending:
         if budget.attempts and all(attempt.get("outcome") == "timeout" for attempt in budget.attempts):
             error = asyncio.TimeoutError("Resume providers timed out within the bounded workflow.")
@@ -855,6 +919,9 @@ async def generate_document(
     for index, section in enumerate(output.sections):
         if section.id in retained:
             output.sections[index] = retained[section.id]
+    if fallback_sections:
+        output = keep_original_sections(output, {item["section_id"] for item in fallback_sections}, source=source,
+                                        current=current if generation_settings.get("_operation") == "regeneration_full" else None)
     output.revision = (current.revision if current else source.revision) + 1
     output = validate_resume_document(output.model_dump(mode="json"))
     if not target_section_id:
@@ -874,6 +941,7 @@ async def generate_document(
         "sections": sections, "document": output.model_dump(mode="json"), "source_snapshot": snapshot,
         "model_used": used_model, "attempt_diagnostics": budget.attempts,
         "diagnostics": {"summary_experience_overlaps": _summary_experience_overlaps(output)},
+        "fallback_sections": fallback_sections,
         "prompt": last_prompt, "section_ids": [section.id for section in targets] if target_section_id else [item["name"] for item in sections],
         "operation": "regeneration_section" if target_section_id else generation_settings.get("_operation", "generation"),
         "sanitized_base_resume": render_resume_document(source), "professional_experience_anchors": [],
@@ -924,6 +992,12 @@ def validate_document_sections(
                 raise SectionValidationError("section_identity_changed")
             if rendered.get("content") != "## " + generated.heading + "\n" + render_section_content(generated):
                 raise SectionValidationError("rendered_content_mismatch")
+            if generated.generation_notice == KEPT_ORIGINAL_NOTICE:
+                # A kept original must match its source (or current draft) exactly.
+                reference = current_section if generation_settings.get("_operation") == "regeneration_full" and current_section else original
+                if render_section_content(generated) != render_section_content(reference):
+                    raise SectionValidationError("kept_original_changed")
+                continue
             frozen = _frozen(original, str(generation_settings.get("aggressiveness") or "medium"))
             if not generation_settings.get("_target_entry_id"):
                 _check_privacy(render_section_content(generated), enforce_ats=not frozen)

@@ -59,7 +59,8 @@ from app.services.progress import (
 from app.services.resume_render import normalize_resume_markdown
 from app.services.resume_length import assess_resume_length
 from app.services.resume_privacy import sanitize_resume_markdown
-from app.services.resume_document import document_ready, parse_resume_document, render_resume_document, validate_resume_document
+from app.services.resume_document import (ResumeSection, document_ready, parse_resume_document, render_resume_document,
+    render_section_content, validate_resume_document)
 from app.services.url_security import validate_public_http_url
 from app.services.workflow import derive_visible_status
 
@@ -234,6 +235,28 @@ class WorkerCallbackPayload(BaseModel):
     event: str
     extracted: Optional[WorkerSuccessPayload] = None
     failure: Optional[WorkerFailurePayload] = None
+
+
+def _kept_original_section_count(document: Optional[dict[str, Any]]) -> int:
+    """Sections the worker kept as original text because a tailored version was unverifiable."""
+    if not isinstance(document, dict):
+        return 0
+    return sum(1 for section in document.get("sections") or []
+               if isinstance(section, dict) and section.get("generation_notice") == "kept_original_unverified")
+
+
+def _clear_edited_generation_notices(document: Any, previous: Optional[dict[str, Any]]) -> None:
+    """A user edit to a kept-original section resolves its notice."""
+    previous_sections = {section.get("id"): section for section in (previous or {}).get("sections") or [] if isinstance(section, dict)}
+    for section in document.sections:
+        if section.generation_notice is None:
+            continue
+        before = previous_sections.get(section.id)
+        if before is None:
+            continue
+        prior = ResumeSection.model_validate({**before, "generation_notice": None})
+        if render_section_content(section) != render_section_content(prior):
+            section.generation_notice = None
 
 
 class GenerationSuccessPayload(BaseModel):
@@ -1546,6 +1569,9 @@ class ApplicationService:
                 length_diagnostics = self._length_diagnostics_for_activity(generated.length_diagnostics)
                 if length_diagnostics:
                     details["length_diagnostics"] = length_diagnostics
+                kept_original = _kept_original_section_count(generated.document)
+                if kept_original:
+                    details["kept_original_sections"] = kept_original
                 self._record_usage_event(
                     user_id=record.user_id,
                     application_id=record.id,
@@ -1586,6 +1612,9 @@ class ApplicationService:
                 length_diagnostics = self._length_diagnostics_for_activity(generated.length_diagnostics)
                 if length_diagnostics:
                     details["length_diagnostics"] = length_diagnostics
+                kept_original = _kept_original_section_count(generated.document)
+                if kept_original:
+                    details["kept_original_sections"] = kept_original
                 self._record_usage_event(
                     user_id=record.user_id,
                     application_id=record.id,
@@ -2093,6 +2122,9 @@ class ApplicationService:
             length_diagnostics = self._length_diagnostics_for_activity(payload.generated.length_diagnostics)
             if length_diagnostics:
                 details["length_diagnostics"] = length_diagnostics
+            kept_original = _kept_original_section_count(payload.generated.document)
+            if kept_original:
+                details["kept_original_sections"] = kept_original
             attempts = payload.generated.attempts
             self._record_usage_event(
                 user_id=record.user_id,
@@ -2866,6 +2898,9 @@ class ApplicationService:
             length_diagnostics = self._length_diagnostics_for_activity(payload.generated.length_diagnostics)
             if length_diagnostics:
                 details["length_diagnostics"] = length_diagnostics
+            kept_original = _kept_original_section_count(payload.generated.document)
+            if kept_original:
+                details["kept_original_sections"] = kept_original
 
             if is_section:
                 details["section_name"] = payload.regeneration_target
@@ -3285,11 +3320,13 @@ class ApplicationService:
             parsed = validate_resume_document(document)
             if not render_resume_document(parsed).strip():
                 raise ValueError("A draft must contain at least one enabled section.")
+            _clear_edited_generation_notices(parsed, getattr(draft, "document", None))
             parsed.revision = draft.revision + 1
             content = self._document_content(document=parsed, user_id=user_id)
             structured_updates = {"document": parsed.model_dump(mode="json"), "expected_revision": expected_revision}
         elif getattr(draft, "document", None) is not None:
             parsed = parse_resume_document(content or "", reviewed=True, previous=draft.document)
+            _clear_edited_generation_notices(parsed, draft.document)
             parsed.revision = draft.revision + 1
             content = self._document_content(document=parsed, user_id=user_id)
             structured_updates = {"document": parsed.model_dump(mode="json"), "expected_revision": draft.revision}
