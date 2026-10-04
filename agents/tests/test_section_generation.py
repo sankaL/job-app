@@ -639,7 +639,8 @@ async def test_grounding_context_keeps_included_cross_section_citations_and_omit
         section_preferences=[], target_section_id='summary-id', instructions='Use the source API metric.',
         job_title='Engineer', company_name='Acme', job_description='Build APIs.', model='primary', fallback_model='fallback',
         api_key='test', base_url='https://provider.invalid/v1', on_progress=None)
-    assert result['document']['sections'][0]['source_ids'] == ['bullet-one']
+    # Summary implicitly cites its own reviewed source alongside the cited Experience bullet.
+    assert result['document']['sections'][0]['source_ids'] == ['bullet-one', 'summary-id']
     assert all('custom-id' not in [s['id'] for s in payload['reviewed_source']['sections']] for payload in calls)
 
 
@@ -825,3 +826,22 @@ def test_high_section_rules_allow_plausible_metrics_but_keyword_rules_stay_stric
     rule = json.loads(prompt[1][1])['section_rules']['professional_experience']
     assert 'do not invent metrics or scope' not in rule
     assert 'High claim policy' in rule
+
+
+def test_skills_may_cite_experience_bullets_and_summary_cites_its_own_source():
+    doc = validate_resume_document(source_document())
+    texts = pipeline._source_texts(doc)
+    assert pipeline._paragraph_references('skills', 'skills-id', ['bullet-two'], texts) == ['bullet-two']
+    assert pipeline._paragraph_references('summary', 'summary-id', ['bullet-one'], texts) == ['bullet-one', 'summary-id']
+    with pytest.raises(pipeline.SectionValidationError, match='cross_section_source_reference'):
+        pipeline._paragraph_references('custom', 'custom-id', ['bullet-one'], texts)
+
+
+def test_summary_restating_source_summary_fact_passes_when_only_experience_is_cited():
+    source = source_document()
+    source['sections'][0]['content_md'] = 'Backend engineer with 10+ years building Python APIs.'
+    doc = validate_resume_document(source)
+    rendered = pipeline.apply_section_rewrite(source=doc.sections[0], rewrite={
+        'id': 'summary-id', 'paragraph': 'Backend engineer with 10+ years of Python API work and 35% lower latency.',
+        'source_ids': ['bullet-one'], 'entries': []}, document=doc, aggressiveness='medium')
+    assert rendered.source_ids == ['bullet-one', 'summary-id']

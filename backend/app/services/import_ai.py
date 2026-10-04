@@ -14,6 +14,16 @@ Output = TypeVar("Output", bound=BaseModel)
 NATIVE_OUTPUT_MODELS = {"google/gemini-3.8-flash", "openai/gpt-6-luna"}
 
 
+def _reasoning_settings_for(model_name: str) -> dict[str, Any]:
+    """Bounded hidden reasoning; mirrors agents/llm_runtime.reasoning_settings_for."""
+    family = model_name.removeprefix("~").split("/", 1)[0]
+    if family == "anthropic":
+        return {"max_tokens": 2000, "exclude": True}
+    if family == "google":
+        return {"effort": "medium", "exclude": True}
+    return {"exclude": True}
+
+
 def _portable_openrouter_import_profile(model_name: str) -> Any:
     """Keep Google's tool transport subset separate from local validation."""
     if model_name.removeprefix("~").split("/", 1)[0] != "google":
@@ -76,7 +86,7 @@ async def _invoke_import_output(
             # validators enforce the complete contract locally.
             output_type=NativeOutput(output_type, strict=False) if model in NATIVE_OUTPUT_MODELS else ToolOutput(output_type, strict=False),
             retries=1,
-            model_settings={"openrouter_reasoning": {"exclude": True}, "max_tokens": 16000, "timeout": timeout_seconds},
+            model_settings={"openrouter_reasoning": _reasoning_settings_for(model), "max_tokens": 16000, "timeout": timeout_seconds},
         )
         if validator is not None:
             @agent.output_validator
@@ -127,7 +137,8 @@ async def invoke_import_output(
             "transport_mode": "pydantic_ai", "timeout_seconds": timeout_seconds, "request_limit": 2,
             "output_mode": "native" if model in NATIVE_OUTPUT_MODELS else "tool",
             "output_type": output_type.__name__, "temperature": "provider_default", "max_tokens": 16000,
-            "reasoning_effort": "provider_default", "reasoning_text_excluded": True, "output_retries": 1,
+            "reasoning_effort": _reasoning_settings_for(model).get("effort") or ("capped" if _reasoning_settings_for(model).get("max_tokens") else "provider_default"),
+            "reasoning_text_excluded": True, "output_retries": 1,
             "content_traced": trace_config.include_content},
     ) as run_tree:
         outcome = "failed"

@@ -310,7 +310,9 @@ async def test_model_trace_includes_redacted_prompt_and_output_when_content_opte
 @pytest.mark.asyncio
 @pytest.mark.parametrize('model_name,expected', [
     ('google/gemini-3.8-flash', {'output_mode': 'native', 'temperature': 'provider_default',
-        'reasoning_effort': 'provider_default', 'reasoning_text_excluded': True}),
+        'reasoning_effort': 'medium', 'reasoning_text_excluded': True}),
+    ('anthropic/claude-sonnet-5.5', {'output_mode': 'native', 'reasoning_effort': 'capped',
+        'reasoning_max_tokens': 2000, 'reasoning_text_excluded': True}),
     ('test/provider', {'output_mode': 'tool', 'temperature': 0.35,
         'reasoning_effort': 'high', 'reasoning_text_excluded': False}),
 ])
@@ -329,7 +331,7 @@ async def test_model_trace_metadata_describes_settings_actually_sent(monkeypatch
     metadata = captures[0]['metadata']
     assert {key: metadata[key] for key in expected} == expected
     assert metadata['output_type'] == 'ExampleOutput'
-    assert metadata['max_tokens'] == 8000
+    assert metadata['max_tokens'] == 16000
 
 
 @pytest.mark.asyncio
@@ -347,6 +349,7 @@ async def test_optional_trace_setup_failure_does_not_fail_provider_call(monkeypa
 @pytest.mark.asyncio
 @pytest.mark.parametrize('model_name', ['anthropic/claude-sonnet-5.5','openai/gpt-6.1-sol','google/gemini-3.8-flash','openai/gpt-6-luna'])
 async def test_current_models_use_native_json_default_reasoning_and_bounded_correction(monkeypatch, model_name):
+    import llm_runtime
     requests = mock_provider(monkeypatch, [{'count':'invalid'}, {'count':2}])
     budget = CallBudget.for_seconds(3,max_requests=2)
     output = await structured_call(prompt=[('human','Return count 2.')],output_type=ExampleOutput,
@@ -358,7 +361,8 @@ async def test_current_models_use_native_json_default_reasoning_and_bounded_corr
         assert request['response_format']['type'] == 'json_schema'
         assert 'tools' not in request and 'tool_choice' not in request
         assert 'temperature' not in request
-        assert 'effort' not in request.get('reasoning',{})
+        # Native models use bounded per-family reasoning; the caller's effort is ignored.
+        assert request['reasoning'] == llm_runtime.reasoning_settings_for(model_name)
 
 
 @pytest.mark.asyncio

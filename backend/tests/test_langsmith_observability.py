@@ -278,7 +278,7 @@ async def test_import_trace_includes_prompt_and_output_only_when_content_opted_i
         trace_config=TraceConfig(True, "telemetry-key", "project", content_enabled=content_enabled))
 
     assert captured["metadata"]["output_mode"] == "native"
-    assert captured["metadata"]["reasoning_effort"] == "provider_default"
+    assert captured["metadata"]["reasoning_effort"] == "medium"
     assert captured["metadata"]["content_traced"] is content_enabled
     if content_enabled:
         assert captured["inputs"]["messages"][1] == {"role": "user", "content": "## Skills\nPython"}

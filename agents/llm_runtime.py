@@ -140,11 +140,28 @@ class AIDeadlineReached(asyncio.TimeoutError):
     safe_trace_reason = "deadline_reached"
 
 
+# Hidden reasoning shares the output allowance. These per-family settings keep
+# reasoning bounded so it cannot consume the whole answer budget.
+MAX_CALL_OUTPUT_TOKENS = 16_000
+ANTHROPIC_REASONING_TOKENS = 2_000
+
+
+def reasoning_settings_for(model_name: str) -> dict[str, Any]:
+    family = model_name.removeprefix("~").split("/", 1)[0]
+    if family == "anthropic":
+        return {"max_tokens": ANTHROPIC_REASONING_TOKENS, "exclude": True}
+    if family == "google":
+        # Gemini maps numeric budgets to its lowest level, which disables
+        # useful reasoning; a named medium level stays bounded and accurate.
+        return {"effort": "medium", "exclude": True}
+    return {"exclude": True}
+
+
 @dataclass
 class CallBudget:
     deadline: float
     max_requests: int = 6
-    max_output_tokens: int = 24_000
+    max_output_tokens: int = 64_000
     requests: int = 0
     output_tokens: int = 0
     attempts: list[dict[str, Any]] = field(default_factory=list)
@@ -199,7 +216,8 @@ def _request_trace_metadata(settings: dict[str, Any], *, output_type: Any, nativ
         "output_type": getattr(output_type, "__name__", type(output_type).__name__),
         "temperature": "provider_default" if settings.get("temperature") is None else settings["temperature"],
         "max_tokens": settings.get("max_tokens"),
-        "reasoning_effort": str(reasoning.get("effort") or "provider_default"),
+        "reasoning_effort": str(reasoning.get("effort") or ("capped" if reasoning.get("max_tokens") else "provider_default")),
+        "reasoning_max_tokens": reasoning.get("max_tokens"),
         "reasoning_text_excluded": reasoning.get("exclude") is True,
         "output_retries": retries,
     }
@@ -239,10 +257,10 @@ async def structured_call(
     started = perf_counter()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=call_timeout)
     native_output = model_name.removeprefix("~") in {"anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "openai/gpt-6-luna"}
-    settings: dict[str, Any] = { "max_tokens": min(8000, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": {"require_parameters": True}}
+    settings: dict[str, Any] = { "max_tokens": min(MAX_CALL_OUTPUT_TOKENS, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": {"require_parameters": True}}
     if not native_output:
         settings["temperature"] = temperature
-    settings["openrouter_reasoning"] = {"exclude": True} if native_output else reasoning
+    settings["openrouter_reasoning"] = reasoning_settings_for(model_name) if native_output else reasoning
     if settings["openrouter_reasoning"] is None:
         settings.pop("openrouter_reasoning")
     safe_operation = operation if operation in SAFE_AI_OPERATIONS else "structured_call"
@@ -338,6 +356,9 @@ async def structured_call(
         budget.requests += max(1, usage.requests)
         budget.output_tokens += usage.output_tokens
         trace_outputs: dict[str, Any] = {"outcome": outcome, "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens}
+        reasoning_tokens = (getattr(usage, "details", None) or {}).get("reasoning_tokens")
+        if type(reasoning_tokens) is int:
+            trace_outputs["reasoning_tokens"] = reasoning_tokens
         if include_content and outcome == "success":
             try:
                 trace_outputs["output"] = sanitize_trace_data(

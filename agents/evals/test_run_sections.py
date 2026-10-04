@@ -16,7 +16,7 @@ from section_generation import SectionGenerationError
 
 
 def arguments(**overrides):
-    values = dict(live=False, max_requests=32, max_output_tokens=256000,
+    values = dict(live=False, max_requests=32, max_output_tokens=512000,
         max_seconds=30, max_cost_usd=Decimal("1"), save_documents=False)
     return argparse.Namespace(**{**values, **overrides})
 

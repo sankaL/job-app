@@ -420,7 +420,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--env-file", type=Path, help="Optional local configuration file; values are never printed.")
     result.add_argument("--case", action="append", choices=[case.id for case in CASES], help="Repeat to select cases. Offline default: all. Live default: full_low.")
     result.add_argument("--max-requests", type=int, default=32)
-    result.add_argument("--max-output-tokens", type=int, default=256000, help="Total reserved output allowance across HTTP requests.")
+    result.add_argument("--max-output-tokens", type=int, default=512000, help="Total reserved output allowance across HTTP requests.")
     result.add_argument("--max-seconds", type=float, default=360)
     result.add_argument("--max-cost-usd", type=Decimal, default=Decimal("1.00"), help="Stop subsequent requests at this reported charged-cost threshold.")
     result.add_argument("--output", type=Path, help="Optional local JSON metrics artifact.")
@@ -443,7 +443,7 @@ def main() -> int:
     if args.live:
         # Default live limits are deliberately smaller than offline coverage.
         args.max_requests = min(args.max_requests, 8)
-        args.max_output_tokens = min(args.max_output_tokens, 64000)
+        args.max_output_tokens = min(args.max_output_tokens, 128000)
     selected = args.case or (["full_low"] if args.live else [case.id for case in CASES])
     cases = [next(case for case in CASES if case.id == identifier) for identifier in selected]
     try:
