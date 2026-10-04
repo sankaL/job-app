@@ -17,6 +17,7 @@ import math
 import os
 from pathlib import Path
 import re
+import contextvars
 import sys
 from time import perf_counter
 from typing import Any
@@ -35,6 +36,10 @@ import langsmith_tracing as tracing
 import section_generation as pipeline
 from resume_document import render_resume_document, validate_resume_document
 from evals.fixtures import CASES, JOB_DESCRIPTION, PRIVACY_VALUES, UNSUPPORTED_TERMS, Case, case_settings, current_document, offline_writer, source_document
+
+
+# Concurrent writer groups share one meter; tag each HTTP request with its call.
+_CALL_ID: contextvars.ContextVar[Any] = contextvars.ContextVar("evaluation_call_id", default=None)
 
 
 class EvaluationLimit(RuntimeError):
@@ -189,24 +194,38 @@ class RunMeter:
         budget.max_requests = min(budget.max_requests, budget.requests + self.max_requests - len(self.requests))
         budget.max_output_tokens = min(budget.max_output_tokens, budget.output_tokens + self.max_output_tokens - self.reserved_output_tokens)
         started = perf_counter()
-        first_request = len(self.requests)
+        operation = self.operation
+        call_id = object()
+        token = _CALL_ID.set(call_id)
         outcome = "failed"
         try:
             result = await llm_runtime.structured_call(**kwargs)
             outcome = "success"
             return result
         finally:
-            self.calls.append({"case": self.current_case.id if self.current_case else "", "operation": self.operation,
+            _CALL_ID.reset(token)
+            self.calls.append({"case": self.current_case.id if self.current_case else "", "operation": operation,
                 "model_role": self.model_roles.get(kwargs["model_name"], "unknown"), "outcome": outcome,
-                "request_count": len(self.requests) - first_request, "elapsed_ms": round((perf_counter() - started) * 1000)})
+                "request_count": sum(record.get("_call") is call_id for record in self.requests),
+                "elapsed_ms": round((perf_counter() - started) * 1000)})
 
     def synthetic_response(self, data: dict[str, Any]) -> dict[str, Any]:
         case = self.current_case
         if case is None:
             raise EvaluationLimit("missing_case")
         user_content = next(item["content"] for item in data["messages"] if item["role"] == "user")
-        payload, _ = json.JSONDecoder().raw_decode(user_content)
-        if self.operation == "section_grounding_audit":
+        if isinstance(user_content, list):  # Cache-split prompts arrive as text parts.
+            user_content = "\n\n".join(part.get("text", "") for part in user_content if isinstance(part, dict))
+        decoder = json.JSONDecoder()
+        payload, end = decoder.raw_decode(user_content)
+        rest = user_content[end:].lstrip()
+        if rest.startswith("{"):
+            try:
+                payload = {**payload, **decoder.raw_decode(rest)[0]}
+            except ValueError:
+                pass
+        # Concurrent writer groups share this meter, so classify by request content.
+        if "sections_to_verify" in payload:
             assessments = []
             for section in payload["sections_to_verify"]:
                 invented = "Rust" in json.dumps(section)
@@ -214,7 +233,10 @@ class RunMeter:
                     "issues": ["unsupported_technology"] if invented else []})
             return {"sections": assessments}
         response = offline_writer(payload)
-        if case.fault and case.id not in self.fault_used:
+        # Concurrent writer groups arrive in any order: inject each fault into the
+        # Experience response so offline totals stay deterministic.
+        has_experience = any(section["id"] == "experience" for section in response["sections"])
+        if case.fault and case.id not in self.fault_used and has_experience:
             self.fault_used.add(case.id)
             if case.fault == "schema":
                 return {"malformed_envelope": True}
@@ -225,7 +247,10 @@ class RunMeter:
 
     async def response_hook(self, response: httpx.Response) -> None:
         await response.aread()
-        record = self.requests[-1]
+        try:
+            record = response.request.extensions.get("evaluation_record") or self.requests[-1]
+        except RuntimeError:  # Directly constructed responses in tests carry no request.
+            record = self.requests[-1]
         record["status"] = response.status_code
         if not response.is_success:
             try:
@@ -266,9 +291,11 @@ class RunMeter:
         # Reserve the full requested output allowance before each HTTP request.
         # Even output-correction requests cannot exceed the run's reservation.
         self.reserved_output_tokens += maximum
-        self.requests.append({"case": self.current_case.id if self.current_case else "", "operation": self.operation,
+        record = {"_call": _CALL_ID.get(), "case": self.current_case.id if self.current_case else "", "operation": self.operation,
             "model_role": self.model_roles.get(data.get("model", ""), "unknown"),
-            "reserved_output_tokens": maximum, "input_tokens": None, "output_tokens": None, "cost_usd": None})
+            "reserved_output_tokens": maximum, "input_tokens": None, "output_tokens": None, "cost_usd": None}
+        self.requests.append(record)
+        request.extensions["evaluation_record"] = record
 
     async def mock_response(self, request: httpx.Request) -> httpx.Response:
         data = json.loads(request.content)
@@ -407,7 +434,8 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
             "cost_kind": "provider_reported" if live else "synthetic_fixture", "elapsed_ms": round((perf_counter() - started) * 1000),
             "schema_correction_requests": sum(max(0, call["request_count"] - 1) for call in meter.calls),
             "section_repair_calls": sum(call["operation"] == "section_repair" for call in meter.calls)},
-        "stop_reason": meter.stop_reason, "results": results, "calls": meter.calls, "requests": meter.requests,
+        "stop_reason": meter.stop_reason, "results": results, "calls": meter.calls,
+        "requests": [{key: value for key, value in record.items() if key != "_call"} for record in meter.requests],
         "limitations": ["Passing deterministic checks and the pipeline's semantic audit does not prove factual truth.",
             "Charged cost may cross the stop threshold on the final in-flight request; it is not a hard dollar ceiling.",
             "Offline usage and timing do not predict live-provider quality, cost or latency."]}
@@ -419,7 +447,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--check-config", action="store_true", help="Print availability booleans only; make no requests.")
     result.add_argument("--env-file", type=Path, help="Optional local configuration file; values are never printed.")
     result.add_argument("--case", action="append", choices=[case.id for case in CASES], help="Repeat to select cases. Offline default: all. Live default: full_low.")
-    result.add_argument("--max-requests", type=int, default=32)
+    result.add_argument("--max-requests", type=int, default=64)
     result.add_argument("--max-output-tokens", type=int, default=512000, help="Total reserved output allowance across HTTP requests.")
     result.add_argument("--max-seconds", type=float, default=360)
     result.add_argument("--max-cost-usd", type=Decimal, default=Decimal("1.00"), help="Stop subsequent requests at this reported charged-cost threshold.")

@@ -475,3 +475,18 @@ async def test_requests_deny_data_retention_route_by_latency_and_record_served_p
     assert provider['data_collection'] == 'deny' and provider['require_parameters'] is True and provider['sort'] == 'latency'
     assert provider.get('only') == pinned
     assert budget.attempts[-1]['served_provider'] == 'Synthetic'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_name,cached', [('anthropic/claude-sonnet-5.5', True), ('openai/gpt-6-luna', False)])
+async def test_cache_split_marks_stable_prefix_only_for_cache_capable_providers(monkeypatch, model_name, cached):
+    requests = mock_provider(monkeypatch, [{'count': 1}])
+    payload = {'operation': 'generation', 'reviewed_source': {'sections': []}, 'requested_sections': [{'id': 'a'}]}
+    await structured_call(prompt=[('system', 'Rules.'), ('human', json.dumps(payload))], output_type=ExampleOutput,
+        model_name=model_name, api_key='test', base_url='https://provider.invalid/v1', budget=CallBudget.for_seconds(3),
+        cache_stable_keys=('operation', 'reviewed_source'))
+    user = next(message for message in requests[0]['messages'] if message['role'] == 'user')
+    parts = user['content']
+    assert json.loads(parts[0]['text']) == {'operation': 'generation', 'reviewed_source': {'sections': []}}
+    assert json.loads(parts[1]['text']) == {'requested_sections': [{'id': 'a'}]}
+    assert ('cache_control' in parts[0]) is cached

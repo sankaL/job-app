@@ -157,6 +157,32 @@ def reasoning_settings_for(model_name: str) -> dict[str, Any]:
     return {"exclude": True}
 
 
+def _cacheable_user_prompt(prompt: list[tuple[str, str]], stable_keys: Optional[tuple[str, ...]]) -> Any:
+    """Split a JSON payload into a stable prefix and the per-request rest, behind a cache breakpoint.
+
+    Anthropic and Google honour the breakpoint; other providers receive plain text parts.
+    Returns the joined string when there is nothing to cache.
+    """
+    from pydantic_ai.messages import CachePoint
+
+    human = [content for role, content in prompt if role != "system"]
+    joined = "\n\n".join(human)
+    if not stable_keys or not human:
+        return joined
+    try:
+        payload = json.loads(human[0])
+    except ValueError:
+        return joined
+    if not isinstance(payload, dict):
+        return joined
+    stable = {key: payload[key] for key in stable_keys if key in payload}
+    rest = {key: value for key, value in payload.items() if key not in stable}
+    if not stable or not rest:
+        return joined
+    tail = "\n\n".join([json.dumps(rest, ensure_ascii=True), *human[1:]])
+    return [json.dumps(stable, ensure_ascii=True), CachePoint(), tail]
+
+
 def provider_settings_for(model_name: str) -> dict[str, Any]:
     """OpenRouter routing: no data retention/training, fastest compatible host.
 
@@ -261,6 +287,7 @@ async def structured_call(
     output_validator: Optional[Callable[[Any], Any]] = None,
     operation: str = "structured_call",
     is_fallback: bool = False,
+    cache_stable_keys: Optional[tuple[str, ...]] = None,
 ) -> Any:
     # Lazy imports allow the deterministic document/validation code to run on its
     # own. A missing runtime dependency still fails closed at the call boundary.
@@ -278,6 +305,7 @@ async def structured_call(
     usage = RunUsage()
     system = "\n\n".join(content for role, content in prompt if role == "system")
     user = "\n\n".join(content for role, content in prompt if role != "system")
+    user_prompt = _cacheable_user_prompt(prompt, cache_stable_keys)
     started = perf_counter()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=call_timeout)
     native_output = model_name.removeprefix("~") in {"anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "openai/gpt-6-luna"}
@@ -285,6 +313,9 @@ async def structured_call(
     if not native_output:
         settings["temperature"] = temperature
     settings["openrouter_reasoning"] = reasoning_settings_for(model_name) if native_output else reasoning
+    if model_name.removeprefix("~").split("/", 1)[0] in {"anthropic", "google"}:
+        # Cache the shared system prompt; repairs and regenerations resend it unchanged.
+        settings["openrouter_cache_instructions"] = True
     if settings["openrouter_reasoning"] is None:
         settings.pop("openrouter_reasoning")
     safe_operation = operation if operation in SAFE_AI_OPERATIONS else "structured_call"
@@ -335,7 +366,7 @@ async def structured_call(
 
         result = await asyncio.wait_for(
             agent.run(
-                user,
+                user_prompt,
                 model_settings=settings,
                 usage=usage,
                 usage_limits=UsageLimits(
@@ -384,6 +415,8 @@ async def structured_call(
         budget.output_tokens += usage.output_tokens
         trace_outputs: dict[str, Any] = {"outcome": outcome, "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens}
         trace_outputs.update(served)
+        if type(getattr(usage, "cache_read_tokens", None)) is int and usage.cache_read_tokens:
+            trace_outputs["cache_read_tokens"] = usage.cache_read_tokens
         reasoning_tokens = (getattr(usage, "details", None) or {}).get("reasoning_tokens")
         if type(reasoning_tokens) is int:
             trace_outputs["reasoning_tokens"] = reasoning_tokens

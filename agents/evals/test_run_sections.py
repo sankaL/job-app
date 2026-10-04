@@ -16,7 +16,7 @@ from section_generation import SectionGenerationError
 
 
 def arguments(**overrides):
-    values = dict(live=False, max_requests=32, max_output_tokens=512000,
+    values = dict(live=False, max_requests=64, max_output_tokens=1024000,
         max_seconds=30, max_cost_usd=Decimal("1"), save_documents=False)
     return argparse.Namespace(**{**values, **overrides})
 
@@ -73,7 +73,8 @@ async def test_all_synthetic_cases_use_real_runtime_without_network(monkeypatch)
     assert len(report["results"]) == len(CASES)
     for case in report["results"]:
         assert case["status"] == "passed", case
-    assert report["totals"]["requests"] == 19
+    # Parallel writer groups are written and audited separately (Experience vs other sections).
+    assert report["totals"]["requests"] == 28
     assert report["totals"]["schema_correction_requests"] == 1
     assert report["totals"]["section_repair_calls"] == 2
     assert report["totals"]["cost_kind"] == "synthetic_fixture"

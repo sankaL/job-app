@@ -17,8 +17,13 @@ from llm_runtime import AIBudgetExhausted, AIDeadlineReached, AIRequestError, Ca
 
 # One write plus one grounding audit; a round that cannot afford both is not started.
 ROUND_REQUESTS = 2
-# Three write/audit rounds plus room for two provider fallbacks.
-WRITING_MAX_REQUESTS = 8
+# Two parallel writer groups and LLM audit escalations across three rounds, with
+# room for provider fallbacks. Unused allowance costs nothing.
+WRITING_MAX_REQUESTS = 10
+# Stable prompt keys shared by every writer group and repair of one workflow;
+# they are sent first, behind a provider cache breakpoint.
+WRITER_CACHE_KEYS = ("operation", "target_role", "job_description", "reviewed_source", "aggressiveness",
+                     "aggressiveness_contract", "title_policy", "length_guidance", "instructions", "keyword_contract")
 from privacy import EMAIL_RE, PHONE_RE, CONTACT_URL_RE
 from resume_document import (
     ResumeDocument, ResumeSection, document_ready, render_resume_document,
@@ -110,14 +115,17 @@ _OUTPUT_KEYS = {"id", "name", "section_id", "kind", "heading", "paragraph", "con
 _SECTION_KIND_TOKENS = {"summary", "professional_experience", "education", "certifications", "projects", "skills", "custom"}
 
 
-def record_output_shape(budget: CallBudget, items: list[dict[str, Any]], allowed_ids: set[str]) -> None:
+def record_output_shape(budget: CallBudget, items: list[dict[str, Any]], allowed_ids: set[str], model: Optional[str] = None) -> None:
     """Diagnose contract mismatches with counts and static tokens, never text."""
     if not budget.attempts:
         return
+    # Concurrent writer groups append attempts in any order; annotate the producing model's latest attempt.
+    target = next((attempt for attempt in reversed(budget.attempts) if model is not None and attempt.get("model") == model
+                   and attempt.get("outcome") == "success" and "output_shape" not in attempt), budget.attempts[-1])
     identifiers = [str(item.get("id") or "") for item in items]
     unexpected = set(identifiers) - allowed_ids
     keys = {key for item in items for key in item}
-    budget.attempts[-1]["output_shape"] = {
+    target["output_shape"] = {
         "section_count": len(items),
         "missing_id_count": sum(not identifier for identifier in identifiers),
         "unexpected_id_count": sum(identifier not in allowed_ids for identifier in identifiers),
@@ -478,6 +486,30 @@ def _audit_models(generation_settings: dict[str, Any], model: str, routine_model
     return primary, fallback
 
 
+def _summary_experience_overlaps(document: ResumeDocument) -> int:
+    """Diagnostic only: Summary sentences that largely repeat an Experience bullet."""
+    def tokens(text: str) -> set[str]:
+        return set(re.findall(r"[a-z0-9%+]+", text.lower()))
+    bullets = [tokens(bullet.text) for section in document.sections if section.kind == "professional_experience"
+               for entry in section.entries for bullet in entry.bullets]
+    overlaps = 0
+    for section in document.sections:
+        if section.kind != "summary" or not section.enabled:
+            continue
+        for sentence in jev_audit.split_paragraph("summary", section.content_md):
+            words = tokens(sentence)
+            if words and any(len(words & bullet) / len(words | bullet) >= 0.7 for bullet in bullets if bullet):
+                overlaps += 1
+    return overlaps
+
+
+def _writer_groups(sections: list[ResumeSection]) -> list[list[ResumeSection]]:
+    """Professional Experience and everything else are written concurrently."""
+    experience = [section for section in sections if section.kind == "professional_experience"]
+    others = [section for section in sections if section.kind != "professional_experience"]
+    return [group for group in (experience, others) if group]
+
+
 def _escalation_view(section: ResumeSection, claims: Optional[list[Any]], whole: bool) -> ResumeSection:
     """The part of a section the LLM audit must judge: only Jev's uncertain claims."""
     if whole or not claims:
@@ -670,23 +702,27 @@ async def generate_document(
     errors: dict[str, str] = {}
     last_prompt: list[tuple[str, str]] = []
     rejected_outputs: dict[str, dict[str, Any]] = {}
-    for round_index in range(3):
-        if not pending:
-            break
-        if round_index and not budget.can_afford(ROUND_REQUESTS):
-            break  # An unaudited repair would be wasted; report the pending sections instead.
-        if on_progress:
-            await on_progress(35 + round_index * 15, "Writing resume sections" if round_index == 0 else "Repairing sections that need correction")
+    repair_model = str(generation_settings.get("_repair_model") or model)
+    repair_fallback = str(generation_settings.get("_repair_fallback_model") or fallback_model or repair_model)
+    privacy_values = generation_settings.get("_privacy_values") or []
+    sources_by_id = {section.id: section for section in targets}
+    group_models: dict[str, str] = {}
+    group_prompts: dict[str, list[tuple[str, str]]] = {}
+
+    async def write_group(group: list[ResumeSection], round_index: int, previous_errors: dict[str, str]) -> dict[str, Any]:
+        """Write, locally validate and audit one group; returns its outcome without raising for routine failures."""
+        group_ids = [section.id for section in group]
         prompt = build_section_prompt(
-            source=source, requested=pending, generation_settings=generation_settings,
+            source=source, requested=group, generation_settings=generation_settings,
             job_title=job_title, company_name=company_name, job_description=job_description,
             instructions=instructions, current=current, target_entry_id=target_entry_id,
         )
-        if errors:
+        group_errors = {key: value for key, value in previous_errors.items() if key in group_ids}
+        if group_errors:
             feedback = {
-                "repair_errors": errors,
-                "repair_only_section_ids": [section.id for section in pending],
-                "rejected_outputs": [rejected_outputs[section.id] for section in pending if section.id in rejected_outputs],
+                "repair_errors": group_errors,
+                "repair_only_section_ids": group_ids,
+                "rejected_outputs": [rejected_outputs[identifier] for identifier in group_ids if identifier in rejected_outputs],
                 "repair_guidance": (
                     "Correct the rejected claims rather than repeating them. Keep plausible job-fit additions, but remove or fix any invented or "
                     "changed employer, date, tenure, credential, institution or seniority, and any claim that contradicts the source or is "
@@ -694,46 +730,48 @@ async def generate_document(
                     if aggressiveness == "high" else
                     "Correct the rejected claims rather than repeating them. Remove unsupported scope, technologies and outcomes, or cite the specific supplied source IDs that actually support each claim. Never invent evidence. Preserve all source facts and the existing writing rules."),
             }
-            prompt.append(("human", json.dumps(_outbound_private_copy(feedback, generation_settings.get("_privacy_values") or [], _ids(source)))))
-        last_prompt = prompt
+            prompt.append(("human", json.dumps(_outbound_private_copy(feedback, privacy_values, _ids(source)))))
         if round_index == 0:
             pair = (model, fallback_model)
         elif round_index == 1:
-            pair = (routine_model, routine_fallback)
+            pair = (repair_model, repair_fallback)
         else:
-            # Repeated semantic rejection needs a different Tier 2 writer,
-            # rather than another identical request to the same model.
-            pair = (routine_fallback, routine_fallback)
+            # Repeated semantic rejection needs a different writer, not an identical retry.
+            pair = (repair_fallback, repair_fallback)
+        outcome: dict[str, Any] = {"ids": group_ids, "errors": {}, "prompt": prompt, "model": None, "exhausted": False, "terminal": None}
         try:
-            payload, used_model = await call_with_fallback(
+            payload, used = await call_with_fallback(
                 models=pair, prompt=prompt, output_type=SectionBatch,
                 api_key=api_key, base_url=base_url, budget=budget,
                 timeout=45 if round_index == 0 else (60 if target_section_id else 90),
                 temperature={"low": 0.2, "medium": 0.35, "high": 0.5}.get(aggressiveness, 0.35),
                 operation="section_repair" if round_index else "section_generation",
+                cache_stable_keys=WRITER_CACHE_KEYS,
             )
         except Exception as error:
             if isinstance(error, AIRequestError) and not error.can_fallback:
-                raise
+                outcome["terminal"] = error
+                return outcome
             try:
                 budget.remaining_seconds()  # Stop immediately on an exhausted shared budget.
             except AIBudgetExhausted:
-                errors = errors or {section.id: "provider_or_schema_failure" for section in pending}
-                break
+                outcome["exhausted"] = True
+                outcome["errors"] = group_errors or {identifier: "provider_or_schema_failure" for identifier in group_ids}
+                return outcome
             except Exception as terminal:
                 terminal.attempt_diagnostics = deepcopy(budget.attempts)
-                raise terminal from None
-            errors = {section.id: "provider_or_schema_failure" for section in pending}
-            continue
+                outcome["terminal"] = terminal
+                return outcome
+            outcome["errors"] = {identifier: "provider_or_schema_failure" for identifier in group_ids}
+            return outcome
+        outcome["model"] = used
         items: dict[str, list[dict[str, Any]]] = {}
         for item in payload.sections:
             items.setdefault(str(item.get("id") or ""), []).append(item)
-        allowed = {section.id for section in pending}
-        record_output_shape(budget, payload.sections, allowed)
+        allowed = set(group_ids)
+        record_output_shape(budget, payload.sections, allowed, model=used)
         unexpected = set(items) - allowed
-        next_pending = []
-        errors = {}
-        for section in pending:
+        for section in group:
             try:
                 if unexpected:
                     raise SectionValidationError("unexpected_section_id")
@@ -747,26 +785,49 @@ async def generate_document(
                 retained[section.id] = apply_section_rewrite(
                     source=section, rewrite=items[section.id][0], document=_writing_source_context(source, current),
                     aggressiveness=aggressiveness, target_entry_id=target_entry_id, current=existing,
-                    privacy_values=generation_settings.get("_privacy_values") or [],
+                    privacy_values=privacy_values,
                 )
             except SectionValidationError as error:
-                errors[section.id] = error.code
-                next_pending.append(section)
-        candidates = [retained[section.id].model_copy(deep=True) for section in pending if section.id not in errors]
+                outcome["errors"][section.id] = error.code
+        candidates = [retained[section.id].model_copy(deep=True) for section in group if section.id not in outcome["errors"]]
         if target_entry_id:
             for candidate in candidates:
                 candidate.entries = [entry for entry in candidate.entries if entry.id == target_entry_id]
                 candidate.content_md = ""
+        # Each group is audited as soon as it is written (the Jev audit is fast and nearly free).
         audit_errors = await audit_section_grounding(
             sections=candidates, source=source, generation_settings=generation_settings,
             model=audit_model, fallback_model=audit_fallback, api_key=api_key, base_url=base_url, budget=budget,
         )
-        for section in pending:
-            if section.id in audit_errors:
-                errors[section.id] = audit_errors[section.id]
-                retained.pop(section.id, None)
-                next_pending.append(section)
-        pending = next_pending
+        for identifier, codes in audit_errors.items():
+            outcome["errors"][identifier] = codes
+            retained.pop(identifier, None)
+        return outcome
+
+    for round_index in range(3):
+        if not pending:
+            break
+        groups = _writer_groups(pending)
+        if round_index and not budget.can_afford(len(groups) + 1):
+            break  # An unaudited repair would be wasted; report the pending sections instead.
+        if on_progress:
+            await on_progress(35 + round_index * 15, "Writing resume sections" if round_index == 0 else "Repairing sections that need correction")
+        outcomes = await asyncio.gather(*(write_group(group, round_index, errors) for group in groups))
+        terminal = next((item["terminal"] for item in outcomes if item["terminal"] is not None), None)
+        if terminal is not None:
+            raise terminal
+        errors = {}
+        for item in outcomes:
+            errors.update(item["errors"])
+            if item["model"]:
+                key = "experience" if any(sources_by_id[identifier].kind == "professional_experience" for identifier in item["ids"]) else "other"
+                group_models[key] = item["model"]
+                group_prompts[key] = item["prompt"]
+        last_prompt = group_prompts.get("experience") or group_prompts.get("other") or last_prompt
+        used_model = group_models.get("experience") or group_models.get("other") or used_model
+        pending = [section for section in pending if section.id in errors]
+        if any(item["exhausted"] for item in outcomes):
+            break
         if not pending and not target_section_id:
             from length_policy import assess_resume_length
             candidate_output = output.model_copy(deep=True)
@@ -812,6 +873,7 @@ async def generate_document(
     result = {
         "sections": sections, "document": output.model_dump(mode="json"), "source_snapshot": snapshot,
         "model_used": used_model, "attempt_diagnostics": budget.attempts,
+        "diagnostics": {"summary_experience_overlaps": _summary_experience_overlaps(output)},
         "prompt": last_prompt, "section_ids": [section.id for section in targets] if target_section_id else [item["name"] for item in sections],
         "operation": "regeneration_section" if target_section_id else generation_settings.get("_operation", "generation"),
         "sanitized_base_resume": render_resume_document(source), "professional_experience_anchors": [],
