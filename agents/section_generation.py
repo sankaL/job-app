@@ -6,11 +6,14 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 import re
+from time import perf_counter
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation, ValidationError, field_validator
 
-from llm_runtime import AIBudgetExhausted, AIRequestError, CallBudget, structured_call
+import jev_audit
+from langsmith_tracing import end_trace_safely, trace_scope
+from llm_runtime import AIBudgetExhausted, AIDeadlineReached, AIRequestError, CallBudget, structured_call
 
 # One write plus one grounding audit; a round that cannot afford both is not started.
 ROUND_REQUESTS = 2
@@ -465,12 +468,94 @@ def grounding_audit_system_prompt(aggressiveness: str) -> str:
         "Fail uncertain or unsupported claims with the matching issue codes. " + common)
 
 
+JEV_TIMEOUT_SECONDS = 3.0
+
+
+def _audit_models(generation_settings: dict[str, Any], model: str, routine_model: str) -> tuple[str, str]:
+    """LLM audit (Jev escalations and fallback): Tier 1 primary, Tier 2 fallback."""
+    primary = str(generation_settings.get("_repair_model") or model)
+    fallback = str(generation_settings.get("_routine_model") or routine_model or primary)
+    return primary, fallback
+
+
+def _escalation_view(section: ResumeSection, claims: Optional[list[Any]], whole: bool) -> ResumeSection:
+    """The part of a section the LLM audit must judge: only Jev's uncertain claims."""
+    if whole or not claims:
+        return section
+    view = section.model_copy(deep=True)
+    uncertain = {claim.text for claim in claims}
+    if view.entries:
+        view.entries = [entry for entry in view.entries if any(bullet.text in uncertain for bullet in entry.bullets)]
+        for entry in view.entries:
+            entry.bullets = [bullet for bullet in entry.bullets if bullet.text in uncertain]
+    else:
+        view.content_md = " ".join(claim.text for claim in claims)
+    return view
+
+
 async def audit_section_grounding(
     *, sections: list[ResumeSection], source: ResumeDocument,
     generation_settings: dict[str, Any], model: str, fallback_model: Optional[str] = None, api_key: str, base_url: str, budget: CallBudget,
 ) -> dict[str, str]:
+    """Jev claim audit first; uncertain claims (or everything, if Jev is unavailable) go to the LLM audit."""
     if not sections:
         return {}
+    jev_model = generation_settings.get("_jev_audit_model")
+    llm_kwargs = dict(source=source, generation_settings=generation_settings, model=model, fallback_model=fallback_model,
+                      api_key=api_key, base_url=base_url, budget=budget)
+    if not jev_model:
+        return await _llm_grounding_audit(sections=sections, **llm_kwargs)
+    level = jev_audit.level_for("medium" if generation_settings.get("_operation") == "keyword_optimization"
+                                else str(generation_settings.get("aggressiveness") or "medium"))
+    current = validate_resume_document(generation_settings["_current_document"]) if generation_settings.get("_current_document") else None
+    texts = _source_texts(_writing_source_context(source, current))
+    titles = {entry.id: str(entry.fields.get("title", "")) for section in source.sections
+              if section.kind == "professional_experience" for entry in section.entries}
+    claims, needs_llm = jev_audit.section_claims(sections, texts, titles)
+    started = perf_counter()
+    failures: dict[str, set[str]] = {}
+    uncertain: dict[str, list[Any]] = {}
+    jev_error: Optional[str] = None
+    with trace_scope("applix.section_grounding_audit", inputs={"section_count": len(sections), "claim_count": len(claims)},
+                     metadata={"operation": "section_grounding_audit", "auditor": "jev", "jev_model": jev_model, "level": level},
+                     tags=["applix", "section_grounding_audit", "jev"]) as run:
+        time_left = budget.deadline - perf_counter()
+        if time_left <= 0:
+            raise AIDeadlineReached("The AI workflow deadline was reached.")
+        try:
+            answers = await jev_audit.decide(claims, level, api_key=api_key, model=str(jev_model),
+                                             timeout_seconds=min(JEV_TIMEOUT_SECONDS, time_left))
+        except Exception as error:  # Jev is optional; the LLM audit is the fail-closed fallback.
+            jev_error = type(error).__name__
+            llm_sections = sections
+        else:
+            for claim in claims:
+                decision, code = jev_audit.route(answers[claim.id], level)
+                if decision == "reject":
+                    failures.setdefault(claim.section_id, set()).add(str(code))
+                elif decision == "escalate":
+                    uncertain.setdefault(claim.section_id, []).append(claim)
+            escalate_ids = (set(uncertain) | needs_llm) - set(failures)
+            llm_sections = [_escalation_view(section, uncertain.get(section.id), section.id in needs_llm)
+                            for section in sections if section.id in escalate_ids]
+        budget.attempts.append({"model": str(jev_model), "transport_mode": "decisions", "operation": "jev_audit",
+            "outcome": "failed" if jev_error else "success", "elapsed_ms": round((perf_counter() - started) * 1000),
+            **({"error_type": jev_error} if jev_error else {}),
+            "claim_count": len(claims), "rejected_claims": sum(len(codes) for codes in failures.values()),
+            "escalated_claims": sum(len(items) for items in uncertain.values())})
+        result = {identifier: ",".join(sorted(codes)) for identifier, codes in failures.items()}
+        if llm_sections:
+            result.update(await _llm_grounding_audit(sections=llm_sections, **llm_kwargs))
+        end_trace_safely(run, outputs={"jev_outcome": "failed" if jev_error else "success", "rejected_sections": len(failures),
+            "escalated_sections": len(llm_sections), "failed_sections": len(result),
+            "elapsed_ms": round((perf_counter() - started) * 1000)})
+    return result
+
+
+async def _llm_grounding_audit(
+    *, sections: list[ResumeSection], source: ResumeDocument,
+    generation_settings: dict[str, Any], model: str, fallback_model: Optional[str] = None, api_key: str, base_url: str, budget: CallBudget,
+) -> dict[str, str]:
     requested_ids = [section.id for section in sections]
     current = validate_resume_document(generation_settings["_current_document"]) if generation_settings.get("_current_document") else None
     references = {reference for section in sections for reference in section.source_ids}
@@ -537,6 +622,7 @@ async def generate_document(
         )
     routine_model = str(generation_settings.get("_routine_model") or fallback_model or model)
     routine_fallback = str(generation_settings.get("_routine_fallback_model") or routine_model)
+    audit_model, audit_fallback = _audit_models(generation_settings, model, routine_model)
     target_entry_id = generation_settings.get("_target_entry_id")
     aggressiveness = str(generation_settings.get("aggressiveness") or "medium").lower()
     # Profile preferences only apply to historical Markdown workflows.
@@ -673,7 +759,7 @@ async def generate_document(
                 candidate.content_md = ""
         audit_errors = await audit_section_grounding(
             sections=candidates, source=source, generation_settings=generation_settings,
-            model=routine_model, fallback_model=routine_fallback, api_key=api_key, base_url=base_url, budget=budget,
+            model=audit_model, fallback_model=audit_fallback, api_key=api_key, base_url=base_url, budget=budget,
         )
         for section in pending:
             if section.id in audit_errors:
@@ -1023,8 +1109,9 @@ async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDo
                     audit_views.append(view)
             except ValueError as error:
                 errors[section.id] = getattr(error, 'code', 'invalid_keyword_patch')
+        audit_model, audit_fallback = _audit_models(generation_settings, model, fallback_model or model)
         errors.update(await audit_section_grounding(sections=audit_views, source=source,
-            generation_settings=generation_settings, model=model, fallback_model=fallback_model,
+            generation_settings=generation_settings, model=audit_model, fallback_model=audit_fallback,
             api_key=api_key, base_url=base_url, budget=budget))
         for index, section in enumerate(output.sections):
             if section.id in replacements and section.id not in errors:

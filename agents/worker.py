@@ -159,6 +159,9 @@ class WorkerSettingsEnv(BaseSettings):
     langsmith_api_key: Optional[str] = None
     # Parsed at startup so an invalid value fails closed instead of silently dropping traces.
     langsmith_trace_content: bool = False
+    # First-pass claim audit through OpenRouter's Decisions API; false uses the LLM audit only.
+    jev_audit_enabled: bool = True
+    jev_audit_model: str = "typesafe/jev-1.13"
 
     @field_validator("tier1_model", "tier1_fallback_model", "tier2_model", "tier2_fallback_model")
     @classmethod
@@ -178,6 +181,18 @@ class WorkerSettingsEnv(BaseSettings):
         if self.tier1_model == self.tier1_fallback_model or self.tier2_model == self.tier2_fallback_model:
             raise ValueError("Each model tier needs a distinct fallback model.")
         return self
+
+
+def _pipeline_model_settings(settings: "WorkerSettingsEnv") -> dict[str, Any]:
+    """Internal routing keys for the section pipeline; stripped before persistence."""
+    return {
+        "_routine_model": settings.tier2_model,
+        "_routine_fallback_model": settings.tier2_fallback_model,
+        # Repairs and LLM audit escalations use Tier 1 for reliability.
+        "_repair_model": settings.tier1_model,
+        "_repair_fallback_model": settings.tier1_fallback_model,
+        "_jev_audit_model": settings.jev_audit_model if settings.jev_audit_enabled else None,
+    }
 
 
 def _resolve_generation_models(
@@ -212,6 +227,9 @@ def _stored_generation_settings(
             "_generation_fallback_reasoning_effort",
             "_routine_model",
             "_routine_fallback_model",
+            "_repair_model",
+            "_repair_fallback_model",
+            "_jev_audit_model",
             "_base_resume_snapshot_content",
             "_current_draft_snapshot_content",
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
@@ -2235,7 +2253,7 @@ async def run_generation_job(
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
-    public_generation_settings.update({"_routine_model": settings.tier2_model, "_routine_fallback_model": settings.tier2_fallback_model})
+    public_generation_settings.update(_pipeline_model_settings(settings))
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
 
@@ -2668,7 +2686,7 @@ async def run_regeneration_job(
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
-    public_generation_settings.update({"_routine_model": settings.tier2_model, "_routine_fallback_model": settings.tier2_fallback_model})
+    public_generation_settings.update(_pipeline_model_settings(settings))
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
 

@@ -473,7 +473,9 @@ async def test_full_writer_fallback_and_repairs_audits_use_distinct_operation_ti
         section_preferences=[],job_title='Engineer',company_name='Example',job_description='Build APIs',
         model='tier1-primary',fallback_model='tier1-fallback',api_key='test',base_url='https://provider.invalid/v1',on_progress=None)
     assert calls[:2] == [('section_generation','tier1-primary'),('section_generation','tier1-fallback')]
-    assert all(model == 'tier2-primary' for operation,model in calls[2:])
+    # LLM audits use Tier 1 (Sonnet) with Tier 2 fallback; repairs follow the repair tier.
+    assert all(model == 'tier1-primary' for operation, model in calls if operation == 'section_grounding_audit')
+    assert all(model == 'tier2-primary' for operation, model in calls[2:] if operation == 'section_repair')
     assert any(operation == 'section_repair' for operation,_ in calls)
     assert result['document']
 
@@ -845,3 +847,74 @@ def test_summary_restating_source_summary_fact_passes_when_only_experience_is_ci
         'id': 'summary-id', 'paragraph': 'Backend engineer with 10+ years of Python API work and 35% lower latency.',
         'source_ids': ['bullet-one'], 'entries': []}, document=doc, aggressiveness='medium')
     assert rendered.source_ids == ['bullet-one', 'summary-id']
+
+
+def _jev_answers(decisions):
+    """decisions: claim text substring -> p_pass; unmatched claims pass confidently."""
+    import jev_audit
+    async def decide(claims, level, **_kwargs):
+        result = {}
+        for claim in claims:
+            p = next((value for key, value in decisions.items() if key in claim.text), 0.97)
+            options = jev_audit.options_for(level)
+            probabilities = {key: 0.0 for key in options}
+            probabilities[jev_audit.PASS_OPTION[level]] = p
+            failure = 'unsupported_metric' if level == 'medium' else 'implausible_claim'
+            probabilities[failure] = round(1 - p, 6)
+            result[claim.id] = jev_audit.JevAnswer.model_validate({'type': 'choice', 'choice': max(probabilities, key=probabilities.get),
+                'confidence': max(probabilities.values()), 'probabilities': probabilities})
+        return result
+    return decide
+
+
+async def _jev_audit(monkeypatch, decisions, *, llm_supported=True, jev_raises=False):
+    import jev_audit
+    llm_calls = []
+    async def llm(**kwargs):
+        kwargs['budget'].requests += 1
+        payload = json.loads(kwargs['prompt'][1][1])
+        llm_calls.append(payload['sections_to_verify'])
+        return pipeline.GroundingAudit(sections=[{'id': s['id'], 'supported': llm_supported,
+            'issues': [] if llm_supported else ['unsupported_scope']} for s in payload['sections_to_verify']])
+    async def unavailable(*_args, **_kwargs):
+        raise jev_audit.JevUnavailable('down')
+    monkeypatch.setattr(pipeline, 'structured_call', llm)
+    monkeypatch.setattr(pipeline.jev_audit, 'decide', unavailable if jev_raises else _jev_answers(decisions))
+    doc = validate_resume_document(source_document())
+    sections = [doc.sections[0], doc.sections[1]]
+    budget = pipeline.CallBudget.for_seconds(10, max_requests=4)
+    result = await pipeline.audit_section_grounding(sections=sections, source=doc,
+        generation_settings={'aggressiveness': 'medium', '_jev_audit_model': 'typesafe/jev-1.13'},
+        model='tier1', fallback_model='tier2', api_key='test', base_url='https://provider.invalid/v1', budget=budget)
+    return result, llm_calls, budget
+
+
+@pytest.mark.asyncio
+async def test_jev_confident_passes_need_no_llm_call_or_request_budget(monkeypatch):
+    result, llm_calls, budget = await _jev_audit(monkeypatch, {})
+    assert result == {} and llm_calls == [] and budget.requests == 0
+    assert budget.attempts[-1]['operation'] == 'jev_audit' and budget.attempts[-1]['outcome'] == 'success'
+
+
+@pytest.mark.asyncio
+async def test_jev_confident_failure_rejects_section_with_issue_code(monkeypatch):
+    result, llm_calls, _ = await _jev_audit(monkeypatch, {'35%': 0.03})
+    assert result == {'experience-id': 'unsupported_metric'} and llm_calls == []
+
+
+@pytest.mark.asyncio
+async def test_jev_uncertain_claim_escalates_only_that_claim_to_llm(monkeypatch):
+    result, llm_calls, budget = await _jev_audit(monkeypatch, {'Maintained FastAPI': 0.5}, llm_supported=False)
+    assert result == {'experience-id': 'unsupported_scope'}
+    escalated = llm_calls[0]
+    assert [s['id'] for s in escalated] == ['experience-id']
+    bullets = [b['text'] for e in escalated[0]['entries'] for b in e['bullets']]
+    assert bullets == ['Maintained FastAPI services.']
+    assert budget.requests == 1
+
+
+@pytest.mark.asyncio
+async def test_jev_unavailable_falls_back_to_full_llm_audit(monkeypatch):
+    result, llm_calls, budget = await _jev_audit(monkeypatch, {}, jev_raises=True)
+    assert result == {} and [s['id'] for s in llm_calls[0]] == ['summary-id', 'experience-id']
+    assert budget.attempts[0]['outcome'] == 'failed' and budget.attempts[0]['error_type'] == 'JevUnavailable'
