@@ -100,15 +100,18 @@
   transition: opacity 300ms ease;
 }
 .public-design .feature-editorial-card:is(:hover, :focus-within)::before { opacity: 1; }
-.public-design .feature-editorial-image {
+.public-design .feature-editorial-image,
+.public-design .auth-aside-portrait {
   filter: grayscale(1) brightness(0.62);
   transition: filter 300ms ease;
 }
-.public-design .feature-editorial-card:is(:hover, :focus-within) .feature-editorial-image {
+.public-design .feature-editorial-card:is(:hover, :focus-within) .feature-editorial-image,
+.public-design .auth-aside:is(:hover, :focus-within) .auth-aside-portrait {
   filter: grayscale(0) brightness(1);
 }
 @media (prefers-reduced-motion: reduce) {
   .public-design .feature-editorial-image,
+  .public-design .auth-aside-portrait,
   .public-design .feature-editorial-arrow,
   .public-design .feature-editorial-card::before { transition: none; }
 }
