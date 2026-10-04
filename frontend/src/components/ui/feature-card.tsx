@@ -25,6 +25,11 @@ export function FeatureCard({ title, description, imageUrl, category, tags, icon
             </clipPath>
           </defs>
         </svg>
+        <div
+          aria-hidden="true"
+          style={{ clipPath: `url(#${clipId})` }}
+          className="feature-editorial-backdrop absolute inset-0 bg-[#f4ede1]"
+        />
         <img src={imageUrl} alt="" loading="lazy" decoding="async"
           style={{ clipPath: `url(#${clipId})` }} className="feature-editorial-image absolute inset-0 h-full w-full object-cover" />
         <span className="feature-editorial-category absolute left-1/2 top-6 inline-flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold">

@@ -2,8 +2,13 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
-import portrait from "@/assets/remote-work-portrait.png";
+import portraitRiso from "@/assets/remote-work-portrait.png";
+import portraitWater from "@/assets/remote-work-portrait-water.png";
 import { cn } from "@/lib/utils";
+
+// Set to "riso" to switch back to the risograph artwork
+const AUTH_ART_STYLE: "watercolor" | "riso" = "watercolor";
+const portrait = AUTH_ART_STYLE === "watercolor" ? portraitWater : portraitRiso;
 
 type AuthNoticeProps = {
   tone?: "error" | "success";

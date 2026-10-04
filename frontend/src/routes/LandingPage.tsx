@@ -15,8 +15,13 @@ import tailoringLightIllustration from "@/assets/feature-tailoring-riso-light-v2
 import judgeLightIllustration from "@/assets/feature-judge-riso-light-v1.webp";
 import workspaceLightIllustration from "@/assets/feature-workspace-riso-light-v1.webp";
 
-// Set to "dark" to use the preserved blue artwork.
-const FEATURE_CARD_THEME: "light" | "dark" = "light";
+import captureWaterIllustration from "@/assets/feature-capture-water.png";
+import tailoringWaterIllustration from "@/assets/feature-tailoring-water.png";
+import judgeWaterIllustration from "@/assets/feature-judge-water.png";
+import workspaceWaterIllustration from "@/assets/feature-workspace-water.png";
+
+// Set to "watercolor", "riso-light", or "riso-dark"
+const FEATURE_CARD_THEME: "watercolor" | "riso-light" | "riso-dark" = "watercolor";
 
 const featureCards = [
   {
@@ -28,6 +33,7 @@ const featureCards = [
     icon: Link2,
     imageUrl: captureIllustration,
     lightImageUrl: captureLightIllustration,
+    waterImageUrl: captureWaterIllustration,
   },
   {
     title: "Grounded AI agent tailoring",
@@ -38,6 +44,7 @@ const featureCards = [
     icon: Cpu,
     imageUrl: tailoringIllustration,
     lightImageUrl: tailoringLightIllustration,
+    waterImageUrl: tailoringWaterIllustration,
   },
   {
     title: "AI resume judge",
@@ -48,6 +55,7 @@ const featureCards = [
     icon: Gauge,
     imageUrl: judgeIllustration,
     lightImageUrl: judgeLightIllustration,
+    waterImageUrl: judgeWaterIllustration,
   },
   {
     title: "Centralized workspace",
@@ -58,6 +66,7 @@ const featureCards = [
     icon: Workflow,
     imageUrl: workspaceIllustration,
     lightImageUrl: workspaceLightIllustration,
+    waterImageUrl: workspaceWaterIllustration,
   },
 ];
 
@@ -421,7 +430,14 @@ export function LandingPage() {
               return (
                 <FeatureCard key={feature.title} title={feature.title}
                   description={feature.description}
-                  category={feature.category} tags={feature.tags} imageUrl={FEATURE_CARD_THEME === "light" ? feature.lightImageUrl : feature.imageUrl}
+                  category={feature.category} tags={feature.tags}
+                  imageUrl={
+                    FEATURE_CARD_THEME === "watercolor"
+                      ? feature.waterImageUrl
+                      : FEATURE_CARD_THEME === "riso-light"
+                        ? feature.lightImageUrl
+                        : feature.imageUrl
+                  }
                   icon={<Icon aria-hidden="true" size={22} />}
                   href="/signup" />
               );

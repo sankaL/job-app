@@ -103,8 +103,14 @@ jobs:
 
   deploy-agents:
     name: Deploy agents
-    needs: detect-changes
-    if: needs.detect-changes.outputs.deploy_agents == 'true'
+    # The backend must accept new worker payload fields before the worker sends them,
+    # so the worker waits for a backend deploy in the same push (or runs alone if the
+    # backend had no changes). A failed backend deploy blocks the worker deploy.
+    needs: [detect-changes, deploy-backend]
+    if: >-
+      !cancelled()
+      && needs.detect-changes.outputs.deploy_agents == 'true'
+      && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
