@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Applix Generation Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column (about 72rem) with one wide two-lane flow diagram; reference tables scroll on their own. */
+:root {
+  --ink: #17221f;          /* body text, teal-biased near-black */
+  --muted: #56645f;        /* secondary text */
+  --paper: #f7f9f8;        /* page */
+  --panel: #ffffff;        /* raised surfaces */
+  --rule: #d9e1de;         /* hairlines */
+  --teal: #0e6b66;         /* Applix teal: primary path */
+  --teal-soft: #e3f0ee;
+  --orange: #c4571b;       /* Applix orange: escalation / fallback paths */
+  --orange-soft: #fbeadf;
+  --ok: #2f7a3b;
+  --warn: #9a6a08;
+  --stop: #a3332b;
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ink: #e4ece9; --muted: #9db0aa; --paper: #0f1514; --panel: #161f1d; --rule: #2a3633;
+    --teal: #5cc2b9; --teal-soft: #15302d; --orange: #f08a4e; --orange-soft: #33201a;
+    --ok: #7cc788; --warn: #e2b34c; --stop: #f08a80;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #e4ece9; --muted: #9db0aa; --paper: #0f1514; --panel: #161f1d; --rule: #2a3633;
+  --teal: #5cc2b9; --teal-soft: #15302d; --orange: #f08a4e; --orange-soft: #33201a;
+  --ok: #7cc788; --warn: #e2b34c; --stop: #f08a80;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font: 400 var(--step-0)/1.6 var(--body);
+  padding-inline: 20px; padding-block: 0 64px;
+}
+.wrap { max-width: 72rem; margin-inline: auto; display: grid; gap: 56px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: var(--step-3); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: var(--step-2); font-weight: 700; }
+h3 { font-size: var(--step-1); font-weight: 500; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+code { background: var(--teal-soft); color: var(--ink); padding: 0.05em 0.35em; border-radius: 4px; }
+a { color: var(--teal); }
+:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.eyebrow { font: 500 var(--step--1)/1.4 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+section { display: grid; gap: 18px; }
+.lede { color: var(--muted); font-size: var(--step-1); line-height: 1.5; }
+.aside { color: var(--muted); }
+
+/* Header */
+header { padding-block: 48px 8px; display: grid; gap: 14px; border-bottom: 1px solid var(--rule); padding-bottom: 28px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; color: var(--muted); font-size: var(--step--1); }
+.figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 12px; margin-top: 12px; }
+.figure { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; display: grid; gap: 2px; }
+.figure b { font: 700 var(--step-2)/1.1 var(--display); font-variant-numeric: tabular-nums; }
+.figure span { color: var(--muted); font-size: var(--step--1); }
+
+/* Flow diagram */
+.flow { display: grid; gap: 10px; }
+.stage { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; display: grid; gap: 6px; }
+.stage .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.stage .who { font: 500 var(--step--1)/1.3 var(--mono); color: var(--teal); }
+.stage p { color: var(--muted); font-size: var(--step--1); max-width: none; }
+.arrow { justify-self: center; width: 2px; height: 18px; background: var(--rule); position: relative; }
+.arrow::after { content: ""; position: absolute; left: -4px; bottom: -2px; border: 5px solid transparent; border-top-color: var(--rule); }
+.lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; border: 1px dashed var(--teal); border-radius: 10px; padding: 14px; background: var(--teal-soft); }
+.lanes > .label { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-size: var(--step--1); color: var(--muted); }
+.lane { display: grid; gap: 8px; align-content: start; }
+.lane h3 { font-size: var(--step-0); font-weight: 700; color: var(--teal); }
+.lane .step { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; display: grid; gap: 4px; font-size: var(--step--1); }
+.lane .step strong { font-weight: 600; font-size: var(--step-0); }
+.lane .step.side { border-color: var(--orange); background: var(--orange-soft); }
+.lane .step.side strong { color: var(--orange); }
+.pill { display: inline-block; font: 500 0.72rem/1.6 var(--mono); padding: 0 7px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.pill.teal { color: var(--teal); } .pill.orange { color: var(--orange); } .pill.ok { color: var(--ok); } .pill.warn { color: var(--warn); } .pill.stop { color: var(--stop); }
+.loop { border: 1px dashed var(--orange); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; background: var(--orange-soft); }
+.loop strong { color: var(--orange); }
+.loop p { color: var(--ink); font-size: var(--step--1); max-width: none; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; min-width: 46rem; font-size: var(--step--1); }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font: 500 0.72rem/1.4 var(--body); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); background: var(--paper); }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+td .mono { white-space: nowrap; }
+
+/* Two-column notes */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 14px; }
+.note { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+.note ul { margin: 0; padding-left: 1.1rem; display: grid; gap: 6px; }
+.note li { max-width: 62ch; }
+
+footer { color: var(--muted); font-size: var(--step--1); border-top: 1px solid var(--rule); padding-top: 18px; display: grid; gap: 6px; }
+
+@media (max-width: 720px) {
+  h1 { font-size: 1.85rem; }
+  .lanes { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Applix · engineering reference</span>
+    <h1>Applix Generation Pipeline</h1>
+    <p class="lede">How a tailored resume is written, checked, repaired and delivered, for initial generation and every kind of regeneration.</p>
+    <div class="meta">
+      <span>As of 4 Oct 2026</span>
+      <span>Branch <span class="mono">generation-speed-robustness</span> · PR #19</span>
+      <span>Code: <span class="mono">agents/section_generation.py</span>, <span class="mono">agents/jev_audit.py</span>, <span class="mono">agents/worker.py</span></span>
+    </div>
+    <div class="figures" aria-label="Measured results on one real resume, sequential live runs">
+      <div class="figure"><b>~15 s</b><span>Medium generation, median (was 77.6 s)</span></div>
+      <div class="figure"><b>12–17 s</b><span>High generation (was 33.1 s)</span></div>
+      <div class="figure"><b>12–14 s</b><span>First verified sections visible</span></div>
+      <div class="figure"><b>~$0.06</b><span>Model cost per generation (was ~$0.12–0.16)</span></div>
+    </div>
+  </header>
+
+  <section aria-labelledby="flow-title">
+    <span class="eyebrow">The flow</span>
+    <h2 id="flow-title">Initial generation and full regeneration</h2>
+    <p>Teal is the normal path. Orange is the uncommon path: escalation, fallback and repair. Steps appear in the order they run.</p>
+
+    <div class="flow">
+      <div class="stage">
+        <div class="head"><h3>Request</h3><span class="who">frontend → backend → Redis queue</span></div>
+        <p>The user starts a generation. The backend reserves one writing request from the user's monthly quota, freezes the reviewed source snapshot, and enqueues the job. Profile contact details never leave the backend.</p>
+      </div>
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="stage">
+        <div class="head"><h3>Prepare</h3><span class="who">worker · up to 20 jobs at once</span></div>
+        <p>The worker loads the section document, masks profile values in everything sent outbound, keeps fixed sections (Education, Certifications, and Skills at Low) local, and opens a budget of 10 model requests, 64k output tokens and a 240 s deadline (120 s for one section).</p>
+      </div>
+      <div class="arrow" aria-hidden="true"></div>
+
+      <div class="lanes" role="group" aria-label="Two writer groups run at the same time">
+        <div class="label"><span><strong>Round 0: two writer calls run at the same time</strong></span><span>Shared source and job description sit behind a prompt-cache breakpoint</span></div>
+        <div class="lane">
+          <h3>Group 1 · Professional Experience</h3>
+          <div class="step"><strong>Write</strong><span><span class="pill teal">resume_writer</span> Sonnet 5.5, reasoning capped at 2k tokens. About 11–17 s; this group sets the total time.</span></div>
+          <div class="step"><strong>Check locally</strong><span>Schema, same-role citations, numbers, employers and credentials, title rules, contact patterns. No model involved.</span></div>
+          <div class="step"><strong>Jev claim audit</strong><span><span class="pill teal">claim_audit</span> One Decisions question per bullet and per renamed role title, 6 per batch, run in parallel. About 0.2–1 s.</span></div>
+          <div class="step side"><strong>Escalate uncertain claims</strong><span><span class="pill orange">audit_escalation</span> Only the uncertain claims go to Sonnet, with Gemini as fallback. About 2–5 s, and often skipped.</span></div>
+          <div class="step"><strong>Stream to the preview</strong><span>Verified sections go out as <code>partial_sections</code> on progress events.</span></div>
+        </div>
+        <div class="lane">
+          <h3>Group 2 · Summary, Skills and other sections</h3>
+          <div class="step"><strong>Write</strong><span><span class="pill teal">resume_writer</span> Sonnet 5.5 · about 10–13 s.</span></div>
+          <div class="step"><strong>Check locally</strong><span>Summary always cites its own source. Summary and Skills may cite Experience bullets.</span></div>
+          <div class="step"><strong>Jev claim audit</strong><span>One question per Summary sentence and per Skills group.</span></div>
+          <div class="step side"><strong>Escalate uncertain claims</strong><span>Summary sentences escalate most often (1–2 per resume at Medium). The Sonnet check finishes while Group 1 is still writing, so it adds no time.</span></div>
+          <div class="step"><strong>Stream to the preview</strong><span>This group usually appears first, at about 12–14 s.</span></div>
+        </div>
+      </div>
+
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="loop">
+        <strong>Repair rounds 1–2 (only for failed sections)</strong>
+        <p><span class="pill orange">repair_writer</span> Sonnet 5.5 rewrites only the failed sections, using the rejected output and the issue codes as feedback. Round 2 switches to GPT 6.1 Sol. A round starts only when its writes plus one audit still fit the 10-request budget. In the latest live runs, no repairs were needed.</p>
+      </div>
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="loop">
+        <strong>Keep original instead of failing</strong>
+        <p>A section that still can't be verified keeps its original text (source, or the current draft for full regeneration). It is flagged <code>kept_original_unverified</code>, and the workbench shows "Kept your original wording." until the user edits it. Generation fails only when every writable section would be kept.</p>
+      </div>
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="stage">
+        <div class="head"><h3>Assemble and recheck</h3><span class="who">worker</span></div>
+        <p>A length check (an over-cap draft triggers one targeted trim), then a deterministic recheck of the whole document. Sections that fail the recheck also fall back to their originals. Contact details are reattached locally.</p>
+      </div>
+      <div class="arrow" aria-hidden="true"></div>
+      <div class="stage">
+        <div class="head"><h3>Deliver</h3><span class="who">Redis cache + callback → backend → UI</span></div>
+        <p>The result is cached before the success state is announced. The backend persists the draft and records attempts and <code>kept_original_sections</code> in usage events. The preview is replaced by the editable draft.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="ops-title">
+    <span class="eyebrow">Operations</span>
+    <h2 id="ops-title">How each operation differs</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Operation</th><th>First writer</th><th>Writer calls</th><th>Audit level</th><th>When a section can't be verified</th><th>Deadline</th></tr></thead>
+        <tbody>
+          <tr><td>Initial generation</td><td><span class="mono">resume_writer</span></td><td>2 in parallel</td><td>Selected aggressiveness</td><td><span class="pill ok">keep original</span></td><td class="num">240 s</td></tr>
+          <tr><td>Full regeneration</td><td><span class="mono">resume_writer</span></td><td>2 in parallel</td><td>Selected aggressiveness</td><td><span class="pill ok">keep current draft text</span></td><td class="num">240 s</td></tr>
+          <tr><td>Section regeneration</td><td><span class="mono">section_writer</span></td><td>1</td><td>Selected aggressiveness</td><td><span class="pill stop">fail, previous draft kept</span></td><td class="num">120 s</td></tr>
+          <tr><td>Role (entry) regeneration</td><td><span class="mono">section_writer</span></td><td>1, one role only</td><td>Selected aggressiveness</td><td><span class="pill stop">fail, previous draft kept</span></td><td class="num">120 s</td></tr>
+          <tr><td>Keyword optimization</td><td><span class="mono">section_writer</span></td><td>1, minimal patches</td><td>Always Medium (strict)</td><td><span class="pill stop">fail, previous draft kept</span></td><td class="num">240 s</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="audit-title">
+    <span class="eyebrow">Grounding audit</span>
+    <h2 id="audit-title">How Jev decides, and when Sonnet steps in</h2>
+    <p>Each claim's evidence is the text it cites plus the whole reviewed role it belongs to. Jev returns a probability for each option. Routing uses the probability of the passing option.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Claim type</th><th>Medium and Low options</th><th>High options</th><th>Accept when</th><th>Reject when</th><th>Otherwise</th></tr></thead>
+        <tbody>
+          <tr><td>Bullet, Summary sentence, Skills group</td><td><span class="mono">supported</span> plus issue codes (scope, metric, technology, employer, credential, date/tenure)</td><td><span class="mono">plausible</span>, <span class="mono">implausible_claim</span>, employer, credential, date/tenure</td><td class="num">P(pass) ≥ 0.80</td><td class="num">P(pass) ≤ 0.20</td><td>Escalate to Sonnet</td></tr>
+          <tr><td>Renamed role title</td><td colspan="2"><span class="mono">acceptable_reframe</span> or <span class="mono">unsupported_role_reframe</span>, worded for each level's title rule</td><td class="num">P ≥ 0.25</td><td class="num">P ≤ 0.15</td><td>Whole section to Sonnet</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols">
+      <div class="note">
+        <h3>Measured accuracy</h3>
+        <ul>
+          <li>Labelled set of 684 claims. Medium: 99.2% of invented claims caught, 0% of good claims rejected, 1.2% escalated.</li>
+          <li>High: 96.6% caught, 9.5% of good claims rejected, 7.6% escalated.</li>
+          <li>Renamed titles (16 scenarios): every seniority bump and change of field rejected, all scoring ≤ 0.09.</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>What changes at High</h3>
+        <ul>
+          <li>Plausible job-fit additions (tools, scope, outcomes, metrics) are allowed when they fit the role, seniority and field.</li>
+          <li>Employers, dates, tenure, credentials, education and seniority are never invented at any level.</li>
+          <li>The local number check skips new non-year figures. Calendar years stay bound to the source.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="roles-title">
+    <span class="eyebrow">Models</span>
+    <h2 id="roles-title">Roles in <span class="mono">shared/model-config.json</span></h2>
+    <p>Models are chosen by role in one checked-in file, with copies bundled in the backend and agents and kept identical by tests. No environment variable selects a model. Every request denies provider data collection and goes to the fastest compatible host.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Role</th><th>Model</th><th>Fallback</th><th>Used for</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">resume_writer</td><td class="mono">anthropic/claude-sonnet-5.5</td><td class="mono">openai/gpt-6.1-sol</td><td>First draft, initial and full regeneration</td></tr>
+          <tr><td class="mono">repair_writer</td><td class="mono">anthropic/claude-sonnet-5.5</td><td class="mono">openai/gpt-6.1-sol</td><td>Repairs, including legacy validation repairs</td></tr>
+          <tr><td class="mono">claim_audit</td><td class="mono">typesafe/jev-1.13</td><td>LLM audit</td><td>First-pass claim and title audit (Decisions API)</td></tr>
+          <tr><td class="mono">audit_escalation</td><td class="mono">anthropic/claude-sonnet-5.5</td><td class="mono">google/gemini-3.8-flash</td><td>Uncertain claims; every section if Jev is down</td></tr>
+          <tr><td class="mono">section_writer</td><td class="mono">google/gemini-3.8-flash</td><td class="mono">openai/gpt-6-luna</td><td>Section and role regeneration, keyword patches</td></tr>
+          <tr><td class="mono">job_extraction · keyword_extraction · resume_judge</td><td class="mono">google/gemini-3.8-flash</td><td class="mono">openai/gpt-6-luna</td><td>Job posting fields, ATS keywords, requested scoring</td></tr>
+          <tr><td class="mono">resume_import</td><td class="mono">google/gemini-3.8-flash</td><td class="mono">openai/gpt-6-luna</td><td>Backend import cleanup and entry extraction</td></tr>
+          <tr><td class="mono">import_section_classification</td><td class="mono">typesafe/jev-1.13</td><td>Local parser</td><td>Backend import section labels</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="aside">Model profiles in the same file: Sonnet reasoning capped at 2,000 tokens; Gemini at medium effort, pinned to Google AI Studio; OpenAI at its defaults. Each call may output up to 16k tokens.</p>
+  </section>
+
+  <section aria-labelledby="fail-title">
+    <span class="eyebrow">Failure handling</span>
+    <h2 id="fail-title">What happens when something goes wrong</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Event</th><th>Behaviour</th><th>User sees</th></tr></thead>
+        <tbody>
+          <tr><td>Primary model errors or times out</td><td>That call retries once on the role's fallback model. The other writer group is unaffected.</td><td>Nothing, apart from a little extra time</td></tr>
+          <tr><td>Jev unavailable or returns invalid answers</td><td>The full LLM audit (Sonnet, then Gemini) checks every section</td><td>Nothing; audit takes ~5–10 s instead of ~0.5 s</td></tr>
+          <tr><td>Local check or audit rejects a section</td><td>Targeted repair with issue codes, up to 2 rounds</td><td>Slightly longer progress</td></tr>
+          <tr><td>Section still unverifiable after repairs</td><td>Original text kept and flagged (initial and full regeneration)</td><td><span class="pill warn">Kept your original wording.</span></td></tr>
+          <tr><td>Request budget or deadline exhausted</td><td>Remaining sections kept as originals if any section was tailored; otherwise the job fails with the real attempt count</td><td>Kept-original notice, or a retry message</td></tr>
+          <tr><td>Provider authentication or billing rejection</td><td>No fallback; the job fails and the quota reservation is refunded</td><td><span class="pill stop">Generation failed</span> with Retry</td></tr>
+          <tr><td>Telemetry (LangSmith) outage</td><td>Ignored; never changes the result</td><td>Nothing</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="obs-title">
+    <span class="eyebrow">Observability and limits</span>
+    <h2 id="obs-title">Where to look and what bounds the system</h2>
+    <div class="cols">
+      <div class="note">
+        <h3>LangSmith runs</h3>
+        <ul>
+          <li><span class="mono">applix.resume_generation</span>: workflow root with counts and outcome</li>
+          <li><span class="mono">applix.section_generation.pydantic_ai</span>: one per writer group, with the serving provider, cost, reasoning settings and cached tokens</li>
+          <li><span class="mono">applix.section_grounding_audit</span>: chain with <span class="mono">applix.jev_audit.decisions</span> children and any LLM escalation</li>
+          <li>Prompt and output bodies appear only when <code>LANGSMITH_TRACE_CONTENT=true</code>, and are redacted</li>
+        </ul>
+      </div>
+      <div class="note">
+        <h3>Limits</h3>
+        <ul>
+          <li>Per workflow: 10 model requests (Jev not counted), 64k output tokens, 240 s or 120 s deadline</li>
+          <li>Per call: 16k output tokens; LLM audit 45 s; Jev 3 s with one retry</li>
+          <li>Worker: 20 concurrent jobs, at most 4 extraction browsers</li>
+          <li>Twenty simultaneous generations can reserve about $7–8 of OpenRouter in-flight credit, so keep the balance comfortable</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Sources: <span class="mono">docs/prompts.md</span>, <span class="mono">docs/task-output/2026-10-04-generation-speed-robustness.md</span>, <span class="mono">docs/task-output/2026-10-04-jev-audit-evaluation.md</span>, <span class="mono">shared/model-config.json</span>.</span>
+    <span>Timings come from sequential live runs on one real QA-engineering resume; expect variation with resume length and provider load.</span>
+  </footer>
+</div>
+</body>
+</html>
