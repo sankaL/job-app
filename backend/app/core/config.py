@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     langsmith_project: Optional[str] = Field(default=None, alias="LANGSMITH_PROJECT")
     langsmith_workspace_id: Optional[str] = Field(default=None, alias="LANGSMITH_WORKSPACE_ID")
     langsmith_api_key: Optional[str] = Field(default=None, alias="LANGSMITH_API_KEY")
+    langsmith_trace_content: bool = Field(default=False, alias="LANGSMITH_TRACE_CONTENT")
     admin_emails: str = Field(default="", alias="ADMIN_EMAILS")
     invite_link_expiry_hours: int = Field(default=168, alias="INVITE_LINK_EXPIRY_HOURS")
 

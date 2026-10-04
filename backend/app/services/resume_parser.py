@@ -236,6 +236,7 @@ class ResumeParserService:
         langsmith_project: Optional[str] = None,
         langsmith_api_key: Optional[str] = None,
         langsmith_workspace_id: Optional[str] = None,
+        langsmith_trace_content: bool = False,
         openrouter_base_url: str = "https://openrouter.ai/api/v1",
         classifier: str = "jev",
         classification_model: str = "typesafe/jev-1.13",
@@ -252,7 +253,8 @@ class ResumeParserService:
         self.langsmith_project = langsmith_project
         self.langsmith_api_key = langsmith_api_key
         self.langsmith_workspace_id = langsmith_workspace_id
-        self.trace_config = TraceConfig(enabled=langsmith_tracing, api_key=langsmith_api_key, project_name=langsmith_project, workspace_id=langsmith_workspace_id)
+        self.trace_config = TraceConfig(enabled=langsmith_tracing, api_key=langsmith_api_key, project_name=langsmith_project,
+            workspace_id=langsmith_workspace_id, content_enabled=langsmith_trace_content)
         if self.langsmith_tracing:
             if not str(self.langsmith_project or "").strip():
                 raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")

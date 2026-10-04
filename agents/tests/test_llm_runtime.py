@@ -264,17 +264,72 @@ async def test_model_trace_records_counts_without_raw_prompt_or_output(monkeypat
         captures.append({'name':name, **kwargs})
         yield Trace()
     monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    monkeypatch.setattr(llm_runtime, 'trace_content_enabled', lambda: False)
     mock_provider(monkeypatch, [{'count':7}])
     await structured_call(prompt=[('system','Private instructions'),('human','Sensitive resume text alex@example.com')],
         output_type=ExampleOutput,model_name='test/provider',api_key='secret-key',base_url='https://provider.invalid/v1',
         budget=CallBudget.for_seconds(3),operation='section_grounding_audit')
     assert captures[0]['run_type']=='llm'
     assert captures[0]['metadata']['operation']=='section_grounding_audit'
+    assert captures[0]['metadata']['content_traced'] is False
     assert captures[1]['outputs']['request_count']==1
     assert captures[1]['outputs']['output_tokens']==8
+    assert 'output' not in captures[1]['outputs']
     assert 'Sensitive resume text' not in str(captures)
     assert 'alex@example.com' not in str(captures)
     assert 'secret-key' not in str(captures)
+
+
+@pytest.mark.asyncio
+async def test_model_trace_includes_redacted_prompt_and_output_when_content_opted_in(monkeypatch):
+    from contextlib import contextmanager
+    import llm_runtime
+    captures = []
+    class Trace:
+        def end(self, **kwargs):
+            captures.append(kwargs)
+    @contextmanager
+    def scoped(name, **kwargs):
+        captures.append({'name':name, **kwargs})
+        yield Trace()
+    monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    monkeypatch.setattr(llm_runtime, 'trace_content_enabled', lambda: True)
+    mock_provider(monkeypatch, [{'count':7}])
+    await structured_call(prompt=[('system','Grounding instructions'),('human','Resume text alex@example.com')],
+        output_type=ExampleOutput,model_name='test/provider',api_key='secret-key',base_url='https://provider.invalid/v1',
+        budget=CallBudget.for_seconds(3),operation='section_grounding_audit')
+    assert captures[0]['inputs']['messages'] == [
+        {'role': 'system', 'content': 'Grounding instructions'},
+        {'role': 'user', 'content': 'Resume text alex@example.com'},
+    ]
+    assert captures[0]['metadata']['content_traced'] is True
+    assert captures[1]['outputs']['output'] == {'count': 7}
+    assert 'secret-key' not in str(captures)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_name,expected', [
+    ('google/gemini-3.8-flash', {'output_mode': 'native', 'temperature': 'provider_default',
+        'reasoning_effort': 'provider_default', 'reasoning_text_excluded': True}),
+    ('test/provider', {'output_mode': 'tool', 'temperature': 0.35,
+        'reasoning_effort': 'high', 'reasoning_text_excluded': False}),
+])
+async def test_model_trace_metadata_describes_settings_actually_sent(monkeypatch, model_name, expected):
+    from contextlib import contextmanager
+    import llm_runtime
+    captures = []
+    @contextmanager
+    def scoped(name, **kwargs):
+        captures.append(kwargs)
+        yield None
+    monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    mock_provider(monkeypatch, [{'count':7}])
+    await structured_call(prompt=[('human','Count.')],output_type=ExampleOutput,model_name=model_name,api_key='test',
+        base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3),temperature=0.35,reasoning={'effort':'high'})
+    metadata = captures[0]['metadata']
+    assert {key: metadata[key] for key in expected} == expected
+    assert metadata['output_type'] == 'ExampleOutput'
+    assert metadata['max_tokens'] == 8000
 
 
 @pytest.mark.asyncio
@@ -333,3 +388,34 @@ async def test_adapter_preserves_fallback_trace_metadata(monkeypatch):
         config={"metadata": {"operation": "resume_judge", "is_fallback": True}})
     assert captures[0]["metadata"]["is_fallback"] is True
     assert captures[0]["metadata"]["operation"] == "resume_judge"
+
+
+@pytest.mark.asyncio
+async def test_trace_output_failure_keeps_result_and_closes_client(monkeypatch):
+    from contextlib import contextmanager
+    import openai
+    import llm_runtime
+    captures = []
+    closed = []
+    class Trace:
+        def end(self, **kwargs):
+            captures.append(kwargs)
+    @contextmanager
+    def scoped(name, **kwargs):
+        yield Trace()
+    def broken(_value):
+        raise RuntimeError('serialization failed')
+    monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    monkeypatch.setattr(llm_runtime, 'trace_content_enabled', lambda: True)
+    monkeypatch.setattr(llm_runtime, 'sanitize_trace_data', broken)
+    original_close = openai.AsyncOpenAI.close
+    async def close(self):
+        closed.append(True)
+        await original_close(self)
+    monkeypatch.setattr(openai.AsyncOpenAI, 'close', close)
+    mock_provider(monkeypatch, [{'count':7}])
+    result = await structured_call(prompt=[('human','Count.')],output_type=ExampleOutput,model_name='test/provider',
+        api_key='test',base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3))
+    assert result.count == 7
+    assert closed == [True]
+    assert captures[0]['outputs']['output'] == '<unavailable>'

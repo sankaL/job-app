@@ -51,11 +51,11 @@ test-migrate: ensure-env
 
 test-backend: ensure-env
 	@python3 scripts/check-test-env.py $(ENV_FILE)
-	$(COMPOSE) run --rm --no-deps -v "$(CURDIR)/agents:/agents:ro" -v "$(CURDIR)/supabase:/supabase:ro" -e APP_DEV_MODE=true -e ADMIN_EMAILS= -e OPENROUTER_API_KEY=test-only -e LANGSMITH_TRACING=false -e LANGSMITH_API_KEY= backend sh -c 'pip install --quiet -e ".[dev]" && python -m pytest $(TEST_ARGS)'
+	$(COMPOSE) run --rm --no-deps -v "$(CURDIR)/agents:/agents:ro" -v "$(CURDIR)/supabase:/supabase:ro" -e APP_DEV_MODE=true -e ADMIN_EMAILS= -e OPENROUTER_API_KEY=test-only -e LANGSMITH_TRACING=false -e LANGSMITH_TRACE_CONTENT=false -e LANGSMITH_API_KEY= backend sh -c 'pip install --quiet -e ".[dev]" && python -m pytest $(TEST_ARGS)'
 
 test-agents: ensure-env
 	@python3 scripts/check-test-env.py $(ENV_FILE)
-	$(COMPOSE) run --rm --no-deps -v "$(CURDIR)/docker-compose.yml:/docker-compose.yml:ro" -v "$(CURDIR)/.env.compose.example:/.env.compose.example:ro" -e APP_DEV_MODE=true -e OPENROUTER_API_KEY=test-only -e LANGSMITH_TRACING=false -e LANGSMITH_API_KEY= agents sh -c 'pip install --quiet -e ".[dev]" && python -m pytest $(TEST_ARGS)'
+	$(COMPOSE) run --rm --no-deps -v "$(CURDIR)/docker-compose.yml:/docker-compose.yml:ro" -v "$(CURDIR)/.env.compose.example:/.env.compose.example:ro" -e APP_DEV_MODE=true -e OPENROUTER_API_KEY=test-only -e LANGSMITH_TRACING=false -e LANGSMITH_TRACE_CONTENT=false -e LANGSMITH_API_KEY= agents sh -c 'pip install --quiet -e ".[dev]" && python -m pytest $(TEST_ARGS)'
 
 test-frontend: ensure-env
 	@python3 scripts/check-test-env.py $(ENV_FILE)
@@ -88,7 +88,7 @@ test-local-guards:
 
 test-resume-evals: ensure-env
 	@python3 scripts/check-test-env.py $(ENV_FILE)
-	$(COMPOSE) run --rm --no-deps -e OPENROUTER_API_KEY=test-only -e LANGSMITH_TRACING=false -e LANGSMITH_API_KEY= agents python evals/run_sections.py $(EVAL_ARGS)
+	$(COMPOSE) run --rm --no-deps -e OPENROUTER_API_KEY=test-only -e LANGSMITH_TRACING=false -e LANGSMITH_TRACE_CONTENT=false -e LANGSMITH_API_KEY= agents python evals/run_sections.py $(EVAL_ARGS)
 
 eval-resumes: ensure-env
 	@python3 scripts/check-test-env.py $(ENV_FILE)

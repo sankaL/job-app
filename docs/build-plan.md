@@ -8,6 +8,32 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Processing clock, extraction stop and slow-job notice
+
+**Status:** Complete; local verification passed (2026-10-03 22:57 EDT).
+
+Elapsed time now counts from the job's reported `created_at`, so reloading or navigating mid-job no longer restarts it at 0s. Job extraction gains a Stop extraction button on the processing card that opens the existing confirmation. Full generation, job extraction and inline section regeneration show "This is taking longer than usual" after 90 seconds without a progress update; idle time is the smaller of the server and local readings so a fast client clock cannot raise a false notice. The processing card is now compact (smaller avatar, narrower card, tighter spacing) so more of the resume skeleton shows around it; the paper avatar and its animation are unchanged. Frontend-only; no backend or AI behavior changed. Twelve focused loading tests passed, the application suite passed 128 of 130 with the two known comparison-shell and breakpoint failures, and `tsc --noEmit -p tsconfig.app.json` is clean.
+
+## LangSmith request settings and opt-in content tracing
+
+**Status:** Complete; local verification passed (2026-10-03 23:20 EDT). Railway variable pending (owner action).
+
+Model runs now record the request settings actually sent: output mode, output type, temperature, token cap, reasoning mode, reasoning-text exclusion and correction retries. A new `LANGSMITH_TRACE_CONTENT` flag (default off, effective only with tracing on) adds redacted prompt messages and parsed outputs to worker model runs, backend import model runs and Jev attempt runs. Workflow and chain roots, including the cleanup root, stay counts-only. Compose forwards the flag; Makefile test/eval targets force it off. No provider requests, prompts or reasoning defaults changed. Agents (250), backend (492) and local-guard (16) suites passed through the Makefile-managed local stack. Set `LANGSMITH_TRACE_CONTENT=true` on the Railway backend and worker, and in the ignored local env, to enable it.
+
+Code-review follow-up (2026-10-03 23:45 EDT): the cleanup root went back to its placeholder (the child model run carries the body). Building trace output can no longer skip client cleanup or replace a result. The worker now rejects an invalid flag value at startup. Classifier, cleanup-root and parser-wiring tests were added. Stray `tsc -b` output (`frontend/{vite,tailwind}.config.{js,d.ts}`) was removed and gitignored. Agents (252), backend (496), local guards and the frontend build passed.
+
+## Activity Log outside-click dismissal
+
+**Status:** Complete; local verification passed (2026-10-03 22:43 EDT).
+
+Replaced the fixed-size backdrop button with dismissal on the full-viewport overlay. Clicking outside the Activity Log closes it; inside clicks keep it open. Escape, the close button and focus restoration remain available. Added regression coverage and updated the PRD. All 11 activity-related tests and the TypeScript/Vite build passed through the Makefile-managed local stack. Browser verification confirmed full-page hit coverage, dismissal from the bottom-left corner and focus returning to Activity.
+
+## Merged UI and LangSmith production verification
+
+**Status:** Deployment and migration verification complete (2026-10-03 22:29 EDT). Optional production key replacement awaits a user-supplied private file.
+
+Confirmed frontend, backend and agents successfully deployed merged main `bfa54bc` through the existing GitHub workflow. Applied activity index migration 023 with bounded database timeouts and an atomic ledger insertion. Verified the existing subscription schema effects before reconciling missing historical ledger entries 013–015 without replaying their data updates. All 24 repository migrations are recorded, Basic/Pro allowances remain 10/60 and all 11 protected tables retain forced RLS. Public frontend/backend health and unauthenticated API rejection passed; deployed backend/worker tracing files match main. Both services delivered and read back metadata-only verification traces in `applix-prod` with existing credentials. See [production verification evidence](task-output/2026-10-03-main-production-verification.md).
+
 ## Notification inbox layout fix
 
 **Status:** Complete; local verification passed (2026-10-03 19:55 EDT).
@@ -53,6 +79,8 @@ The user rejected the full Mainline-template redesign, so the landing and login 
 Logo and beige follow-up complete (2026-10-03 19:18:02 EDT). Added a new mark (`public/applix-mark.svg`) for the landing page and the shared login/signup brand pill. From four options, the user chose a rounded peak A with no check mark. It is drawn as one uniform 12-unit stroke, so the base matches the sides. The sides use a dark-teal gradient and the base is orange, separated by a hairline gap. The app top bar, favicon and Chrome extension keep the previous logo. Lightened the public canvas from `#f5f3ee` to `#f9f8f6`. The login/signup gradient now uses a soft warm off-white instead of sand, and the ember/amber glows were reduced. TypeScript passed, as did 23 auth and signup tests. Before/after screenshots were compared at 1440px.
 
 ## Application workspace controls and generation loading
+
+Centered loading feedback complete (2026-10-03 22:46 EDT). Replaced the full-generation step list with one centered ProgressBar, reported status, rotating explanations and a small SVG paper avatar over a resume skeleton. Job extraction and resume import share the treatment; extraction no longer simulates advancing percentages, and import stays indeterminate. The application details and app shell are unchanged. Nineteen focused loading/import/section regressions and the Makefile TypeScript/Vite build passed; the broader application run passed 144 of 146 tests, with failures in comparison-shell and breakpoint edit-preservation checks. Browser previews verified generation and extraction at desktop and narrow widths with no horizontal overflow. AI orchestration is unchanged.
 
 Resume rename placement complete (2026-10-03 21:19 EDT). Moved the standalone ghost pencil from the app-shell action group to beside the resume title, preserving keyboard rename/save/cancel behavior. Updated regression coverage and product guidance. All 26 focused tests and TypeScript/Vite build passed.
 

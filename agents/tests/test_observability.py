@@ -255,6 +255,8 @@ def test_local_environment_defaults_disable_and_forward_langsmith():
     assert compose.count("LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-}") == 2
     assert compose.count("LANGSMITH_WORKSPACE_ID: ${LANGSMITH_WORKSPACE_ID:-}") == 2
     assert compose.count("LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}") == 2
+    assert compose.count("LANGSMITH_TRACE_CONTENT: ${LANGSMITH_TRACE_CONTENT:-false}") == 2
+    assert "LANGSMITH_TRACE_CONTENT=false" in root_env
     assert "TIER1_MODEL: ${TIER1_MODEL:-anthropic/claude-sonnet-5.5}" in compose
     assert "TIER1_FALLBACK_MODEL: ${TIER1_FALLBACK_MODEL:-openai/gpt-6.1-sol}" in compose
     assert "TIER2_MODEL: ${TIER2_MODEL:-google/gemini-3.8-flash}" in compose
@@ -362,3 +364,19 @@ def test_worker_native_usage_preserves_unknown_counts(counts, expected):
     tracing.end_trace_safely(run, outputs=original)
     assert run.outputs.get("usage_metadata") == expected
     assert "usage_metadata" not in original
+
+
+@pytest.mark.parametrize("tracing_flag,content_flag,expected", [
+    ("false", "true", False), ("true", "false", False), ("true", "true", True),
+])
+def test_trace_content_requires_tracing_and_explicit_opt_in(monkeypatch, tracing_flag, content_flag, expected):
+    monkeypatch.setenv("LANGSMITH_TRACING", tracing_flag)
+    monkeypatch.setenv("LANGSMITH_TRACE_CONTENT", content_flag)
+    assert tracing.trace_content_enabled() is expected
+
+
+def test_worker_settings_reject_invalid_trace_content_value():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        worker.WorkerSettingsEnv(_env_file=None, langsmith_trace_content="sometimes")

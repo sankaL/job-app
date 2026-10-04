@@ -12,34 +12,18 @@ type GenerationProgressProps = {
   scope?: "resume" | "section";
 };
 
-const GENERATION_STEPS = [
-  { title: "Prepare the source and job requirements", detail: "Use your reviewed sections, job posting and saved tailoring settings." },
-  { title: "Write the tailored sections", detail: "Prioritize relevant experience and skills while keeping claims grounded in your source." },
-  { title: "Check facts and structure", detail: "Validate employers, dates, source references and section structure. Repair rejected content when possible." },
-  { title: "Assemble your editable draft", detail: "Bring the accepted sections together and attach profile details locally." },
-];
-
 export function GenerationProgress({ progress, isOptimistic, isActive, isCancelling, onCancel, scope = "resume" }: GenerationProgressProps) {
   const reported = isOptimistic ? null : progress;
   const section = reported ? reported.workflow_kind === "regeneration_section" : scope === "section";
-  const hasReportedProgress = Boolean(reported);
   const terminal = Boolean(reported?.completed_at || reported?.terminal_error_code);
-  const percent = reported?.percent_complete;
-  const message = isCancelling ? "Stopping this generation. Waiting for confirmation." : hasReportedProgress && reported?.message ? reported.message : "Sending your generation request. Waiting for the first processing update.";
-  const currentStep = !hasReportedProgress || terminal || typeof percent !== "number" || !Number.isFinite(percent) ? null
-    : /assembl|merg/i.test(message) || percent >= 95 ? 3
-    : /validat|audit|check|repair/i.test(message) || percent >= 85 ? 2
-    : percent >= 10 ? 1 : 0;
+  const message = isCancelling ? "Stopping this generation. Waiting for confirmation." : reported?.message || "Sending your generation request. Waiting for the first processing update.";
   const sessionKey = isActive || isOptimistic ? `${reported?.workflow_kind ?? "optimistic"}:${reported?.job_id ?? "optimistic"}` : "inactive";
   return <ResumeProcessing title={section ? "Updating your resume section" : "Preparing your tailored resume"}
-    description={section ? "Rewriting the selected content using your instructions and source experience. The rest of your draft stays unchanged." : "Your reviewed experience is being tailored to this job, then checked before the draft is saved."}
-    preview={<ResumeGenerationSkeleton section={section} />}
-    message={message} steps={section ? [
-      { title: "Prepare the selected source content", detail: "Use the original section, job requirements and your instructions." },
-      { title: "Rewrite the selected content", detail: "Tailor this section or role while preserving your source facts." },
-      GENERATION_STEPS[2],
-      { title: "Save the updated section", detail: "Keep the rest of the draft unchanged and reopen it for review." },
-    ] : GENERATION_STEPS} currentStep={isCancelling ? null : currentStep} percent={percent}
+    preview={<ResumeGenerationSkeleton section={section} backdrop />}
+    message={message} percent={reported?.percent_complete}
+    startedAt={reported?.created_at} updatedAt={reported?.updated_at}
+    stalledHint={isActive && !isCancelling ? "You can stop and try again." : undefined}
+    messages={isCancelling ? ["Your current draft stays available while cancellation is confirmed."] : undefined}
     active={(isActive || isOptimistic) && !terminal} sessionKey={sessionKey}
     actions={isActive && !terminal ? <Button type="button" variant="secondary" size="sm" disabled={isCancelling} onClick={onCancel}>{isCancelling ? "Cancelling..." : "Cancel"}</Button> : undefined} />;
 }

@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
-from langsmith_tracing import trace_scope, end_trace_safely
+from langsmith_tracing import trace_scope, end_trace_safely, sanitize_trace_data, trace_content_enabled
 
 
 SAFE_AI_OPERATIONS = {"generation", "regeneration_full", "regeneration_section", "keyword_optimization", "section_generation", "section_repair", "section_grounding_audit", "keyword_patch", "job_extraction", "keyword_extraction", "resume_judge", "structured_call"}
@@ -175,6 +175,21 @@ def bounded_ai_workflow(seconds: Any, *, max_requests: int = 6):
 
 
 
+def _request_trace_metadata(settings: dict[str, Any], *, output_type: Any, native_output: bool, retries: int) -> dict[str, Any]:
+    """Describe the request settings actually sent, without prompt content."""
+    reasoning = settings.get("openrouter_reasoning")
+    reasoning = reasoning if isinstance(reasoning, dict) else {}
+    return {
+        "output_mode": "native" if native_output else "tool",
+        "output_type": getattr(output_type, "__name__", type(output_type).__name__),
+        "temperature": "provider_default" if settings.get("temperature") is None else settings["temperature"],
+        "max_tokens": settings.get("max_tokens"),
+        "reasoning_effort": str(reasoning.get("effort") or "provider_default"),
+        "reasoning_text_excluded": reasoning.get("exclude") is True,
+        "output_retries": retries,
+    }
+
+
 async def structured_call(
     *,
     prompt: list[tuple[str, str]],
@@ -218,12 +233,20 @@ async def structured_call(
     safe_operation = operation if operation in SAFE_AI_OPERATIONS else "structured_call"
     trace_manager = None
     run_trace = None
+    include_content = False
+    output_value: Any = None
     outcome = "failed"
     try:
+        include_content = trace_content_enabled()
+        trace_inputs: dict[str, Any] = {"message_count": len(prompt), "prompt_chars": sum(len(content) for _, content in prompt)}
+        if include_content:
+            trace_inputs["messages"] = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         trace_manager = trace_scope(
             "applix." + safe_operation + ".pydantic_ai", run_type="llm",
-            inputs={"message_count": len(prompt), "prompt_chars": sum(len(content) for _, content in prompt)},
-            metadata={"operation": safe_operation, "model": model_name, "is_fallback": is_fallback, "request_limit": remaining_requests, "timeout_seconds": call_timeout},
+            inputs=trace_inputs,
+            metadata={"operation": safe_operation, "model": model_name, "is_fallback": is_fallback, "request_limit": remaining_requests, "timeout_seconds": call_timeout,
+                **_request_trace_metadata(settings, output_type=output_type, native_output=native_output, retries=1 if remaining_requests > 1 else 0),
+                "content_traced": include_content},
             tags=["applix", safe_operation, "pydantic_ai"],
         )
         run_trace = trace_manager.__enter__()
@@ -264,6 +287,7 @@ async def structured_call(
             timeout=call_timeout,
         )
         outcome = "success"
+        output_value = result.output
         budget.attempts.append({
             "model": model_name,
             "transport_mode": "pydantic_ai",
@@ -293,7 +317,14 @@ async def structured_call(
         # a workflow request, preventing retries from multiplying invisibly.
         budget.requests += max(1, usage.requests)
         budget.output_tokens += usage.output_tokens
-        end_trace_safely(run_trace, outputs={"outcome": outcome, "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens})
+        trace_outputs: dict[str, Any] = {"outcome": outcome, "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens}
+        if include_content and outcome == "success":
+            try:
+                trace_outputs["output"] = sanitize_trace_data(
+                    output_value.model_dump(mode="json") if isinstance(output_value, BaseModel) else output_value)
+            except Exception:
+                trace_outputs["output"] = "<unavailable>"  # Telemetry never replaces the AI result or skips cleanup.
+        end_trace_safely(run_trace, outputs=trace_outputs)
         if trace_manager is not None:
             try:
                 trace_manager.__exit__(None, None, None)

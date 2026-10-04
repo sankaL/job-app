@@ -45,6 +45,7 @@ def get_resume_parser() -> ResumeParserService:
         langsmith_project=settings.langsmith_project,
         langsmith_workspace_id=settings.langsmith_workspace_id,
         langsmith_api_key=settings.langsmith_api_key,
+        langsmith_trace_content=settings.langsmith_trace_content,
     )
 
 

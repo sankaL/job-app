@@ -14,6 +14,7 @@ export default {
         control: "var(--color-border-emphasized)",
         error: "var(--color-error)",
         surface: "var(--color-surface)",
+        "processing-surface": "var(--color-background-surface)",
       },
       fontFamily: {
         sans: ["'Source Sans 3'", "ui-sans-serif", "system-ui", "sans-serif"],

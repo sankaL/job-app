@@ -20,6 +20,11 @@ __pycache__/
 frontend/build/
 frontend/dist/
 frontend/*.tsbuildinfo
+# tsc -b emits these beside the .ts configs; Vite/Tailwind would load them first.
+frontend/vite.config.js
+frontend/vite.config.d.ts
+frontend/tailwind.config.js
+frontend/tailwind.config.d.ts
 backend/dist/
 backend/build/
 backend/*.egg-info/

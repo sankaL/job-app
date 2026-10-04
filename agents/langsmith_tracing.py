@@ -46,6 +46,7 @@ class _TraceSettings(BaseSettings):
     langsmith_project: Optional[str] = None
     langsmith_workspace_id: Optional[str] = None
     langsmith_api_key: Optional[str] = None
+    langsmith_trace_content: bool = False
 
 
 def _sanitize_url(value: str) -> str:
@@ -113,6 +114,12 @@ def _trace_config() -> tuple[bool, Optional[str], Optional[str]]:
     if not project_name:
         raise RuntimeError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")
     return True, api_key, project_name
+
+
+def trace_content_enabled() -> bool:
+    """Redacted prompt/output bodies are an explicit opt-in on top of tracing."""
+    settings = _TraceSettings()
+    return bool(settings.langsmith_tracing and settings.langsmith_trace_content)
 
 
 @contextmanager

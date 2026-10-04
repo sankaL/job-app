@@ -34,6 +34,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
 - Do not expose unauthenticated application APIs beyond the login surface.
 - Do not store auth tokens in browser `localStorage`.
 - Keep secrets and sensitive user content out of logs. Do not log tokens, raw provider payloads, full resume content, or full job descriptions unless strictly required and sanitized.
+- The only approved exception is the explicit, redacted LangSmith model-run content opt-in described in the PRD and `docs/prompts.md`. Keep it off by default and never extend it to application logs, workflow roots, profile records or credentials.
 - Do not swallow failures. Return sanitized errors, record enough context for diagnosis, and surface recoverable next steps to the user.
 - All async work must have explicit timeout boundaries, bounded retries, and clear stop conditions.
 

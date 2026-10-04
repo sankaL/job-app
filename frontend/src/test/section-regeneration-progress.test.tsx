@@ -1,6 +1,8 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
+import { act, render, screen, fireEvent } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
 import { SectionRegenerationProgress } from "@/components/ui/section-regeneration-progress";
+
+afterEach(() => vi.useRealTimers());
 
 it("keeps section loading inline and uses only the reported percentage", () => {
   const onCancel = vi.fn();
@@ -14,4 +16,15 @@ it("keeps section loading inline and uses only the reported percentage", () => {
   expect(screen.getByRole("status", { name: "Section regeneration status" })).toHaveTextContent("Checking the revised section");
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(onCancel).toHaveBeenCalledOnce();
+});
+
+it("shows a slow notice after 90 seconds without a reported update", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-14T00:00:00Z"));
+  const progress = { job_id: "job-1", workflow_kind: "regeneration_section", state: "running", message: "Rewriting the section.", percent_complete: 40, created_at: "2026-07-14T00:00:00Z", updated_at: "2026-07-14T00:00:00Z", completed_at: null, terminal_error_code: null };
+  render(<SectionRegenerationProgress progress={progress} isOptimistic={false} isActive isCancelling={false} onCancel={vi.fn()} />);
+  act(() => vi.advanceTimersByTime(89_000));
+  expect(screen.queryByRole("status", { name: "Slow progress notice" })).not.toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(1_000));
+  expect(screen.getByRole("status", { name: "Slow progress notice" })).toHaveTextContent("This is taking longer than usual. You can stop and try again.");
 });

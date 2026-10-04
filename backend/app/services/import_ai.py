@@ -8,9 +8,10 @@ from time import perf_counter
 import httpx
 from pydantic import BaseModel
 
-from app.core.tracing import TraceConfig, end_trace_safely, trace_llm_scope
+from app.core.tracing import TraceConfig, end_trace_safely, sanitize_trace_data, trace_llm_scope
 
 Output = TypeVar("Output", bound=BaseModel)
+NATIVE_OUTPUT_MODELS = {"google/gemini-3.8-flash", "openai/gpt-6-luna"}
 
 
 def _portable_openrouter_import_profile(model_name: str) -> Any:
@@ -73,7 +74,7 @@ async def _invoke_import_output(
             system_prompt=system_prompt,
             # Provider transport constraints vary. Pydantic and source
             # validators enforce the complete contract locally.
-            output_type=NativeOutput(output_type, strict=False) if model in {"google/gemini-3.8-flash", "openai/gpt-6-luna"} else ToolOutput(output_type, strict=False),
+            output_type=NativeOutput(output_type, strict=False) if model in NATIVE_OUTPUT_MODELS else ToolOutput(output_type, strict=False),
             retries=1,
             model_settings={"openrouter_reasoning": {"exclude": True}, "max_tokens": 16000, "timeout": timeout_seconds},
         )
@@ -108,21 +109,29 @@ async def invoke_import_output(
     operation: str = "resume_import",
     is_fallback: bool = False,
 ) -> Output:
-    """Trace every import invocation using counts, never prompt or output bodies."""
+    """Trace every import invocation; bodies only when content tracing is opted in."""
     from pydantic_ai.usage import RunUsage
 
     safe_operation = operation if operation in {"resume_cleanup", "resume_entry_extraction"} else "resume_import"
     usage = RunUsage()
     started = perf_counter()
+    trace_inputs: dict[str, Any] = {"message_count": 2, "prompt_chars": len(system_prompt) + len(user_prompt)}
+    if trace_config.include_content:
+        trace_inputs["messages"] = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     with trace_llm_scope(
         enabled=trace_config.enabled, api_key=trace_config.api_key,
         project_name=trace_config.project_name, workspace_id=trace_config.workspace_id,
         name=f"applix.{safe_operation}.pydantic_ai",
-        inputs={"message_count": 2, "prompt_chars": len(system_prompt) + len(user_prompt)},
+        inputs=trace_inputs,
         metadata={"operation": safe_operation, "model": model, "is_fallback": is_fallback,
-            "transport_mode": "pydantic_ai", "timeout_seconds": timeout_seconds, "request_limit": 2},
+            "transport_mode": "pydantic_ai", "timeout_seconds": timeout_seconds, "request_limit": 2,
+            "output_mode": "native" if model in NATIVE_OUTPUT_MODELS else "tool",
+            "output_type": output_type.__name__, "temperature": "provider_default", "max_tokens": 16000,
+            "reasoning_effort": "provider_default", "reasoning_text_excluded": True, "output_retries": 1,
+            "content_traced": trace_config.include_content},
     ) as run_tree:
         outcome = "failed"
+        output: Output | None = None
         try:
             output = await _invoke_import_output(
                 api_key=api_key, base_url=base_url, model=model, system_prompt=system_prompt,
@@ -135,6 +144,12 @@ async def invoke_import_output(
             outcome = "timeout"
             raise
         finally:
-            end_trace_safely(run_tree, outputs={"outcome": outcome,
+            trace_outputs: dict[str, Any] = {"outcome": outcome,
                 "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens, "elapsed_ms": round((perf_counter() - started) * 1000)})
+                "output_tokens": usage.output_tokens, "elapsed_ms": round((perf_counter() - started) * 1000)}
+            if trace_config.include_content and outcome == "success" and isinstance(output, BaseModel):
+                try:
+                    trace_outputs["output"] = sanitize_trace_data(output.model_dump(mode="json"))
+                except Exception:
+                    trace_outputs["output"] = "<unavailable>"  # Telemetry never replaces the import result.
+            end_trace_safely(run_tree, outputs=trace_outputs)

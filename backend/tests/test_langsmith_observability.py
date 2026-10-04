@@ -266,3 +266,107 @@ def test_backend_native_usage_preserves_unknown_counts(counts, expected):
     end_trace_safely(run, outputs=original)
     assert run.outputs.get("usage_metadata") == expected
     assert "usage_metadata" not in original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content_enabled", [False, True])
+async def test_import_trace_includes_prompt_and_output_only_when_content_opted_in(monkeypatch, content_enabled):
+    from contextlib import contextmanager
+    from app.core.tracing import TraceConfig
+    from app.services import import_ai
+
+    captured = {}
+
+    @contextmanager
+    def fake_trace_scope(**kwargs):
+        captured.update(kwargs)
+
+        class FakeRun:
+            def end(self, **end_kwargs):
+                captured["end"] = end_kwargs
+
+        yield FakeRun()
+
+    async def invoke(**_kwargs):
+        return resume_parser.CleanupOutput(cleaned_markdown="## Skills\nPython", needs_review=False, review_reason=None)
+
+    monkeypatch.setattr(import_ai, "trace_llm_scope", fake_trace_scope)
+    monkeypatch.setattr(import_ai, "_invoke_import_output", invoke)
+    await import_ai.invoke_import_output(api_key="provider-key", base_url="https://provider.invalid/v1",
+        model="google/gemini-3.8-flash", system_prompt="Format.", user_prompt="## Skills\nPython",
+        output_type=resume_parser.CleanupOutput, timeout_seconds=1,
+        trace_config=TraceConfig(True, "telemetry-key", "project", content_enabled=content_enabled))
+
+    assert captured["metadata"]["output_mode"] == "native"
+    assert captured["metadata"]["reasoning_effort"] == "provider_default"
+    assert captured["metadata"]["content_traced"] is content_enabled
+    if content_enabled:
+        assert captured["inputs"]["messages"][1] == {"role": "user", "content": "## Skills\nPython"}
+        assert captured["end"]["outputs"]["output"]["cleaned_markdown"] == "## Skills\nPython"
+    else:
+        assert "messages" not in captured["inputs"]
+        assert "output" not in captured["end"]["outputs"]
+        assert "Python" not in str(captured)
+
+
+def test_trace_content_requires_tracing_enabled():
+    from app.core.tracing import TraceConfig
+
+    assert TraceConfig(False, "key", "project", content_enabled=True).include_content is False
+    assert TraceConfig(True, "key", "project").include_content is False
+    assert TraceConfig(True, "key", "project", content_enabled=True).include_content is True
+
+
+def test_backend_env_settings_read_trace_content(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    monkeypatch.delenv("LANGSMITH_TRACE_CONTENT", raising=False)
+    assert Settings(_env_file=None).langsmith_trace_content is False
+    monkeypatch.setenv("LANGSMITH_TRACE_CONTENT", "true")
+    assert Settings(_env_file=None).langsmith_trace_content is True
+
+
+@pytest.mark.asyncio
+async def test_cleanup_root_keeps_placeholder_while_child_receives_content_opt_in(monkeypatch):
+    captured = {}
+    child_calls = []
+
+    @contextmanager
+    def fake_trace_scope(**kwargs):
+        captured.update(kwargs)
+
+        class FakeRun:
+            def end(self, **end_kwargs):
+                captured["end"] = end_kwargs
+
+        yield FakeRun()
+
+    async def fake_invoke(**kwargs):
+        child_calls.append(kwargs)
+        return resume_parser.CleanupOutput(cleaned_markdown="## Summary\nBuilt APIs.", needs_review=False, review_reason=None)
+
+    monkeypatch.setattr(resume_parser, "trace_llm_scope", fake_trace_scope)
+    monkeypatch.setattr(resume_parser, "invoke_import_output", fake_invoke)
+    service = ResumeParserService(openrouter_api_key="openrouter-key", openrouter_model="model",
+        langsmith_tracing=True, langsmith_project="project", langsmith_api_key="langsmith-key",
+        langsmith_trace_content=True)
+
+    await service.cleanup_with_llm("## Summary\nBuilt APIs.")
+
+    assert captured["inputs"]["messages"][1]["content"] == "<resume body omitted from telemetry>"
+    assert "Built APIs" not in str(captured)
+    assert child_calls[0]["trace_config"].include_content is True
+
+
+def test_resume_parser_factory_forwards_trace_content_setting(monkeypatch):
+    from app.api import base_resumes
+    from app.core import config
+
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "project")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "key")
+    monkeypatch.setenv("LANGSMITH_TRACE_CONTENT", "true")
+    config.get_settings.cache_clear()
+    try:
+        assert base_resumes.get_resume_parser().trace_config.include_content is True
+    finally:
+        config.get_settings.cache_clear()

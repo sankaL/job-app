@@ -1,8 +1,19 @@
+## 2026-10-03 23:20:00 EDT - Opt-in redacted LLM content tracing and request-settings metadata
+
+- Context: LangSmith model runs showed only counts and outcome, so the owner could not inspect prompts, outputs or the reasoning mode. The counts-only policy (17:55 entry below) was intentional. The owner was told that enabling content in production sends real users' resume and job text to LangSmith, and chose to enable it in both local and production anyway.
+- Decision: Add `LANGSMITH_TRACE_CONTENT` (default `false`, effective only with `LANGSMITH_TRACING=true`). When on, model runs include the system/user prompt exactly as sent to the provider and the parsed successful output; backend import model runs and Jev attempt runs include their sanitized bodies. Every body still passes through the trace redactor (emails, phones, profile URLs, secrets, URL queries, user ids, personal info keys). Workflow roots, assembly runs, failed outputs, profile records, credentials and exception payloads remain excluded. Independently, every model run records the request settings actually sent (output mode/type, temperature, token cap, reasoning effort, reasoning-text exclusion, correction retries).
+- Correction recorded: reasoning effort is not dropped by accident. Provider-default reasoning for current models is the earlier routing decision; the new metadata reports it as `provider_default`.
+- Consequences: Debugging generation, grounding audits and imports becomes possible from LangSmith. Real user content (pseudonymized for generation prompts, redacted for contacts) now sits in a third-party service for the LangSmith retention period whenever the flag is on. AGENTS.md lists this as the only approved exception to keeping resume/job bodies out of telemetry. The flag can be turned off without a deploy by changing the environment and restarting services.
+
 ## 2026-10-03 — Verify and commit the uncommitted branch snapshot
 
 Completed the CE review and five regression fixes (2026-10-03 22:06:31 EDT). Keep the shared shell’s route mounted across immersive comparison and responsive navigation changes; Astryx 0.6.5’s `section` variant supplies a stable content tree. This supersedes the earlier elevated-shell choice. Honor grouped-column custom sorting and direction, retain cached activity with visible refresh errors and Retry, record available classifier token counts before answer validation, and leave example tracing disabled until explicitly configured.
 
 Verified 1,021 tests and the TypeScript/Vite production build using the local stack. The user explicitly requested committing only the verified snapshot while another chat continues editing; later working-tree changes remain outside that commit. See `docs/task-output/2026-10-03-uncommitted-code-review.md`.
+
+## 2026-10-03 — Center loading feedback over the resume skeleton
+
+The user requested one centered progress bar, changing messages and a small SVG avatar, with the step list removed. Full resume generation, job posting extraction and resume import now share that presentation. Reported job messages remain the accessible status; rotating explanations describe source grounding and review without claiming a current stage. Extraction no longer advances its percentage on a timer, so both job workflows show only server-reported progress. The supporting details, app shell, cancellation, recovery and AI orchestration are unchanged.
 
 ## 2026-10-03 — Read-only application details with per-field editing
 

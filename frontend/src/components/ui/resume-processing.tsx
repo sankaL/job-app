@@ -3,181 +3,116 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
-import { useEffect, useState, type ReactNode } from "react";
-import { FileText } from "lucide-react";
-import "./resume-processing.css";
+import type { ReactNode } from "react";
+import { Button } from "./button";
+import { ResumeGenerationSkeleton } from "./resume-generation-skeleton";
+import { useProcessingClock } from "./use-processing-clock";
 
-export type ProcessingStep = { title: string; detail: string };
+const DEFAULT_MESSAGES = [
+  "Your experience guides the draft. Every claim stays tied to your source resume.",
+  "The job requirements help focus your most relevant experience and skills.",
+  "Employers, dates and qualifications are checked against your original resume.",
+  "You'll be able to review and edit the result before using it.",
+];
 
-export function ResumeProcessing({
-  title,
-  description,
-  message,
-  steps,
-  currentStep = null,
-  percent,
-  active = true,
-  sessionKey = "import",
-  actions,
-  preview,
-}: {
+/** A decorative paper companion. Motion never represents completed work. */
+function ProcessingAvatar({ active }: { active: boolean }) {
+  return (
+    <svg viewBox="0 0 96 96" fill="none" aria-hidden="true" className="h-14 w-14 shrink-0 overflow-visible text-inherit">
+      <ellipse cx="48" cy="84" rx="22" ry="4" fill="currentColor" opacity="0.06" />
+      <g className={active ? "animate-bounce motion-reduce:animate-none" : undefined}>
+        <path d="M29 17h27l13 13v42a7 7 0 0 1-7 7H29a7 7 0 0 1-7-7V24a7 7 0 0 1 7-7Z" fill="var(--color-background-surface)" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" />
+        <path d="M55 17v11a3 3 0 0 0 3 3h11" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" />
+        <path d="M32 35h12M32 41h20" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" opacity="0.2" />
+        <g className={active ? "animate-pulse motion-reduce:animate-none" : undefined}>
+          <circle cx="37" cy="54" r="2.5" fill="currentColor" />
+          <circle cx="55" cy="54" r="2.5" fill="currentColor" />
+        </g>
+        <path d="M40 63q6 6 12 0" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="m17 53 5 4m47 0 9-8m-46 30-3 5m30-5 3 5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      </g>
+      <path d="m79 23 1.5 4.5L85 29l-4.5 1.5L79 35l-1.5-4.5L73 29l4.5-1.5Z" fill="var(--color-icon-orange)" className={active ? "animate-pulse motion-reduce:animate-none" : undefined} />
+    </svg>
+  );
+}
+
+export const STALLED_MESSAGE = "This is taking longer than usual.";
+
+export function ResumeProcessing({ title, message, percent, startedAt, updatedAt, stalledHint, active = true, sessionKey = "import", actions, preview, messages = DEFAULT_MESSAGES, statusLabel = "Resume processing status", progressLabel = "Resume processing progress" }: {
   title: string;
-  description: string;
   message: string;
-  steps: ProcessingStep[];
-  currentStep?: number | null;
   percent?: number;
+  /** Job start time from the server, so the elapsed clock survives reloads and navigation. */
+  startedAt?: string | null;
+  /** Last server progress update, used to detect a slow job. */
+  updatedAt?: string | null;
+  /** Optional next step appended to the slow-job notice. */
+  stalledHint?: string;
   active?: boolean;
   sessionKey?: string;
   actions?: ReactNode;
   preview?: ReactNode;
+  messages?: readonly string[];
+  statusLabel?: string;
+  progressLabel?: string;
 }) {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    setElapsed(0);
-    if (!active) return;
-    const start = Date.now();
-    const timer = window.setInterval(
-      () => setElapsed(Math.floor((Date.now() - start) / 1000)),
-      1000,
-    );
-    return () => window.clearInterval(timer);
-  }, [active, sessionKey]);
-  const measuredPercent =
-    typeof percent === "number" && Number.isFinite(percent)
-      ? Math.max(0, Math.min(100, percent))
-      : undefined;
-  const elapsedText =
-    elapsed >= 60
-      ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
-      : `${elapsed}s`;
+  const { elapsed, stalled } = useProcessingClock({ active, sessionKey, startedAt, updatedAt, updateKey: `${message}|${percent ?? ""}` });
+  const measuredPercent = typeof percent === "number" && Number.isFinite(percent)
+    ? Math.max(0, Math.min(100, percent)) : undefined;
+  const elapsedText = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
+  const supportingMessage = messages.length ? messages[Math.floor(elapsed / 8) % messages.length] : undefined;
 
   return (
-    <section
-      className="resume-processing"
-      aria-label={title}
-      data-active={active}
-    >
-      <div className="resume-processing-topline">
-        <span>
-          <FileText size={16} aria-hidden="true" /> Resume workspace
-        </span>
-        <span className="resume-processing-time" aria-label="Elapsed time">
-          {elapsedText}
-        </span>
-      </div>
-      <div className="resume-processing-heading">
-        <Heading level={2}>{title}</Heading>
-        <Text as="p" display="block" type="body">
-          {description}
-        </Text>
-      </div>
-      <div className="resume-processing-status">
-        <Text
-          as="p"
-          display="block"
-          type="body"
-          aria-label="Resume processing status"
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {message}
-        </Text>
-        <VStack className="mt-4">
-          <ProgressBar
-            label="Resume processing progress"
-            isLabelHidden
-            value={measuredPercent}
-            isIndeterminate={measuredPercent === undefined && active}
-            hasValueLabel={measuredPercent !== undefined}
-            variant="neutral"
-          />
+    <VStack as="section" aria-label={title} data-active={active} className={`resume-processing relative isolate min-h-96 h-full w-full flex-1 overflow-hidden rounded-lg bg-processing-surface motion-reduce:[&_.astryx-skeleton]:animate-none ${!active ? "[&_.astryx-skeleton]:animate-none" : ""}`}>
+      <VStack aria-hidden="true" className="pointer-events-none select-none" padding={8}>
+        {preview ?? <ResumeGenerationSkeleton backdrop />}
+      </VStack>
+      <VStack className="absolute inset-0 p-4 sm:p-8" hAlign="center" vAlign="center">
+        <VStack gap={3} hAlign="center" className="w-full max-w-xs rounded-lg bg-processing-surface p-4 text-center sm:p-5">
+          <ProcessingAvatar active={active} />
+          <Heading level={2} className="text-base font-semibold">{title}</Heading>
+          <VStack gap={3} className="w-full">
+            <Text as="p" type="body" role="status" aria-label={statusLabel} aria-live="polite" aria-atomic="true">{message}</Text>
+            <ProgressBar label={progressLabel} isLabelHidden value={measuredPercent} isIndeterminate={measuredPercent === undefined && active} hasValueLabel={measuredPercent !== undefined} variant="neutral" isDisabled={!active} />
+            <Text as="p" type="supporting" color="secondary" className="min-h-10" aria-live="off">{supportingMessage}</Text>
+            {stalled && <Text as="p" type="supporting" role="status" aria-label="Slow progress notice" aria-live="polite">{stalledHint ? `${STALLED_MESSAGE} ${stalledHint}` : STALLED_MESSAGE}</Text>}
+          </VStack>
+          <HStack gap={3} hAlign="center" vAlign="center">
+            <Text type="supporting" color="secondary" aria-label="Elapsed time" className="tabular-nums">{elapsedText}</Text>
+            {actions}
+          </HStack>
         </VStack>
-        {elapsed >= 20 && active && (
-          <Text
-            as="p"
-            display="block"
-            type="body"
-            className="resume-processing-wait"
-          >
-            Still working. Larger resumes and additional fact checks can take
-            longer.
-          </Text>
-        )}
-      </div>
-      <HStack gap={6} vAlign="start" className="flex-col lg:flex-row">
-        {preview}
-        <VStack gap={2} className="resume-processing-plan min-w-0 flex-1">
-          <Heading level={3}>
-            {currentStep === null ? "What this includes" : "Processing steps"}
-          </Heading>
-          <ol>
-            {steps.map((step, index) => (
-              <li
-                key={step.title}
-                aria-current={currentStep === index ? "step" : undefined}
-                data-current={currentStep === index}
-              >
-                <span className="resume-processing-number" aria-hidden="true">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <div>
-                  <Heading level={4}>{step.title}</Heading>
-                  <Text as="p" display="block" type="body">
-                    {step.detail}
-                  </Text>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </VStack>
-      </HStack>
-      <div className="resume-processing-footer">
-        <Text as="p" display="block" type="body">
-          Your source facts stay grounded in your resume. You can review the
-          result before using it.
-        </Text>
-        {actions}
-      </div>
-    </section>
+      </VStack>
+    </VStack>
   );
 }
 
 export function ResumeImportProgress({ useAi }: { useAi: boolean }) {
-  return (
-    <ResumeProcessing
-      title="Reading and structuring your resume"
-      description="Turning your PDF into the same section workspace you'll use to review and edit your resume."
-      message={
-        useAi
-          ? "Importing your PDF with AI assistance. Your result will open here when it is ready."
-          : "Importing your PDF without AI entry extraction. Your result will open here when it is ready."
-      }
-      steps={[
-        {
-          title: "Read the PDF",
-          detail: "Extract the text and keep an original copy for comparison.",
-        },
-        {
-          title: "Identify sections",
-          detail:
-            "Separate experience, education, skills and other source sections.",
-        },
-        {
-          title: useAi
-            ? "Separate roles and their details"
-            : "Parse recognizable role headers",
-          detail: useAi
-            ? "Use AI to identify each role's employer, location, dates and duties, including promotions at the same company."
-            : "Use local role parsing. Unclear job boundaries stay as source text for you to organize.",
-        },
-        {
-          title: "Prepare your review",
-          detail:
-            "Check extracted facts against the source, copy duty text and keep contact suggestions local.",
-        },
-      ]}
-    />
-  );
+  return <ResumeProcessing title="Reading and structuring your resume"
+    message={useAi ? "Importing your PDF with AI assistance." : "Importing your PDF without AI entry extraction."}
+    messages={[
+      "Your PDF is the source for your resume sections and role details.",
+      useAi ? "AI helps organize roles, dates and duties from your PDF." : "Local parsing keeps unclear role details as source text for your review.",
+      "Your original text stays available for comparison.",
+      "Your sections will open here when the import is ready.",
+    ]} />;
+}
+
+export function JobExtractionProgress({ progress, isCancelling, onCancel }: {
+  progress: { job_id: string; message: string; percent_complete: number; created_at?: string; updated_at?: string } | null;
+  isCancelling: boolean;
+  onCancel?: () => void;
+}) {
+  return <ResumeProcessing title="Reading the job posting" sessionKey={progress?.job_id ?? "extraction"}
+    message={isCancelling ? "Stopping extraction. Waiting for confirmation." : progress?.message || "Opening the job posting. Waiting for the first update."}
+    percent={progress?.percent_complete} startedAt={progress?.created_at} updatedAt={progress?.updated_at}
+    stalledHint={onCancel && !isCancelling ? "You can stop extraction and enter the details yourself." : undefined}
+    statusLabel="Job extraction status" progressLabel="Job extraction progress"
+    actions={onCancel ? <Button type="button" variant="secondary" size="sm" disabled={isCancelling} onClick={onCancel}>{isCancelling ? "Stopping..." : "Stop extraction"}</Button> : undefined}
+    messages={isCancelling ? ["You can enter the job details yourself after extraction stops."] : [
+      "The posting is the source for the role, company and job requirements.",
+      "Relevant skills and responsibilities help shape your tailored resume.",
+      "You'll be able to review the extracted details before generating a resume.",
+      "Some job sites take longer to respond. You can stop extraction at any time.",
+    ]} />;
 }

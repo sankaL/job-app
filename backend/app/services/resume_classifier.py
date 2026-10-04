@@ -12,7 +12,7 @@ from typing import Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.core.tracing import TraceConfig, end_trace_safely, trace_llm_scope
+from app.core.tracing import TraceConfig, end_trace_safely, sanitize_trace_data, trace_llm_scope
 
 KINDS = {
     "summary": "A professional summary or career objective describing the candidate's background.",
@@ -94,10 +94,11 @@ async def _classification_attempt(
         enabled=trace_config.enabled, api_key=trace_config.api_key,
         project_name=trace_config.project_name, workspace_id=trace_config.workspace_id,
         name="applix.resume_section_classification.decisions",
-        inputs={"section_count": len(blocks)},
+        inputs={"section_count": len(blocks),
+            **({"blocks": blocks, "questions": questions} if trace_config.include_content else {})},
         metadata={"operation": "resume_section_classification", "model": model,
             "transport_mode": "decisions", "attempt": attempt, "is_retry": attempt > 1,
-            "timeout_seconds": timeout_seconds},
+            "timeout_seconds": timeout_seconds, "content_traced": trace_config.include_content},
     ) as run_tree:
         outputs = {"outcome": "failed", "request_count": 1}
         try:
@@ -123,6 +124,11 @@ async def _classification_attempt(
                 raise ValueError("Classification did not return every source block.")
             result = {key: SectionClassification.model_validate(answer) for key, answer in answers.items()}
             outputs["outcome"] = "success"
+            if trace_config.include_content:
+                try:
+                    outputs["answers"] = sanitize_trace_data({key: value.model_dump(mode="json") for key, value in result.items()})
+                except Exception:
+                    outputs["answers"] = "<unavailable>"  # Telemetry never fails a valid classification.
             return result
         except (TimeoutError, asyncio.TimeoutError, httpx.TimeoutException):
             outputs["outcome"] = "timeout"

@@ -3369,8 +3369,11 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
+    expect(await screen.findByTitle("Stop extraction")).toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: /stop extraction/i }),
+      within(
+        screen.getByRole("region", { name: "Reading the job posting" }),
+      ).getByRole("button", { name: "Stop extraction" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /^delete application$/i }),
@@ -4517,11 +4520,20 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(
-      await screen.findByRole("button", { name: /stop extraction/i }),
-    ).toBeInTheDocument();
+    expect(await screen.findByTitle("Stop extraction")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /stop extraction/i }));
+    // The card button opens the same confirmation as the header icon.
+    await user.click(
+      within(
+        screen.getByRole("region", { name: "Reading the job posting" }),
+      ).getByRole("button", { name: "Stop extraction" }),
+    );
+    expect(await screen.findByText(/stop extraction\?/i)).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByText(/stop extraction\?/i)).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByTitle("Stop extraction"));
     expect(await screen.findByText(/stop extraction\?/i)).toBeInTheDocument();
     await user.click(
       screen
@@ -7173,6 +7185,37 @@ describe("phase 1 applications UI", () => {
     await screen.findByRole("heading", { name: "Backend Engineer" });
     await userEvent.click(screen.getByRole("button", { name: /activity/i }));
     expect(await screen.findByText(/no activity yet/i)).toBeInTheDocument();
+  });
+
+  it("dismisses activity on an outside click or Escape and keeps inside clicks open", async () => {
+    api.listApplicationActivity.mockResolvedValue([]);
+
+    renderWithAppProvider(
+      <Routes>
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await screen.findByRole("heading", { name: "Backend Engineer" });
+    const activityButton = screen.getByRole("button", { name: /activity/i });
+    await userEvent.click(activityButton);
+    const dialog = await screen.findByRole("dialog", { name: /application activity/i });
+    await userEvent.click(within(dialog).getByText(/no activity yet/i));
+    expect(dialog).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("activity-panel-overlay"));
+    expect(screen.queryByRole("dialog", { name: /application activity/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(activityButton).toHaveFocus());
+
+    await userEvent.click(activityButton);
+    await screen.findByRole("dialog", { name: /application activity/i });
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: /application activity/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(activityButton).toHaveFocus());
   });
 
   it("restores focus to the activity trigger after closing the panel", async () => {

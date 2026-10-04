@@ -158,3 +158,43 @@ async def test_rejected_classification_keeps_usage_without_answer_content(monkey
     assert "Private source" not in str(traces)
     assert "Private echoed" not in str(traces)
     assert "provider-secret" not in str(traces)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content_enabled", [False, True])
+async def test_classification_attempt_content_follows_trace_opt_in(monkeypatch, content_enabled):
+    from contextlib import contextmanager
+    from app.core.tracing import TraceConfig
+
+    traces = []
+    class Run:
+        def __init__(self, record):
+            self.record = record
+        def end(self, **kwargs):
+            self.record.update(kwargs)
+    @contextmanager
+    def scope(**kwargs):
+        record = dict(kwargs)
+        traces.append(record)
+        yield Run(record)
+    def handler(_request):
+        return httpx.Response(200, json={"answers": {"section-1": _answer()}})
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr("app.services.resume_classifier.httpx.AsyncClient",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr("app.services.resume_classifier.trace_llm_scope", scope)
+    await classify_resume_sections({"section-1": {"heading": "Skills", "content": "Opt-in source text"}},
+        api_key="provider-secret", model="typesafe/jev-1.13",
+        trace_config=TraceConfig(enabled=True, api_key="telemetry-key", project_name="applix-dev",
+            content_enabled=content_enabled))
+    root, attempt = traces
+    assert attempt["metadata"]["content_traced"] is content_enabled
+    assert "Opt-in source text" not in str(root)
+    assert "provider-secret" not in str(traces)
+    if content_enabled:
+        assert attempt["inputs"]["blocks"]["section-1"]["content"] == "Opt-in source text"
+        assert set(attempt["inputs"]["questions"]["section-1"]) >= {"type"}
+        assert attempt["outputs"]["answers"]["section-1"]["choice"] == "skills"
+    else:
+        assert "Opt-in source text" not in str(attempt)
+        assert "blocks" not in attempt["inputs"] and "answers" not in attempt["outputs"]

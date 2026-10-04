@@ -1,5 +1,6 @@
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
+import { VStack } from "@astryxdesign/core/VStack";
 import { Button } from "@/components/ui/button";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -243,14 +244,13 @@ export function ApplicationActivityPanel({
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50">
-      <Button
-        variant="ghost"
-        type="button"
-        className="absolute inset-0"
-        aria-label="Close activity panel"
-        onClick={onClose}
-      />
+    <VStack
+      className="fixed inset-0 z-50"
+      data-testid="activity-panel-overlay"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <aside
         role="dialog"
         aria-modal="true"
@@ -296,7 +296,7 @@ export function ApplicationActivityPanel({
           />
         </div>
       </aside>
-    </div>,
+    </VStack>,
     document.body,
   );
 }
