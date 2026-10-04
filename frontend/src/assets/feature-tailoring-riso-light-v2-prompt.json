@@ -1,0 +1,6 @@
+{
+  "mode": "Built-in ImageGen",
+  "prompt": "Use case: precise-object-edit. Make this risograph illustration more serious and professional. Remove ALL cartoon facial features from the resume sheet and microchip: no eyes, eyebrows, cheeks, mouths or smiles. Remove their anthropomorphic arms, gloves, legs and shoes too. Turn them into ordinary objects: a cream resume document with the existing blue profile silhouette and printed abstract line marks, a blue microchip with a subtle plain geometric circuit pattern at its center, and the coral editing pencil beside the document. Keep the original composition, landscape dimensions, warm off-white paper background, plant, coral/blue/green palette, grainy risograph texture and halftone print shading. No new characters, readable words, logos or watermark. Preserve generous blank space in upper half.",
+  "source": "feature-tailoring-riso-light-v1.webp",
+  "savedPath": "frontend/src/assets/feature-tailoring-riso-light-v2.webp"
+}

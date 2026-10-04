@@ -26,6 +26,54 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 - **Rollout:** backend and frontend before the worker.
 - **Details:** `docs/task-output/2026-10-04-generation-speed-robustness.md`.
 
+## Landing feature card review
+
+**Status:** Complete; reviewed and verified on `generation-speed-robustness` (2026-10-04 12:20 EDT).
+
+Eight CE reviewers reviewed the uncommitted landing card changes. Fixed the arrow color transition so reduced-motion users get an immediate change alongside the image and glow. Nineteen focused auth and card tests, the TypeScript/Vite build and diff checks passed through the Makefile-managed local stack. Browser CSS inspection confirms the reduced-motion rule includes all three elements. Preserved the earlier artwork and 3D component for reversion.
+
+## Unified feature card hover glow
+
+**Status:** Complete; browser verification passed (2026-10-04 12:09 EDT).
+
+Hovering anywhere on a feature card now reveals its full-color image, activates the orange circle/white arrow and adds a soft warm glow behind the whole card. Keyboard focus receives the same state, with immediate changes for reduced motion. Browser inspection confirms only the active card glows and its image and arrow switch together. Updated the PRD; no asset or navigation changes.
+
+## Feature arrow hover contrast
+
+**Status:** Complete; browser verification passed (2026-10-04 12:04 EDT).
+
+Circular feature links now pair the shared brand-orange background with a white arrow on hover and keyboard focus. Browser inspection confirms orange `rgb(255, 89, 65)` and white `rgb(255, 255, 255)` in the active state. No asset or navigation changes.
+
+## Serious tailoring illustration and image hover reveal
+
+**Status:** Complete; local verification passed (2026-10-04 12:01 EDT).
+
+Created a separate ImageGen tailoring illustration without cartoon faces or limbs, preserving the prior assets and saving its prompt. All editorial card images are dark monochrome at rest and return to full color on card hover or keyboard focus; reduced motion disables the filter transition. Production build passes. Browser checks confirm the new asset loads, the resting filter applies to all four images and hovering a card reveals only its image. Updated the PRD.
+
+## Editorial cutout feature cards
+
+**Status:** Complete; local verification passed (2026-10-04 11:55 EDT).
+
+Matched the supplied reference with rounded risograph image frames, curved lower-right cutouts, circular arrow links, category pills and titles/descriptions/tags beneath the images. Removed the landing grid's tilt and overlay treatment while retaining the previous component and both artwork sets for reversion. Preserved the two-column desktop and single-column mobile grid. Arrows open the invite-only access-request route. Updated the PRD. Eighteen focused auth/landing/navigation tests and the production build pass through the Makefile-managed stack. Desktop and mobile checks confirm loaded artwork and no horizontal overflow.
+
+## Feature card header alignment
+
+**Status:** Complete; local verification passed (2026-10-04 11:28 EDT).
+
+Moved the feature icons into the right-hand circular links and raised titles into the same header row. Removed the separate left icon tiles. Preserved both illustration variants and card actions. Production build passes; desktop and 375px mobile checks confirm readable headers without overlap or overflow.
+
+## Light risograph card variant
+
+**Status:** Complete; local verification passed (2026-10-04 11:16 EDT).
+
+Added separate off-white paper variants of all four illustrations with built-in ImageGen and switched the feature cards to dark ink text, pale overlays and subtle control borders. Preserved every original blue WebP asset and its prompts. `FEATURE_CARD_THEME` in LandingPage restores the dark images and treatment with one setting. Production build and the existing card interaction test pass through the local Makefile stack; desktop and mobile checks confirm loaded images, dark headings and no overflow. Updated the PRD. No product behavior changed.
+
+## Risograph 3D feature cards
+
+**Status:** Complete; local verification passed (2026-10-04 11:09 EDT).
+
+Replaced the clay treatment with the supplied layered 3D card component, using the existing Motion dependency. Four locally generated risograph illustrations match the login artwork's texture and palette; WebP encoding reduces their combined size from 12.4 MB to 1.7 MB. Kept feature copy, chip icon, responsive grid and invite-only access actions. Mouse tilt resets on exit; touch and reduced-motion users receive stable cards. Updated the PRD and saved the generation prompts beside the assets. Eighteen focused auth/landing/card tests and the production build pass through the Makefile-managed local stack. Desktop and 375px mobile checks confirm readable cards, loaded local images and no overflow. No schema or AI behavior changed.
+
 ## Shared orange CTA accent
 
 **Status:** Complete; local verification passed (2026-10-04 10:12 EDT).

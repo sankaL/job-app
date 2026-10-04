@@ -1,0 +1,26 @@
+{
+  "mode": "Built-in ImageGen",
+  "prompt": "Use case: style-transfer. Edit the supplied risograph illustration. Replace ONLY the deep cobalt background with a light muted warm off-white paper background, near #f2eee5, with subtle fine paper grain. Keep all foreground objects, characters, poses, composition, proportions, risograph halftone texture and hand-drawn shapes intact. Gently mute the foreground coral, blue and green inks for a softer editorial palette without washing them out. Keep upper background quiet and light so dark website text can be added separately. No text, watermarks or new objects. Preserve landscape aspect ratio. This is a companion light variant, not a replacement of the original file.",
+  "assets": [
+    {
+      "key": "capture",
+      "source": "frontend/src/assets/feature-capture-riso-v1.webp",
+      "savedPath": "frontend/src/assets/feature-capture-riso-light-v1.webp"
+    },
+    {
+      "key": "tailoring",
+      "source": "frontend/src/assets/feature-tailoring-riso-v1.webp",
+      "savedPath": "frontend/src/assets/feature-tailoring-riso-light-v1.webp"
+    },
+    {
+      "key": "judge",
+      "source": "frontend/src/assets/feature-judge-riso-v1.webp",
+      "savedPath": "frontend/src/assets/feature-judge-riso-light-v1.webp"
+    },
+    {
+      "key": "workspace",
+      "source": "frontend/src/assets/feature-workspace-riso-v1.webp",
+      "savedPath": "frontend/src/assets/feature-workspace-riso-light-v1.webp"
+    }
+  ]
+}

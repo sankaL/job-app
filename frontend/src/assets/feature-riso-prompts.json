@@ -1,0 +1,26 @@
+{
+  "mode": "Built-in ImageGen",
+  "styleReference": "remote-work-portrait.png",
+  "assets": [
+    {
+      "key": "capture",
+      "prompt": "Use case: stylized-concept. Asset type: full-bleed landscape website feature card illustration, 4:3 composition. Primary request: a risograph illustration replacing a realistic stock photo. Input image is a STYLE REFERENCE only: match the login illustration's charming hand-drawn shapes, granular print texture, halftone dots and slight ink misregistration. Create a new composition. Subject: A cheerful job seeker in cobalt clothing using a cream laptop, with an orange chain-link symbol and a simple paper job posting floating nearby. Color palette: the reference's coral orange, cobalt blue, cream and leafy green with charcoal details. Background: deep muted cobalt ink, gently textured, no photography. Composition: main illustration concentrated in the lower half and right side; keep upper half calm and dark for white website text overlaid later. Flat printed colors, tactile paper grain, bold rounded forms. No rendered text, letters, logos, watermarks, realistic photography, glossy 3D rendering, or UI screenshot. Illustration should feel like a companion asset to the supplied login artwork.",
+      "savedPath": "frontend/src/assets/feature-capture-riso-v1.webp"
+    },
+    {
+      "key": "tailoring",
+      "prompt": "Use case: stylized-concept. Asset type: full-bleed landscape website feature card illustration, 4:3 composition. Primary request: a risograph illustration replacing a realistic stock photo. Input image is a STYLE REFERENCE only: match the login illustration's charming hand-drawn shapes, granular print texture, halftone dots and slight ink misregistration. Create a new composition. Subject: A friendly resume paper character beside a cobalt-blue AI microchip, a coral pencil making thoughtful edits to cream paper; a small green plant. Color palette: the reference's coral orange, cobalt blue, cream and leafy green with charcoal details. Background: deep muted cobalt ink, gently textured, no photography. Composition: main illustration concentrated in the lower half and right side; keep upper half calm and dark for white website text overlaid later. Flat printed colors, tactile paper grain, bold rounded forms. No rendered text, letters, logos, watermarks, realistic photography, glossy 3D rendering, or UI screenshot. Illustration should feel like a companion asset to the supplied login artwork.",
+      "savedPath": "frontend/src/assets/feature-tailoring-riso-v1.webp"
+    },
+    {
+      "key": "judge",
+      "prompt": "Use case: stylized-concept. Asset type: full-bleed landscape website feature card illustration, 4:3 composition. Primary request: a risograph illustration replacing a realistic stock photo. Input image is a STYLE REFERENCE only: match the login illustration's charming hand-drawn shapes, granular print texture, halftone dots and slight ink misregistration. Create a new composition. Subject: A big cobalt magnifying glass examining a cream resume sheet with simple line marks, coral pencil and green checkmark, playful editorial illustration. Color palette: the reference's coral orange, cobalt blue, cream and leafy green with charcoal details. Background: deep muted cobalt ink, gently textured, no photography. Composition: main illustration concentrated in the lower half and right side; keep upper half calm and dark for white website text overlaid later. Flat printed colors, tactile paper grain, bold rounded forms. No rendered text, letters, logos, watermarks, realistic photography, glossy 3D rendering, or UI screenshot. Illustration should feel like a companion asset to the supplied login artwork.",
+      "savedPath": "frontend/src/assets/feature-judge-riso-v1.webp"
+    },
+    {
+      "key": "workspace",
+      "prompt": "Use case: stylized-concept. Asset type: full-bleed landscape website feature card illustration, 4:3 composition. Primary request: a risograph illustration replacing a realistic stock photo. Input image is a STYLE REFERENCE only: match the login illustration's charming hand-drawn shapes, granular print texture, halftone dots and slight ink misregistration. Create a new composition. Subject: An orderly arrangement of cream application cards, coral folders and a cobalt laptop, with a small green monstera in a cream pot, an inviting organized workspace. Color palette: the reference's coral orange, cobalt blue, cream and leafy green with charcoal details. Background: deep muted cobalt ink, gently textured, no photography. Composition: main illustration concentrated in the lower half and right side; keep upper half calm and dark for white website text overlaid later. Flat printed colors, tactile paper grain, bold rounded forms. No rendered text, letters, logos, watermarks, realistic photography, glossy 3D rendering, or UI screenshot. Illustration should feel like a companion asset to the supplied login artwork.",
+      "savedPath": "frontend/src/assets/feature-workspace-riso-v1.webp"
+    }
+  ]
+}

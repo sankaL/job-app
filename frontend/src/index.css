@@ -47,6 +47,7 @@
   --color-border: rgba(16, 24, 40, 0.08);
   --color-border-hover: rgba(16, 24, 40, 0.16);
 
+
   /* ---- Radius ---- */
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -79,6 +80,81 @@
 :where(.public-design) :is(h1, h2, h3) {
   font-family: "DM Sans", Inter, ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "ss02" on, "ss03" on, "ss04" on;
+}
+
+/* Editorial feature cards: rounded illustration with a separate arrow in the cutout. */
+.public-design .feature-editorial-card {
+  position: relative;
+  isolation: isolate;
+}
+.public-design .feature-editorial-card::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 16px 48px rgba(255, 89, 65, 0.16);
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+.public-design .feature-editorial-card:is(:hover, :focus-within)::before { opacity: 1; }
+.public-design .feature-editorial-image {
+  filter: grayscale(1) brightness(0.62);
+  transition: filter 300ms ease;
+}
+.public-design .feature-editorial-card:is(:hover, :focus-within) .feature-editorial-image {
+  filter: grayscale(0) brightness(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-design .feature-editorial-image,
+  .public-design .feature-editorial-arrow,
+  .public-design .feature-editorial-card::before { transition: none; }
+}
+.public-design .feature-editorial-category {
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--color-ink);
+  border: 1px solid var(--color-ink-10);
+  backdrop-filter: blur(8px);
+}
+.public-design .feature-editorial-arrow,
+.public-design .feature-editorial-tag { background: var(--color-ink-05); }
+.public-design .feature-editorial-arrow { color: var(--color-ink); }
+.public-design .feature-editorial-card:is(:hover, :focus-within) .feature-editorial-arrow {
+  background: var(--brand-orange);
+  color: white;
+}
+
+/* Public feature cards share the supplied layered 3D image treatment. */
+.public-design .feature-3d-perspective { perspective: 1000px; }
+.public-design .feature-3d-card { height: 26rem; }
+.public-design .feature-3d-panel {
+  transform: translateZ(50px);
+  transform-style: preserve-3d;
+}
+.public-design .feature-3d-heading { transform: translateZ(40px); }
+.public-design .feature-3d-link { transform: translateZ(60px); }
+.public-design .feature-3d-action { transform: translateZ(40px); }
+.public-design .feature-3d-shade {
+  background: linear-gradient(to bottom, rgba(9, 25, 48, 0.8), rgba(9, 25, 48, 0.72) 50%, rgba(9, 25, 48, 0.12) 78%, rgba(9, 25, 48, 0.65));
+}
+.public-design .feature-3d-panel { background: var(--color-ink); }
+.public-design .feature-3d-card-light .feature-3d-panel { background: var(--color-canvas); }
+.public-design .feature-3d-card-light .feature-3d-shade {
+  background: linear-gradient(to bottom, rgba(247, 244, 237, 0.96), rgba(247, 244, 237, 0.88) 50%, rgba(247, 244, 237, 0.08) 78%, rgba(247, 244, 237, 0.62));
+}
+.public-design .feature-3d-card-light :is(.feature-3d-link, .feature-3d-action) {
+  background-color: rgba(255, 255, 255, 0.6);
+  --tw-ring-color: rgba(30, 45, 43, 0.15);
+}
+.public-design .feature-3d-card-light :is(.feature-3d-link, .feature-3d-action):hover {
+  background-color: rgba(255, 255, 255, 0.85);
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-design :is(.feature-3d-panel, .feature-3d-heading, .feature-3d-link, .feature-3d-action) {
+    transform: none;
+  }
 }
 
 /* ============================================================
