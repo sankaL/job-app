@@ -48,7 +48,7 @@
 - **Local stack:** restarted with `make dev-runtime`; `make health` OK.
 
 ## Rollout
-Backend and frontend first (they accept `generation_notice` and `partial_sections`), then the worker. Railway needs no new variables; the `JEV_AUDIT_*` defaults apply. See `docs/backend-database-migration-runbook.md`.
+Backend and frontend first (they accept `generation_notice` and `partial_sections`), then the worker. Railway needs no new variables; the later role-based model configuration replaces the interim `JEV_AUDIT_*` and tier settings. The main workflow verifies active running releases before the worker upload. See `docs/backend-database-migration-runbook.md`.
 
 ## Known limits
 - **Benchmark scope:** one real resume (QA engineering), 3 runs per level. Times will vary by resume length and provider load.

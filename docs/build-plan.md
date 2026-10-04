@@ -8,6 +8,12 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Branch consolidation and ordered Railway release
+
+**Status:** Preflight complete; PR #19 merge and production rollout in progress (2026-10-04 18:58 EDT).
+
+`generation-speed-robustness` contains all 21 unmerged current commits, including the two `langsmith-content-tracing` commits. Twelve older local branches are already ancestors of main; the lone `codex/kewords` commit has a patch-equivalent main commit. The owner chose to leave the old `ui-changes-qoder` prototype unmerged. Extended the release workflow to require active running instances of the requested main commit for backend and frontend before uploading the worker, with bounded retries/timeouts and sanitized CLI errors. Six deployment-gate tests pass. Makefile validation passed 525 backend, 352 agents and 16 environment tests, plus 298 frontend tests with two previously documented baseline shell failures. The TypeScript/Vite production build passes. No new SQL migration or Railway variable is required; retain production credentials and LangSmith content tracing. See [branch and rollout evidence](task-output/2026-10-04-branch-consolidation-railway-release.md).
+
 
 ## Generation speed and robustness (Jev audit, parallel writing, keep-original)
 
