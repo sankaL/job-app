@@ -1215,7 +1215,19 @@ async def scrape_page_context(job_url: str) -> PageContext:
     )
 
 
+# Generation jobs are I/O-bound, but each extraction launches Chromium. The worker
+# runs up to MAX_CONCURRENT_JOBS jobs; cap simultaneous browsers separately.
+MAX_CONCURRENT_JOBS = 20
+MAX_CONCURRENT_BROWSERS = 4
+_browser_slots = asyncio.Semaphore(MAX_CONCURRENT_BROWSERS)
+
+
 async def _capture_page_context(job_url: str) -> PageContext:
+    async with _browser_slots:
+        return await _capture_page_context_unbounded(job_url)
+
+
+async def _capture_page_context_unbounded(job_url: str) -> PageContext:
     await validate_public_http_url(job_url)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
@@ -3534,5 +3546,7 @@ class WorkerSettings:
     ]
     redis_settings = RedisSettings.from_dsn(WorkerSettingsEnv().redis_url)
     max_tries = 1
+    # About 20 concurrent generations; extraction browsers are capped separately.
+    max_jobs = MAX_CONCURRENT_JOBS
     # Lets the backend cancel a stopped or stalled extraction so it frees its slot.
     allow_abort_jobs = True

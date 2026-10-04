@@ -2645,3 +2645,20 @@ async def test_progress_carries_partial_sections_until_completion_and_publishes_
     channel, event = writer._redis.published[1]
     assert channel == "phase1:applications:app-1:events"
     assert event["event"] == "progress" and event["payload"]["partial_sections"] == partial
+
+
+@pytest.mark.asyncio
+async def test_worker_runs_twenty_jobs_but_caps_simultaneous_browsers(monkeypatch):
+    import worker
+    assert worker.WorkerSettings.max_jobs == 20
+    active, peak = 0, 0
+    async def fake_capture(job_url):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return job_url
+    monkeypatch.setattr(worker, "_capture_page_context_unbounded", fake_capture)
+    await asyncio.gather(*(worker._capture_page_context(f"https://example.test/{i}") for i in range(12)))
+    assert peak == worker.MAX_CONCURRENT_BROWSERS
