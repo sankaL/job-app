@@ -486,9 +486,9 @@ JEV_TIMEOUT_SECONDS = 3.0
 
 
 def _audit_models(generation_settings: dict[str, Any], model: str, routine_model: str) -> tuple[str, str]:
-    """LLM audit (Jev escalations and fallback): Tier 1 primary, Tier 2 fallback."""
-    primary = str(generation_settings.get("_repair_model") or model)
-    fallback = str(generation_settings.get("_routine_model") or routine_model or primary)
+    """LLM audit models (the audit_escalation role, passed by the worker as _audit_model keys)."""
+    primary = str(generation_settings.get("_audit_model") or generation_settings.get("_repair_model") or model)
+    fallback = str(generation_settings.get("_audit_fallback_model") or generation_settings.get("_routine_model") or routine_model or primary)
     return primary, fallback
 
 

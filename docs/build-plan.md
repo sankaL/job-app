@@ -25,6 +25,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 - **Tests:** agents 331, backend 522, local guards OK, frontend build OK. 3 frontend failures are unrelated (2 pre-existing shell tests, 1 timing flake).
 - **Rollout:** backend and frontend before the worker.
 - **Details:** `docs/task-output/2026-10-04-generation-speed-robustness.md`.
+- **Model config (2026-10-04 17:00 EDT):** role-based `shared/model-config.json` (bundled in the backend and agents) replaces the TIER*/JEV_AUDIT_*/classification model environment variables. Copies are enforced by tests.
 - **Concurrency (2026-10-04 16:30 EDT):** the worker runs up to 20 jobs at once (was 10), with at most 4 Chromium extraction browsers at a time.
 - **Follow-up (2026-10-04 16:00 EDT):** Jev now judges retitled roles, so High no longer always pays a Sonnet audit. Live High runs took 12-17s, down from about 23s; agents tests 335 passed.
 

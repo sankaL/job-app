@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import worker
+from model_helpers import worker_settings
 
 
 def test_attempt_sanitizer_retains_only_bounded_static_shape_and_http_diagnostics():
@@ -200,7 +201,7 @@ def test_build_job_keywords_payload_uses_ordered_keyword_objects():
 
 @pytest.mark.asyncio
 async def test_keyword_extraction_falls_back_after_primary_timeout(monkeypatch):
-    settings = WorkerSettingsEnv(
+    settings = worker_settings(
         openrouter_api_key="test-key",
         tier2_model="primary-keyword-model",
         tier2_fallback_model="fallback-keyword-model",
@@ -241,10 +242,10 @@ async def test_run_keyword_extraction_job_posts_failed_callback_on_timeout(monke
             del job_description
             raise asyncio.TimeoutError()
 
-    fake_callback = FakeCallback(WorkerSettingsEnv())
+    fake_callback = FakeCallback(worker_settings())
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(redis_url="redis://unused", openrouter_api_key="test-key"),
+        lambda: worker_settings(redis_url="redis://unused", openrouter_api_key="test-key"),
     )
     monkeypatch.setattr("worker.BackendCallbackClient", lambda settings: fake_callback)
     monkeypatch.setattr("worker.OpenRouterKeywordExtractionAgent", FakeKeywordExtractor)
@@ -277,7 +278,7 @@ def test_normalize_origin_from_url_maps_common_sources():
 ])
 @pytest.mark.parametrize("subscription", ["basic", "pro"])
 def test_operation_routing_ignores_subscription_and_legacy_model_overrides(operation, expected, subscription):
-    settings = WorkerSettingsEnv(tier1_model="tier1-primary", tier1_fallback_model="tier1-fallback",
+    settings = worker_settings(tier1_model="tier1-primary", tier1_fallback_model="tier1-fallback",
         tier2_model="tier2-primary", tier2_fallback_model="tier2-fallback")
     legacy = {"subscription_tier": subscription, "_generation_model": "legacy", "_generation_fallback_model": "legacy",
         "_generation_reasoning_effort": "none", "_generation_fallback_reasoning_effort": "high"}
@@ -416,26 +417,28 @@ def test_build_page_context_from_capture_preserves_longer_source_text_up_to_new_
     assert context.visible_text.startswith("Qualifications")
 
 
-def test_worker_settings_require_both_distinct_pairs():
-    with pytest.raises(ValueError, match="distinct fallback"):
-        WorkerSettingsEnv(tier1_model="same", tier1_fallback_model="same")
-    with pytest.raises(ValueError, match="distinct fallback"):
-        WorkerSettingsEnv(tier2_model="same", tier2_fallback_model="same")
-    with pytest.raises(ValueError, match="configured"):
-        WorkerSettingsEnv(tier2_model=" ")
+def test_model_config_requires_distinct_fallbacks_and_known_models():
+    import model_config
+    raw = model_config.get_model_config().model_dump()
+    same = {**raw, "roles": {**raw["roles"], "resume_writer": {"model": "openai/gpt-6-luna", "fallback": "openai/gpt-6-luna"}}}
+    with pytest.raises(ValueError, match="fallback must differ"):
+        model_config.ModelConfig.model_validate(same)
+    unknown = {**raw, "roles": {**raw["roles"], "resume_judge": {"model": "vendor/unprofiled"}}}
+    with pytest.raises(ValueError, match="has no model profile"):
+        model_config.ModelConfig.model_validate(unknown)
 
 
-def test_local_compose_exposes_only_two_model_pairs():
+def test_compose_no_longer_selects_models_through_environment():
     compose = (Path(__file__).resolve().parents[2] / "docker-compose.yml").read_text()
-    for name in ("TIER1_MODEL", "TIER1_FALLBACK_MODEL", "TIER2_MODEL", "TIER2_FALLBACK_MODEL"):
-        assert name + ":" in compose
+    for name in ("TIER1_MODEL", "TIER2_MODEL", "JEV_AUDIT_MODEL", "OPENROUTER_CLASSIFICATION_MODEL"):
+        assert name not in compose
     assert "GENERATION_AGENT_REASONING_EFFORT:" not in compose
     assert "RESUME_JUDGE_AGENT_MODEL:" not in compose
 
 
 class FakeExtractionAgent(OpenRouterExtractionAgent):
     def __init__(self) -> None:
-        settings = WorkerSettingsEnv(
+        settings = worker_settings(
             openrouter_api_key="test",
             tier2_model="primary-model",
             tier2_fallback_model="fallback-model",
@@ -800,7 +803,7 @@ async def test_backend_callback_client_retries_transient_server_errors(monkeypat
 
     monkeypatch.setattr("worker.httpx.AsyncClient", FakeAsyncClient)
 
-    settings = WorkerSettingsEnv(
+    settings = worker_settings(
         backend_api_url="https://backend.example",
         worker_callback_secret="secret",
     )
@@ -841,7 +844,7 @@ async def test_backend_callback_client_falls_back_from_stale_railway_internal_po
 
     monkeypatch.setattr("worker.httpx.AsyncClient", FakeAsyncClient)
 
-    settings = WorkerSettingsEnv(
+    settings = worker_settings(
         backend_api_url="http://backend.railway.internal:8000",
         railway_service_backend_url="backend-production.example.up.railway.app",
         worker_callback_secret="secret",
@@ -910,7 +913,7 @@ async def test_run_extraction_job_continues_when_started_callback_fails(monkeypa
     fake_writer = FakeWriter()
     fake_callback = FakeCallback()
 
-    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: WorkerSettingsEnv(redis_url="redis://unused"))
+    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: worker_settings(redis_url="redis://unused"))
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
     monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: fake_callback)
     monkeypatch.setattr("worker.OpenRouterExtractionAgent", lambda _settings: FakeExtractor())
@@ -996,7 +999,7 @@ async def test_run_extraction_job_returns_success_when_success_callback_fails(mo
     fake_writer = FakeWriter()
     fake_callback = FakeCallback()
 
-    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: WorkerSettingsEnv(redis_url="redis://unused"))
+    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: worker_settings(redis_url="redis://unused"))
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
     monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: fake_callback)
     monkeypatch.setattr("worker.OpenRouterExtractionAgent", lambda _settings: FakeExtractor())
@@ -1086,7 +1089,7 @@ async def test_run_generation_job_completes_and_caches_result_when_callbacks_fai
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -1177,7 +1180,7 @@ async def test_run_generation_job_uses_job_supplied_tier_models(monkeypatch):
     fake_writer = FakeWriter()
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="env-primary-model",
@@ -1293,7 +1296,7 @@ async def test_run_generation_job_validation_failure_does_not_crash_when_callbac
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -1384,7 +1387,7 @@ async def test_run_generation_job_completes_when_generation_cache_write_fails(mo
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -1473,7 +1476,7 @@ async def test_run_generation_job_uses_prd_full_timeout(monkeypatch):
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -1537,7 +1540,7 @@ async def test_run_resume_judge_job_posts_started_and_succeeded_callbacks(monkey
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             openrouter_api_key="test-key",
             tier2_model="judge-primary",
             tier2_fallback_model="judge-fallback",
@@ -1586,7 +1589,7 @@ async def test_run_resume_judge_job_posts_failure_payload_on_error(monkeypatch):
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             openrouter_api_key="test-key",
             tier2_model="judge-primary",
             tier2_fallback_model="judge-fallback",
@@ -1675,7 +1678,7 @@ async def test_run_regeneration_job_success(monkeypatch):
     fake_writer = FakeWriter()
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -1799,7 +1802,7 @@ async def test_run_regeneration_job_full_success(monkeypatch):
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -1893,7 +1896,7 @@ async def test_run_regeneration_job_validation_failure_includes_regeneration_tar
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -1970,7 +1973,7 @@ async def test_run_regeneration_job_timeout_includes_regeneration_target(monkeyp
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -2045,7 +2048,7 @@ async def test_run_regeneration_job_error_includes_regeneration_target(monkeypat
 
     monkeypatch.setattr(
         "worker.WorkerSettingsEnv",
-        lambda: WorkerSettingsEnv(
+        lambda: worker_settings(
             redis_url="redis://unused",
             openrouter_api_key="test-key",
             tier1_model="primary-model",
@@ -2122,7 +2125,7 @@ async def test_exhausted_section_repairs_report_attempts_and_verification_messag
 
     fake_writer = FakeWriter()
     fake_callback = FakeCallback()
-    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: WorkerSettingsEnv(redis_url="redis://unused",
+    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: worker_settings(redis_url="redis://unused",
         openrouter_api_key="test-key", tier1_model="primary-model", tier1_fallback_model="fallback-model"))
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: fake_writer)
     monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: fake_callback)
@@ -2308,7 +2311,7 @@ class RecordingExtractor:
 
 
 def _install_extraction_fakes(monkeypatch, writer, callback, extractor) -> None:
-    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: WorkerSettingsEnv(redis_url="redis://unused"))
+    monkeypatch.setattr("worker.WorkerSettingsEnv", lambda: worker_settings(redis_url="redis://unused"))
     monkeypatch.setattr("worker.RedisProgressWriter", lambda _redis_url: writer)
     monkeypatch.setattr("worker.BackendCallbackClient", lambda _settings: callback)
     monkeypatch.setattr("worker.OpenRouterExtractionAgent", lambda _settings: extractor)
@@ -2409,7 +2412,7 @@ async def test_superseded_extraction_failure_does_not_clear_newer_result(monkeyp
 async def test_extraction_agent_reserves_fallback_window_after_primary_timeout():
     class TimedAgent(OpenRouterExtractionAgent):
         def __init__(self) -> None:
-            super().__init__(WorkerSettingsEnv(openrouter_api_key="test", tier2_model="primary-model", tier2_fallback_model="fallback-model"))
+            super().__init__(worker_settings(openrouter_api_key="test", tier2_model="primary-model", tier2_fallback_model="fallback-model"))
             self.calls: list[tuple[str, float]] = []
 
         async def _extract_with_model(self, model_name: str, context: PageContext, *, timeout_seconds: float):

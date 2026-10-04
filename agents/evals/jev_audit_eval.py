@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import jev_audit  # noqa: E402
+import model_config  # noqa: E402
 from evals.fixtures import source_document  # noqa: E402
 from llm_runtime import CallBudget, structured_call  # noqa: E402
 from evals.run_sections import configuration  # noqa: E402
@@ -81,7 +82,7 @@ async def llm(prompt: str, output_type: Any, values: dict[str, str], meter: Mete
     meter.check()
     budget = CallBudget.for_seconds(120, max_requests=2)
     result = await structured_call(prompt=[("system", "You produce fictional evaluation data. Return JSON only."), ("human", prompt)],
-        output_type=output_type, model_name=values["TIER1_MODEL"], api_key=values["OPENROUTER_API_KEY"],
+        output_type=output_type, model_name=model_config.route("resume_writer").model, api_key=values["OPENROUTER_API_KEY"],
         base_url=values.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"), budget=budget, timeout=110)
     meter.llm_cost += sum(float(a.get("cost_usd") or 0) for a in budget.attempts)
     return result
@@ -136,7 +137,7 @@ async def build_dataset(args, values, meter) -> list[dict[str, Any]]:
 
 async def run_jev(rows, level, values, meter) -> None:
     claims = [jev_audit.Claim(f"c{i}", "s", row["claim"], row["evidence"], row["role"]) for i, row in enumerate(rows)]
-    model = values.get("JEV_AUDIT_MODEL") or jev_audit.DEFAULT_JEV_MODEL
+    model = model_config.route("claim_audit").model
     for batch in jev_audit.batches(claims, level, model):
         meter.check()
         meter.jev_calls += 1

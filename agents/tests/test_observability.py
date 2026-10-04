@@ -259,9 +259,7 @@ def test_local_environment_defaults_disable_and_forward_langsmith():
     assert compose.count("LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}") == 2
     assert compose.count("LANGSMITH_TRACE_CONTENT: ${LANGSMITH_TRACE_CONTENT:-false}") == 2
     assert "LANGSMITH_TRACE_CONTENT=false" in root_env
-    assert "TIER1_MODEL: ${TIER1_MODEL:-anthropic/claude-sonnet-5.5}" in compose
-    assert "TIER1_FALLBACK_MODEL: ${TIER1_FALLBACK_MODEL:-openai/gpt-6.1-sol}" in compose
-    assert "TIER2_MODEL: ${TIER2_MODEL:-google/gemini-3.8-flash}" in compose
+    assert "TIER1_MODEL" not in compose and "TIER2_MODEL" not in compose  # Models live in shared/model-config.json.
     assert "LANGSMITH_TRACING=false" in root_env
 
 

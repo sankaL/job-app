@@ -91,9 +91,9 @@ def test_production_rejects_repository_local_jwt_key(monkeypatch: pytest.MonkeyP
     with pytest.raises(ValidationError, match="local-development JWT key"):
         Settings()
 
-@pytest.mark.parametrize('primary,fallback', [('', 'openai/gpt-6-luna'), ('same/model','same/model')])
-def test_routine_pair_fails_closed_on_blank_or_identical_models(monkeypatch, primary, fallback):
-    monkeypatch.setenv('TIER2_MODEL',primary)
-    monkeypatch.setenv('TIER2_FALLBACK_MODEL',fallback)
-    with pytest.raises(ValidationError):
-        Settings()
+def test_model_tier_environment_variables_no_longer_select_models(monkeypatch):
+    from app.core.model_config import route
+
+    monkeypatch.setenv('TIER2_MODEL', 'vendor/ignored')
+    Settings()
+    assert route('resume_import').model == 'google/gemini-3.8-flash'

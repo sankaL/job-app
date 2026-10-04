@@ -32,6 +32,7 @@ from dotenv import dotenv_values
 import openai
 
 import llm_runtime
+import model_config
 import langsmith_tracing as tracing
 import section_generation as pipeline
 from resume_document import render_resume_document, validate_resume_document
@@ -56,9 +57,10 @@ def configuration_status(values: dict[str, str]) -> dict[str, bool]:
     endpoint = urlsplit(values.get("OPENROUTER_BASE_URL", ""))
     return {"dev_mode": values.get("APP_DEV_MODE", "").lower() in {"true", "1", "yes"},
         "api_key_configured": bool(key) and key not in {"test-only", "test", "mock"},
-        "primary_model_configured": bool(values.get("TIER1_MODEL", "").strip()),
-        "fallback_model_configured": bool(values.get("TIER1_FALLBACK_MODEL", "").strip()),
-        "routine_models_configured": bool(values.get("TIER2_MODEL", "").strip() and values.get("TIER2_FALLBACK_MODEL", "").strip()),
+        # Models come from shared/model-config.json roles, not the environment.
+        "primary_model_configured": bool(model_config.route("resume_writer").model),
+        "fallback_model_configured": bool(model_config.route("resume_writer").fallback),
+        "routine_models_configured": bool(model_config.route("section_writer").model and model_config.route("section_writer").fallback),
         "provider_endpoint_configured": bool(values.get("OPENROUTER_BASE_URL", "").strip()),
         "provider_endpoint_is_openrouter": endpoint.hostname == "openrouter.ai" and endpoint.scheme == "https"
             and not endpoint.username and not endpoint.password and not endpoint.query and not endpoint.fragment}
@@ -137,12 +139,12 @@ def diagnostic_error_messages(body: Any, redactions: list[str]) -> list[str]:
 
 def synthetic_redactions(values: dict[str, str]) -> list[str]:
     redactions = [*PRIVACY_VALUES, JOB_DESCRIPTION, "Backend Engineer", "Fictional Northstar Tools"]
-    for key in ("OPENROUTER_API_KEY", "LANGSMITH_API_KEY", "TIER1_MODEL", "TIER1_FALLBACK_MODEL", "TIER2_MODEL", "TIER2_FALLBACK_MODEL"):
+    for key in ("OPENROUTER_API_KEY", "LANGSMITH_API_KEY"):
         value = values.get(key, "").strip()
         if value:
             redactions.append(value)
-            if key not in {"OPENROUTER_API_KEY", "LANGSMITH_API_KEY"} and "/" in value:
-                redactions.append(value.split("/", 1)[1])
+    for value in {name for route in model_config.get_model_config().roles.values() for name in (route.model, route.fallback) if name}:
+        redactions.extend([value, value.split("/", 1)[-1]])
     for document in (source_document(), current_document()):
         for section in document["sections"]:
             redactions.append(section["content_md"])
@@ -357,12 +359,12 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
         raise EvaluationLimit("Live evaluation requires configured dev-mode OpenRouter credentials and both models.")
     if live and any(case.fault for case in cases):
         raise EvaluationLimit("Injected recovery fixtures are offline-only.")
-    model = values["TIER1_MODEL"] if live else "eval/primary"
-    fallback = values["TIER1_FALLBACK_MODEL"] if live else "eval/fallback"
+    model = model_config.route("resume_writer").model if live else "eval/primary"
+    fallback = (model_config.route("resume_writer").fallback or model) if live else "eval/fallback"
     meter = RunMeter(live=live, max_requests=args.max_requests, max_output_tokens=args.max_output_tokens,
         max_seconds=args.max_seconds, max_cost_usd=Decimal(str(args.max_cost_usd)))
-    routine = values["TIER2_MODEL"] if live else "eval/routine"
-    routine_fallback = values["TIER2_FALLBACK_MODEL"] if live else "eval/routine-fallback"
+    routine = model_config.route("section_writer").model if live else "eval/routine"
+    routine_fallback = (model_config.route("section_writer").fallback or routine) if live else "eval/routine-fallback"
     meter.model_roles = {model: "primary", fallback: "fallback", routine: "routine", routine_fallback: "routine-fallback"}
     meter.diagnostic_errors = bool(getattr(args, "diagnostic_errors", False))
     meter.diagnostic_redactions = synthetic_redactions(values) if meter.diagnostic_errors else []

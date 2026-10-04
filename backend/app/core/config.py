@@ -80,25 +80,13 @@ class Settings(BaseSettings):
         default="/app/app/core/workflow-contract.json", alias="SHARED_CONTRACT_PATH"
     )
     openrouter_api_key: Optional[str] = Field(default=None, alias="OPENROUTER_API_KEY")
-    tier2_model: str = Field(default="google/gemini-3.8-flash", alias="TIER2_MODEL")
-    tier2_fallback_model: str = Field(default="openai/gpt-6-luna", alias="TIER2_FALLBACK_MODEL")
-
-    @field_validator("tier2_model", "tier2_fallback_model")
-    @classmethod
-    def require_routine_model(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Tier 2 primary and fallback models must be configured.")
-        return value
+    # Models are chosen by role in app/core/model-config.json (copy of shared/model-config.json).
 
     openrouter_base_url: str = Field(
         default="https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL"
     )
     resume_import_classifier: Literal["local", "jev"] = Field(
         default="jev", alias="RESUME_IMPORT_CLASSIFIER"
-    )
-    openrouter_classification_model: str = Field(
-        default="typesafe/jev-1.13", alias="OPENROUTER_CLASSIFICATION_MODEL"
     )
     resume_import_confidence_threshold: float = Field(
         default=0.8, ge=0.0, le=1.0, alias="RESUME_IMPORT_CONFIDENCE_THRESHOLD"
@@ -122,8 +110,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
         self.email
-        if self.tier2_model == self.tier2_fallback_model:
-            raise ValueError("Tier 2 requires a distinct fallback model.")
+        from app.core.model_config import get_model_config
+        get_model_config()  # Fail closed at startup on a missing or invalid model config.
         if self.langsmith_tracing:
             if not str(self.langsmith_project or "").strip():
                 raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")

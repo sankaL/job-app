@@ -8,28 +8,20 @@ from time import perf_counter
 import httpx
 from pydantic import BaseModel
 
+from app.core import model_config
 from app.core.tracing import TraceConfig, end_trace_safely, sanitize_trace_data, trace_llm_scope
 
 Output = TypeVar("Output", bound=BaseModel)
-NATIVE_OUTPUT_MODELS = {"google/gemini-3.8-flash", "openai/gpt-6-luna"}
 
 
 def _reasoning_settings_for(model_name: str) -> dict[str, Any]:
-    """Bounded hidden reasoning; mirrors agents/llm_runtime.reasoning_settings_for."""
-    family = model_name.removeprefix("~").split("/", 1)[0]
-    if family == "anthropic":
-        return {"max_tokens": 2000, "exclude": True}
-    if family == "google":
-        return {"effort": "medium", "exclude": True}
-    return {"exclude": True}
+    """Bounded hidden reasoning from the model profile in model-config.json."""
+    return dict(model_config.profile(model_name).reasoning or {"exclude": True})
 
 
 def _provider_settings_for(model_name: str) -> dict[str, Any]:
-    """Mirrors agents/llm_runtime.provider_settings_for: no retention/training, fastest host."""
-    settings: dict[str, Any] = {"require_parameters": True, "data_collection": "deny", "sort": "latency"}
-    if model_name.removeprefix("~").split("/", 1)[0] == "google":
-        settings["only"] = ["google-ai-studio"]
-    return settings
+    """OpenRouter routing from model-config.json: provider defaults plus the model's overrides."""
+    return model_config.provider_settings(model_name)
 
 
 def _portable_openrouter_import_profile(model_name: str) -> Any:
@@ -92,7 +84,7 @@ async def _invoke_import_output(
             system_prompt=system_prompt,
             # Provider transport constraints vary. Pydantic and source
             # validators enforce the complete contract locally.
-            output_type=NativeOutput(output_type, strict=False) if model in NATIVE_OUTPUT_MODELS else ToolOutput(output_type, strict=False),
+            output_type=NativeOutput(output_type, strict=False) if model_config.profile(model).output == "native_json" else ToolOutput(output_type, strict=False),
             retries=1,
             model_settings={"openrouter_reasoning": _reasoning_settings_for(model), "openrouter_provider": _provider_settings_for(model),
                 "max_tokens": 16000, "timeout": timeout_seconds},
@@ -144,7 +136,7 @@ async def invoke_import_output(
         inputs=trace_inputs,
         metadata={"operation": safe_operation, "model": model, "is_fallback": is_fallback,
             "transport_mode": "pydantic_ai", "timeout_seconds": timeout_seconds, "request_limit": 2,
-            "output_mode": "native" if model in NATIVE_OUTPUT_MODELS else "tool",
+            "output_mode": "native" if model_config.profile(model).output == "native_json" else "tool",
             "output_type": output_type.__name__, "temperature": "provider_default", "max_tokens": 16000,
             "reasoning_effort": _reasoning_settings_for(model).get("effort") or ("capped" if _reasoning_settings_for(model).get("max_tokens") else "provider_default"),
             "reasoning_text_excluded": True, "output_retries": 1,

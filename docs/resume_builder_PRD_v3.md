@@ -48,9 +48,15 @@ The product should enable a user to:
 
 All generative calls use **Pydantic AI + OpenRouter**. Model routing is determined by operation, independent of Basic/Pro subscriptions:
 
-- Tier 1: `anthropic/claude-sonnet-5.5`, fallback `openai/gpt-6.1-sol`, for initial full generation and full regeneration.
-- Tier 2: `google/gemini-3.8-flash`, fallback `openai/gpt-6-luna`, for section/individual-job regeneration, keyword optimization, extraction, factual audits, targeted repairs and manually requested Resume Judge scoring.
-- Classification: `typesafe/jev-1.13` through Decisions; unavailable or uncertain classification preserves local parser results for review. Classification does not extract facts or approve source content.
+Models are chosen by **role** in the checked-in `shared/model-config.json`, not by environment variables. The backend and worker each bundle an exact copy, and tests fail if a copy drifts. Each model also has a profile in the file: output mode, bounded reasoning and provider routing. Startup fails if a role names a model without a profile. Secrets such as `OPENROUTER_API_KEY` stay in the environment. Current roles:
+
+- `resume_writer`: `anthropic/claude-sonnet-5.5`, fallback `openai/gpt-6.1-sol`. Initial generation and full regeneration.
+- `section_writer`: `google/gemini-3.8-flash`, fallback `openai/gpt-6-luna`. Section/entry regeneration and keyword optimization patches.
+- `repair_writer`: Sonnet 5.5, fallback GPT 6.1 Sol. Repairs, including legacy validation repairs.
+- `claim_audit`: `typesafe/jev-1.13` (Decisions API), with an `enabled` flag. First-pass claim and title audit.
+- `audit_escalation`: Sonnet 5.5, fallback Gemini 3.8 Flash. LLM grounding audit for uncertain claims.
+- `job_extraction`, `keyword_extraction`, `resume_judge`, `resume_import`: Gemini 3.8 Flash, fallback GPT 6 Luna.
+- `import_section_classification`: `typesafe/jev-1.13` through Decisions. Unavailable or uncertain classification preserves local parser results for review; classification does not extract facts or approve source content.
 - Local tools handle document parsing, contact information, schema/factual-field validation, keyword matching, comparison, assembly and export.
 
 OpenRouter requests never use providers that retain or train on prompts, route to the lowest-latency compatible host, and pin Google models to Google AI Studio. All generative models use bounded per-family reasoning: Anthropic reasoning is capped at 2,000 tokens, Google uses medium effort and OpenAI keeps its default; reasoning text is excluded and each call may output up to 16,000 tokens. Do not apply subscription-specific effort overrides, including overrides in older queued jobs. Keep prompts portable and retain the shared Unslop writing policy on prompts that author prose (not on copy-only extraction, cleanup or claim-audit prompts). Current models use native JSON-schema output rather than forced output tools; strict local validation remains authoritative.
@@ -452,7 +458,7 @@ Custom sections are supported now through the `custom` kind, with user-defined h
 - Every LLM system prompt that authors prose must include the shared Unslop instruction verbatim. Job posting extraction, ATS keyword extraction, resume cleanup and nested entry extraction copy source text exactly, and the grounding claim audit returns decisions and issue codes only, so those prompts omit it. Operation-specific grounding, privacy, exact-copy, ATS, structured-output, and resume rules take precedence when they conflict with general writing guidance.
 - Additional requests cover the required claim audit, provider failure, typed output correction and targeted repair, within the shared deadline and usage budget.
 - Final persisted draft output remains Markdown, but Markdown is rendered locally from the semantic JSON object rather than authored directly by the LLM
-- Model called via OpenRouter; models come from the operation-based Tier 1/Tier 2 configuration (see §3.1)
+- Model called via OpenRouter; models come from the role-based `shared/model-config.json` (see §3.1)
 
 **ATS guidance for generation prompts:**
 - Standard, recognizable section headings

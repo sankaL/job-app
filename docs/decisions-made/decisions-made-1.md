@@ -1,3 +1,9 @@
+## 2026-10-04 17:00:00 EDT - Role-based model configuration file replaces tier environment variables
+
+- Context: Models were chosen through TIER1/TIER2 environment variables in two services, with hard-coded provider routing, reasoning limits and native-output allowlists. Pointing a tier at an unlisted model silently changed the request format.
+- Decision (user-approved): One checked-in `shared/model-config.json` selects models by role (`resume_writer`, `section_writer`, `repair_writer`, `claim_audit`, `audit_escalation`, `job_extraction`, `keyword_extraction`, `resume_judge`, `resume_import`, `import_section_classification`). It also holds per-model profiles (API, output mode, reasoning, provider overrides) and shared provider defaults. The backend and worker bundle exact copies, because Railway builds each service from its own directory; tests enforce that the copies match. No environment variables select models; secrets stay in the environment. Startup fails if a role names a model without a profile, or if a fallback equals its primary.
+- Consequences: Changing a model is a reviewed code change and a deploy rather than a Railway variable. The old TIER*, JEV_AUDIT_* and OPENROUTER_CLASSIFICATION_MODEL variables are ignored and can be removed from Railway. Legacy validation repairs now use `repair_writer` (Sonnet), consistent with the earlier Sonnet-repairs decision.
+
 ## 2026-10-04 16:00:00 EDT - Jev judges retitled roles
 
 - Context: High generations took about 23s against about 15s for Medium, because every retitled role sent the whole Experience section to a Sonnet audit (about 5s) after the slowest write.

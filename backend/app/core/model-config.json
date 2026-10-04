@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "provider_defaults": {
+    "require_parameters": true,
+    "data_collection": "deny",
+    "sort": "latency"
+  },
+  "models": {
+    "anthropic/claude-sonnet-5.5": {
+      "api": "chat",
+      "output": "native_json",
+      "reasoning": {"max_tokens": 2000, "exclude": true}
+    },
+    "openai/gpt-6.1-sol": {
+      "api": "chat",
+      "output": "native_json",
+      "reasoning": {"exclude": true}
+    },
+    "google/gemini-3.8-flash": {
+      "api": "chat",
+      "output": "native_json",
+      "reasoning": {"effort": "medium", "exclude": true},
+      "providers": {"only": ["google-ai-studio"]}
+    },
+    "openai/gpt-6-luna": {
+      "api": "chat",
+      "output": "native_json",
+      "reasoning": {"exclude": true}
+    },
+    "typesafe/jev-1.13": {
+      "api": "decisions"
+    }
+  },
+  "roles": {
+    "resume_writer": {
+      "description": "First draft for initial generation and full regeneration.",
+      "model": "anthropic/claude-sonnet-5.5",
+      "fallback": "openai/gpt-6.1-sol"
+    },
+    "section_writer": {
+      "description": "First write for section/entry regeneration and keyword optimization patches.",
+      "model": "google/gemini-3.8-flash",
+      "fallback": "openai/gpt-6-luna"
+    },
+    "repair_writer": {
+      "description": "Repairs sections that failed local checks or the grounding audit.",
+      "model": "anthropic/claude-sonnet-5.5",
+      "fallback": "openai/gpt-6.1-sol"
+    },
+    "claim_audit": {
+      "description": "First-pass claim and title audit through the OpenRouter Decisions API.",
+      "model": "typesafe/jev-1.13",
+      "enabled": true
+    },
+    "audit_escalation": {
+      "description": "LLM grounding audit for uncertain claims, or for every section when the claim audit is unavailable.",
+      "model": "anthropic/claude-sonnet-5.5",
+      "fallback": "google/gemini-3.8-flash"
+    },
+    "job_extraction": {
+      "description": "Structured job posting extraction from captured pages.",
+      "model": "google/gemini-3.8-flash",
+      "fallback": "openai/gpt-6-luna"
+    },
+    "keyword_extraction": {
+      "description": "ATS keyword extraction from job descriptions.",
+      "model": "google/gemini-3.8-flash",
+      "fallback": "openai/gpt-6-luna"
+    },
+    "resume_judge": {
+      "description": "User-requested resume quality scoring.",
+      "model": "google/gemini-3.8-flash",
+      "fallback": "openai/gpt-6-luna"
+    },
+    "resume_import": {
+      "description": "Backend resume import cleanup and nested entry extraction.",
+      "model": "google/gemini-3.8-flash",
+      "fallback": "openai/gpt-6-luna"
+    },
+    "import_section_classification": {
+      "description": "Backend import section labels through the OpenRouter Decisions API.",
+      "model": "typesafe/jev-1.13"
+    }
+  }
+}

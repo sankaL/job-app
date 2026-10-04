@@ -40,6 +40,7 @@ from generation import (
 from length_policy import assess_resume_length
 from privacy import sanitize_resume_markdown
 from resume_judge import judge_resume
+import model_config
 from langsmith_tracing import annotate_current_trace, end_trace_safely, model_run_config, trace_scope, trace_workflow
 from validation import validate_resume
 from url_security import validate_public_http_url
@@ -149,38 +150,29 @@ class WorkerSettingsEnv(BaseSettings):
     shared_contract_path: str = "/workspace/shared/workflow-contract.json"
     openrouter_api_key: Optional[str] = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    tier1_model: str = "anthropic/claude-sonnet-5.5"
-    tier1_fallback_model: str = "openai/gpt-6.1-sol"
-    tier2_model: str = "google/gemini-3.8-flash"
-    tier2_fallback_model: str = "openai/gpt-6-luna"
+    # Models are chosen by role in model-config.json (shared/model-config.json), not by environment.
     langsmith_tracing: bool = False
     langsmith_project: Optional[str] = None
     langsmith_workspace_id: Optional[str] = None
     langsmith_api_key: Optional[str] = None
     # Parsed at startup so an invalid value fails closed instead of silently dropping traces.
     langsmith_trace_content: bool = False
-    # First-pass claim audit through OpenRouter's Decisions API; false uses the LLM audit only.
-    jev_audit_enabled: bool = True
-    jev_audit_model: str = "typesafe/jev-1.13"
-
-    @field_validator("tier1_model", "tier1_fallback_model", "tier2_model", "tier2_fallback_model")
-    @classmethod
-    def require_model(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Both model tiers require configured primary and fallback models.")
-        return value
 
     @model_validator(mode="after")
-    def validate_distinct_llm_fallbacks(self) -> "WorkerSettingsEnv":
+    def validate_tracing_and_models(self) -> "WorkerSettingsEnv":
         if self.langsmith_tracing:
             if not str(self.langsmith_project or "").strip():
                 raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")
             if not str(self.langsmith_api_key or "").strip():
                 raise ValueError("LANGSMITH_API_KEY is required when LANGSMITH_TRACING=true.")
-        if self.tier1_model == self.tier1_fallback_model or self.tier2_model == self.tier2_fallback_model:
-            raise ValueError("Each model tier needs a distinct fallback model.")
+        model_config.get_model_config()  # Fail closed at startup on a missing or invalid model config.
         return self
+
+
+def _role_models(role: str) -> tuple[str, str]:
+    """Primary and fallback model IDs for a role in model-config.json."""
+    route = model_config.route(role)
+    return route.model, route.fallback or route.model
 
 
 PARTIAL_SECTION_CHARS = 12_000
@@ -215,13 +207,19 @@ def _keep_original_after_revalidation(gen_result: dict[str, Any], generated_sect
 
 def _pipeline_model_settings(settings: "WorkerSettingsEnv") -> dict[str, Any]:
     """Internal routing keys for the section pipeline; stripped before persistence."""
+    del settings  # Routing comes from model-config.json roles.
+    routine, routine_fallback = _role_models("section_writer")
+    repair, repair_fallback = _role_models("repair_writer")
+    audit, audit_fallback = _role_models("audit_escalation")
+    claim_audit = model_config.route("claim_audit")
     return {
-        "_routine_model": settings.tier2_model,
-        "_routine_fallback_model": settings.tier2_fallback_model,
-        # Repairs and LLM audit escalations use Tier 1 for reliability.
-        "_repair_model": settings.tier1_model,
-        "_repair_fallback_model": settings.tier1_fallback_model,
-        "_jev_audit_model": settings.jev_audit_model if settings.jev_audit_enabled else None,
+        "_routine_model": routine,
+        "_routine_fallback_model": routine_fallback,
+        "_repair_model": repair,
+        "_repair_fallback_model": repair_fallback,
+        "_audit_model": audit,
+        "_audit_fallback_model": audit_fallback,
+        "_jev_audit_model": claim_audit.model if claim_audit.enabled else None,
     }
 
 
@@ -230,9 +228,10 @@ def _resolve_generation_models(
     *, operation: str = "generation",
 ) -> tuple[str, str]:
     # Ignore legacy subscription overrides even for already-queued jobs.
+    del generation_settings, settings
     if operation in {"generation", "full", "regeneration_full"}:
-        return settings.tier1_model, settings.tier1_fallback_model
-    return settings.tier2_model, settings.tier2_fallback_model
+        return _role_models("resume_writer")
+    return _role_models("section_writer")
 
 
 def _resolve_generation_reasoning_efforts(
@@ -259,6 +258,8 @@ def _stored_generation_settings(
             "_routine_fallback_model",
             "_repair_model",
             "_repair_fallback_model",
+            "_audit_model",
+            "_audit_fallback_model",
             "_jev_audit_model",
             "_base_resume_snapshot_content",
             "_current_draft_snapshot_content",
@@ -998,17 +999,14 @@ class OpenRouterExtractionAgent:
     async def extract(self, context: PageContext) -> tuple[JobPostingExtraction, str]:
         if not self._settings.openrouter_api_key:
             raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-        if not self._settings.tier2_model:
-            raise RuntimeError("TIER2_MODEL is not configured.")
-        if not self._settings.tier2_fallback_model:
-            raise RuntimeError("TIER2_FALLBACK_MODEL is not configured.")
+        primary, fallback = _role_models("job_extraction")
 
         last_error: Optional[Exception] = None
         # The primary stops early enough to leave the fallback a real window;
         # the fallback may use whatever remains of the shared budget.
         for model_name, timeout_seconds in (
-            (self._settings.tier2_model, EXTRACTION_PRIMARY_TIMEOUT_SECONDS),
-            (self._settings.tier2_fallback_model, EXTRACTION_MODEL_BUDGET_SECONDS),
+            (primary, EXTRACTION_PRIMARY_TIMEOUT_SECONDS),
+            (fallback, EXTRACTION_MODEL_BUDGET_SECONDS),
         ):
             try:
                 res = await self._extract_with_model(model_name, context, timeout_seconds=timeout_seconds)
@@ -1059,7 +1057,7 @@ class OpenRouterExtractionAgent:
                 operation="job_extraction",
                 model=model_name,
                 transport_mode="structured",
-                is_fallback=model_name == self._settings.tier2_fallback_model,
+                is_fallback=model_name == _role_models("job_extraction")[1],
                 timeout_seconds=timeout_seconds,
             ),
         )
@@ -1070,13 +1068,9 @@ class OpenRouterKeywordExtractionAgent:
         self._settings = settings
 
     def _models(self) -> tuple[str, str]:
-        primary = str(self._settings.tier2_model or "").strip()
-        fallback = str(
-            self._settings.tier2_fallback_model
-            or primary
-        ).strip()
+        primary, fallback = _role_models("keyword_extraction")
         if not primary:
-            raise RuntimeError("KEYWORD_TIER2_MODEL or TIER2_MODEL is not configured.")
+            raise RuntimeError("The keyword_extraction role has no model.")
         if not fallback:
             raise RuntimeError("Keyword extraction fallback model is not configured.")
         return primary, fallback
@@ -2078,8 +2072,7 @@ async def _validate_generated_sections_with_repair(
         return generated_sections, validation_result, attempt_diagnostics, None
 
     await on_progress(88, "Validation failed. Attempting one repair pass")
-    routine_settings = WorkerSettingsEnv()
-    model, fallback_model = routine_settings.tier2_model, routine_settings.tier2_fallback_model
+    model, fallback_model = _role_models("repair_writer")
     model_used = model
     reasoning_effort = fallback_reasoning_effort = "auto"
     remaining_timeout_seconds = max(0.0, repair_deadline - perf_counter())
@@ -2206,8 +2199,7 @@ async def _validate_regenerated_section_with_repair(
         return regenerated_section, validation_result, attempt_diagnostics, None
 
     await on_progress(78, f"Validation failed for {section_name}. Attempting one repair pass")
-    routine_settings = WorkerSettingsEnv()
-    model, fallback_model = routine_settings.tier2_model, routine_settings.tier2_fallback_model
+    model, fallback_model = _role_models("repair_writer")
     model_used = model
     reasoning_effort = fallback_reasoning_effort = "auto"
     remaining_timeout_seconds = max(0.0, repair_deadline - perf_counter())
@@ -3357,10 +3349,7 @@ async def run_resume_judge_job(
 
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
-    if not settings.tier2_model:
-        raise RuntimeError("TIER2_MODEL is not configured.")
-    if not settings.tier2_fallback_model:
-        raise RuntimeError("TIER2_FALLBACK_MODEL is not configured.")
+    judge_model, judge_fallback_model = _role_models("resume_judge")
 
     await post_callback_best_effort(
         callback,
@@ -3386,8 +3375,8 @@ async def run_resume_judge_job(
             application_id=application_id,
             user_id=user_id,
             job_id=job_id,
-            model=settings.tier2_model,
-            fallback_model=settings.tier2_fallback_model,
+            model=judge_model,
+            fallback_model=judge_fallback_model,
             target_length=generation_settings.get("page_length"),
             aggressiveness=generation_settings.get("aggressiveness"),
         )
@@ -3400,8 +3389,8 @@ async def run_resume_judge_job(
                 generated_resume_content=generated_resume_content,
                 aggressiveness=str(generation_settings.get("aggressiveness") or "medium"),
                 target_length=str(generation_settings.get("page_length") or "1_page"),
-                model=settings.tier2_model,
-                fallback_model=settings.tier2_fallback_model,
+                model=judge_model,
+                fallback_model=judge_fallback_model,
                 api_key=settings.openrouter_api_key,
                 base_url=settings.openrouter_base_url,
                 reasoning_effort="auto",
@@ -3460,8 +3449,8 @@ async def run_resume_judge_job(
             "input_signature": input_signature,
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.tier2_model,
-                fallback_model=settings.tier2_fallback_model,
+                primary_model=judge_model,
+                fallback_model=judge_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,
@@ -3501,8 +3490,8 @@ async def run_resume_judge_job(
             "input_signature": input_signature,
             "failure_stage": _llm_failure_stage_from_attempts(
                 attempt_diagnostics,
-                primary_model=settings.tier2_model,
-                fallback_model=settings.tier2_fallback_model,
+                primary_model=judge_model,
+                fallback_model=judge_fallback_model,
             ),
             "attempt_count": len(attempt_diagnostics),
             "attempts": attempt_diagnostics,

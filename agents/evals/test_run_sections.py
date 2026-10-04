@@ -104,8 +104,6 @@ async def test_live_requires_dev_mode_credentials_models_and_explicit_endpoint()
     with pytest.raises(EvaluationLimit):
         await run_cases(CASES[:1], {}, args)
     status = configuration_status({"OPENROUTER_API_KEY": "private-secret-value", "APP_DEV_MODE": "true",
-        "TIER1_MODEL": "private-primary-value", "TIER1_FALLBACK_MODEL": "private-fallback-value",
-        "TIER2_MODEL": "private-routine-value", "TIER2_FALLBACK_MODEL": "private-routine-fallback-value",
         "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"})
     assert all(status.values())
     assert all(isinstance(value, bool) for value in status.values())
@@ -166,8 +164,7 @@ async def test_live_evaluation_honors_env_file_project_and_tags_case(monkeypatch
     env_file = tmp_path / "eval.env"
     env_file.write_text("LANGSMITH_TRACING=true\nLANGSMITH_PROJECT=eval-project\nLANGSMITH_API_KEY=eval-key\nLANGSMITH_WORKSPACE_ID=eval-workspace\n")
     values = {**evaluator.configuration(env_file), "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key",
-        "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1", "TIER1_MODEL": "test/primary",
-        "TIER1_FALLBACK_MODEL": "test/fallback", "TIER2_MODEL": "test/routine", "TIER2_FALLBACK_MODEL": "test/routine-fallback"}
+        "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"}
     captured = []
     @contextmanager
     def scope(name, **kwargs):
@@ -196,9 +193,7 @@ async def test_live_evaluation_honors_env_file_project_and_tags_case(monkeypatch
 async def test_live_tracing_missing_config_blocks_provider_work(monkeypatch, missing):
     from evals import run_sections as evaluator
     values = {"LANGSMITH_TRACING": "true", "LANGSMITH_PROJECT": "project", "LANGSMITH_API_KEY": "key",
-        "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key", "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
-        "TIER1_MODEL": "test/primary", "TIER1_FALLBACK_MODEL": "test/fallback",
-        "TIER2_MODEL": "test/routine", "TIER2_FALLBACK_MODEL": "test/routine-fallback"}
+        "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key", "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"}
     del values[missing]
     async def unexpected(**_kwargs):
         pytest.fail("Invalid tracing configuration reached provider work")

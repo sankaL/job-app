@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
+import model_config
 from langsmith_tracing import trace_scope, end_trace_safely, sanitize_trace_data, trace_content_enabled
 
 
@@ -140,21 +141,14 @@ class AIDeadlineReached(asyncio.TimeoutError):
     safe_trace_reason = "deadline_reached"
 
 
-# Hidden reasoning shares the output allowance. These per-family settings keep
-# reasoning bounded so it cannot consume the whole answer budget.
+# Hidden reasoning shares the output allowance; per-model reasoning bounds live in
+# shared/model-config.json so it cannot consume the whole answer budget.
 MAX_CALL_OUTPUT_TOKENS = 16_000
-ANTHROPIC_REASONING_TOKENS = 2_000
 
 
 def reasoning_settings_for(model_name: str) -> dict[str, Any]:
-    family = model_name.removeprefix("~").split("/", 1)[0]
-    if family == "anthropic":
-        return {"max_tokens": ANTHROPIC_REASONING_TOKENS, "exclude": True}
-    if family == "google":
-        # Gemini maps numeric budgets to its lowest level, which disables
-        # useful reasoning; a named medium level stays bounded and accurate.
-        return {"effort": "medium", "exclude": True}
-    return {"exclude": True}
+    """Bounded hidden reasoning from the model's profile in shared/model-config.json."""
+    return dict(model_config.profile(model_name).reasoning or {"exclude": True})
 
 
 def _cacheable_user_prompt(prompt: list[tuple[str, str]], stable_keys: Optional[tuple[str, ...]]) -> Any:
@@ -184,16 +178,8 @@ def _cacheable_user_prompt(prompt: list[tuple[str, str]], stable_keys: Optional[
 
 
 def provider_settings_for(model_name: str) -> dict[str, Any]:
-    """OpenRouter routing: no data retention/training, fastest compatible host.
-
-    Gemini is pinned to Google AI Studio; Vertex and flex endpoints showed
-    10-70s first-token latency in live routing statistics.
-    """
-    family = model_name.removeprefix("~").split("/", 1)[0]
-    settings: dict[str, Any] = {"require_parameters": True, "data_collection": "deny", "sort": "latency"}
-    if family == "google":
-        settings["only"] = ["google-ai-studio"]
-    return settings
+    """OpenRouter routing from shared/model-config.json: provider defaults plus the model's overrides."""
+    return model_config.provider_settings(model_name)
 
 
 def _served_details(result: Any) -> dict[str, Any]:
@@ -308,7 +294,7 @@ async def structured_call(
     user_prompt = _cacheable_user_prompt(prompt, cache_stable_keys)
     started = perf_counter()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=call_timeout)
-    native_output = model_name.removeprefix("~") in {"anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "openai/gpt-6-luna"}
+    native_output = model_config.profile(model_name).output == "native_json"
     settings: dict[str, Any] = { "max_tokens": min(MAX_CALL_OUTPUT_TOKENS, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": provider_settings_for(model_name)}
     if not native_output:
         settings["temperature"] = temperature
