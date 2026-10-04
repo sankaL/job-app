@@ -162,10 +162,16 @@ def _source_texts(document: ResumeDocument) -> dict[str, str]:
 def _check_privacy(text: str, privacy_values: Optional[list[str]] = None, *, enforce_ats: bool = True) -> None:
     if "[private]" in text.lower() or "[redacted]" in text.lower():
         raise SectionValidationError("private_placeholder_in_output")
+    # Specific codes tell repairs (and diagnostics) which pattern matched, never the text.
     if any(len(str(value).strip()) >= 3 and re.search(re.escape(str(value).strip()), text, re.I) for value in (privacy_values or [])):
-        raise SectionValidationError("contact_information")
-    if EMAIL_RE.search(text) or PHONE_RE.search(text) or CONTACT_URL_RE.search(text):
-        raise SectionValidationError("contact_information")
+        raise SectionValidationError("contact_information_profile_value")
+    if EMAIL_RE.search(text):
+        raise SectionValidationError("contact_information_email")
+    if PHONE_RE.search(text):
+        # Ten-digit runs (for example joined years or IDs) read as phone numbers; rephrase the figures.
+        raise SectionValidationError("contact_information_phone_like_number")
+    if CONTACT_URL_RE.search(text):
+        raise SectionValidationError("contact_information_profile_url")
     if enforce_ats and re.search(r'<\s*/?[A-Za-z][^>]*>|!\[|^\s*#{1,6}\s|^\s*\|.*\|\s*$|^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+', text, re.I | re.M):
         raise SectionValidationError("unsafe_markdown")
 

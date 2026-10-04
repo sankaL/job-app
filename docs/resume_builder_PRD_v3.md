@@ -766,7 +766,7 @@ All emails must include a direct link to the relevant application.
 - Visiting the root domain shows a public Applix landing page before authentication.
 - Top navigation is limited to Features, Pricing, Login, and Sign up.
 - The landing page must make the app's beta and invite-only status clear.
-- The hero reads "Make it" with the words "short", "long", "polished", then "work" rotating every two seconds and resting on "work" beside the shared animated paper character. Preserve the hero typography and responsive size. The word background and orange marketing Login CTA share the orange accent. Reduced-motion users see "Make it work" immediately without animation.
+- The hero reads "Make it" with the words "short", "long", "polished", then "work" looping continuously. Each word stays for two seconds, except "work", which stays for five seconds as the shared animated paper character drops in from above and settles inside the bright orange highlight. Preserve the hero typography and responsive size. Marketing primary buttons retain the darker orange accent. Reduced-motion users see "Make it work" immediately without animation.
 - Features copy must describe the committed product behavior without promising unsupported automation or public signup.
 - Pricing is informational only during beta:
   - Standard: $10/month, $96/year, 50 generations per month

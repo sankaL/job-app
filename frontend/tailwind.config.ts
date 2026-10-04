@@ -11,7 +11,6 @@ export default {
         spruce: "var(--color-spruce)",
         ember: "var(--color-ember)",
         "hero-orange": "var(--color-hero-orange)",
-        "hero-orange-hover": "var(--color-hero-orange-hover)",
         amber: "var(--color-amber)",
         control: "var(--color-border-emphasized)",
         error: "var(--color-error)",

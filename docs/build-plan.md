@@ -8,6 +8,16 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Rotating landing-page headline
+
+**Status:** Complete; local verification passed (2026-10-04 09:59 EDT).
+
+Replaced the hero with "Make it" and the sequence "short", "long", "polished", "work", resting on the final word with the shared animated paper character. Kept the existing hero typography and responsive sizes; the orange marketing Login CTA matches the word background. Added Motion and the reusable `src/components/ui/text-rotate.tsx` component, with timer cleanup, ref navigation, empty-list handling and reduced-motion support. Updated the public-page PRD. Thirty focused frontend tests and the TypeScript/Vite production build pass through the Makefile-managed local stack; desktop and 375px mobile browser checks pass. No schema or AI behavior changed.
+
+Follow-up (2026-10-04 10:01 EDT): the sequence now loops continuously, with two seconds on each word and five seconds on "work". The animated paper character appears inside the orange highlight during "work". A regression test checks two full cycles, the longer pause and character placement. Twenty-two focused frontend tests and the production build pass through the Makefile-managed local stack.
+
+Follow-up (2026-10-04 10:04 EDT): restored the darker orange on marketing primary buttons. The paper character now drops from above into the bright orange highlight when "work" appears, with reduced-motion behavior preserved. Twenty-two focused frontend tests, the production build and local browser verification pass.
+
 ## Review and commit the full uncommitted snapshot
 
 **Status:** Complete; review fixes and local verification passed (2026-10-04 03:43:51 EDT).

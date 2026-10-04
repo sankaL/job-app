@@ -86,7 +86,7 @@ function MarketingButton({
 }) {
   const className =
     variant === "primary"
-      ? "inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-hero-orange px-5 text-sm font-semibold text-white shadow-sm ring-1 ring-white/40 transition hover:bg-hero-orange-hover"
+      ? "inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-ember px-5 text-sm font-semibold text-white shadow-sm ring-1 ring-white/40 transition hover:bg-[var(--color-ember-light)]"
       : variant === "secondary"
         ? "inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-border)] bg-white px-5 text-sm font-semibold text-ink shadow-xs transition hover:border-[var(--color-border-hover)] hover:text-spruce"
         : "inline-flex h-11 items-center justify-center gap-2 px-4 text-sm font-semibold text-ink transition hover:text-spruce";

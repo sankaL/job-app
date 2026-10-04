@@ -2,6 +2,7 @@ import { createRef } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { useReducedMotion } from "motion/react";
 import { TextRotate, type TextRotateRef } from "@/components/ui/text-rotate";
+import { Preview } from "@/components/ui/demo";
 
 vi.mock("motion/react", async (importOriginal) => ({
   ...await importOriginal<typeof import("motion/react")>(),
@@ -15,6 +16,24 @@ afterEach(() => {
 });
 
 describe("TextRotate", () => {
+  it("loops the hero after lingering on work with the avatar inside the highlight", () => {
+    vi.useFakeTimers();
+    const view = render(<Preview />);
+    for (let cycle = 0; cycle < 2; cycle++) {
+      expect(screen.getByText("short")).toBeInTheDocument();
+      for (const word of ["long", "polished", "work"]) {
+        act(() => vi.advanceTimersByTime(2000));
+        expect(screen.getByText(word)).toBeInTheDocument();
+      }
+      expect(view.container.querySelector("svg")?.closest(".bg-hero-orange")).not.toBeNull();
+      act(() => vi.advanceTimersByTime(4999));
+      expect(screen.getByText("work")).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByText("short")).toBeInTheDocument();
+      expect(view.container.querySelector("svg")).toBeNull();
+    }
+  });
+
   it("advances in order, stops at the final word and releases its interval", () => {
     vi.useFakeTimers();
     const onNext = vi.fn();
