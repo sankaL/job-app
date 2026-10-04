@@ -10,14 +10,16 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Branch consolidation and ordered Railway release
 
-**Status:** Preflight complete; PR #19 merge and production rollout in progress (2026-10-04 18:58 EDT).
+**Status:** Complete; PR #19 merged and all three production deployments verified (2026-10-04 19:05 EDT).
 
 `generation-speed-robustness` contains all 21 unmerged current commits, including the two `langsmith-content-tracing` commits. Twelve older local branches are already ancestors of main; the lone `codex/kewords` commit has a patch-equivalent main commit. The owner chose to leave the old `ui-changes-qoder` prototype unmerged. Extended the release workflow to require active running instances of the requested main commit for backend and frontend before uploading the worker, with bounded retries/timeouts and sanitized CLI errors. Six deployment-gate tests pass. Makefile validation passed 525 backend, 352 agents and 16 environment tests, plus 298 frontend tests with two previously documented baseline shell failures. The TypeScript/Vite production build passes. No new SQL migration or Railway variable is required; retain production credentials and LangSmith content tracing. See [branch and rollout evidence](task-output/2026-10-04-branch-consolidation-railway-release.md).
+
+Merged release `a2b1a41` runs on backend, frontend and agents. The GitHub workflow succeeded with API/UI jobs completing before worker upload. The merge exposed a separate Railway repository trigger that bypassed this order: cancelled its worker deployment and disconnected the three application services' direct source triggers. GitHub Actions remains the deployment path, with stored Docker/root settings preserved. Running backend/worker model config and code hashes match main; both accept `generation_notice`, retain content tracing in `applix-prod`, and the worker reports 20 jobs/four browser slots. Site/backend health return 200, unauthenticated API returns 401, and worker startup/Redis checks pass. Obsolete model variables are retained but ignored by the new code.
 
 
 ## Generation speed and robustness (Jev audit, parallel writing, keep-original)
 
-**Status:** Complete on branch `generation-speed-robustness`; local verification passed (2026-10-04 15:00 EDT). Awaiting merge and rollout.
+**Status:** Complete; merged through PR #19 and deployed on Railway (2026-10-04 19:05 EDT). Local verification and production configuration/health checks passed; a new full production generation remains a useful follow-up.
 
 - **Changes:**
   - Bounded per-family reasoning with a 16k per-call output limit.

@@ -1,6 +1,31 @@
 # Branch consolidation and Railway release
 
-Preflight verified 2026-10-04 18:58 EDT. The owner authorized merging current work into main and deploying production. PR #19 is the existing release PR; no additional PR is needed.
+Completed 2026-10-04 19:05 EDT. The owner authorized merging current work into main and deploying production. [PR #19](https://github.com/sankaL/job-app/pull/19) was merged as `a2b1a415966cabdb59d63ae624fa1bd8fb11abbc`. The [ordered deployment workflow](https://github.com/sankaL/job-app/actions/runs/37242088169) succeeded. Local main was fast-forwarded to the merged release.
+
+## Production result
+
+| Service | Active successful deployment |
+| --- | --- |
+| Backend | `2bfc8167-0173-4216-80d3-520fb111af2f` |
+| Frontend | `bd91c67e-6368-4f95-9b05-233eb0e517ce` |
+| Agents | `2e8b992c-7380-47fa-b052-40d423945024` |
+
+The frontend job completed at 23:00:51 UTC and backend at 23:01:02 UTC. The worker job started at 23:01:04 UTC, after both running-release gates passed. All application deployments identify merged main `a2b1a41`.
+
+The merge also triggered Railway's independent repository integration, which bypassed the workflow and started worker deployment `e13cf784-ff87-4fe7-9830-7c89071c1d6f`. Cancelled that unmanaged release and disconnected repository sources for all three application services. Existing root directories, Dockerfiles and active service configuration remain available to the CLI workflow. The ordered workflow completed with the deployments above. Current service sources report null repository/image; future main pushes use GitHub Actions rather than duplicate Railway triggers.
+
+Production had zero queued/active ARQ jobs before merge. No SQL migrations differ from the previous release. Provider credentials, database/Redis settings and LangSmith settings were retained. Seven obsolete tier/classification model assignments were left in place because deletion is optional; the new runtime ignores them. Interim Jev audit overrides were absent.
+
+Runtime checks confirm:
+
+- Backend and worker accept `generation_notice` in the strict section schema.
+- Both model-config files match canonical SHA-256 `da518ccffba5728714b56bcae1f133e1750b9edfcc2ea6f79b540950ea551de3`; model loaders and relevant code hashes match merged main.
+- Loaded role routes use Sonnet/Sol for full writing/repair, Gemini/Luna for section/extraction/import/scoring, and Jev for claim audit/classification. Provider defaults deny data collection and sort by latency.
+- Production dev mode is off. Backend and worker retain enabled tracing and content capture in `applix-prod`.
+- Worker reports `max_jobs=20` and four browser slots. Startup logs confirm worker startup and Redis connection, without tracebacks or connection errors in the bounded sample.
+- Custom domain and backend health return HTTP 200; unauthenticated application API returns HTTP 401.
+
+No new private user content or provider call was used in these production checks. A new full production generation remains needed to exercise the complete writing/audit/partial-preview/keep-original flow on the deployed release. The two pre-existing frontend shell failures remain documented and were not changed by this rollout.
 
 ## Branch inventory before merge
 
@@ -30,4 +55,4 @@ The backend must accept optional `generation_notice` before new worker callbacks
 - Deployment verification unit tests: six passed, covering old release exclusion, running-instance gating, terminal failure, supersession, timeout and bounded sanitized CLI failures.
 - Live read-only check confirms the script recognizes the current active backend deployment using Railway's actual status JSON.
 
-No live user content or provider requests were used for these tests. Final deployment identities and runtime verification will be recorded after merge.
+No live user content or provider requests were used for these tests. Final deployment identities and runtime verification are recorded above. Completion bookkeeping changes documentation only and does not require a new application deployment.
