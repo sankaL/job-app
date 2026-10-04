@@ -183,6 +183,18 @@ class WorkerSettingsEnv(BaseSettings):
         return self
 
 
+PARTIAL_SECTION_CHARS = 12_000
+
+
+def _partial_sections(shown: dict[str, dict[str, Any]], sections: list[Any]) -> list[dict[str, Any]]:
+    """Accumulate verified sections for progressive display (bounded size, no internal fields)."""
+    from resume_document import render_section_content
+    for section in sections:
+        shown[section.id] = {"id": section.id, "kind": section.kind, "heading": section.heading,
+                             "content_md": render_section_content(section)[:PARTIAL_SECTION_CHARS]}
+    return list(shown.values())
+
+
 def _keep_original_after_revalidation(gen_result: dict[str, Any], generated_sections: list[dict[str, Any]],
                                       validation_result: dict[str, Any], generation_settings: dict[str, Any]
                                       ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -274,6 +286,8 @@ class JobProgress(BaseModel):
     completed_at: Optional[str] = None
     terminal_error_code: Optional[str] = None
     quota_period_start: Optional[str] = None
+    # Verified sections shown while generation continues: [{id, kind, heading, content_md}].
+    partial_sections: Optional[list[dict[str, Any]]] = None
 
 
 class PageContext(BaseModel):
@@ -785,6 +799,7 @@ def build_progress(
     completed_at: Optional[str] = None,
     terminal_error_code: Optional[str] = None,
     quota_period_start: Optional[str] = None,
+    partial_sections: Optional[list[dict[str, Any]]] = None,
 ) -> JobProgress:
     return JobProgress(
         job_id=job_id,
@@ -797,6 +812,7 @@ def build_progress(
         completed_at=completed_at,
         terminal_error_code=terminal_error_code,
         quota_period_start=quota_period_start,
+        partial_sections=partial_sections,
     )
 
 
@@ -822,8 +838,19 @@ class RedisProgressWriter:
             return None
         return JobProgress.model_validate(json.loads(payload))
 
+    @staticmethod
+    def _events_channel(application_id: str) -> str:
+        return f"phase1:applications:{application_id}:events"
+
     async def set(self, application_id: str, progress: JobProgress, ttl_seconds: int = 86400) -> None:
         await self._redis.set(self._key(application_id), progress.model_dump_json(), ex=ttl_seconds)
+        # Same event shape as the backend progress store, so the live stream relays
+        # worker progress instead of waiting for client polling.
+        try:
+            await self._redis.publish(self._events_channel(application_id),
+                json.dumps({"event": "progress", "payload": progress.model_dump(mode="json")}))
+        except Exception as error:
+            logger.warning("Progress event publish failed. error_type=%s", type(error).__name__)
 
     async def set_extracted_result(
         self,
@@ -1410,10 +1437,13 @@ async def set_progress(
     completed_at: Optional[str] = None,
     terminal_error_code: Optional[str] = None,
     quota_period_start: Optional[str] = None,
+    partial_sections: Optional[list[dict[str, Any]]] = None,
 ) -> JobProgress:
     existing = await writer.get(application_id)
     if existing is not None and existing.job_id != job_id:
         return existing
+    if partial_sections is None and completed_at is None and existing is not None:
+        partial_sections = existing.partial_sections  # Keep shown sections until the job ends.
     progress = build_progress(
         job_id=job_id,
         workflow_kind=workflow_kind,
@@ -1424,6 +1454,7 @@ async def set_progress(
         completed_at=completed_at,
         terminal_error_code=terminal_error_code,
         quota_period_start=quota_period_start or (existing.quota_period_start if existing is not None else None),
+        partial_sections=partial_sections,
     )
     await writer.set(application_id, progress)
     return progress
@@ -2278,7 +2309,11 @@ async def run_generation_job(
     if not settings.openrouter_api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured.")
 
+    latest_generation_progress = {"percent": 35, "message": "Writing resume sections"}
+    shown_sections: dict[str, dict[str, Any]] = {}
+
     async def on_generation_progress(percent: int, message: str) -> None:
+        latest_generation_progress.update(percent=percent, message=message)
         await set_progress(
             writer,
             application_id,
@@ -2287,6 +2322,18 @@ async def run_generation_job(
             state="generating",
             message=message,
             percent_complete=percent,
+        )
+
+    async def on_generation_sections_ready(sections: list[Any]) -> None:
+        await set_progress(
+            writer,
+            application_id,
+            job_id=job_id,
+            workflow_kind="generation",
+            state="generating",
+            message=latest_generation_progress["message"],
+            percent_complete=latest_generation_progress["percent"],
+            partial_sections=_partial_sections(shown_sections, sections),
         )
 
     try:
@@ -2333,6 +2380,7 @@ async def run_generation_job(
                 on_progress=on_generation_progress,
                 reasoning_effort=generation_reasoning_effort,
                 fallback_reasoning_effort=generation_fallback_reasoning_effort,
+                on_sections_ready=on_generation_sections_ready,
             ),
             timeout=FULL_GENERATION_MAX_TIMEOUT_SECONDS,
         )
@@ -2786,7 +2834,11 @@ async def run_regeneration_job(
         )
 
         if is_full_regen:
+            latest_regen_progress = {"percent": 35, "message": "Writing resume sections"}
+            shown_regen_sections: dict[str, dict[str, Any]] = {}
+
             async def on_regen_progress(percent: int, message: str) -> None:
+                latest_regen_progress.update(percent=percent, message=message)
                 await set_progress(
                     writer,
                     application_id,
@@ -2795,6 +2847,18 @@ async def run_regeneration_job(
                     state=workflow_state,
                     message=message,
                     percent_complete=percent,
+                )
+
+            async def on_regen_sections_ready(sections: list[Any]) -> None:
+                await set_progress(
+                    writer,
+                    application_id,
+                    job_id=job_id,
+                    workflow_kind=workflow_kind,
+                    state=workflow_state,
+                    message=latest_regen_progress["message"],
+                    percent_complete=latest_regen_progress["percent"],
+                    partial_sections=_partial_sections(shown_regen_sections, sections),
                 )
 
             gen_result = await asyncio.wait_for(
@@ -2816,6 +2880,7 @@ async def run_regeneration_job(
                     on_progress=on_regen_progress,
                     reasoning_effort=generation_reasoning_effort,
                     fallback_reasoning_effort=generation_fallback_reasoning_effort,
+                    on_sections_ready=on_regen_sections_ready,
                 ),
                 timeout=FULL_GENERATION_MAX_TIMEOUT_SECONDS,
             )

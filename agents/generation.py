@@ -2135,6 +2135,7 @@ async def generate_sections(
     on_progress,
     reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
     fallback_reasoning_effort: Optional[str] = None,
+    on_sections_ready: Any = None,
 ) -> dict[str, Any]:
     if generation_settings.get("_source_document"):
         from section_generation import generate_document
@@ -2144,7 +2145,7 @@ async def generate_sections(
             job_title=job_title, company_name=company_name, job_description=job_description,
             model=model, fallback_model=fallback_model, api_key=api_key, base_url=base_url,
             on_progress=on_progress, reasoning_effort=reasoning_effort,
-            fallback_reasoning_effort=fallback_reasoning_effort,
+            fallback_reasoning_effort=fallback_reasoning_effort, on_sections_ready=on_sections_ready,
         )
     operation = generation_settings.get("_operation", "generation")
     aggressiveness = generation_settings.get("aggressiveness", "medium")

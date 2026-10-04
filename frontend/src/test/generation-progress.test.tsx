@@ -140,3 +140,36 @@ it("shows a section skeleton immediately and respects the reported workflow afte
   rerender(<GenerationProgress progress={{ ...SERVER_PROGRESS, workflow_kind: "regeneration_section" }} isOptimistic={false} isActive isCancelling={false} onCancel={vi.fn()} />);
   expect(screen.getByTestId("resume-generation-skeleton")).toHaveAttribute("data-scope", "section");
 });
+
+it("shows verified sections in place of skeleton blocks while generation continues", () => {
+  render(
+    <GenerationProgress
+      progress={{ ...SERVER_PROGRESS, partial_sections: [
+        { id: "summary", kind: "summary", heading: "Summary", content_md: "Quality engineering leader." },
+      ] }}
+      isOptimistic={false}
+      isActive
+      isCancelling={false}
+      onCancel={() => {}}
+    />,
+  );
+  const ready = screen.getAllByTestId("ready-section");
+  expect(ready).toHaveLength(1);
+  expect(ready[0]).toHaveTextContent("Summary");
+  expect(ready[0]).toHaveTextContent("Quality engineering leader.");
+});
+
+it("drops partial sections once the job reaches a terminal state", () => {
+  render(
+    <GenerationProgress
+      progress={{ ...SERVER_PROGRESS, completed_at: "2026-07-14T00:01:00Z", partial_sections: [
+        { id: "summary", kind: "summary", heading: "Summary", content_md: "Quality engineering leader." },
+      ] }}
+      isOptimistic={false}
+      isActive={false}
+      isCancelling={false}
+      onCancel={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("ready-section")).not.toBeInTheDocument();
+});

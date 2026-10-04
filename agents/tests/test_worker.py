@@ -2615,3 +2615,33 @@ async def test_run_extraction_job_routes_declined_pages_to_manual_entry(monkeypa
     if kind == "blocked_source":
         assert failure["failure_details"]["provider"] == "linkedin"
     assert "app-1" not in writer.extracted_by_app
+
+
+@pytest.mark.asyncio
+async def test_progress_carries_partial_sections_until_completion_and_publishes_events():
+    from worker import RedisProgressWriter, set_progress
+
+    class FakeRedis:
+        def __init__(self):
+            self.values, self.published = {}, []
+        async def get(self, key):
+            return self.values.get(key)
+        async def set(self, key, value, ex=None):
+            self.values[key] = value
+        async def publish(self, channel, message):
+            self.published.append((channel, json.loads(message)))
+
+    writer = RedisProgressWriter.__new__(RedisProgressWriter)
+    writer._redis = FakeRedis()
+    partial = [{"id": "summary", "kind": "summary", "heading": "Summary", "content_md": "Built APIs."}]
+    await set_progress(writer, "app-1", job_id="job-1", workflow_kind="generation", state="generating",
+                       message="Writing", percent_complete=40, partial_sections=partial)
+    carried = await set_progress(writer, "app-1", job_id="job-1", workflow_kind="generation", state="generating",
+                                 message="Repairing", percent_complete=55)
+    assert carried.partial_sections == partial
+    done = await set_progress(writer, "app-1", job_id="job-1", workflow_kind="generation", state="resume_ready",
+                              message="Resume generated", percent_complete=100, completed_at="2026-10-04T00:00:00Z")
+    assert done.partial_sections is None
+    channel, event = writer._redis.published[1]
+    assert channel == "phase1:applications:app-1:events"
+    assert event["event"] == "progress" and event["payload"]["partial_sections"] == partial

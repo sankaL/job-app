@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Check, ChevronRight, Sparkles, Workflow, Link2, Gauge } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { Preview as RotatingHeadline } from "@/components/ui/demo";
 
 const featureCards = [
   {
@@ -85,7 +86,7 @@ function MarketingButton({
 }) {
   const className =
     variant === "primary"
-      ? "inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-ember px-5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(159,58,22,0.18)] ring-1 ring-white/40 transition hover:bg-[var(--color-ember-light)]"
+      ? "inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-hero-orange px-5 text-sm font-semibold text-white shadow-sm ring-1 ring-white/40 transition hover:bg-hero-orange-hover"
       : variant === "secondary"
         ? "inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-border)] bg-white px-5 text-sm font-semibold text-ink shadow-xs transition hover:border-[var(--color-border-hover)] hover:text-spruce"
         : "inline-flex h-11 items-center justify-center gap-2 px-4 text-sm font-semibold text-ink transition hover:text-spruce";
@@ -364,8 +365,8 @@ export function LandingPage() {
               </span>
             </Link>
 
-            <h1 className="mx-auto mt-10 max-w-5xl text-balance text-4xl sm:text-6xl md:text-7xl xl:text-[5rem] font-semibold leading-[1.04] tracking-tight text-ink">
-              Tailor Your Resume for Your Dream Role in Seconds
+            <h1 aria-label="Make it work" className="mx-auto mt-10 max-w-5xl text-balance text-4xl sm:text-6xl md:text-7xl xl:text-[5rem] font-semibold leading-[1.04] tracking-tight text-ink">
+              <RotatingHeadline />
             </h1>
             <p className="mx-auto mt-8 max-w-2xl text-balance text-lg leading-8 text-[var(--color-ink-65)]">
               Applix instantly aligns your experience with any job posting to generate grounded, interview-ready drafts while keeping your work history private.

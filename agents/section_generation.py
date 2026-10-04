@@ -692,6 +692,7 @@ async def generate_document(
     model: str, fallback_model: str, api_key: str, base_url: str, on_progress: Any,
     reasoning_effort: Optional[str] = None, fallback_reasoning_effort: Optional[str] = None,
     target_section_id: Optional[str] = None, instructions: Optional[str] = None,
+    on_sections_ready: Any = None,
 ) -> dict[str, Any]:
     source = validate_resume_document(source_payload)
     if not document_ready(source):
@@ -860,6 +861,12 @@ async def generate_document(
         for identifier, codes in audit_errors.items():
             outcome["errors"][identifier] = codes
             retained.pop(identifier, None)
+        ready = [retained[identifier] for identifier in group_ids if identifier not in outcome["errors"] and identifier in retained]
+        if on_sections_ready and ready and not target_section_id:
+            try:
+                await on_sections_ready([section.model_copy(deep=True) for section in ready])
+            except Exception:
+                pass  # Progressive display is best-effort; it never affects generation.
         return outcome
 
     for round_index in range(3):

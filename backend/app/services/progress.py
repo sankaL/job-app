@@ -5,12 +5,32 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+class PartialSection(BaseModel):
+    """A verified section shown while generation continues."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(min_length=1, max_length=128)
+    kind: str = Field(min_length=1, max_length=40)
+    heading: str = Field(max_length=120)
+    content_md: str = Field(max_length=12_000)
+
+
+def coerce_partial_sections(value: Any) -> Optional[list[PartialSection]]:
+    """Progressive display is optional: drop malformed or oversized data instead of failing progress reads."""
+    if value is None:
+        return None
+    try:
+        sections = [PartialSection.model_validate(item) for item in value]
+    except (TypeError, ValidationError):
+        return None
+    return sections[:20] or None
 
 
 class ProgressRecord(BaseModel):
@@ -24,6 +44,9 @@ class ProgressRecord(BaseModel):
     completed_at: Optional[str] = None
     terminal_error_code: Optional[str] = None
     quota_period_start: Optional[str] = None
+    partial_sections: Optional[list[PartialSection]] = None
+
+    _coerce_partial_sections = field_validator("partial_sections", mode="before")(coerce_partial_sections)
 
 
 class ApplicationEvent(BaseModel):

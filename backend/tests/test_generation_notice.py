@@ -36,3 +36,18 @@ def test_editing_a_kept_original_section_clears_only_that_notice():
     unchanged = validate_resume_document(_document())
     _clear_edited_generation_notices(unchanged, previous)
     assert unchanged.sections[0].generation_notice == "kept_original_unverified"
+
+
+def test_progress_partial_sections_are_bounded_and_never_break_progress_reads():
+    from app.api.applications import WorkflowProgress
+    from app.services.progress import ProgressRecord
+
+    base = {"job_id": "job-1", "workflow_kind": "generation", "state": "generating", "message": "Writing",
+            "percent_complete": 40, "created_at": "t", "updated_at": "t", "completed_at": None, "terminal_error_code": None}
+    partial = [{"id": "summary", "kind": "summary", "heading": "Summary", "content_md": "Built APIs."}]
+    record = ProgressRecord.model_validate({**base, "partial_sections": partial})
+    api = WorkflowProgress.model_validate(record.model_dump())
+    assert api.partial_sections[0].content_md == "Built APIs."
+    oversized = [{**partial[0], "content_md": "x" * 20_000}]
+    assert ProgressRecord.model_validate({**base, "partial_sections": oversized}).partial_sections is None
+    assert ProgressRecord.model_validate({**base, "partial_sections": "not a list"}).partial_sections is None

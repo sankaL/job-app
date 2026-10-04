@@ -19,7 +19,7 @@ export function GenerationProgress({ progress, isOptimistic, isActive, isCancell
   const message = isCancelling ? "Stopping this generation. Waiting for confirmation." : reported?.message || "Sending your generation request. Waiting for the first processing update.";
   const sessionKey = isActive || isOptimistic ? `${reported?.workflow_kind ?? "optimistic"}:${reported?.job_id ?? "optimistic"}` : "inactive";
   return <ResumeProcessing title={section ? "Updating your resume section" : "Preparing your tailored resume"}
-    preview={<ResumeGenerationSkeleton section={section} backdrop />}
+    preview={<ResumeGenerationSkeleton section={section} backdrop sections={terminal ? [] : reported?.partial_sections ?? []} />}
     message={message} percent={reported?.percent_complete} easeProgress
     startedAt={reported?.created_at} updatedAt={reported?.updated_at}
     stalledHint={isActive && !isCancelling ? "You can stop and try again." : undefined}

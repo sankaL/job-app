@@ -31,7 +31,7 @@ from app.services.creation_activity import (
     CreationActivity,
 )
 from app.services.resume_render import build_render_document
-from app.services.progress import ProgressRecord, now_iso
+from app.services.progress import PartialSection, ProgressRecord, coerce_partial_sections, now_iso
 from app.services.url_security import OutboundResolutionUnavailable
 
 router = APIRouter(prefix="/api/applications", tags=["applications"])
@@ -495,6 +495,9 @@ class WorkflowProgress(BaseModel):
     updated_at: str
     completed_at: Optional[str]
     terminal_error_code: Optional[str]
+    partial_sections: Optional[list[PartialSection]] = None
+
+    _coerce_partial_sections = field_validator("partial_sections", mode="before")(coerce_partial_sections)
 
 
 class ApplicationEventSnapshot(BaseModel):

@@ -1048,3 +1048,19 @@ def test_worker_revalidation_fallback_keeps_only_failed_sections():
     assert pipeline.keep_original_for_invalid_sections(document_payload=doc.model_dump(mode='json'),
         validation_errors=[{'type': 'section_identity_or_order'}], generation_settings={'_source_document': source_document()},
         operation='generation', expected_ids=ids) is None
+
+
+@pytest.mark.asyncio
+async def test_verified_sections_are_reported_per_group_as_they_finish(monkeypatch):
+    ready = []
+    async def on_ready(sections):
+        ready.append([section.id for section in sections])
+    invalid = experience_output()
+    invalid['entries'][0]['bullets'][0]['text'] = 'Improved latency by 99%.'
+    result, _ = await run_pipeline(monkeypatch, [
+        {'sections': [summary_output(), invalid, custom_output()]},
+        {'sections': [experience_output()]},
+    ], on_sections_ready=on_ready)
+    # Summary/custom are reported as soon as their group passes; Experience after its repair.
+    assert ready == [['summary-id', 'custom-id'], ['experience-id']]
+    assert result['document']
