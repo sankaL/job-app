@@ -1,3 +1,10 @@
+## 2026-10-04 15:00:00 EDT - Parallel writing, keep-original sections and progressive display
+
+- Context: After bounding reasoning, routing providers and adding the Jev audit, writing was the remaining latency, and one unverifiable section still failed whole generations. The user approved splitting writing into two calls (about +$0.03-0.05), Sonnet repairs, a 10-request allowance, keeping original text instead of failing, prompt caching and progressive display.
+- Decision: Experience and other sections are written concurrently and audited per group. Repairs and LLM audits use Tier 1. Unverifiable sections in initial or full regeneration keep their original text, flagged `kept_original_unverified`, unless every writable section failed. Targeted and keyword operations still fail. Verified sections stream to the preview as `partial_sections`, and the worker publishes progress events. Live verification also found and fixed a contact-URL false positive (`portfolio.` at the end of a sentence) that forced two repair rounds per run.
+- Evidence: same resume and job description, sequential live runs. Medium median 77.6s -> 15.3s; High 33.1s -> 22.9s. Cost about $0.12-0.16 -> about $0.06. 6/6 new runs clean on the first try. See `docs/task-output/2026-10-04-generation-speed-robustness.md`.
+- Consequences: Shared contracts gained optional fields (document `generation_notice`, progress `partial_sections`); deploy backend and frontend before the worker. Users see real sections at about 12-14s and rarely see a failed generation; kept-original sections are clearly flagged for review.
+
 ## 2026-10-04 04:30:00 EDT - Jev decision model as first-pass grounding auditor
 
 - Context: The Gemini auditor took 18-32s at Medium; fast LLM auditors missed invented claims. The user prioritised speed, then robustness, then cost, and chose speed-favouring thresholds.

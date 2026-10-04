@@ -8,6 +8,24 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+
+## Generation speed and robustness (Jev audit, parallel writing, keep-original)
+
+**Status:** Complete on branch `generation-speed-robustness`; local verification passed (2026-10-04 15:00 EDT). Awaiting merge and rollout.
+
+- **Changes:**
+  - Bounded per-family reasoning with a 16k per-call output limit.
+  - Provider routing that denies data retention and sorts by latency, with Gemini pinned to AI Studio.
+  - A Jev first-pass claim audit that escalates uncertain claims to Sonnet.
+  - Two parallel writer groups, Sonnet repairs and prompt caching.
+  - Keep-original sections with a review notice instead of failed generations.
+  - Verified sections streaming into the generation preview.
+  - A contact-URL false-positive fix.
+- **Live result on one real resume:** Medium median 77.6s -> 15.3s; High 33.1s -> 22.9s; cost about $0.12-0.16 -> about $0.06 per generation. All new runs were clean on the first try.
+- **Tests:** agents 331, backend 522, local guards OK, frontend build OK. 3 frontend failures are unrelated (2 pre-existing shell tests, 1 timing flake).
+- **Rollout:** backend and frontend before the worker.
+- **Details:** `docs/task-output/2026-10-04-generation-speed-robustness.md`.
+
 ## Shared orange CTA accent
 
 **Status:** Complete; local verification passed (2026-10-04 10:12 EDT).
