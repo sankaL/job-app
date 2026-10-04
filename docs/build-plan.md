@@ -8,6 +8,12 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Old branch cleanup
+
+**Status:** Complete (2026-10-04 19:13 EDT).
+
+Deleted all 16 non-main local branches and the three remaining remote feature branches. Fourteen local branch heads were already merged into main; the `codex/kewords` patch was already present. Deleted the obsolete `ui-changes-qoder` prototype at the owner's explicit request without merging it. Verified that only `main` remains locally and on GitHub. This cleanup changes no application code or Railway configuration.
+
 ## Branch consolidation and ordered Railway release
 
 **Status:** Complete; PR #19 merged and all three production deployments verified (2026-10-04 19:05 EDT).
