@@ -34,6 +34,19 @@ class UserRepository:
     def _connection(self, *, user_id: Optional[str] = None, service: bool = False):
         return rls_connection(self.database_url, user_id=user_id, service=service)
 
+    def list_active_login_emails(self) -> list[str]:
+        with self._connection(service=True) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                select users.email
+                from public.users
+                left join public.profiles on profiles.id = users.id
+                where users.is_active and coalesce(profiles.is_active, true)
+                order by users.email
+                """
+            )
+            return [row["email"] for row in cursor.fetchall()]
+
     def create_user(self, *, email: str, password_hash: str) -> UserRecord:
         with self._connection(service=True) as connection, connection.cursor() as cursor:
             cursor.execute(

@@ -17,6 +17,7 @@ const DEFAULT_LABELS: Record<string, string> = {
   profile: "Profile",
   admin: "Admin",
   users: "User Management",
+  subscriptions: "Subscriptions",
   new: "New",
   dashboard: "Dashboard",
 };
@@ -28,8 +29,16 @@ function Breadcrumbs({ overrides }: BreadcrumbsProps) {
 
   if (segments.length <= 1) {
     return (
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm">
-        <span className="font-medium" style={{ color: "var(--color-ink)" }}>Home</span>
+      <nav
+        aria-label="Breadcrumb"
+        className="flex items-center gap-1.5 text-sm"
+      >
+        <span
+          className="font-medium"
+          style={{ color: "var(--color-text-primary)" }}
+        >
+          Dashboard
+        </span>
       </nav>
     );
   }
@@ -37,32 +46,62 @@ function Breadcrumbs({ overrides }: BreadcrumbsProps) {
   const crumbs = segments.map((segment, index) => {
     const path = "/" + segments.slice(0, index + 1).join("/");
     const override = overrides?.[segment];
-    const label = override?.label ?? DEFAULT_LABELS[segment] ?? decodeURIComponent(segment);
+    const label =
+      override?.label ?? DEFAULT_LABELS[segment] ?? decodeURIComponent(segment);
     const isLast = index === segments.length - 1;
 
     return { path, label, isLast };
   });
 
   return (
-    <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm overflow-hidden">
+    <nav
+      aria-label="Breadcrumb"
+      className="flex min-w-0 items-center gap-1.5 text-sm overflow-hidden"
+    >
       {crumbs.map((crumb, index) => (
-        <span key={crumb.path || `crumb-${index}`} className="flex min-w-0 items-center gap-1.5">
+        <span
+          key={crumb.path || `crumb-${index}`}
+          className="flex min-w-0 items-center gap-1.5"
+        >
           {index > 0 && (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0" style={{ color: "var(--color-ink-25)" }}>
-              <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              fill="none"
+              className="flex-shrink-0"
+              style={{ color: "var(--color-border-emphasized)" }}
+            >
+              <path
+                d="M5 3l4 4-4 4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           )}
           {crumb.isLast ? (
-            <span className="truncate font-medium" style={{ color: "var(--color-ink)", maxWidth: "180px" }}>
+            <span
+              className="truncate font-medium"
+              style={{ color: "var(--color-text-primary)", maxWidth: "180px" }}
+            >
               {crumb.label}
             </span>
           ) : (
             <Link
               to={crumb.path}
               className="truncate transition-colors hidden sm:inline"
-              style={{ color: "var(--color-ink-50)", maxWidth: "120px" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--color-ink)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--color-ink-50)"; }}
+              style={{
+                color: "var(--color-text-secondary)",
+                maxWidth: "120px",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = "var(--color-text-primary)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = "var(--color-text-secondary)";
+              }}
             >
               {crumb.label}
             </Link>
@@ -82,10 +121,15 @@ export function AppBreadcrumbs() {
   // If we're on an application detail page, override the ID segment with company + title
   const appDetailMatch = pathname.match(/\/app\/applications\/([^/]+)/);
   const applicationId = appDetailMatch?.[1];
-  const { data: application } = useApplicationDetailQuery(applicationId, { enabled: Boolean(applicationId) });
+  const { data: application } = useApplicationDetailQuery(applicationId, {
+    enabled: Boolean(applicationId),
+  });
   if (appDetailMatch) {
     if (application) {
-      const label = [application.company, application.job_title].filter(Boolean).join(" — ") || "Application";
+      const label =
+        [application.company, application.job_title]
+          .filter(Boolean)
+          .join(" — ") || "Application";
       overrides[applicationId ?? appDetailMatch[1]] = { label };
     }
   }
@@ -93,6 +137,7 @@ export function AppBreadcrumbs() {
   const resumeMatch = pathname.match(/^\/app\/resumes\/([^/]+)$/);
   const resumeId = resumeMatch?.[1];
   const { data: resume } = useBaseResumeQuery(resumeId);
-  if (resumeId && resumeId !== "new") overrides[resumeId] = { label: resume?.name || "Resume" };
+  if (resumeId && resumeId !== "new")
+    overrides[resumeId] = { label: resume?.name || "Resume" };
   return <Breadcrumbs overrides={overrides} />;
 }

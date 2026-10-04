@@ -15,7 +15,7 @@ export interface WordDiffChunk {
   removed?: boolean;
 }
 
-export type DiffChangeStatus = "added" | "removed" | "modified" | "unchanged";
+type DiffChangeStatus = "added" | "removed" | "modified" | "unchanged";
 
 export interface BulletDiffItem {
   id: string;
@@ -59,7 +59,7 @@ export interface ExperienceEntryDiff {
   };
 }
 
-export interface EducationEntryDiff {
+interface EducationEntryDiff {
   id: string;
   institution: string;
   institutionChunks?: WordDiffChunk[];
@@ -417,7 +417,7 @@ export function compareExperienceEntries(
   return diffs;
 }
 
-export function compareEducationEntries(
+function compareEducationEntries(
   baseEntries: ParsedEducationEntry[],
   tailoredEntries: ParsedEducationEntry[],
   stableIds = false,

@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import {
   createContext,
   useCallback,
@@ -40,42 +41,72 @@ let nextId = 0;
 
 /* ── Icons ── */
 const CheckIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M3.5 8.5l3 3 6-7" />
   </svg>
 );
 
 const ErrorIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="8" cy="8" r="6" />
     <path d="M8 5v3.5M8 10.5v.5" />
   </svg>
 );
 
 const InfoIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="8" cy="8" r="6" />
     <path d="M8 7v4M8 5v.5" />
   </svg>
 );
 
-const variantStyles: Record<ToastVariant, { bg: string; border: string; color: string; icon: ReactNode }> = {
+const variantStyles: Record<
+  ToastVariant,
+  { bg: string; border: string; color: string; icon: ReactNode }
+> = {
   success: {
-    bg: "var(--color-spruce-05)",
-    border: "var(--color-spruce)",
-    color: "var(--color-spruce)",
+    bg: "var(--color-accent-muted)",
+    border: "var(--color-accent)",
+    color: "var(--color-accent)",
     icon: <CheckIcon />,
   },
   error: {
-    bg: "var(--color-ember-05)",
-    border: "var(--color-ember)",
-    color: "var(--color-ember)",
+    bg: "var(--color-error-muted)",
+    border: "var(--color-error)",
+    color: "var(--color-error)",
     icon: <ErrorIcon />,
   },
   info: {
-    bg: "var(--color-ink-05)",
-    border: "var(--color-ink-25)",
-    color: "var(--color-ink)",
+    bg: "var(--color-background-muted)",
+    border: "var(--color-border-emphasized)",
+    color: "var(--color-text-primary)",
     icon: <InfoIcon />,
   },
 };
@@ -84,12 +115,21 @@ const variantStyles: Record<ToastVariant, { bg: string; border: string; color: s
 export function ToastProvider({ children }: PropsWithChildren) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const timersRef = useRef<Map<string, number>>(new Map());
+  const removalTimersRef = useRef<Map<string, number>>(new Map());
 
   const dismiss = useCallback((id: string) => {
-    setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, dismissing: true } : t)));
-    setTimeout(() => {
+    if (removalTimersRef.current.has(id)) return;
+    const autoTimer = timersRef.current.get(id);
+    if (autoTimer !== undefined) window.clearTimeout(autoTimer);
+    timersRef.current.delete(id);
+    setToasts((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, dismissing: true } : t)),
+    );
+    const removalTimer = window.setTimeout(() => {
+      removalTimersRef.current.delete(id);
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, DISMISS_ANIMATION_MS);
+    removalTimersRef.current.set(id, removalTimer);
   }, []);
 
   const toast = useCallback(
@@ -108,8 +148,12 @@ export function ToastProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const timers = timersRef.current;
+    const removalTimers = removalTimersRef.current;
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
+      removalTimers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+      removalTimers.clear();
     };
   }, []);
 
@@ -120,16 +164,16 @@ export function ToastProvider({ children }: PropsWithChildren) {
       {/* Toast Container */}
       {toasts.length > 0 && (
         <div
+          className="app-toast-stack"
           style={{
             position: "fixed",
-            bottom: "24px",
             right: "24px",
             zIndex: 9999,
             display: "flex",
             flexDirection: "column",
             gap: "8px",
             pointerEvents: "none",
-            maxWidth: "420px",
+            maxWidth: "min(420px, calc(100vw - 48px))",
             width: "100%",
           }}
         >
@@ -143,11 +187,11 @@ export function ToastProvider({ children }: PropsWithChildren) {
                   alignItems: "center",
                   gap: "10px",
                   padding: "12px 16px",
-                  borderRadius: "var(--radius-lg)",
+                  borderRadius: "var(--radius-container)",
                   border: `1px solid ${style.border}`,
                   background: style.bg,
                   backdropFilter: "blur(12px)",
-                  boxShadow: "var(--shadow-md)",
+                  boxShadow: "var(--shadow-med)",
                   color: style.color,
                   pointerEvents: "auto",
                   animation: t.dismissing
@@ -162,12 +206,13 @@ export function ToastProvider({ children }: PropsWithChildren) {
                     fontSize: "13px",
                     fontWeight: 500,
                     lineHeight: 1.4,
-                    color: "var(--color-ink)",
+                    color: "var(--color-text-primary)",
                   }}
                 >
                   {t.message}
                 </span>
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => {
                     const timer = timersRef.current.get(t.id);
                     if (timer) {
@@ -178,9 +223,6 @@ export function ToastProvider({ children }: PropsWithChildren) {
                   }}
                   style={{
                     flexShrink: 0,
-                    background: "none",
-                    border: "none",
-                    color: "var(--color-ink-40)",
                     cursor: "pointer",
                     padding: "2px",
                     lineHeight: 1,
@@ -189,7 +231,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
                   aria-label="Dismiss"
                 >
                   ✕
-                </button>
+                </Button>
               </div>
             );
           })}

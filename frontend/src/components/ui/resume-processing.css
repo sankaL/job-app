@@ -1,26 +1,122 @@
-.resume-processing { width: 100%; min-width: 0; display: flex; flex-direction: column; gap: 1.75rem; padding: clamp(1.25rem, 3vw, 2.5rem); background: var(--color-white); color: var(--color-ink); border: 1px solid var(--color-border); border-top: 3px solid var(--color-spruce); border-radius: 12px; overflow-wrap: anywhere; }
-.resume-processing-topline { display: flex; justify-content: space-between; align-items: center; gap: 1rem; font-size: .75rem; color: var(--color-spruce); }
-.resume-processing-topline > span:first-child { display: flex; align-items: center; gap: .5rem; }
-.resume-processing-time { color: var(--color-ink-50); font-variant-numeric: tabular-nums; }
-.resume-processing-heading h2 { font-family: "Fraunces", Georgia, serif; font-size: clamp(1.5rem, 2.4vw, 2rem); font-weight: 600; line-height: 1.2; }
-.resume-processing-heading > p { max-width: 52rem; margin-top: .75rem; color: var(--color-ink-65); font-size: .9375rem; line-height: 1.6; }
-.resume-processing-status { padding: 1rem 1.25rem; background: var(--color-spruce-05); border-radius: 8px; }
-.resume-processing-status > p:first-child { font-size: .875rem; font-weight: 600; color: var(--color-spruce); }
-.resume-processing-status progress { appearance: none; display: block; width: 100%; height: 4px; margin-top: .875rem; border: 0; border-radius: 2px; overflow: hidden; background: var(--color-spruce-10); accent-color: var(--color-spruce); }
-.resume-processing-status progress::-webkit-progress-bar { background: var(--color-spruce-10); }
-.resume-processing-status progress::-webkit-progress-value { background: var(--color-spruce); }
-.resume-processing-status progress::-moz-progress-bar { background: var(--color-spruce); }
-.resume-processing-status progress:indeterminate { background: linear-gradient(90deg, var(--color-spruce-10) 0%, var(--color-spruce) 45%, var(--color-spruce-10) 90%); background-size: 200% 100%; animation: resume-processing-flow 2s ease-in-out infinite; }
-.resume-processing-status progress:indeterminate::-webkit-progress-bar { background: transparent; }
-.resume-processing-wait { margin-top: .75rem; color: var(--color-ink-65); font-size: .8125rem; }
-.resume-processing-plan > h3 { color: var(--color-ink-50); font-size: .6875rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; margin-bottom: .625rem; }
-.resume-processing-plan ol { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: .25rem 1.75rem; }
-.resume-processing-plan li { display: flex; gap: .875rem; padding: 1rem 0; border-top: 1px solid var(--color-border); }
-.resume-processing-number { flex: 0 0 1.25rem; white-space: nowrap; font-size: .75rem; padding-top: .125rem; font-variant-numeric: tabular-nums; color: var(--color-ink-40); }
-.resume-processing-plan h4 { font-size: .875rem; font-weight: 600; }
-.resume-processing-plan li p { margin-top: .375rem; color: var(--color-ink-65); line-height: 1.55; font-size: .8125rem; }
-.resume-processing-plan li[data-current="true"] .resume-processing-number, .resume-processing-plan li[data-current="true"] h4 { color: var(--color-spruce); }
-.resume-processing-footer { margin-top: auto; border-top: 1px solid var(--color-border); padding-top: 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .875rem; }
-.resume-processing-footer p { max-width: 38rem; color: var(--color-ink-50); font-size: .75rem; line-height: 1.6; }
-@keyframes resume-processing-flow { from { background-position: 200% 0; } to { background-position: 0 0; } }
-@media (prefers-reduced-motion: reduce) { .resume-processing-status progress:indeterminate { animation: none; } }
+.resume-processing {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  padding: clamp(1.25rem, 3vw, 2.5rem);
+  background: var(--color-background-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-top: 3px solid var(--color-accent);
+  border-radius: var(--radius-container);
+  overflow-wrap: anywhere;
+}
+.resume-processing-topline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: var(--color-accent);
+}
+.resume-processing-topline > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.resume-processing-time {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.resume-processing-heading h2 {
+  font-family: var(--font-family-heading);
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
+  font-weight: 600;
+  line-height: 1.2;
+}
+.resume-processing-heading > p {
+  max-width: 52rem;
+  margin-top: 0.75rem;
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+.resume-processing-status {
+  padding: 1rem 1.25rem;
+  background: var(--color-accent-muted);
+  border-radius: var(--radius-element);
+}
+.resume-processing-status > p:first-child {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+.resume-processing-wait {
+  margin-top: 0.75rem;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}
+.resume-processing-plan > h3 {
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.625rem;
+}
+.resume-processing-plan ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 0.25rem 1.75rem;
+}
+.resume-processing-plan li {
+  display: flex;
+  gap: 0.875rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--color-border);
+}
+.resume-processing-number {
+  flex: 0 0 1.25rem;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  padding-top: 0.125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+.resume-processing-plan h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.resume-processing-plan li p {
+  margin-top: 0.375rem;
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+  font-size: 0.8125rem;
+}
+.resume-processing-plan li[data-current="true"] .resume-processing-number,
+.resume-processing-plan li[data-current="true"] h4 {
+  color: var(--color-accent);
+}
+.resume-processing-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.875rem;
+}
+.resume-processing-footer p {
+  max-width: 38rem;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+/* The paper and its staggered Astryx skeleton lines animate independently of job progress. */
+.resume-generation-paper {
+  border-color: var(--color-border);
+  background: var(--color-background-surface);
+}
+.resume-processing[data-active="false"] .astryx-skeleton { animation: none; }

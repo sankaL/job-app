@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Button } from "@/components/ui/button";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { ApplicationActivityItem } from "@/components/applications/ApplicationActivityItem";
@@ -53,39 +56,93 @@ function ActivityPanelBody({
 }) {
   if (isLoading)
     return (
-      <p className="text-sm text-[var(--color-ink-50)]">Loading activity…</p>
+      <Text
+        as="p"
+        display="block"
+        type="body"
+        className="text-[var(--color-text-secondary)]"
+      >
+        Loading activity…
+      </Text>
     );
   if (errorMessage) {
     return (
       <div
-        className="rounded-lg border p-3"
+        className="border-l p-3"
         style={{
-          borderColor: "var(--color-ember-10)",
-          background: "var(--color-ember-05)",
+          borderColor: "var(--color-error-muted)",
+          background: "var(--color-error-muted)",
         }}
       >
-        <p className="text-sm font-semibold text-[var(--color-ember)]">
+        <Text
+          as="p"
+          display="block"
+          type="label"
+          className="text-[var(--color-error)]"
+        >
           Activity unavailable
-        </p>
-        <p className="mt-1 text-xs text-[var(--color-ink-65)]">
+        </Text>
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-1 text-[var(--color-text-secondary)]"
+        >
           {errorMessage}
-        </p>
+        </Text>
       </div>
     );
   }
   if (grouped.length === 0)
     return (
-      <p className="text-sm text-[var(--color-ink-50)]">No activity yet.</p>
+      <Text
+        as="p"
+        display="block"
+        type="body"
+        className="text-[var(--color-text-secondary)]"
+      >
+        No activity yet.
+      </Text>
     );
+
+  return <ActivityTimeline grouped={grouped} expandedIds={expandedIds} onToggle={onToggle} />;
+}
+
+function ActivityTimeline({ grouped, expandedIds, onToggle }: {
+  grouped: ActivityGroup[];
+  expandedIds: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const lineRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const timeline = timelineRef.current;
+    const line = lineRef.current;
+    if (!timeline || !line) return;
+    const measure = () => {
+      const dots = timeline.querySelectorAll<HTMLElement>("[data-activity-dot]");
+      const first = dots[0]?.getBoundingClientRect();
+      const last = dots[dots.length - 1]?.getBoundingClientRect();
+      if (!first || !last) return;
+      const top = first.top + first.height / 2;
+      line.style.top = `${top - timeline.getBoundingClientRect().top}px`;
+      line.style.height = `${last.top + last.height / 2 - top}px`;
+    };
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(timeline);
+    return () => observer?.disconnect();
+  }, [grouped, expandedIds]);
 
   return (
     <div
-      className="relative ml-3 space-y-6 border-l pl-6"
-      style={{ borderColor: "var(--color-border)" }}
+      className="relative ml-3 flex flex-col gap-6 pl-6"
+      ref={timelineRef}
     >
+      <div ref={lineRef} aria-hidden="true" data-testid="activity-timeline-line" className="absolute left-0 w-px bg-[var(--color-border)] pointer-events-none" />
       {grouped.map((group) => (
         <section key={group.label} className="space-y-4">
-          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--color-ink-40)]">
+          <div className="text-xs font-bold text-[var(--color-text-secondary)]">
             {group.label}
           </div>
           <div className="space-y-4">
@@ -187,9 +244,10 @@ export function ApplicationActivityPanel({
 
   return createPortal(
     <div className="fixed inset-0 z-50">
-      <button
+      <Button
+        variant="ghost"
         type="button"
-        className="absolute inset-0 bg-black/35"
+        className="absolute inset-0"
         aria-label="Close activity panel"
         onClick={onClose}
       />
@@ -197,7 +255,7 @@ export function ApplicationActivityPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Application activity"
-        className="absolute inset-x-0 bottom-0 top-[10%] overflow-hidden border-t bg-white shadow-2xl sm:inset-y-0 sm:left-auto sm:w-[28rem] sm:max-w-[90vw] sm:border-l sm:border-t-0"
+        className="absolute inset-x-0 bottom-0 top-[10%] overflow-hidden border-t bg-[var(--color-background-surface)] shadow-[var(--shadow-high)] sm:inset-y-0 sm:left-auto sm:w-[28rem] sm:max-w-[90vw] sm:border-l sm:border-t-0"
         style={{ borderColor: "var(--color-border)" }}
       >
         <header
@@ -205,23 +263,28 @@ export function ApplicationActivityPanel({
           style={{ borderColor: "var(--color-border)" }}
         >
           <div>
-            <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+            <Heading level={2} className="text-[var(--color-text-primary)]">
               Activity Log
-            </h2>
-            <p className="mt-1 text-xs text-[var(--color-ink-50)]">
+            </Heading>
+            <Text
+              as="p"
+              display="block"
+              type="supporting"
+              className="mt-1 text-[var(--color-text-secondary)]"
+            >
               Timeline of manual and AI actions for this application.
-            </p>
+            </Text>
           </div>
-          <button
+          <Button
+            variant="ghost"
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border text-[var(--color-ink-50)] transition-colors"
-            style={{ borderColor: "var(--color-border)" }}
+            className="inline-flex h-8 w-8 items-center justify-center border transition-colors"
             aria-label="Close activity panel"
           >
             <X size={14} aria-hidden="true" />
-          </button>
+          </Button>
         </header>
         <div className="h-[calc(100%-65px)] overflow-y-auto px-4 py-3">
           <ActivityPanelBody

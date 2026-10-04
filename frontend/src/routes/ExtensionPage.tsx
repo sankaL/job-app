@@ -1,7 +1,9 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import {
   fetchExtensionStatus,
   issueExtensionToken,
@@ -92,10 +94,12 @@ function ConnectionRow({
       <span
         className="h-2 w-2 rounded-full"
         style={{
-          background: connected ? "var(--color-spruce)" : "var(--color-ink-25)",
+          background: connected
+            ? "var(--color-accent)"
+            : "var(--color-border-emphasized)",
         }}
       />
-      <span className="text-sm text-[var(--color-ink)]">
+      <span className="text-sm text-[var(--color-text-primary)]">
         {connected ? connectedLabel : disconnectedLabel}
       </span>
     </div>
@@ -111,33 +115,25 @@ function getTokenLabel(status: ExtensionConnectionStatus | null) {
 function LastImport({ timestamp }: { timestamp: string | null | undefined }) {
   if (!timestamp) return null;
   return (
-    <div className="text-xs text-[var(--color-ink-40)]">
+    <div className="text-xs text-[var(--color-text-secondary)]">
       Last import: {new Date(timestamp).toLocaleString()}
     </div>
   );
 }
 
-function ExtensionStatusCard({
+function ExtensionStatusSection({
   status,
   bridgeDetected,
-  isConnecting,
-  isRevoking,
-  onConnect,
-  onRevoke,
 }: {
   status: ExtensionConnectionStatus | null;
   bridgeDetected: boolean;
-  isConnecting: boolean;
-  isRevoking: boolean;
-  onConnect: () => void;
-  onRevoke: () => void;
 }) {
   const tokenLabel = getTokenLabel(status);
   return (
-    <Card density="compact" className="flex h-full flex-col">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-40)]">
+    <Section density="compact" className="flex h-full flex-col">
+      <Heading level={3} className="text-[var(--color-text-secondary)]">
         Connection Status
-      </h3>
+      </Heading>
       <div className="mt-3 space-y-2.5">
         <ConnectionRow
           connected={bridgeDetected}
@@ -151,39 +147,33 @@ function ExtensionStatusCard({
         />
         <LastImport timestamp={status?.token_last_used_at} />
       </div>
-      <div className="mt-auto flex justify-end gap-2 pt-4">
-        <Button size="sm" loading={isConnecting} onClick={onConnect}>
-          {status?.connected ? "Rotate Connection" : "Connect Extension"}
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          loading={isRevoking}
-          onClick={onRevoke}
-        >
-          Revoke Access
-        </Button>
-      </div>
-    </Card>
+    </Section>
   );
 }
 
 function ExtensionSetupGuide() {
   return (
-    <Card density="compact">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-40)]">
+    <Section density="compact">
+      <Heading level={3} className="text-[var(--color-text-secondary)]">
         Setup Guide
-      </h3>
+      </Heading>
       <div className="mt-3 space-y-3">
         {SETUP_STEPS.map((step) => (
           <div key={step.num} className="flex gap-3">
-            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[var(--color-spruce-10)] text-xs font-bold text-[var(--color-spruce)]">
+            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-muted)] text-xs font-bold text-[var(--color-accent)]">
               {step.num}
             </span>
             <div>
-              <p className="text-sm text-[var(--color-ink)]">{step.text}</p>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="text-[var(--color-text-primary)]"
+              >
+                {step.text}
+              </Text>
               {step.detail ? (
-                <code className="mt-1 inline-block rounded bg-[var(--color-ink-05)] px-2 py-0.5 text-xs text-[var(--color-ink-65)]">
+                <code className="mt-1 inline-block rounded bg-[var(--color-background-muted)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
                   {step.detail}
                 </code>
               ) : null}
@@ -191,7 +181,7 @@ function ExtensionSetupGuide() {
           </div>
         ))}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -274,39 +264,68 @@ export function ExtensionPage() {
     <div className="page-enter space-y-5">
       <PageHeader
         title="Chrome Extension"
+        primaryActionIndex={0}
         subtitle="Capture job postings directly from your browser"
+        actions={
+          <>
+            <Button
+              size="sm"
+              loading={isConnecting}
+              onClick={() => void handleConnect()}
+            >
+              {status?.connected ? "Rotate Connection" : "Connect Extension"}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              loading={isRevoking}
+              onClick={() => void handleRevoke()}
+            >
+              Revoke Access
+            </Button>
+          </>
+        }
       />
 
       {error && (
-        <Card variant="danger" density="compact">
-          <p
-            className="text-sm font-semibold"
-            style={{ color: "var(--color-ember)" }}
+        <Section variant="danger" density="compact">
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            style={{ color: "var(--color-error)" }}
           >
             Error
-          </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-1"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
             {error}
-          </p>
-        </Card>
+          </Text>
+        </Section>
       )}
 
       {message && (
-        <Card variant="success" density="compact">
-          <p className="text-sm" style={{ color: "var(--color-spruce)" }}>
+        <Section variant="success" density="compact">
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            style={{ color: "var(--color-accent)" }}
+          >
             {message}
-          </p>
-        </Card>
+          </Text>
+        </Section>
       )}
 
-      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <ExtensionStatusCard
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-w-5xl">
+        <ExtensionStatusSection
           status={status}
           bridgeDetected={bridgeDetected}
-          isConnecting={isConnecting}
-          isRevoking={isRevoking}
-          onConnect={() => void handleConnect()}
-          onRevoke={() => void handleRevoke()}
         />
         <ExtensionSetupGuide />
       </div>

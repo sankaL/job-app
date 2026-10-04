@@ -1,3 +1,11 @@
+import { ActionButtons } from "@/components/ui/button-group";
+import { SectionRegenerationProgress } from "@/components/ui/section-regeneration-progress";
+import type { SectionProcessing } from "@/components/resume/ResumeSectionWorkbench";
+
+import { HStack } from "@astryxdesign/core/HStack";
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import {
   FormEvent,
   useEffect,
@@ -8,16 +16,13 @@ import {
   type SetStateAction,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
   CircleStop,
   FileText,
-  Gauge,
   History,
-  MessageSquare,
-  Ruler,
   Sparkles,
   Trash2,
   ExternalLink,
@@ -26,14 +31,16 @@ import {
   RefreshCw,
   Check,
   X,
-  Target,
 } from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { useShellLayout } from "@/components/layout/ShellLayoutContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ApplicationActivityPanel } from "@/components/applications/ApplicationActivityPanel";
+import { InlineDetailField } from "@/components/applications/InlineDetailField";
+import { GenerationSettingsFields } from "@/components/applications/GenerationSettingsFields";
+import { ApplicationDetailsPanel } from "@/components/applications/ApplicationDetailsPanel";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -41,7 +48,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import { InfoPopover } from "@/components/ui/info-popover";
 import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
@@ -51,16 +57,12 @@ import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
 import { getResumeRegenerationBlocker } from "@/lib/resume-document";
 import { GenerationProgress } from "@/components/ui/generation-progress";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import {
   cancelExtraction,
   deleteApplication,
-  fetchApplicationDetail,
-  fetchApplicationProgress,
   fetchBaseResume,
-  fetchDraft,
-  listBaseResumes,
   patchApplication,
   recoverApplicationFromSource,
   resolveDuplicate,
@@ -123,111 +125,40 @@ function JobInformationFields({
   setForm: Dispatch<SetStateAction<JobFormState>>;
   compact?: boolean;
 }) {
-  const controlClass = compact ? "text-sm" : undefined;
-  const labelClass = compact ? "text-xs" : undefined;
   const setField = (field: keyof JobFormState, value: string) =>
     setForm((current) => ({ ...current, [field]: value }));
-  return (
-    <>
-      <div>
-        <Label htmlFor="job-title" className={labelClass}>
-          Job Title
-        </Label>
-        <Input
-          id="job-title"
-          className={controlClass}
-          placeholder="Job title"
-          value={form.job_title}
-          onChange={(event) => setField("job_title", event.target.value)}
-        />
-      </div>
-      <div>
-        <Label htmlFor="company" className={labelClass}>
-          Company
-        </Label>
-        <Input
-          id="company"
-          className={controlClass}
-          placeholder="Company"
-          value={form.company}
-          onChange={(event) => setField("company", event.target.value)}
-        />
-      </div>
-      <div>
-        <Label htmlFor="origin" className={labelClass}>
-          Posting Source
-        </Label>
-        <Select
-          id="origin"
-          className={controlClass}
-          value={form.job_posting_origin}
-          onChange={(event) =>
-            setField("job_posting_origin", event.target.value)
-          }
-        >
+  const fields: { field: keyof JobFormState; label: string; id: string; multiline?: boolean }[] = [
+    { field: "job_title", label: "Job Title", id: "job-title" },
+    { field: "company", label: "Company", id: "company" },
+    { field: "job_posting_origin", label: "Posting Source", id: "origin" },
+    { field: "job_description", label: "Job Description", id: "jd", multiline: true },
+    { field: "job_location_text", label: "Location", id: "job-location-detail" },
+    { field: "compensation_text", label: "Compensation", id: "compensation-detail" },
+  ];
+  return <>{fields.map(({ field, label, id, multiline }) => {
+    const editor = field === "job_posting_origin" ? (
+      <>
+        <Select id={id} aria-label={label} value={form[field]} onChange={(event) => setField(field, event.target.value)}>
           <option value="">Unknown</option>
-          {jobPostingOriginOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
+          {jobPostingOriginOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </Select>
-      </div>
-      {form.job_posting_origin === "other" ? (
-        <Input
-          className={controlClass}
-          placeholder="Other source label"
-          value={form.job_posting_origin_other_text}
-          onChange={(event) =>
-            setField("job_posting_origin_other_text", event.target.value)
-          }
-        />
-      ) : null}
-      <div>
-        <Label htmlFor="jd" className={labelClass}>
-          Job Description
-        </Label>
-        <Textarea
-          id="jd"
-          className={`${controlClass ?? ""} min-h-32`.trim()}
-          placeholder="Job description"
-          value={form.job_description}
-          onChange={(event) => setField("job_description", event.target.value)}
-        />
-      </div>
-      <div>
-        <Label htmlFor="job-location-detail" className={labelClass}>
-          Location
-        </Label>
-        <Input
-          id="job-location-detail"
-          className={controlClass}
-          placeholder="e.g. British Columbia/Ontario or Toronto, Ontario"
-          value={form.job_location_text}
-          onChange={(event) =>
-            setField("job_location_text", event.target.value)
-          }
-        />
-      </div>
-      <div>
-        <Label htmlFor="compensation-detail" className={labelClass}>
-          Compensation
-        </Label>
-        <Input
-          id="compensation-detail"
-          className={controlClass}
-          placeholder="e.g. $140,000 - $175,000 base salary"
-          value={form.compensation_text}
-          onChange={(event) =>
-            setField("compensation_text", event.target.value)
-          }
-        />
-      </div>
-    </>
-  );
+        {form.job_posting_origin === "other" && <Input aria-label="Other source label" placeholder="Other source label" value={form.job_posting_origin_other_text} onChange={(event) => setField("job_posting_origin_other_text", event.target.value)} />}
+      </>
+    ) : multiline ? (
+      <Textarea id={id} aria-label={label} className="min-h-32" placeholder="Job description" value={form[field]} onChange={(event) => setField(field, event.target.value)} />
+    ) : (
+      <Input id={id} aria-label={label} placeholder={label} value={form[field]} onChange={(event) => setField(field, event.target.value)} />
+    );
+    const displayValue = field === "job_posting_origin"
+      ? form.job_posting_origin === "other" ? form.job_posting_origin_other_text || "Other" : jobPostingOriginOptions.find((option) => option.value === form[field])?.label
+      : form[field];
+    return compact ? (
+      <InlineDetailField key={field} label={label} value={displayValue} multiline={multiline}>{editor}</InlineDetailField>
+    ) : <div key={field}><Label htmlFor={id}>{label}</Label>{editor}</div>;
+  })}</>;
 }
 
-function NotesCard({
+function NotesSection({
   value,
   state,
   onChange,
@@ -244,24 +175,38 @@ function NotesCard({
       : state === "saved"
         ? "Saved."
         : "Autosaves when you pause typing.";
+  if (compact) return (
+    <Section density="compact" className="p-4">
+      <InlineDetailField label="Notes" value={value} multiline>
+        <Textarea aria-label="Notes" className="min-h-24" placeholder="Add your own notes…" value={value} onChange={(event) => onChange(event.target.value)} />
+        <Text as="p" type="supporting" color="secondary" role="status">{status}</Text>
+      </InlineDetailField>
+    </Section>
+  );
   return (
-    <Card density="compact" className="p-4">
-      <h3
-        className="text-xs font-semibold uppercase tracking-wider"
-        style={{ color: "var(--color-ink-40)" }}
+    <Section density="compact" className="p-4">
+      <Heading
+        level={3}
+        style={{ color: "var(--color-text-secondary)" }}
       >
         Notes
-      </h3>
+      </Heading>
       <Textarea
         className={`mt-3 min-h-24${compact ? " text-sm" : ""}`}
         placeholder="Add your own notes…"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
-      <p className="mt-2 text-xs" style={{ color: "var(--color-ink-40)" }}>
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        className="mt-2"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {status}
-      </p>
-    </Card>
+      </Text>
+    </Section>
   );
 }
 
@@ -349,25 +294,25 @@ function isResumeJudgeStale(detail: ApplicationDetail | null) {
 function resumeJudgeTone(verdict: string | null | undefined) {
   if (verdict === "pass") {
     return {
-      accent: "var(--color-spruce)",
-      bg: "var(--color-spruce-05)",
-      border: "var(--color-spruce-10)",
-      muted: "var(--color-ink-65)",
+      accent: "var(--color-accent)",
+      bg: "var(--color-accent-muted)",
+      border: "var(--color-accent-muted)",
+      muted: "var(--color-text-secondary)",
     };
   }
   if (verdict === "warn") {
     return {
-      accent: "var(--color-amber)",
-      bg: "var(--color-amber-10)",
-      border: "rgba(180,83,9,0.2)",
-      muted: "var(--color-ink-65)",
+      accent: "var(--color-warning)",
+      bg: "var(--color-warning-muted)",
+      border: "var(--color-warning-muted)",
+      muted: "var(--color-text-secondary)",
     };
   }
   return {
-    accent: "var(--color-ember)",
-    bg: "var(--color-ember-05)",
-    border: "var(--color-ember-10)",
-    muted: "var(--color-ink-65)",
+    accent: "var(--color-error)",
+    bg: "var(--color-error-muted)",
+    border: "var(--color-error-muted)",
+    muted: "var(--color-text-secondary)",
   };
 }
 
@@ -449,46 +394,46 @@ function keywordTone(
 ) {
   if (status === "failed") {
     return {
-      accent: "var(--color-ember)",
-      bg: "var(--color-ember-05)",
-      border: "var(--color-ember-10)",
+      accent: "var(--color-error)",
+      bg: "var(--color-error-muted)",
+      border: "var(--color-error-muted)",
     };
   }
   if (!match) {
     return {
-      accent: "var(--color-ink-50)",
-      bg: "var(--color-ink-05)",
+      accent: "var(--color-text-secondary)",
+      bg: "var(--color-background-muted)",
       border: "var(--color-border)",
     };
   }
   if (match.target_met) {
     return {
-      accent: "var(--color-spruce)",
-      bg: "var(--color-spruce-05)",
-      border: "var(--color-spruce-10)",
+      accent: "var(--color-accent)",
+      bg: "var(--color-accent-muted)",
+      border: "var(--color-accent-muted)",
     };
   }
   return {
-    accent: "var(--color-amber)",
-    bg: "var(--color-amber-10)",
-    border: "rgba(180,83,9,0.2)",
+    accent: "var(--color-warning)",
+    bg: "var(--color-warning-muted)",
+    border: "var(--color-warning-muted)",
   };
 }
 
 function isGenerationWorkflowActive(detail: ApplicationDetail | null) {
   return Boolean(
     detail &&
-      !detail.failure_reason &&
-      ACTIVE_GENERATION_STATES.includes(detail.internal_state),
+    !detail.failure_reason &&
+    ACTIVE_GENERATION_STATES.includes(detail.internal_state),
   );
 }
 
 function isGenerationProgressActive(progress: ExtractionProgress | null) {
   return Boolean(
     progress &&
-      !progress.completed_at &&
-      !progress.terminal_error_code &&
-      ACTIVE_GENERATION_PROGRESS_STATES.includes(progress.state),
+    !progress.completed_at &&
+    !progress.terminal_error_code &&
+    ACTIVE_GENERATION_PROGRESS_STATES.includes(progress.state),
   );
 }
 
@@ -790,7 +735,7 @@ function keywordEmptyMessage(
     );
   if (updating)
     return "Keyword extraction is updating from the latest job description.";
-  return "Keywords will appear after the job description is extracted, saved, or added manually.";
+  return "Save a job description to extract keywords.";
 }
 
 function KeywordCoverageBody({
@@ -812,8 +757,8 @@ function KeywordCoverageBody({
   return (
     <div className="mt-3">
       <div
-        className="flex items-center justify-between gap-3 text-[11px]"
-        style={{ color: "var(--color-ink-50)" }}
+        className="flex items-center justify-between gap-3 text-xs"
+        style={{ color: "var(--color-text-secondary)" }}
       >
         <span>Target {match.target_percentage}%</span>
         <span style={{ color: tone.accent }}>
@@ -822,7 +767,7 @@ function KeywordCoverageBody({
       </div>
       <div
         className="mt-2 h-2 overflow-hidden rounded-full"
-        style={{ background: "rgba(15,23,42,0.08)" }}
+        style={{ background: "var(--color-border)" }}
       >
         <div
           className="h-full rounded-full transition-all"
@@ -832,14 +777,20 @@ function KeywordCoverageBody({
           }}
         />
       </div>
-      <p className="mt-2 text-[11px]" style={{ color: "var(--color-ink-50)" }}>
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        className="mt-2"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {manualLabel}
-      </p>
+      </Text>
     </div>
   );
 }
 
-function KeywordMatchCard({
+function KeywordMatchSection({
   jobKeywords,
   match,
   onOpen,
@@ -863,44 +814,41 @@ function KeywordMatchCard({
     ? `${percentage.toFixed(1)}% matched`
     : `${entries.length} total`;
   return (
-    <Card
+    <Section
       density="compact"
       className="p-0"
       data-testid="keyword-match-card"
       style={{
         borderColor: tone.border,
-        background: `linear-gradient(145deg, ${tone.bg} 0%, white 88%)`,
       }}
     >
-      <button type="button" className="w-full p-3 text-left" onClick={onOpen}>
+      <Button
+        contentLayout="block"
+        variant="ghost"
+        type="button"
+        className="w-full p-3 text-left"
+        onClick={onOpen}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <span
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-              style={{ background: tone.bg, color: tone.accent }}
-            >
-              <Target size={14} aria-hidden="true" />
-            </span>
             <div>
-              <p
-                className="text-[10px] font-semibold uppercase tracking-[0.22em]"
-                style={{ color: "var(--color-ink-50)" }}
-              >
-                ATS Keywords
-              </p>
-              <p
-                className="mt-1 text-sm font-semibold"
-                style={{ color: "var(--color-ink)" }}
+              <Heading level={3}>ATS Keywords</Heading>
+              <Text
+                as="p"
+                display="block"
+                type="label"
+                className="mt-1"
+                style={{ color: "var(--color-text-primary)" }}
               >
                 {summary}
-              </p>
+              </Text>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{
-                background: "rgba(255,255,255,0.72)",
+                background: "var(--color-background-surface)",
                 color: tone.accent,
               }}
             >
@@ -909,7 +857,7 @@ function KeywordMatchCard({
             <ExternalLink
               size={14}
               aria-hidden="true"
-              style={{ color: "var(--color-ink-50)" }}
+              style={{ color: "var(--color-text-secondary)" }}
             />
           </div>
         </div>
@@ -921,15 +869,18 @@ function KeywordMatchCard({
             tone={tone}
           />
         ) : (
-          <p
-            className="mt-3 text-xs leading-5"
-            style={{ color: "var(--color-ink-65)" }}
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="mt-3 leading-5"
+            style={{ color: "var(--color-text-secondary)" }}
           >
             {keywordEmptyMessage(jobKeywords, updating)}
-          </p>
+          </Text>
         )}
-      </button>
-    </Card>
+      </Button>
+    </Section>
   );
 }
 
@@ -941,22 +892,22 @@ function getKeywordPillPresentation(
   if (matched)
     return {
       label: "matched keyword",
-      color: "var(--color-spruce)",
-      border: "var(--color-spruce-10)",
-      background: "var(--color-spruce-05)",
+      color: "var(--color-accent)",
+      border: "var(--color-accent-muted)",
+      background: "var(--color-accent-muted)",
     };
   if (missing)
     return {
       label: "missing keyword",
-      color: "var(--color-ember)",
-      border: "var(--color-ember-10)",
-      background: "var(--color-ember-05)",
+      color: "var(--color-error)",
+      border: "var(--color-error-muted)",
+      background: "var(--color-error-muted)",
     };
   return {
     label: `${entry.source} keyword`,
-    color: "var(--color-ink)",
+    color: "var(--color-text-primary)",
     border: "var(--color-border)",
-    background: "var(--color-ink-05)",
+    background: "var(--color-background-muted)",
   };
 }
 
@@ -971,19 +922,16 @@ function ManualKeywordRemove({
 }) {
   if (entry.source !== "manual") return null;
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
-      className="ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full"
-      style={{
-        background: "rgba(15,23,42,0.08)",
-        color: "var(--color-ink-50)",
-      }}
+      className="ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center"
       aria-label={`Remove ${entry.text}`}
       disabled={saving}
       onClick={() => onRemove(entry.text)}
     >
       <X size={11} aria-hidden="true" />
-    </button>
+    </Button>
   );
 }
 
@@ -1003,7 +951,7 @@ function KeywordPill({
   const presentation = getKeywordPillPresentation(entry, matched, missing);
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium"
+      className="inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium"
       aria-label={`${entry.text}, ${presentation.label}`}
       style={{
         borderColor: presentation.border,
@@ -1037,15 +985,17 @@ function KeywordGroup({
   return (
     <section>
       <div className="flex items-center justify-between gap-3">
-        <p
-          className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-          style={{ color: "var(--color-ink-50)" }}
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {label}
-        </p>
+        </Text>
         <span
           className="text-xs font-semibold"
-          style={{ color: "var(--color-ink-50)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {entries.length}
           {limit ? `/${limit}` : ""}
@@ -1064,12 +1014,15 @@ function KeywordGroup({
             />
           ))
         ) : (
-          <p
-            className="text-xs leading-5"
-            style={{ color: "var(--color-ink-50)" }}
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            className="leading-5"
+            style={{ color: "var(--color-text-secondary)" }}
           >
             No {label.toLowerCase()} keywords.
-          </p>
+          </Text>
         )}
       </div>
     </section>
@@ -1135,24 +1088,30 @@ function KeywordDialogHeader({
     <div className="px-6 pb-5 pt-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p
-            className="text-[11px] font-semibold uppercase tracking-[0.24em]"
-            style={{ color: "var(--color-ink-50)" }}
+          <Text
+            as="p"
+            display="block"
+            type="supporting"
+            style={{ color: "var(--color-text-secondary)" }}
           >
             ATS Keywords
-          </p>
-          <h2
-            className="mt-2 text-xl font-semibold"
-            style={{ color: "var(--color-ink)" }}
+          </Text>
+          <Heading
+            level={2}
+            className="mt-2"
+            style={{ color: "var(--color-text-primary)" }}
           >
             Keyword breakdown
-          </h2>
-          <p
-            className="mt-2 text-sm font-semibold"
+          </Heading>
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            className="mt-2"
             style={{ color: tone.accent }}
           >
             {score}
-          </p>
+          </Text>
         </div>
         <div className="flex items-center gap-2">
           <span
@@ -1161,13 +1120,14 @@ function KeywordDialogHeader({
           >
             {badge}
           </span>
-          <button
+          <Button
+            variant="ghost"
             type="button"
-            className="rounded-full px-3 py-1.5 text-sm font-semibold"
+            className="px-3 py-1.5 text-sm"
             onClick={onClose}
           >
             Close
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -1190,32 +1150,38 @@ function KeywordOptimization({
       className="border-t pt-5"
       style={{ borderColor: "var(--color-border)" }}
     >
-      <p
-        className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-        style={{ color: "var(--color-ink-50)" }}
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        style={{ color: "var(--color-text-secondary)" }}
       >
         Optimization
-      </p>
+      </Text>
       <div className="mt-3 flex items-center justify-between gap-3 text-sm">
         <span>Missing keywords</span>
         <span className="font-semibold">{missingCount}</span>
       </div>
-      <button
+      <Button
+        variant="ghost"
         type="button"
         disabled={Boolean(blocker) || optimizing}
-        className="ai-button mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
+        className="mt-4 inline-flex w-full items-center justify-center gap-1.5 px-4 py-2 text-sm disabled:opacity-50"
         onClick={onOptimize}
       >
         <Sparkles size={14} />
         {optimizing ? "Starting..." : "Optimize for missing keywords"}
-      </button>
+      </Button>
       {blocker && (
-        <p
-          className="mt-2 text-xs leading-5"
-          style={{ color: "var(--color-ink-50)" }}
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-2 leading-5"
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {blocker}
-        </p>
+        </Text>
       )}
     </section>
   );
@@ -1232,7 +1198,7 @@ function KeywordDialogSidebar(
       className="space-y-6 border-t px-6 py-5 lg:border-l lg:border-t-0"
       style={{
         borderColor: "var(--color-border)",
-        background: "var(--color-ink-05)",
+        background: "var(--color-background-muted)",
       }}
     >
       <form onSubmit={props.onAdd}>
@@ -1283,9 +1249,9 @@ function KeywordDialogContent(
         width: "min(920px, 100%)",
         maxHeight: "calc(100vh - 48px)",
         overflowY: "auto",
-        borderRadius: "24px",
+        borderRadius: "var(--radius-container)",
         background: "white",
-        boxShadow: "var(--shadow-panel)",
+        boxShadow: "var(--shadow-high)",
       }}
       role="dialog"
       aria-modal="true"
@@ -1376,7 +1342,7 @@ function KeywordDialog(props: KeywordDialogProps) {
         style={{
           position: "absolute",
           inset: 0,
-          background: "rgba(16, 24, 40, 0.52)",
+          background: "var(--color-overlay)",
           backdropFilter: "blur(8px)",
         }}
       />
@@ -1388,38 +1354,34 @@ function KeywordDialog(props: KeywordDialogProps) {
 
 type ResumeJudgeResult = ApplicationDetail["resume_judge_result"];
 
-function PendingResumeJudgeCard() {
+function PendingResumeJudgeSection() {
   return (
-    <Card
+    <Section
       density="compact"
       className="w-full p-3"
       data-testid="resume-judge-card"
       style={{
-        borderColor: "var(--color-spruce-10)",
-        background:
-          "linear-gradient(145deg, color-mix(in srgb, var(--color-spruce) 8%, white) 0%, white 88%)",
+        borderColor: "var(--color-accent-muted)",
       }}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <span
-            className="text-[10px] font-semibold uppercase tracking-[0.22em]"
-            style={{ color: "var(--color-ink-50)" }}
-          >
-            Resume Judge
-          </span>
-          <p
-            className="mt-1.5 text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+          <Heading level={3}>Resume Judge</Heading>
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            className="mt-1.5"
+            style={{ color: "var(--color-text-primary)" }}
           >
             Scoring draft
-          </p>
+          </Text>
         </div>
         <span
-          className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+          className="rounded-full px-2.5 py-1 text-xs font-semibold"
           style={{
-            background: "var(--color-spruce-05)",
-            color: "var(--color-spruce)",
+            background: "var(--color-accent-muted)",
+            color: "var(--color-accent)",
           }}
         >
           Running
@@ -1429,27 +1391,23 @@ function PendingResumeJudgeCard() {
         <span
           className="inline-block h-2.5 w-2.5 rounded-full"
           style={{
-            background: "var(--color-spruce)",
-            boxShadow: "0 0 0 6px var(--color-spruce-05)",
+            background: "var(--color-accent)",
+            boxShadow: "0 0 0 6px var(--color-accent-muted)",
           }}
         />
         <span
           className="text-xs leading-5"
-          style={{ color: "var(--color-ink-65)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           The draft is ready. Judge feedback will appear here shortly.
         </span>
       </div>
-    </Card>
+    </Section>
   );
 }
 
 type UnavailableJudgeState =
-  | "maxed"
-  | "stale_pending"
-  | "stale"
-  | "failed"
-  | "pending";
+  "maxed" | "stale_pending" | "stale" | "failed" | "pending";
 
 const UNAVAILABLE_JUDGE_COPY: Record<
   UnavailableJudgeState,
@@ -1480,7 +1438,7 @@ const UNAVAILABLE_JUDGE_COPY: Record<
     title: "Scoring unavailable",
     badge: "Stale",
     message:
-      "The saved score no longer matches the current draft or job details. Run Resume Judge again to refresh it.",
+      "Resume or job details changed. Re-evaluate to refresh the score.",
     action: "Re-evaluate",
     alert: true,
   },
@@ -1496,7 +1454,7 @@ const UNAVAILABLE_JUDGE_COPY: Record<
     title: "Pending review",
     badge: "Pending",
     message:
-      "This draft has not been reviewed yet. Run Resume Judge any time after generation.",
+      "Run Judge to review this draft.",
     action: "Run Judge",
     alert: false,
   },
@@ -1533,7 +1491,7 @@ function getUnavailableJudgeCopy(
   return { ...base, message, action };
 }
 
-function UnavailableResumeJudgeCard({
+function UnavailableResumeJudgeSection({
   result,
   stale,
   runLimit,
@@ -1549,54 +1507,54 @@ function UnavailableResumeJudgeCard({
   onTrigger: () => void;
 }) {
   const copy = getUnavailableJudgeCopy(result, stale, runLimit, triggering);
-  const accent = copy.alert ? "var(--color-ember)" : "var(--color-ink-50)";
+  const accent = copy.alert
+    ? "var(--color-error)"
+    : "var(--color-text-secondary)";
   return (
-    <Card
+    <Section
       density="compact"
       className="w-full p-3"
       data-testid="resume-judge-card"
       style={{
         borderColor: copy.alert
-          ? "var(--color-ember-10)"
+          ? "var(--color-error-muted)"
           : "var(--color-border)",
-        background: copy.alert
-          ? "linear-gradient(145deg, var(--color-ember-05) 0%, white 86%)"
-          : "linear-gradient(145deg, var(--color-ink-05) 0%, white 86%)",
       }}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <span
-            className="text-[10px] font-semibold uppercase tracking-[0.22em]"
-            style={{ color: "var(--color-ink-50)" }}
-          >
-            Resume Judge
-          </span>
-          <p
-            className="mt-1.5 text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+          <Heading level={3}>Resume Judge</Heading>
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            className="mt-1.5"
+            style={{ color: "var(--color-text-primary)" }}
           >
             {copy.title}
-          </p>
+          </Text>
         </div>
         <span
-          className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+          className="rounded-full px-2.5 py-1 text-xs font-semibold"
           style={{
             background: copy.alert
-              ? "var(--color-ember-05)"
-              : "var(--color-ink-05)",
+              ? "var(--color-error-muted)"
+              : "var(--color-background-muted)",
             color: accent,
           }}
         >
           {copy.badge}
         </span>
       </div>
-      <p
-        className="mt-2.5 text-xs leading-5"
-        style={{ color: "var(--color-ink-65)" }}
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        className="mt-2.5 leading-5"
+        style={{ color: "var(--color-text-secondary)" }}
       >
         {copy.message}
-      </p>
+      </Text>
       <div className="mt-3">
         <Button
           size="sm"
@@ -1607,11 +1565,11 @@ function UnavailableResumeJudgeCard({
           {copy.action}
         </Button>
       </div>
-    </Card>
+    </Section>
   );
 }
 
-function CompletedResumeJudgeCard({
+function CompletedResumeJudgeSection({
   result,
   stale,
   tone,
@@ -1625,62 +1583,56 @@ function CompletedResumeJudgeCard({
   onOpen: () => void;
 }) {
   return (
-    <button
+    <Button
+      variant="ghost"
       type="button"
-      className="block w-full rounded-[1.35rem] text-left transition-transform duration-150 hover:-translate-y-0.5"
+      contentLayout="block"
+      className="app-review-trigger w-full text-left"
+      title={summary}
       data-testid="resume-judge-card"
       onClick={onOpen}
     >
-      <Card
+      <Section
         density="compact"
         className="p-3"
         style={{
-          borderColor: stale ? "var(--color-amber)" : tone.border,
-          background: stale
-            ? "linear-gradient(145deg, var(--color-amber-10) 0%, white 90%)"
-            : `linear-gradient(145deg, ${tone.bg} 0%, white 88%)`,
-          boxShadow: "0 10px 24px rgba(15, 23, 42, 0.06)",
+          borderColor: stale ? "var(--color-warning)" : tone.border,
         }}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <span
-              className="text-[10px] font-semibold uppercase tracking-[0.22em]"
-              style={{ color: "var(--color-ink-50)" }}
-            >
-              Resume Judge
-            </span>
-            <p
-              className="mt-2 text-[11px] leading-5"
-              title={summary}
+            <Heading level={3}>Resume Judge</Heading>
+            <Text
+              as="p"
+              display="block"
+              type="supporting"
+              className="mt-2 leading-5"
+              maxLines={2}
+              hasTruncateTooltip={false}
               style={{
-                color: "var(--color-ink-65)",
-                display: "-webkit-box",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: 2,
-                overflow: "hidden",
+                color: "var(--color-text-secondary)",
               }}
             >
               {summary}
-            </p>
+            </Text>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <span
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{
                 background: stale
-                  ? "rgba(180, 83, 9, 0.12)"
-                  : "rgba(255,255,255,0.7)",
-                color: stale ? "var(--color-amber)" : tone.accent,
+                  ? "var(--color-warning-muted)"
+                  : "var(--color-background-surface)",
+                color: stale ? "var(--color-warning)" : tone.accent,
               }}
             >
               {stale ? "Stale" : resumeJudgeVerdictLabel(result.verdict)}
             </span>
             <span
-              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+              className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{
-                background: "rgba(255,255,255,0.82)",
-                color: stale ? "var(--color-amber)" : tone.accent,
+                background: "var(--color-background-surface)",
+                color: stale ? "var(--color-warning)" : tone.accent,
               }}
             >
               {result.display_score ?? "—"}/100
@@ -1689,24 +1641,24 @@ function CompletedResumeJudgeCard({
         </div>
         <div className="mt-3 flex items-end justify-between gap-3">
           <span
-            className="text-[10px]"
-            style={{ color: "var(--color-ink-50)" }}
+            className="text-xs"
+            style={{ color: "var(--color-text-secondary)" }}
           >
-            Hover to read more.
+            Review summary
           </span>
           <span
-            className="text-[10px] font-semibold"
-            style={{ color: "var(--color-ember)" }}
+            className="text-xs font-semibold"
+            style={{ color: "var(--color-error)" }}
           >
-            Click for details.
+            Details
           </span>
         </div>
-      </Card>
-    </button>
+      </Section>
+    </Button>
   );
 }
 
-function ResumeJudgeCard({
+function ResumeJudgeSection({
   hasDraft,
   result,
   pending,
@@ -1734,10 +1686,10 @@ function ResumeJudgeCard({
   onOpen: () => void;
 }) {
   if (!hasDraft) return null;
-  if (pending) return <PendingResumeJudgeCard />;
+  if (pending) return <PendingResumeJudgeSection />;
   if (!result || !completed)
     return (
-      <UnavailableResumeJudgeCard
+      <UnavailableResumeJudgeSection
         result={result}
         stale={stale}
         runLimit={runLimit}
@@ -1747,7 +1699,7 @@ function ResumeJudgeCard({
       />
     );
   return (
-    <CompletedResumeJudgeCard
+    <CompletedResumeJudgeSection
       result={result}
       stale={stale}
       tone={tone}
@@ -1758,11 +1710,11 @@ function ResumeJudgeCard({
 }
 
 const WORKSPACE_META_CHIP_CLASS =
-  "inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none";
+  "inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-xs font-medium leading-none";
 const WORKSPACE_META_CHIP_STYLE = {
   borderColor: "var(--color-border)",
-  background: "var(--color-ink-05)",
-  color: "var(--color-ink-50)",
+  background: "var(--color-background-muted)",
+  color: "var(--color-text-secondary)",
 };
 const RESUME_PREVIEW_SURFACE_CLASS =
   "mt-0.5 flex min-h-0 flex-1 overflow-y-auto px-3 pb-1 sm:px-4";
@@ -1785,12 +1737,13 @@ function GeneratedWorkspaceHeader({
   return (
     <div className="flex min-w-0 flex-col gap-2 overflow-visible sm:min-h-8 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-        <h3
-          className="shrink-0 text-xs font-semibold uppercase tracking-wider"
-          style={{ color: "var(--color-ink-40)" }}
+        <Heading
+          level={3}
+          className="shrink-0"
+          style={{ color: "var(--color-text-secondary)" }}
         >
           Generated Resume
-        </h3>
+        </Heading>
         {generated && (
           <span
             className={WORKSPACE_META_CHIP_CLASS}
@@ -1812,39 +1765,31 @@ function GeneratedWorkspaceHeader({
         className="inline-flex items-center rounded-full border p-1"
         style={{
           borderColor: editing
-            ? "var(--color-spruce-10)"
+            ? "var(--color-accent-muted)"
             : "var(--color-border)",
           background: editing
-            ? "var(--color-spruce-05)"
-            : "var(--color-ink-05)",
+            ? "var(--color-accent-muted)"
+            : "var(--color-background-muted)",
         }}
       >
-        <button
-          className="rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{
-            background: editing ? "transparent" : "var(--color-ink)",
-            color: editing ? "var(--color-ink-50)" : "#fff",
-          }}
+        <Button
+          variant="ghost"
+          className="px-3 py-1.5 text-xs"
           type="button"
           disabled={locked}
           onClick={onPreview}
         >
           Preview
-        </button>
-        <button
-          className="rounded-full px-3 py-1.5 text-xs font-semibold"
-          style={{
-            background: editing
-              ? "var(--color-sidebar-bg-active)"
-              : "transparent",
-            color: editing ? "#fff" : "var(--color-ink-50)",
-          }}
+        </Button>
+        <Button
+          variant="ghost"
+          className="px-3 py-1.5 text-xs"
           type="button"
           disabled={locked}
           onClick={onEdit}
         >
           Edit
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -1869,26 +1814,34 @@ function GeneratedWorkspaceNotices({
   return (
     <>
       {!comparing && baselineMessage && (
-        <p className="mt-3 text-xs" style={{ color: "var(--color-ink-50)" }}>
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-3"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
           {baselineMessage}
-        </p>
+        </Text>
       )}
       {!comparing && sourceLimitedText && resumeReady && (
         <div
           className="mt-3 rounded-md border px-3 py-2 text-xs"
           style={{
-            borderColor: "var(--color-amber)",
-            background: "var(--color-amber-10)",
-            color: "var(--color-ink-65)",
+            borderColor: "var(--color-warning)",
+            background: "var(--color-warning-muted)",
+            color: "var(--color-text-secondary)",
           }}
         >
           <div
             className="font-semibold"
-            style={{ color: "var(--color-amber)" }}
+            style={{ color: "var(--color-warning)" }}
           >
             Shorter Than Target
           </div>
-          <p className="mt-1">{sourceLimitedText}</p>
+          <Text as="p" display="block" type="body" className="mt-1">
+            {sourceLimitedText}
+          </Text>
         </div>
       )}
     </>
@@ -1925,18 +1878,21 @@ function GeneratedDraftEditor({
         <span>Tab = 2 spaces</span>
       </div>
       <div className="mt-3 flex flex-shrink-0 items-center gap-3">
-        <Button
-          size="sm"
-          loading={saving}
-          disabled={saving || !content.trim()}
-          onClick={onSave}
-        >
-          {saving ? "Saving…" : "Save Draft"}
-        </Button>
-        <Button size="sm" variant="secondary" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
+        <ActionButtons label="Draft editing" size="sm" primaryIndex={0}>
+          <Button
+            size="sm"
+            loading={saving}
+            disabled={saving || !content.trim()}
+            onClick={onSave}
+          >
+            {saving ? "Saving…" : "Save Draft"}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+
+        </ActionButtons>
+</div>
     </div>
   );
 }
@@ -1985,7 +1941,7 @@ type GeneratedWorkspacePaneProps = {
 
 function GeneratedWorkspacePane(props: GeneratedWorkspacePaneProps) {
   return (
-    <Card
+    <Section
       className={`${props.className} ${props.compareMode ? "compare-pane-card compare-generated-pane" : ""} px-4 pb-4 pt-2`}
     >
       <GeneratedWorkspaceHeader
@@ -2019,7 +1975,7 @@ function GeneratedWorkspacePane(props: GeneratedWorkspacePaneProps) {
       ) : (
         <GeneratedDraftPreview draft={props.draft} />
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -2034,7 +1990,10 @@ function GenerationAttempts({
 }) {
   if (!attempts?.length) return null;
   return (
-    <ul className="mt-2 space-y-1" style={{ color: "var(--color-ink-50)" }}>
+    <ul
+      className="mt-2 space-y-1"
+      style={{ color: "var(--color-text-secondary)" }}
+    >
       {attempts.map((attempt, index) => (
         <li key={`${attempt.model ?? "model"}-${index}`}>
           {attempt.model ?? "unknown model"} /{" "}
@@ -2061,7 +2020,7 @@ function GenerationFailureDiagnostics({
   if (!details.failure_stage && attempts.length === 0) return null;
   return (
     <div
-      className="mt-2 rounded-lg border p-3 text-xs"
+      className="mt-2 border-l p-3 text-xs"
       style={{ borderColor: "var(--color-border)" }}
     >
       <div>Failure stage: {details.failure_stage ?? "unknown"}</div>
@@ -2124,6 +2083,13 @@ export function ApplicationDetailPage() {
   const [regenInstructions, setRegenInstructions] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [showOptimisticProgress, setShowOptimisticProgress] = useState(false);
+  const [generationScope, setGenerationScope] = useState<"resume" | "section">("resume");
+  const [sectionTarget, setSectionTarget] = useState<{ applicationId: string; sectionId: string; entryId?: string } | null>(null);
+  useEffect(() => {
+    if (!showOptimisticProgress && detail && detail.internal_state !== "regenerating_section") {
+      setSectionTarget(null);
+    }
+  }, [detail?.internal_state, showOptimisticProgress]);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isCancellingExtraction, setIsCancellingExtraction] = useState(false);
   const [isRetryingExtraction, setIsRetryingExtraction] = useState(false);
@@ -2142,6 +2108,7 @@ export function ApplicationDetailPage() {
   const [fullRegenInstructions, setFullRegenInstructions] = useState("");
   const [fullRegenUseLatestBase, setFullRegenUseLatestBase] = useState(false);
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [showResumeJudgeDialog, setShowResumeJudgeDialog] = useState(false);
   const [expandedResumeJudgeDimension, setExpandedResumeJudgeDimension] =
     useState<string | null>(null);
@@ -2159,7 +2126,6 @@ export function ApplicationDetailPage() {
   const lastDraftSyncDetailRef = useRef<string | null>(null);
   const lastKeywordSignatureRef = useRef<string | null>(null);
   const previousDetailRef = useRef<ApplicationDetail | null>(null);
-  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const [jobDescriptionCollapsed, setJobDescriptionCollapsed] = useState(false);
   const [showKeywordDialog, setShowKeywordDialog] = useState(false);
   const [manualKeywordInput, setManualKeywordInput] = useState("");
@@ -2172,11 +2138,11 @@ export function ApplicationDetailPage() {
     detail?.job_keywords?.status === "running";
   const shouldWatchApplication = Boolean(
     applicationId &&
-      detail &&
-      (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
-        isGenerationWorkflowActive(detail) ||
-        resumeJudgePending ||
-        keywordExtractionPending),
+    detail &&
+    (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
+      isGenerationWorkflowActive(detail) ||
+      resumeJudgePending ||
+      keywordExtractionPending),
   );
   const { isStale: isApplicationStreamStale } = useApplicationEventStream(
     applicationId,
@@ -2190,10 +2156,10 @@ export function ApplicationDetailPage() {
   const draftQuery = useApplicationDraftQuery(applicationId, shouldLoadDraft);
   const shouldPollProgress = Boolean(
     applicationId &&
-      detail &&
-      (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
-        isGenerationWorkflowActive(detail)) &&
-      isApplicationStreamStale,
+    detail &&
+    (EXTRACTION_POLL_STATES.includes(detail.internal_state) ||
+      isGenerationWorkflowActive(detail)) &&
+    isApplicationStreamStale,
   );
   const progressQuery = useApplicationProgressQuery(applicationId, {
     enabled: shouldPollProgress,
@@ -2253,36 +2219,39 @@ export function ApplicationDetailPage() {
     additionalInstructions,
     savedSettings,
   ]);
-  const selectedAggressivenessOption = useMemo(
-    () =>
-      AGGRESSIVENESS_OPTIONS.find(
-        (option) => option.value === aggressiveness,
-      ) ?? null,
-    [aggressiveness],
-  );
   const generationStartBlocker = getGenerationStartBlocker(
     detail,
     selectedResumeId,
     baseResumes.length,
   );
   const fullRegenerationBlocker = getFullRegenerationBlocker(detail);
-  function sectionRegenerationReason(section: ResumeSection, entryId?: string): string | null {
-    return getResumeRegenerationBlocker(section, draft?.source_snapshot?.document, draft?.generation_params.aggressiveness, entryId);
+  function sectionRegenerationReason(
+    section: ResumeSection,
+    entryId?: string,
+  ): string | null {
+    return getResumeRegenerationBlocker(
+      section,
+      draft?.source_snapshot?.document,
+      draft?.generation_params.aggressiveness,
+      entryId,
+    );
   }
-  const selectedRegenSection = draft?.document?.sections.find((section) => section.id === regenSectionName);
-  const sectionSourceBlocker = selectedRegenSection ? sectionRegenerationReason(selectedRegenSection, regenEntryId) : null;
-  const sectionRegenerationBlocker = sectionSourceBlocker ?? getSectionRegenerationBlocker(
-    detail,
-    regenSectionName,
-    regenInstructions,
+  const selectedRegenSection = draft?.document?.sections.find(
+    (section) => section.id === regenSectionName,
   );
+  const sectionSourceBlocker = selectedRegenSection
+    ? sectionRegenerationReason(selectedRegenSection, regenEntryId)
+    : null;
+  const sectionRegenerationBlocker =
+    sectionSourceBlocker ??
+    getSectionRegenerationBlocker(detail, regenSectionName, regenInstructions);
   const resumeJudgeStale = isResumeJudgeStale(detail);
   const resumeJudge = detail?.resume_judge_result ?? null;
   const resumeJudgeRunLimitReached = Boolean(
     draft &&
-      resumeJudge &&
-      !resumeJudgeStale &&
-      (resumeJudge.run_attempt_count ?? 0) >= 3,
+    resumeJudge &&
+    !resumeJudgeStale &&
+    (resumeJudge.run_attempt_count ?? 0) >= 3,
   );
   const resumeJudgeDimensionEntries = useMemo(
     () => getResumeJudgeDimensionEntries(resumeJudge),
@@ -2300,7 +2269,9 @@ export function ApplicationDetailPage() {
     [draft],
   );
   const comparisonBaseResumeId = useMemo(() => {
-    const generationResumeId = draft?.source_snapshot?.base_resume_id ?? draft?.generation_params?.base_resume_id;
+    const generationResumeId =
+      draft?.source_snapshot?.base_resume_id ??
+      draft?.generation_params?.base_resume_id;
     if (typeof generationResumeId === "string" && generationResumeId.trim()) {
       return generationResumeId;
     }
@@ -2402,6 +2373,7 @@ export function ApplicationDetailPage() {
 
   useEffect(() => {
     setActivityPanelOpen(false);
+    setDetailsCollapsed(false);
   }, [applicationId]);
 
   useEffect(() => {
@@ -2411,22 +2383,6 @@ export function ApplicationDetailPage() {
     }
     setExpandedResumeJudgeDimension(defaultExpandedResumeJudgeDimension);
   }, [showResumeJudgeDialog, defaultExpandedResumeJudgeDimension]);
-
-  useEffect(() => {
-    if (!actionsMenuOpen) return;
-
-    function handlePointerDown(event: MouseEvent) {
-      if (
-        actionsMenuRef.current &&
-        !actionsMenuRef.current.contains(event.target as Node)
-      ) {
-        setActionsMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [actionsMenuOpen]);
 
   useEffect(() => {
     if (!detailQuery.data) return;
@@ -2448,8 +2404,8 @@ export function ApplicationDetailPage() {
       detail.failure_reason === null;
     const completedGenerationFromActiveState = Boolean(
       previousDetail &&
-        isGenerationWorkflowActive(previousDetail) &&
-        completedGeneration,
+      isGenerationWorkflowActive(previousDetail) &&
+      completedGeneration,
     );
     const draftMissingOrStale =
       completedGeneration &&
@@ -3005,16 +2961,11 @@ export function ApplicationDetailPage() {
 
   async function handleTriggerGeneration() {
     if (generationStartBlocker) {
-      console.warn("[generation-ui]", {
-        event: "blocked_before_request",
-        workflow_kind: "generation",
-        application_id: activeApplicationId,
-        reason: generationStartBlocker,
-      });
       setError(generationStartBlocker);
       return;
     }
     setIsGenerating(true);
+    setGenerationScope("resume");
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
@@ -3061,11 +3012,17 @@ export function ApplicationDetailPage() {
     }
   }
 
-  async function handleSaveSectionDocument(document: ResumeDocument, expectedRevision: number): Promise<boolean> {
+  async function handleSaveSectionDocument(
+    document: ResumeDocument,
+    expectedRevision: number,
+  ): Promise<boolean> {
     setIsSavingDraft(true);
     setError(null);
     try {
-      const updated = await saveDraft(activeApplicationId, { document, expected_revision: expectedRevision });
+      const updated = await saveDraft(activeApplicationId, {
+        document,
+        expected_revision: expectedRevision,
+      });
       applyDraftState(updated);
       await invalidateApplicationDraftQueries(queryClient, activeApplicationId);
       refreshActivityTimeline();
@@ -3075,12 +3032,17 @@ export function ApplicationDetailPage() {
       setError(err instanceof Error ? err.message : "Unable to save draft.");
       toast("Failed to save draft", "error");
       return false;
-    } finally { setIsSavingDraft(false); }
+    } finally {
+      setIsSavingDraft(false);
+    }
   }
 
   function openSectionRegeneration(section: ResumeSection, entryId?: string) {
     const blocker = sectionRegenerationReason(section, entryId);
-    if (blocker) { setError(blocker); return; }
+    if (blocker) {
+      setError(blocker);
+      return;
+    }
     setRegenSectionName(section.id);
     setRegenEntryId(entryId);
     setRegenInstructions("");
@@ -3103,18 +3065,16 @@ export function ApplicationDetailPage() {
     useJudgeFeedback?: boolean,
     useLatestBase = false,
   ): Promise<boolean> {
-    if (draftDirty) { setError("Save or discard your section edits before regenerating."); return false; }
+    if (draftDirty) {
+      setError("Save or discard your section edits before regenerating.");
+      return false;
+    }
     if (fullRegenerationBlocker) {
-      console.warn("[generation-ui]", {
-        event: "blocked_before_request",
-        workflow_kind: "regeneration_full",
-        application_id: activeApplicationId,
-        reason: fullRegenerationBlocker,
-      });
       setError(fullRegenerationBlocker);
       return false;
     }
     setIsRegenerating(true);
+    setGenerationScope("resume");
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
@@ -3155,19 +3115,17 @@ export function ApplicationDetailPage() {
   }
 
   async function handleSectionRegeneration() {
-    if (draftDirty) { setError("Save or discard your section edits before regenerating."); return; }
+    if (draftDirty) {
+      setError("Save or discard your section edits before regenerating.");
+      return;
+    }
     if (sectionRegenerationBlocker) {
-      console.warn("[generation-ui]", {
-        event: "blocked_before_request",
-        workflow_kind: "regeneration_section",
-        application_id: activeApplicationId,
-        section_name: regenSectionName,
-        reason: sectionRegenerationBlocker,
-      });
       setError(sectionRegenerationBlocker);
       return;
     }
     setIsRegenerating(true);
+    setGenerationScope("section");
+    setSectionTarget({ applicationId: activeApplicationId, sectionId: regenSectionName, entryId: regenEntryId });
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
@@ -3308,9 +3266,15 @@ export function ApplicationDetailPage() {
   }
 
   async function handleKeywordOptimization() {
-    if (draftDirty) { setError("Save or discard your section edits before optimizing keywords."); return; }
+    if (draftDirty) {
+      setError(
+        "Save or discard your section edits before optimizing keywords.",
+      );
+      return;
+    }
     if (!draft || generationActive || isOptimizingKeywords) return;
     setIsOptimizingKeywords(true);
+    setGenerationScope("resume");
     setShowOptimisticProgress(true);
     dismissDraftEditor();
     setError(null);
@@ -3336,7 +3300,10 @@ export function ApplicationDetailPage() {
   }
 
   async function handleExport(format: ExportFormat) {
-    if (draftDirty) { setError("Save or discard your section edits before exporting."); return; }
+    if (draftDirty) {
+      setError("Save or discard your section edits before exporting.");
+      return;
+    }
     setActionsMenuOpen(false);
     setExportingFormat(format);
     setError(null);
@@ -3382,7 +3349,10 @@ export function ApplicationDetailPage() {
   }
 
   function handleToggleCompareMode() {
-    if (draftDirty) { setError("Save or discard your section edits before opening comparison."); return; }
+    if (draftDirty) {
+      setError("Save or discard your section edits before opening comparison.");
+      return;
+    }
     if (compareMode) {
       setCompareMode(false);
       return;
@@ -3407,6 +3377,9 @@ export function ApplicationDetailPage() {
       detail.internal_state,
     );
   const generationActive = isGenerationWorkflowActive(detail);
+  const sectionGenerationActive = showOptimisticProgress
+    ? generationScope === "section"
+    : detail?.internal_state === "regenerating_section" || generationProgress?.workflow_kind === "regeneration_section";
   const extractionActive = detail
     ? EXTRACTION_POLL_STATES.includes(detail.internal_state)
     : false;
@@ -3419,38 +3392,27 @@ export function ApplicationDetailPage() {
   const deleteBlocked = detail
     ? ACTIVE_GENERATION_STATES.includes(detail.internal_state)
     : false;
-  const workspaceCardClass = "flex min-h-[32rem] flex-col overflow-hidden";
+  const workspaceRegionClass = "flex min-h-[32rem] flex-col overflow-hidden";
   const generatedTimestampLabel = draft
     ? `Generated ${new Date(draft.last_generated_at).toLocaleString()}`
     : null;
   const exportedTimestampLabel = draft?.last_exported_at
     ? `Exported ${new Date(draft.last_exported_at).toLocaleString()}`
     : null;
-  const compareBaselineLabel =
-    compareBaseline?.name ?? "Generation-time baseline";
-  const workspaceMetaChipClass =
-    "inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] font-medium leading-none";
-  const workspaceMetaChipStyle = {
-    borderColor: "var(--color-border)",
-    background: "var(--color-ink-05)",
-    color: "var(--color-ink-50)",
-  };
-  const resumePreviewSurfaceClass =
-    "mt-0.5 flex min-h-0 flex-1 overflow-y-auto px-3 pb-1 sm:px-4";
   const resumeJudgeToneStyle = resumeJudgeTone(resumeJudge?.verdict);
   const resumeJudgeHasCompletedScore = Boolean(
     resumeJudge &&
-      resumeJudge.status === "succeeded" &&
-      resumeJudge.final_score != null &&
-      resumeJudge.dimension_scores &&
-      Object.keys(resumeJudge.dimension_scores).length > 0,
+    resumeJudge.status === "succeeded" &&
+    resumeJudge.final_score != null &&
+    resumeJudge.dimension_scores &&
+    Object.keys(resumeJudge.dimension_scores).length > 0,
   );
   const resumeJudgeCanRegenerateWithFeedback =
     Boolean(
       resumeJudge &&
-        resumeJudge.status === "succeeded" &&
-        formatJudgeInstructions(resumeJudge.regeneration_instructions) &&
-        !resumeJudgeStale,
+      resumeJudge.status === "succeeded" &&
+      formatJudgeInstructions(resumeJudge.regeneration_instructions) &&
+      !resumeJudgeStale,
     ) && !generationActive;
   const resumeJudgeCanRun =
     Boolean(draft) &&
@@ -3462,13 +3424,6 @@ export function ApplicationDetailPage() {
   const resumeJudgeSummary =
     resumeJudge?.score_summary?.trim() ?? "Review available";
 
-  const clampedResumeJudgeSummaryStyle = {
-    display: "-webkit-box",
-    WebkitBoxOrient: "vertical" as const,
-    WebkitLineClamp: 2,
-    overflow: "hidden",
-  };
-
   function refreshActivityTimeline() {
     if (!applicationId) return;
     void queryClient.invalidateQueries({
@@ -3476,9 +3431,9 @@ export function ApplicationDetailPage() {
     });
   }
 
-  function renderKeywordCard() {
+  function renderKeywordSection() {
     return (
-      <KeywordMatchCard
+      <KeywordMatchSection
         jobKeywords={detail?.job_keywords ?? null}
         match={draft?.keyword_match ?? null}
         onOpen={() => setShowKeywordDialog(true)}
@@ -3506,9 +3461,9 @@ export function ApplicationDetailPage() {
     );
   }
 
-  function renderResumeJudgeCard() {
+  function renderResumeJudgeSection() {
     return (
-      <ResumeJudgeCard
+      <ResumeJudgeSection
         hasDraft={Boolean(draft)}
         result={resumeJudge}
         pending={resumeJudgePending}
@@ -3527,26 +3482,31 @@ export function ApplicationDetailPage() {
 
   function renderGeneratedWorkspacePane(options?: {
     lockInteractions?: boolean;
+    processing?: SectionProcessing;
   }) {
-    if (draft) return (
-      <Card className="draft-workbench-card flex min-h-0 min-w-0 flex-col px-4 py-4">
-        <DraftSectionWorkbench
-          key={`${activeApplicationId}:${draft.id}`}
-          draft={draft}
-          profile={bootstrap?.profile ?? null}
-          locked={options?.lockInteractions ?? false}
-          saving={isSavingDraft}
-          onSave={handleSaveSectionDocument}
-          onDirtyChange={setDraftDirty}
-          onRegenerate={openSectionRegeneration}
-          canRegenerate={(section, entryId) => !sectionRegenerationReason(section, entryId)}
-          regenerationReason={sectionRegenerationReason}
-        />
-      </Card>
-    );
+    if (draft)
+      return (
+        <Section className="draft-workbench-region flex min-h-0 min-w-0 flex-col px-4 py-4">
+          <DraftSectionWorkbench
+            key={`${activeApplicationId}:${draft.id}`}
+            draft={draft}
+            processing={options?.processing}
+            profile={bootstrap?.profile ?? null}
+            locked={options?.lockInteractions ?? false}
+            saving={isSavingDraft}
+            onSave={handleSaveSectionDocument}
+            onDirtyChange={setDraftDirty}
+            onRegenerate={openSectionRegeneration}
+            canRegenerate={(section, entryId) =>
+              !sectionRegenerationReason(section, entryId)
+            }
+            regenerationReason={sectionRegenerationReason}
+          />
+        </Section>
+      );
     return (
       <GeneratedWorkspacePane
-        className={workspaceCardClass}
+        className={workspaceRegionClass}
         compareMode={compareMode}
         lockInteractions={options?.lockInteractions ?? false}
         generatedTimestamp={generatedTimestampLabel}
@@ -3567,72 +3527,28 @@ export function ApplicationDetailPage() {
     );
   }
 
-  function renderBaseWorkspacePane() {
-    return (
-      <Card
-        className={`${workspaceCardClass} compare-pane-card compare-base-pane px-4 pb-4 pt-2`}
-      >
-        <div className="flex min-w-0 flex-col gap-2 overflow-hidden sm:min-h-8 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-            <h3
-              className="text-xs font-semibold uppercase tracking-wider"
-              style={{ color: "var(--color-ink-40)" }}
-            >
-              Base Resume
-            </h3>
-            <span
-              className={workspaceMetaChipClass}
-              style={workspaceMetaChipStyle}
-            >
-              {compareBaselineLabel}
-            </span>
-          </div>
-        </div>
-
-        <div className={resumePreviewSurfaceClass}>
-          <MarkdownPreview
-            content={compareBaseline?.content_md ?? ""}
-            className="resume-preview-markdown"
-          />
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <div className={`application-detail-page page-enter ${isPastExtraction && detail?.internal_state !== "manual_entry_required" && !compareMode ? "application-detail-page--workspace" : "space-y-4"}`}>
-      {/* Error banner */}
-      <ErrorBanner
-        error={error}
-        className="mb-4"
-        onClear={() => setError(null)}
-      />
-
-      {/* Loading skeleton */}
-      {!detail ? (
-        <div className="space-y-4">
-          <SkeletonCard />
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SkeletonCard />
-            <SkeletonCard />
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* ── Page Header ── */}
+  const pageHeader = detail ? (
           <PageHeader
+            hasBodyHeading
+            groupActions={false}
             title={detail.job_title ?? "Awaiting extracted title"}
-            subtitle={detail.company ?? "Company pending extraction"}
-            badge={<StatusBadge status={detail.visible_status} size="md" />}
-            actions={
+            subtitle={<HStack gap={3} wrap="wrap" vAlign="center">
+              <Text type="body" color="secondary">{detail.company ?? "Company pending extraction"}</Text>
+              {draft && <Text type="supporting" color="secondary" className="application-resume-metadata">
+                {generatedTimestampLabel} · Revision {draft.document?.revision ?? 1}
+                {exportedTimestampLabel ? ` · ${exportedTimestampLabel}` : ""}
+              </Text>}
+            </HStack>}
+            badge={
               <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={detail.visible_status} size="md" />
                 {detail.has_action_required_notification &&
                   detail.visible_status !== "needs_action" && (
                     <span
-                      className="rounded-md px-2 py-1 text-[10px] font-bold uppercase"
+                      className="rounded-md px-2 py-1 text-xs font-bold"
                       style={{
-                        background: "var(--color-ember-10)",
-                        color: "var(--color-ember)",
+                        background: "var(--color-error-muted)",
+                        color: "var(--color-error)",
                       }}
                     >
                       Action Required
@@ -3642,264 +3558,143 @@ export function ApplicationDetailPage() {
                   <span
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full border shrink-0"
                     style={{
-                      background: "var(--color-spruce-05)",
-                      color: "var(--color-spruce)",
-                      borderColor: "rgba(24, 74, 69, 0.18)",
+                      background: "var(--color-accent-muted)",
+                      color: "var(--color-accent)",
+                      borderColor: "var(--color-success-muted)",
                     }}
                   >
                     <Check
                       size={12}
                       className="shrink-0"
-                      style={{ color: "var(--color-spruce)" }}
+                      style={{ color: "var(--color-accent)" }}
                       aria-hidden="true"
                     />
                     Applied
                   </span>
                 )}
-                {compareMode && (
-                  <Button
-                    size="sm"
-                    onClick={handleToggleCompareMode}
-                    style={{
-                      background: "var(--color-spruce)",
-                      color: "#fff",
-                      borderColor: "var(--color-spruce)",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "#133c38";
-                      e.currentTarget.style.borderColor = "#133c38";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "var(--color-spruce)";
-                      e.currentTarget.style.borderColor = "var(--color-spruce)";
-                    }}
-                  >
-                    Close Comparison
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => setActivityPanelOpen(true)}
-                >
-                  <History size={14} aria-hidden="true" />
-                  Activity
-                </Button>
-                <div ref={actionsMenuRef} className="relative">
+              </div>
+            }
+            actions={
+              <HStack gap={2} wrap="wrap">
+                <ActionButtons label="Application actions" size="sm" primaryIndex={compareMode ? 0 : 1}>
+                  {compareMode && (
+                    <Button size="sm" onClick={handleToggleCompareMode}>
+                      Close Comparison
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="secondary"
-                    aria-haspopup="menu"
-                    aria-expanded={actionsMenuOpen}
-                    aria-controls="application-actions-menu"
-                    onClick={() => setActionsMenuOpen((open) => !open)}
+                    onClick={() => setActivityPanelOpen(true)}
                   >
-                    Actions
-                    <ChevronDown size={14} aria-hidden="true" />
+                    <History size={14} aria-hidden="true" />
+                    Activity
                   </Button>
-                  {actionsMenuOpen && (
-                    <div
-                      id="application-actions-menu"
-                      className="animate-scaleIn absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border py-1 shadow-lg"
-                      style={{
-                        borderColor: "var(--color-border)",
-                        background: "var(--color-white)",
-                        maxHeight: "calc(100vh - 200px)",
-                        overflowY: "auto",
-                      }}
-                      role="menu"
-                      aria-label="Application actions"
-                    >
-                      {detail.job_url && (
-                        <a
-                          href={detail.job_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5"
-                          style={{ color: "var(--color-ink)" }}
-                          onClick={() => setActionsMenuOpen(false)}
-                        >
-                          <ExternalLink
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-spruce)" }}
-                            aria-hidden="true"
-                          />
-                          <span>View Posting</span>
-                        </a>
-                      )}
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5"
-                        style={{ color: "var(--color-ink)" }}
-                        onClick={() => {
-                          setActionsMenuOpen(false);
-                          handleAppliedButtonClick();
-                        }}
-                      >
-                        {detail.applied ? (
-                          <>
-                            <X
-                              size={16}
-                              className="shrink-0"
-                              style={{ color: "var(--color-ember)" }}
-                              aria-hidden="true"
-                            />
-                            <span>Mark unapplied instead</span>
-                          </>
+                  <DropdownMenu
+                    presentation="popover"
+                    placement="below"
+                    alignment="end"
+                    menuWidth="max-content"
+                    isMenuOpen={actionsMenuOpen}
+                    onOpenChange={setActionsMenuOpen}
+                    button={{
+                      label: "Actions",
+                      size: "sm",
+                      variant: compareMode ? "secondary" : "primary",
+                      className: "app-button",
+                    }}
+                    items={[
+                      ...(detail.job_url
+                        ? [
+                            {
+                              label: "View Posting",
+                              icon: <ExternalLink size={16} />,
+                              onClick: () =>
+                                window.open(
+                                  detail.job_url!,
+                                  "_blank",
+                                  "noopener,noreferrer",
+                                ),
+                            },
+                          ]
+                        : []),
+                      {
+                        label: detail.applied
+                          ? "Mark unapplied instead"
+                          : "Mark Applied",
+                        icon: detail.applied ? (
+                          <X size={16} />
                         ) : (
-                          <>
-                            <Check
-                              size={16}
-                              className="shrink-0"
-                              style={{
-                                color: "var(--color-ink-30)",
-                                opacity: 0.3,
-                              }}
-                              aria-hidden="true"
-                            />
-                            <span>Mark Applied</span>
-                          </>
-                        )}
-                      </button>
-                      {draft && (
-                        <div
-                          className="my-1 border-t"
-                          style={{ borderColor: "var(--color-border)" }}
-                        />
-                      )}
-                      {draft && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
-                          disabled={
-                            exportingFormat !== null ||
-                            isRegenerating ||
-                            generationActive
-                          }
-                          onClick={() => void handleExport("pdf")}
-                        >
-                          <FileDown
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-ink-50)" }}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {exportingFormat === "pdf"
-                              ? "Exporting PDF…"
-                              : "Export PDF"}
-                          </span>
-                        </button>
-                      )}
-                      {draft && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
-                          disabled={
-                            exportingFormat !== null ||
-                            isRegenerating ||
-                            generationActive
-                          }
-                          onClick={() => void handleExport("docx")}
-                        >
-                          <FileDown
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-ink-50)" }}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {exportingFormat === "docx"
-                              ? "Exporting DOCX…"
-                              : "Export DOCX"}
-                          </span>
-                        </button>
-                      )}
-                      {draft && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
-                          disabled={
-                            isRegenerating ||
-                            exportingFormat !== null ||
-                            generationActive
-                          }
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            handleToggleCompareMode();
-                          }}
-                        >
-                          <Columns
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-ink-50)" }}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {compareMode ? "Close comparison" : "Compare"}
-                          </span>
-                        </button>
-                      )}
-                      {draft && !generationActive && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
-                          disabled={isRegenerating || exportingFormat !== null}
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            setRegenEntryId(undefined);
-                            setRegenSectionName("");
-                            setShowSectionRegen(true);
-                          }}
-                        >
-                          <Sparkles
-                            size={16}
-                            className="shrink-0"
-                            style={{ color: "var(--color-ink-50)" }}
-                            aria-hidden="true"
-                          />
-                          <span>Regen Section</span>
-                        </button>
-                      )}
-                      {draft && !generationActive && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm transition-colors hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ color: "var(--color-ink)" }}
-                          disabled={isRegenerating || exportingFormat !== null}
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            setFullRegenInstructions("");
-                            setFullRegenUseLatestBase(false);
-                            setShowFullRegenConfirm(true);
-                          }}
-                        >
-                          <RefreshCw
-                            size={16}
-                            className={`shrink-0 ${isRegenerating ? "animate-spin" : ""}`}
-                            style={{ color: "var(--color-ink-50)" }}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {isRegenerating ? "Starting…" : "Full Regen"}
-                          </span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                          <Check size={16} />
+                        ),
+                        onClick: handleAppliedButtonClick,
+                      },
+                      ...(draft
+                        ? [
+                            { type: "divider" as const },
+                            {
+                              label:
+                                exportingFormat === "pdf"
+                                  ? "Exporting PDF…"
+                                  : "Export PDF",
+                              icon: <FileDown size={16} />,
+                              isDisabled:
+                                exportingFormat !== null ||
+                                isRegenerating ||
+                                generationActive,
+                              onClick: () => void handleExport("pdf"),
+                            },
+                            {
+                              label:
+                                exportingFormat === "docx"
+                                  ? "Exporting DOCX…"
+                                  : "Export DOCX",
+                              icon: <FileDown size={16} />,
+                              isDisabled:
+                                exportingFormat !== null ||
+                                isRegenerating ||
+                                generationActive,
+                              onClick: () => void handleExport("docx"),
+                            },
+                            {
+                              label: compareMode ? "Close comparison" : "Compare",
+                              icon: <Columns size={16} />,
+                              isDisabled:
+                                isRegenerating ||
+                                exportingFormat !== null ||
+                                generationActive,
+                              onClick: handleToggleCompareMode,
+                            },
+                          ]
+                        : []),
+                      ...(draft && !generationActive
+                        ? [
+                            {
+                              label: "Regen Section",
+                              icon: <Sparkles size={16} />,
+                              isDisabled:
+                                isRegenerating || exportingFormat !== null,
+                              onClick: () => {
+                                setRegenEntryId(undefined);
+                                setRegenSectionName("");
+                                setShowSectionRegen(true);
+                              },
+                            },
+                            {
+                              label: isRegenerating ? "Starting…" : "Full Regen",
+                              icon: <RefreshCw size={16} />,
+                              isDisabled:
+                                isRegenerating || exportingFormat !== null,
+                              onClick: () => {
+                                setFullRegenInstructions("");
+                                setFullRegenUseLatestBase(false);
+                                setShowFullRegenConfirm(true);
+                              },
+                            },
+                          ]
+                        : []),
+                    ]}
+                  />
                 {extractionActive ? (
                   <IconButton
                     variant="danger"
@@ -3929,9 +3724,36 @@ export function ApplicationDetailPage() {
                     <Trash2 size={16} aria-hidden="true" />
                   </IconButton>
                 )}
-              </div>
+                </ActionButtons>
+              </HStack>
             }
           />
+  ) : null;
+
+  return (
+    <div
+      className={`application-detail-page page-enter ${isPastExtraction && detail?.internal_state !== "manual_entry_required" && !compareMode ? "application-detail-page--workspace" : "space-y-4"}`}
+    >
+      {/* Error banner */}
+      <ErrorBanner
+        error={error}
+        className="mb-4"
+        onClear={() => setError(null)}
+      />
+
+      {/* Loading skeleton */}
+      {!detail ? (
+        <div className="space-y-4">
+          <SkeletonSection />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SkeletonSection />
+            <SkeletonSection />
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* ── Page Header ── */}
+          {(!isPastExtraction || compareMode) && pageHeader}
 
           {/* ── Alert Banners (full width, above two-column layout) ── */}
 
@@ -3940,61 +3762,67 @@ export function ApplicationDetailPage() {
             ["extraction_pending", "extracting"].includes(
               detail.internal_state,
             ) && (
-              <Card variant="success" density="compact" className="p-4">
-                <h3
-                  className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--color-spruce)" }}
+              <Section variant="success" density="compact" className="p-4">
+                <Heading
+                  level={3}
+                  style={{ color: "var(--color-accent)" }}
                 >
                   Extraction Progress
-                </h3>
+                </Heading>
                 <div
                   className="mt-3 h-2 overflow-hidden rounded-full"
-                  style={{ background: "var(--color-spruce-10)" }}
+                  style={{ background: "var(--color-accent-muted)" }}
                 >
                   <div
                     className="h-full rounded-full transition-all"
                     style={{
                       width: `${extractionPercent}%`,
-                      background: "var(--color-spruce)",
+                      background: "var(--color-accent)",
                     }}
                   />
                 </div>
-                <p
-                  className="mt-2 text-sm"
-                  style={{ color: "var(--color-ink)" }}
+                <Text
+                  as="p"
+                  display="block"
+                  type="body"
+                  className="mt-2"
+                  style={{ color: "var(--color-text-primary)" }}
                 >
                   {progress.message}
-                </p>
-              </Card>
+                </Text>
+              </Section>
             )}
 
           {/* Blocked Source */}
           {detail.extraction_failure_details?.kind === "blocked_source" && (
-            <Card variant="danger" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: "var(--color-ember)" }}
+            <Section variant="danger" density="compact" className="p-4">
+              <Heading
+                level={3}
+                style={{ color: "var(--color-error)" }}
               >
                 Blocked Source
-              </h3>
-              <p
-                className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 The job site blocked automated retrieval. Use pasted text or
                 manual entry below.
-              </p>
+              </Text>
               <div
-                className="mt-3 grid gap-2 rounded-lg border p-3 text-xs sm:grid-cols-2"
+                className="mt-3 grid gap-2 border-l p-3 text-xs sm:grid-cols-2"
                 style={{
                   borderColor: "var(--color-border)",
-                  color: "var(--color-ink-50)",
+                  color: "var(--color-text-secondary)",
                 }}
               >
                 <div>
                   <span
                     className="font-semibold"
-                    style={{ color: "var(--color-ink)" }}
+                    style={{ color: "var(--color-text-primary)" }}
                   >
                     Provider:
                   </span>{" "}
@@ -4003,7 +3831,7 @@ export function ApplicationDetailPage() {
                 <div>
                   <span
                     className="font-semibold"
-                    style={{ color: "var(--color-ink)" }}
+                    style={{ color: "var(--color-text-primary)" }}
                   >
                     Ref ID:
                   </span>{" "}
@@ -4012,7 +3840,7 @@ export function ApplicationDetailPage() {
                 <div className="sm:col-span-2 break-all">
                   <span
                     className="font-semibold"
-                    style={{ color: "var(--color-ink)" }}
+                    style={{ color: "var(--color-text-primary)" }}
                   >
                     URL:
                   </span>{" "}
@@ -4021,130 +3849,147 @@ export function ApplicationDetailPage() {
                     "Not provided"}
                 </div>
               </div>
-            </Card>
+            </Section>
           )}
 
           {detail.extraction_failure_details?.kind === "user_cancelled" && (
-            <Card variant="warning" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: "var(--color-amber)" }}
+            <Section variant="warning" density="compact" className="p-4">
+              <Heading
+                level={3}
+                style={{ color: "var(--color-warning)" }}
               >
                 Extraction Stopped
-              </h3>
-              <p
-                className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 Extraction was stopped. Retry from the URL, retry with pasted
                 text, or delete this application.
-              </p>
-            </Card>
+              </Text>
+            </Section>
           )}
 
           {/* Duplicate Warning */}
           {detail.duplicate_warning && (
-            <Card variant="warning" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: "var(--color-amber)" }}
+            <Section variant="warning" density="compact" className="p-4">
+              <Heading
+                level={3}
+                style={{ color: "var(--color-warning)" }}
               >
                 Duplicate Detected
-              </h3>
-              <p
-                className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 Confidence{" "}
                 {detail.duplicate_warning.similarity_score.toFixed(2)} based on{" "}
                 {detail.duplicate_warning.matched_fields.join(", ")}.
-              </p>
+              </Text>
               <div
-                className="mt-2 rounded-lg border p-3 text-sm"
+                className="mt-2 border-l p-3 text-sm"
                 style={{ borderColor: "var(--color-border)" }}
               >
                 <div
                   className="font-medium"
-                  style={{ color: "var(--color-ink)" }}
+                  style={{ color: "var(--color-text-primary)" }}
                 >
                   {detail.duplicate_warning.matched_application.job_title ??
                     "Existing application"}
                 </div>
                 <div
                   className="text-xs"
-                  style={{ color: "var(--color-ink-50)" }}
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   {detail.duplicate_warning.matched_application.company ??
                     "Unknown"}
                 </div>
               </div>
               <div className="mt-3 flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => void handleDuplicateDismissal()}
-                >
-                  Proceed Anyway
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => void handleOpenExistingApplication()}
-                >
-                  Open Existing
-                </Button>
-              </div>
-            </Card>
+                <ActionButtons label="Duplicate review actions" size="sm" primaryIndex={0}>
+                  <Button
+                    size="sm"
+                    onClick={() => void handleDuplicateDismissal()}
+                  >
+                    Proceed Anyway
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleOpenExistingApplication()}
+                  >
+                    Open Existing
+                  </Button>
+
+                </ActionButtons>
+</div>
+            </Section>
           )}
 
           {/* Company Missing Warning */}
           {!detail.company &&
             detail.internal_state === "generation_pending" &&
             !detail.failure_reason && (
-              <Card variant="success" density="compact" className="p-4">
-                <p
-                  className="text-sm font-medium"
-                  style={{ color: "var(--color-spruce)" }}
+              <Section variant="success" density="compact" className="p-4">
+                <Text
+                  as="p"
+                  display="block"
+                  type="label"
+                  style={{ color: "var(--color-accent)" }}
                 >
                   Company is missing from extraction. Add it to enable duplicate
                   review.
-                </p>
-              </Card>
+                </Text>
+              </Section>
             )}
 
           {sourceLimitedLengthFlag &&
             detail.internal_state === "resume_ready" && (
-              <Card variant="warning" density="compact" className="p-4">
-                <h3
-                  className="text-sm font-semibold"
-                  style={{ color: "var(--color-amber)" }}
+              <Section variant="warning" density="compact" className="p-4">
+                <Heading
+                  level={3}
+                  style={{ color: "var(--color-warning)" }}
                 >
                   Shorter Than Target
-                </h3>
-                <p
-                  className="mt-1 text-sm"
-                  style={{ color: "var(--color-ink-65)" }}
+                </Heading>
+                <Text
+                  as="p"
+                  display="block"
+                  type="body"
+                  className="mt-1"
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   {sourceLimitedLengthFlag.text}
-                </p>
-              </Card>
+                </Text>
+              </Section>
             )}
 
           {/* Generation Timeout */}
           {detail.failure_reason === "generation_timeout" && (
-            <Card variant="warning" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: "var(--color-amber)" }}
+            <Section variant="warning" density="compact" className="p-4">
+              <Heading
+                level={3}
+                style={{ color: "var(--color-warning)" }}
               >
                 Generation Timed Out
-              </h3>
-              <p
-                className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "The AI provider may be experiencing delays."}
-              </p>
+              </Text>
               <GenerationFailureDiagnostics
                 details={detail.generation_failure_details}
               />
@@ -4155,25 +4000,28 @@ export function ApplicationDetailPage() {
               >
                 Retry
               </Button>
-            </Card>
+            </Section>
           )}
 
           {/* Generation Cancelled */}
           {detail.failure_reason === "generation_cancelled" && (
-            <Card variant="success" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: "var(--color-spruce)" }}
+            <Section variant="success" density="compact" className="p-4">
+              <Heading
+                level={3}
+                style={{ color: "var(--color-accent)" }}
               >
                 Generation Cancelled
-              </h3>
-              <p
-                className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "You can adjust settings and try again."}
-              </p>
+              </Text>
               <Button
                 className="mt-3"
                 size="sm"
@@ -4181,30 +4029,33 @@ export function ApplicationDetailPage() {
               >
                 Retry
               </Button>
-            </Card>
+            </Section>
           )}
 
           {/* Generation Failed */}
           {(detail.failure_reason === "generation_failed" ||
             detail.failure_reason === "regeneration_failed") && (
-            <Card variant="danger" density="compact" className="p-4">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: "var(--color-ember)" }}
+            <Section variant="danger" density="compact" className="p-4">
+              <Heading
+                level={3}
+                style={{ color: "var(--color-error)" }}
               >
                 Generation Failed
-              </h3>
-              <p
-                className="mt-1 text-sm"
-                style={{ color: "var(--color-ink-65)" }}
+              </Heading>
+              <Text
+                as="p"
+                display="block"
+                type="body"
+                className="mt-1"
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 {detail.generation_failure_details?.message ??
                   "Resume generation encountered errors."}
-              </p>
+              </Text>
               {detail.generation_failure_details?.validation_errors?.length ? (
                 <ul
                   className="mt-2 list-disc space-y-1 pl-5 text-xs"
-                  style={{ color: "var(--color-ink-50)" }}
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   {detail.generation_failure_details.validation_errors.map(
                     (err, i) => (
@@ -4225,48 +4076,51 @@ export function ApplicationDetailPage() {
               >
                 {isGenerating ? "Starting…" : "Retry"}
               </Button>
-            </Card>
+            </Section>
           )}
 
           {/* ── Manual Entry Required (shown when in manual_entry_required state, replaces two-column) ── */}
           {detail.internal_state === "manual_entry_required" && (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)] 2xl:grid-cols-[minmax(0,1.2fr)_minmax(380px,0.8fr)]">
               {/* Job Information */}
-              <Card density="compact" className="p-4">
-                <h3
-                  className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: "var(--color-ink-40)" }}
+              <Section density="compact" className="p-4">
+                <Heading
+                  level={3}
+                  style={{ color: "var(--color-text-secondary)" }}
                 >
                   Job Information
-                </h3>
+                </Heading>
                 <form className="mt-3 space-y-3" onSubmit={handleSaveJobInfo}>
                   <JobInformationFields form={jobForm} setForm={setJobForm} />
                   <div className="flex gap-2">
-                    <Button
-                      loading={isSavingJobInfo}
-                      disabled={isSavingJobInfo}
-                      type="submit"
-                    >
-                      {isSavingJobInfo ? "Saving…" : "Save"}
-                    </Button>
-                    {detail.job_url && (
+                    <ActionButtons label="Extraction recovery" size="sm" primaryIndex={0}>
                       <Button
-                        type="button"
-                        variant="secondary"
-                        loading={isRetryingExtraction}
-                        disabled={isRetryingExtraction}
-                        onClick={() => void handleRetryExtraction()}
+                        loading={isSavingJobInfo}
+                        disabled={isSavingJobInfo}
+                        type="submit"
                       >
-                        Retry Extraction
+                        {isSavingJobInfo ? "Saving…" : "Save"}
                       </Button>
-                    )}
-                  </div>
+                      {detail.job_url && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          loading={isRetryingExtraction}
+                          disabled={isRetryingExtraction}
+                          onClick={() => void handleRetryExtraction()}
+                        >
+                          Retry Extraction
+                        </Button>
+                      )}
+
+                    </ActionButtons>
+</div>
                 </form>
-              </Card>
+              </Section>
 
               {/* Notes + Manual Entry */}
               <div className="space-y-4">
-                <NotesCard
+                <NotesSection
                   value={notesDraft}
                   state={notesState}
                   onChange={(value) => {
@@ -4275,16 +4129,19 @@ export function ApplicationDetailPage() {
                   }}
                 />
 
-                <Card variant="danger" density="compact" className="p-4">
-                  <h3
-                    className="text-sm font-semibold"
-                    style={{ color: "var(--color-ember)" }}
+                <Section variant="danger" density="compact" className="p-4">
+                  <Heading
+                    level={3}
+                    style={{ color: "var(--color-error)" }}
                   >
                     Manual Entry Required
-                  </h3>
-                  <p
-                    className="mt-1 text-sm"
-                    style={{ color: "var(--color-ink-65)" }}
+                  </Heading>
+                  <Text
+                    as="p"
+                    display="block"
+                    type="body"
+                    className="mt-1"
+                    style={{ color: "var(--color-text-secondary)" }}
                   >
                     {detail.extraction_failure_details?.kind ===
                     "blocked_source"
@@ -4293,7 +4150,7 @@ export function ApplicationDetailPage() {
                           "user_cancelled"
                         ? "Extraction was stopped. Retry with text, retry the URL, or delete this application."
                         : "Extraction incomplete. Paste text or fill in details."}
-                  </p>
+                  </Text>
                   <form
                     className="mt-3 space-y-3"
                     onSubmit={handleRecoverFromSource}
@@ -4305,27 +4162,30 @@ export function ApplicationDetailPage() {
                       onChange={(e) => setSourceTextDraft(e.target.value)}
                     />
                     <div className="flex gap-2">
-                      <Button
-                        loading={isRecoveringFromSource}
-                        disabled={
-                          isRecoveringFromSource || !sourceTextDraft.trim()
-                        }
-                        type="submit"
-                      >
-                        Retry with Text
-                      </Button>
-                      {detail.job_url && (
+                      <ActionButtons label="Source recovery" size="sm" primaryIndex={0}>
                         <Button
-                          type="button"
-                          variant="secondary"
-                          loading={isRetryingExtraction}
-                          disabled={isRetryingExtraction}
-                          onClick={() => void handleRetryExtraction()}
+                          loading={isRecoveringFromSource}
+                          disabled={
+                            isRecoveringFromSource || !sourceTextDraft.trim()
+                          }
+                          type="submit"
                         >
-                          Retry URL
+                          Retry with Text
                         </Button>
-                      )}
-                    </div>
+                        {detail.job_url && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            loading={isRetryingExtraction}
+                            disabled={isRetryingExtraction}
+                            onClick={() => void handleRetryExtraction()}
+                          >
+                            Retry URL
+                          </Button>
+                        )}
+
+                      </ActionButtons>
+</div>
                   </form>
                   <form
                     className="mt-4 space-y-3 border-t pt-4"
@@ -4371,7 +4231,7 @@ export function ApplicationDetailPage() {
                         : "Submit Manual Entry"}
                     </Button>
                   </form>
-                </Card>
+                </Section>
               </div>
             </div>
           )}
@@ -4383,27 +4243,52 @@ export function ApplicationDetailPage() {
                 className={
                   compareMode
                     ? "space-y-4"
-                    : "application-workspace grid gap-4 xl:items-start xl:[grid-template-columns:minmax(0,1fr)_minmax(300px,340px)]"
+                    : `application-workspace grid gap-4 xl:items-start${detailsCollapsed ? " application-workspace--details-collapsed" : ""}`
                 }
                 data-compare-mode={compareMode ? "open" : "closed"}
               >
                 {/* Resume tabs and content occupy the left side of the workspace. */}
                 <div
                   className={
-                    compareMode ? "min-w-0" : "application-resume-column min-w-0"
+                    compareMode
+                      ? "min-w-0"
+                      : "application-resume-column min-w-0"
                   }
                 >
+                  {!compareMode && pageHeader}
                   {/* Resume Content Area */}
-                  {generationActive || showOptimisticProgress ? (
-                    <div className="application-resume-placeholder min-h-0 overflow-y-auto" aria-label="Resume generation workspace">
+                  {(generationActive || showOptimisticProgress) && draft &&
+                    sectionGenerationActive ? (
+                    renderGeneratedWorkspacePane({
+                      lockInteractions: true,
+                      processing: {
+                        ...(sectionTarget?.applicationId === activeApplicationId ? sectionTarget : {}),
+                        content: <SectionRegenerationProgress
+                          progress={generationProgress}
+                          isOptimistic={showOptimisticProgress}
+                          isActive={generationActive}
+                          isCancelling={isCancelling}
+                          onCancel={() => void handleCancelGeneration()}
+                        />,
+                      },
+                    })
+                  ) : generationActive || showOptimisticProgress ? (
+                    <div
+                      className="application-resume-placeholder min-h-0 overflow-y-auto"
+                      aria-label="Resume generation workspace"
+                    >
                       <GenerationProgress
+                        scope={generationScope}
                         progress={generationProgress}
                         isOptimistic={showOptimisticProgress}
                         isActive={generationActive}
                         isCancelling={isCancelling}
                         onCancel={() => void handleCancelGeneration()}
                       />
-                      {draft && renderGeneratedWorkspacePane({ lockInteractions: true })}
+                      {draft &&
+                        renderGeneratedWorkspacePane({
+                          lockInteractions: true,
+                        })}
                     </div>
                   ) : draft ? (
                     compareMode ? (
@@ -4413,13 +4298,9 @@ export function ApplicationDetailPage() {
                         editMode={editMode}
                         editContent={editContent}
                         isSavingDraft={isSavingDraft}
-                        onEnterEdit={() => setCompareMode(false)}
                         onCancelEdit={handleCancelEdit}
                         onContentChange={setEditContent}
                         onSaveDraft={() => void handleSaveDraft()}
-                        onCloseCompare={handleToggleCompareMode}
-                        onExportPdf={() => void handleExport("pdf")}
-                        isExporting={exportingFormat === "pdf"}
                         pageLength={pageLength}
                         aggressiveness={aggressiveness}
                       />
@@ -4428,83 +4309,87 @@ export function ApplicationDetailPage() {
                     )
                   ) : (
                     /* Empty State - No resume generated yet */
-                    <Card
-                      className={`${workspaceCardClass} application-resume-placeholder items-center justify-center p-8 text-center`}
+                    <Section
+                      className={`${workspaceRegionClass} application-resume-placeholder items-center justify-center p-8 text-center`}
                     >
                       <div
                         className="rounded-full p-4 mb-4"
-                        style={{ background: "var(--color-ink-05)" }}
+                        style={{ background: "var(--color-background-muted)" }}
                       >
                         <FileText
                           size={32}
-                          style={{ color: "var(--color-ink-40)" }}
+                          style={{ color: "var(--color-text-secondary)" }}
                         />
                       </div>
-                      <h3
-                        className="text-lg font-semibold mb-2"
-                        style={{ color: "var(--color-ink)" }}
+                      <Heading
+                        level={3}
+                        className="mb-2"
+                        style={{ color: "var(--color-text-primary)" }}
                       >
                         No Resume Generated Yet
-                      </h3>
-                      <p
-                        className="text-sm mb-4"
-                        style={{ color: "var(--color-ink-50)" }}
+                      </Heading>
+                      <Text
+                        as="p"
+                        display="block"
+                        type="body"
+                        className="mb-4"
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Configure your settings and click "Generate Resume" to
                         get started.
-                      </p>
-                      <button
+                      </Text>
+                      <Button
+                        variant="ghost"
                         type="button"
                         disabled={generationStartBlocker !== null}
-                        className="ai-button inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={() => void handleTriggerGeneration()}
                       >
                         <Sparkles size={16} />
                         Generate Resume
-                      </button>
+                      </Button>
                       {generationStartBlocker ? (
-                        <p
-                          className="mt-3 text-xs"
-                          style={{ color: "var(--color-ink-50)" }}
+                        <Text
+                          as="p"
+                          display="block"
+                          type="supporting"
+                          className="mt-3"
+                          style={{ color: "var(--color-text-secondary)" }}
                         >
                           {generationStartBlocker}
-                        </p>
+                        </Text>
                       ) : null}
-                    </Card>
+                    </Section>
                   )}
                 </div>
                 {/* Supporting panels follow the resume and sit on its right on desktop. */}
-                <aside
-                  aria-label="Application details"
-                  tabIndex={compareMode ? -1 : 0}
-                  className={
-                    compareMode
-                      ? "hidden"
-                      : "application-support-column min-w-0 space-y-4"
-                  }
-                  aria-hidden={compareMode}
+                <ApplicationDetailsPanel
+                  key={activeApplicationId}
+                  hidden={compareMode}
+                  collapsed={detailsCollapsed}
+                  onToggle={() => setDetailsCollapsed((value) => !value)}
                 >
-                  {renderResumeJudgeCard()}
-                  {renderKeywordCard()}
+                  {renderResumeJudgeSection()}
+                  {renderKeywordSection()}
 
-                  {/* Job Description Card */}
-                  <Card
+                  {/* Job Description */}
+                  <Section
                     density="compact"
                     className="p-4"
                     data-testid="job-description-card"
                   >
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-1.5">
-                        <h3
-                          className="text-xs font-semibold uppercase tracking-wider"
-                          style={{ color: "var(--color-ink-40)" }}
+                        <Heading
+                          level={3}
+                          style={{ color: "var(--color-text-secondary)" }}
                         >
                           Job Description
-                        </h3>
-                        <button
+                        </Heading>
+                        <Button
+                          variant="ghost"
                           type="button"
                           className="sm:hidden p-0.5"
-                          style={{ color: "var(--color-ink-40)" }}
                           onClick={() => setJobDescriptionCollapsed((v) => !v)}
                           aria-label={
                             jobDescriptionCollapsed
@@ -4532,9 +4417,9 @@ export function ApplicationDetailPage() {
                               strokeLinejoin="round"
                             />
                           </svg>
-                        </button>
+                        </Button>
                       </div>
-                      <form onSubmit={handleSaveJobInfo}>
+                      <form onSubmit={handleSaveJobInfo} hidden={!jobFormDirty && !isSavingJobInfo}>
                         <Button
                           size="sm"
                           loading={isSavingJobInfo}
@@ -4557,19 +4442,20 @@ export function ApplicationDetailPage() {
                         />
                       </div>
                     )}
-                  </Card>
+                  </Section>
 
-                  {/* Generation Settings Card */}
+                  {/* Generation settings */}
                   {detail.internal_state !== "duplicate_review_required" && (
-                    <Card density="compact" className="p-4">
+                    <Section density="compact" className="p-4">
                       <form className="space-y-3" onSubmit={handleSaveSettings}>
                         <div className="flex items-start justify-between gap-3">
-                          <h3
-                            className="text-xs font-semibold uppercase tracking-wider"
-                            style={{ color: "var(--color-ink-40)" }}
+                          <Heading
+                            level={3}
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             Generation Settings
-                          </h3>
+                          </Heading>
+                          {(settingsDirty || isSavingSettings) && (
                           <Button
                             size="sm"
                             disabled={
@@ -4587,232 +4473,27 @@ export function ApplicationDetailPage() {
                           >
                             {isSavingSettings ? "Saving…" : "Save"}
                           </Button>
-                        </div>
-
-                        {/* Base Resume */}
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <FileText
-                              size={14}
-                              className="flex-shrink-0"
-                              style={{ color: "var(--color-ink-40)" }}
-                            />
-                            <Label className="inline text-xs font-medium">
-                              Base Resume
-                            </Label>
-                          </div>
-                          {baseResumes.length === 0 ? (
-                            <div
-                              className="rounded-lg border p-2 text-xs"
-                              style={{
-                                borderColor: "var(--color-border)",
-                                color: "var(--color-ink-50)",
-                              }}
-                            >
-                              No base resumes yet.{" "}
-                              <Link
-                                className="font-medium"
-                                style={{ color: "var(--color-spruce)" }}
-                                to="/app/resumes"
-                              >
-                                Create one
-                              </Link>
-                            </div>
-                          ) : (
-                            <Select
-                              className="text-sm"
-                              value={selectedResumeId ?? ""}
-                              onChange={(e) =>
-                                setSelectedResumeId(e.target.value || null)
-                              }
-                            >
-                              <option value="">Select a base resume</option>
-                              {baseResumes.map((r) => (
-                                <option key={r.id} value={r.id}>
-                                  {r.name}
-                                  {r.is_default ? " (default)" : ""}
-                                </option>
-                              ))}
-                            </Select>
                           )}
                         </div>
 
-                        {/* Target Length */}
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <Ruler
-                              size={14}
-                              className="flex-shrink-0"
-                              style={{ color: "var(--color-ink-40)" }}
-                            />
-                            <Label className="inline text-xs font-medium">
-                              Target Length
-                            </Label>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {PAGE_LENGTH_OPTIONS.map((o) => (
-                              <label
-                                key={o.value}
-                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium transition-colors"
-                                style={{
-                                  borderColor:
-                                    pageLength === o.value
-                                      ? "var(--color-spruce)"
-                                      : "var(--color-border)",
-                                  background:
-                                    pageLength === o.value
-                                      ? "var(--color-spruce-05)"
-                                      : "var(--color-white)",
-                                  color:
-                                    pageLength === o.value
-                                      ? "var(--color-spruce)"
-                                      : "var(--color-ink)",
-                                }}
-                              >
-                                <input
-                                  checked={pageLength === o.value}
-                                  className="sr-only"
-                                  name="pageLength"
-                                  type="radio"
-                                  value={o.value}
-                                  onChange={() => {
-                                    setPageLength(o.value);
-                                    setHasUserModifiedSettings(true);
-                                  }}
-                                />
-                                {o.label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Aggressiveness */}
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <Gauge
-                              size={14}
-                              className="flex-shrink-0"
-                              style={{ color: "var(--color-ink-40)" }}
-                            />
-                            <Label className="inline text-xs font-medium">
-                              Aggressiveness
-                            </Label>
-                          </div>
-                          <div className="space-y-1.5">
-                            {AGGRESSIVENESS_OPTIONS.map((o) => (
-                              <label
-                                key={o.value}
-                                className="cursor-pointer rounded-md border p-2 transition-colors block"
-                                style={{
-                                  borderColor:
-                                    aggressiveness === o.value
-                                      ? "var(--color-spruce)"
-                                      : "var(--color-border)",
-                                  background:
-                                    aggressiveness === o.value
-                                      ? "var(--color-spruce-05)"
-                                      : "var(--color-white)",
-                                }}
-                              >
-                                <input
-                                  checked={aggressiveness === o.value}
-                                  className="sr-only"
-                                  name="aggressiveness"
-                                  type="radio"
-                                  value={o.value}
-                                  onChange={() => {
-                                    setAggressiveness(o.value);
-                                    setHasUserModifiedSettings(true);
-                                  }}
-                                />
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div
-                                      className="text-xs font-medium"
-                                      style={{ color: "var(--color-ink)" }}
-                                    >
-                                      {o.label}
-                                    </div>
-                                    <div
-                                      className="text-[10px]"
-                                      style={{ color: "var(--color-ink-50)" }}
-                                    >
-                                      {o.description}
-                                    </div>
-                                  </div>
-                                  <div className="shrink-0">
-                                    <InfoPopover
-                                      label={`${o.label} aggressiveness details`}
-                                    >
-                                      <div className="space-y-2">
-                                        <p
-                                          className="text-xs font-semibold"
-                                          style={{ color: "var(--color-ink)" }}
-                                        >
-                                          {o.label} affects:
-                                        </p>
-                                        <ul
-                                          className="space-y-1 text-[11px]"
-                                          style={{
-                                            color: "var(--color-ink-65)",
-                                          }}
-                                        >
-                                          {o.details.map((detailLine) => (
-                                            <li key={detailLine}>
-                                              {detailLine}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    </InfoPopover>
-                                  </div>
-                                </div>
-                              </label>
-                            ))}
-                          </div>
-                          {selectedAggressivenessOption?.warning ? (
-                            <div
-                              role="alert"
-                              className="mt-2 rounded-md border px-3 py-2 text-[11px]"
-                              style={{
-                                borderColor: "var(--color-amber)",
-                                background: "var(--color-amber-10)",
-                                color: "var(--color-ink)",
-                              }}
-                            >
-                              {selectedAggressivenessOption.warning}
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {/* Additional Instructions */}
-                        <div>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <MessageSquare
-                              size={14}
-                              className="flex-shrink-0"
-                              style={{ color: "var(--color-ink-40)" }}
-                            />
-                            <Label className="inline text-xs font-medium">
-                              Additional Instructions
-                            </Label>
-                          </div>
-                          <Textarea
-                            className="text-sm min-h-16"
-                            placeholder="e.g., emphasize API architecture…"
-                            value={additionalInstructions}
-                            onChange={(e) => {
-                              setAdditionalInstructions(e.target.value);
-                              setHasUserModifiedSettings(true);
-                            }}
-                          />
-                        </div>
+                        <GenerationSettingsFields
+                          baseResumes={baseResumes}
+                          selectedResumeId={selectedResumeId}
+                          setSelectedResumeId={setSelectedResumeId}
+                          pageLength={pageLength}
+                          onPageLengthChange={(value) => { setPageLength(value); setHasUserModifiedSettings(true); }}
+                          aggressiveness={aggressiveness}
+                          onAggressivenessChange={(value) => { setAggressiveness(value); setHasUserModifiedSettings(true); }}
+                          additionalInstructions={additionalInstructions}
+                          onAdditionalInstructionsChange={(value) => { setAdditionalInstructions(value); setHasUserModifiedSettings(true); }}
+                          disabled={isSavingSettings}
+                        />
                       </form>
-                    </Card>
+                    </Section>
                   )}
 
-                  {/* Notes Card */}
-                  <NotesCard
+                  {/* Notes */}
+                  <NotesSection
                     compact
                     value={notesDraft}
                     state={notesState}
@@ -4821,8 +4502,7 @@ export function ApplicationDetailPage() {
                       setNotesState("idle");
                     }}
                   />
-                </aside>
-
+                </ApplicationDetailsPanel>
               </div>
             )}
 
@@ -4878,21 +4558,40 @@ export function ApplicationDetailPage() {
             title="Fully Regenerate Resume?"
             message={
               <div className="flex flex-col gap-3">
-                <p style={{ margin: 0 }}>
-                  Regenerate source-backed sections using your saved section inclusion,
-                  order and headings. Fixed sections and sections with added or reordered
-                  entries keep their current content. This may take up to four minutes.
-                </p>
+                <Text as="p" display="block" type="body" style={{ margin: 0 }}>
+                  Regenerate source-backed sections using your saved section
+                  inclusion, order and headings. Fixed sections and sections
+                  with added or reordered entries keep their current content.
+                  This may take up to four minutes.
+                </Text>
                 <label className="flex items-start gap-2 text-sm">
-                  <input type="checkbox" className="mt-1" checked={fullRegenUseLatestBase} onChange={(event) => setFullRegenUseLatestBase(event.target.checked)} />
-                  <span>Use latest base resume. Replace draft content and layout with the linked base's reviewed sections. This also refreshes source links for comparison and future regeneration.</span>
+                  <Input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={fullRegenUseLatestBase}
+                    onChange={(event) =>
+                      setFullRegenUseLatestBase(event.target.checked)
+                    }
+                  />
+                  <span>
+                    Use latest base resume. Replace draft content and layout
+                    with the linked base's reviewed sections. This also
+                    refreshes source links for comparison and future
+                    regeneration.
+                  </span>
                 </label>
-                {(!draft?.document || !draft?.source_snapshot) && <p className="text-xs">This legacy draft has no frozen source links. Select Use latest base resume to replace it. The existing draft stays available if generation fails.</p>}
+                {(!draft?.document || !draft?.source_snapshot) && (
+                  <Text as="p" display="block" type="supporting">
+                    This legacy draft has no frozen source links. Select Use
+                    latest base resume to replace it. The existing draft stays
+                    available if generation fails.
+                  </Text>
+                )}
                 <div className="flex flex-col gap-1.5 mt-2">
                   <label
                     htmlFor="full-regen-instr"
                     className="text-xs font-semibold"
-                    style={{ color: "var(--color-ink-65)" }}
+                    style={{ color: "var(--color-text-secondary)" }}
                   >
                     Custom Instructions (Optional)
                   </label>
@@ -4958,7 +4657,7 @@ export function ApplicationDetailPage() {
                     left: 0,
                     width: "100%",
                     height: "100%",
-                    background: "rgba(16, 24, 40, 0.5)",
+                    background: "var(--color-overlay)",
                     backdropFilter: "blur(6px)",
                     animation: "fadeIn 200ms var(--ease-out) both",
                   }}
@@ -4970,67 +4669,109 @@ export function ApplicationDetailPage() {
                   style={{
                     position: "relative",
                     zIndex: 1,
-                    background: "var(--color-white)",
-                    borderRadius: "var(--radius-xl)",
-                    boxShadow: "var(--shadow-panel)",
+                    background: "var(--color-background-surface)",
+                    borderRadius: "var(--radius-container)",
+                    boxShadow: "var(--shadow-high)",
                     padding: "24px",
                     maxWidth: "440px",
                     width: "calc(100% - 48px)",
                   }}
                 >
-                  <h3
+                  <Heading
+                    level={3}
                     style={{
                       fontSize: "17px",
                       fontWeight: 600,
-                      color: "var(--color-ink)",
+                      color: "var(--color-text-primary)",
                       margin: 0,
                       lineHeight: 1.3,
                     }}
                   >
                     Regenerate a Section
-                  </h3>
-                  <p
+                  </Heading>
+                  <Text
+                    as="p"
+                    display="block"
+                    type="body"
                     style={{
                       marginTop: "8px",
                       fontSize: "14px",
-                      color: "var(--color-ink-65)",
+                      color: "var(--color-text-secondary)",
                       lineHeight: 1.5,
                     }}
                   >
-                    {regenEntryId ? "Only this role will be regenerated. Other roles and sections stay as they are." : "Select a section and describe how you want to improve it."}
-                  </p>
+                    {regenEntryId
+                      ? "Only this role will be regenerated. Other roles and sections stay as they are."
+                      : "Select a section and describe how you want to improve it."}
+                  </Text>
 
                   <div className="mt-4 space-y-3">
                     <div>
                       <Label
                         className="text-xs font-medium"
-                        style={{ color: "var(--color-ink-65)" }}
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Section
                       </Label>
                       <Select
                         className="mt-1 text-sm"
                         value={regenSectionName}
-                        onChange={(e) => { setRegenSectionName(e.target.value); setRegenEntryId(undefined); }}
+                        onChange={(e) => {
+                          setRegenSectionName(e.target.value);
+                          setRegenEntryId(undefined);
+                        }}
                       >
                         <option value="">Select section…</option>
-                        {draft?.document ? draft.document.sections.filter((section) => section.enabled).map((section) => (
-                          <option key={section.id} value={section.id} disabled={Boolean(sectionRegenerationReason(section, section.id === regenSectionName ? regenEntryId : undefined))}>{section.heading}</option>
-                        )) : <>
-                          <option value="summary">Summary</option>
-                          <option value="professional_experience">Professional Experience</option>
-                          <option value="education">Education</option>
-                          <option value="skills">Skills</option>
-                          <option value="projects">Projects</option>
-                          <option value="certifications">Certifications</option>
-                        </>}
+                        {draft?.document ? (
+                          draft.document.sections
+                            .filter((section) => section.enabled)
+                            .map((section) => (
+                              <option
+                                key={section.id}
+                                value={section.id}
+                                disabled={Boolean(
+                                  sectionRegenerationReason(
+                                    section,
+                                    section.id === regenSectionName
+                                      ? regenEntryId
+                                      : undefined,
+                                  ),
+                                )}
+                              >
+                                {section.heading}
+                              </option>
+                            ))
+                        ) : (
+                          <>
+                            <option value="summary">Summary</option>
+                            <option value="professional_experience">
+                              Professional Experience
+                            </option>
+                            <option value="education">Education</option>
+                            <option value="skills">Skills</option>
+                            <option value="projects">Projects</option>
+                            <option value="certifications">
+                              Certifications
+                            </option>
+                          </>
+                        )}
                       </Select>
-                      {sectionSourceBlocker && <p className="mt-2 text-xs" style={{ color: "var(--color-ink-65)" }}>{sectionSourceBlocker}</p>}
+                      {sectionSourceBlocker && (
+                        <Text
+                          as="p"
+                          display="block"
+                          type="supporting"
+                          className="mt-2"
+                          style={{ color: "var(--color-text-secondary)" }}
+                        >
+                          {sectionSourceBlocker}
+                        </Text>
+                      )}
                     </div>
                     <div>
                       <Label
                         className="text-xs font-medium"
-                        style={{ color: "var(--color-ink-65)" }}
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Instructions
                       </Label>
@@ -5051,34 +4792,38 @@ export function ApplicationDetailPage() {
                       marginTop: "20px",
                     }}
                   >
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => {
-                        setShowSectionRegen(false);
-                        setRegenSectionName("");
-                        setRegenEntryId(undefined);
-                        setRegenInstructions("");
-                      }}
-                      disabled={isRegenerating}
-                    >
-                      Cancel
-                    </Button>
-                    <button
-                      type="button"
-                      disabled={
-                        isRegenerating ||
-                        Boolean(sectionRegenerationBlocker) ||
-                        !regenSectionName ||
-                        !regenInstructions.trim()
-                      }
-                      className="ai-button inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => void handleSectionRegeneration()}
-                    >
-                      <Sparkles size={14} />
-                      {isRegenerating ? "Regenerating…" : "Regenerate"}
-                    </button>
-                  </div>
+                    <ActionButtons label="Section regeneration" size="sm">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          setShowSectionRegen(false);
+                          setRegenSectionName("");
+                          setRegenEntryId(undefined);
+                          setRegenInstructions("");
+                        }}
+                        disabled={isRegenerating}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        type="button"
+                        disabled={
+                          isRegenerating ||
+                          Boolean(sectionRegenerationBlocker) ||
+                          !regenSectionName ||
+                          !regenInstructions.trim()
+                        }
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => void handleSectionRegeneration()}
+                      >
+                        <Sparkles size={14} />
+                        {isRegenerating ? "Regenerating…" : "Regenerate"}
+                      </Button>
+
+                    </ActionButtons>
+</div>
                 </div>
               </div>,
               document.body,
@@ -5106,7 +4851,7 @@ export function ApplicationDetailPage() {
                   style={{
                     position: "absolute",
                     inset: 0,
-                    background: "rgba(16, 24, 40, 0.52)",
+                    background: "var(--color-overlay)",
                     backdropFilter: "blur(8px)",
                     animation: "fadeIn 200ms var(--ease-out) both",
                   }}
@@ -5119,10 +4864,10 @@ export function ApplicationDetailPage() {
                     width: "min(920px, 100%)",
                     maxHeight: "calc(100vh - 48px)",
                     overflowY: "auto",
-                    borderRadius: "24px",
+                    borderRadius: "var(--radius-container)",
                     background:
-                      "linear-gradient(180deg, color-mix(in srgb, var(--color-ink) 2%, white) 0%, white 24%, white 100%)",
-                    boxShadow: "var(--shadow-panel)",
+                      "linear-gradient(180deg, color-mix(in srgb, var(--color-text-primary) 2%, white) 0%, white 24%, white 100%)",
+                    boxShadow: "var(--shadow-high)",
                     padding: "24px",
                   }}
                   role="dialog"
@@ -5134,65 +4879,69 @@ export function ApplicationDetailPage() {
                     style={{ borderColor: "var(--color-border)" }}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <p
-                        className="text-[11px] font-semibold uppercase tracking-[0.24em]"
-                        style={{ color: "var(--color-ink-50)" }}
+                      <Text
+                        as="p"
+                        display="block"
+                        type="supporting"
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Resume Judge
-                      </p>
+                      </Text>
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         <span
                           className="inline-flex items-center rounded-full px-3 py-1.5 text-sm font-semibold"
                           style={{
                             background: resumeJudgeStale
-                              ? "var(--color-amber-10)"
+                              ? "var(--color-warning-muted)"
                               : resumeJudgeToneStyle.bg,
                             color: resumeJudgeStale
-                              ? "var(--color-amber)"
+                              ? "var(--color-warning)"
                               : resumeJudgeToneStyle.accent,
                           }}
                         >
                           {resumeJudge.display_score ?? "—"}/100
                         </span>
-                        <button
+                        <Button
+                          variant="ghost"
                           type="button"
-                          className="rounded-full px-3 py-1.5 text-sm font-semibold transition-colors"
-                          style={{
-                            color: "var(--color-ink-50)",
-                            background: "var(--color-ink-05)",
-                          }}
+                          className="px-3 py-1.5 text-sm transition-colors"
                           onClick={() => setShowResumeJudgeDialog(false)}
                         >
                           Close
-                        </button>
+                        </Button>
                       </div>
                     </div>
                     <div className="mt-3 min-w-0">
-                      <p
-                        className="text-xs font-semibold uppercase tracking-[0.16em]"
-                        style={{ color: "var(--color-ink-50)" }}
+                      <Text
+                        as="p"
+                        display="block"
+                        type="supporting"
+                        style={{ color: "var(--color-text-secondary)" }}
                       >
                         Summary
-                      </p>
-                      <p
-                        className="mt-2 text-[15px] leading-6"
-                        style={{ color: "var(--color-ink)" }}
+                      </Text>
+                      <Text
+                        as="p"
+                        display="block"
+                        type="body"
+                        className="mt-2 leading-6"
+                        style={{ color: "var(--color-text-primary)" }}
                       >
                         {resumeJudge.score_summary ?? "Resume score breakdown"}
-                      </p>
+                      </Text>
                     </div>
                     <div
                       className="mt-3 flex flex-wrap items-center gap-2 text-xs"
-                      style={{ color: "var(--color-ink-50)" }}
+                      style={{ color: "var(--color-text-secondary)" }}
                     >
                       <span
-                        className="rounded-full px-2.5 py-1 font-semibold uppercase tracking-wide"
+                        className="rounded-full px-2.5 py-1 font-semibold"
                         style={{
                           background: resumeJudgeStale
-                            ? "var(--color-amber-10)"
+                            ? "var(--color-warning-muted)"
                             : resumeJudgeToneStyle.bg,
                           color: resumeJudgeStale
-                            ? "var(--color-amber)"
+                            ? "var(--color-warning)"
                             : resumeJudgeToneStyle.accent,
                         }}
                       >
@@ -5210,14 +4959,17 @@ export function ApplicationDetailPage() {
                         </span>
                       ) : null}
                     </div>
-                    <p
-                      className="mt-3 text-xs leading-5"
-                      style={{ color: "var(--color-ink-65)" }}
+                    <Text
+                      as="p"
+                      display="block"
+                      type="supporting"
+                      className="mt-3 leading-5"
+                      style={{ color: "var(--color-text-secondary)" }}
                     >
                       {resumeJudgeStale
                         ? "This score was calculated for an older draft. Re-evaluate after reviewing the breakdown."
                         : `Verdict: ${resumeJudgeVerdictLabel(resumeJudge.verdict)} at ${resumeJudge.final_score?.toFixed(1) ?? "0.0"} / 100.`}
-                    </p>
+                    </Text>
                   </div>
 
                   <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
@@ -5227,15 +4979,16 @@ export function ApplicationDetailPage() {
                         return (
                           <div
                             key={key}
-                            className="overflow-hidden rounded-[1.25rem] border"
+                            className="overflow-hidden rounded-[var(--radius-container)] border"
                             style={{
                               borderColor: expanded
                                 ? resumeJudgeToneStyle.border
                                 : "var(--color-border)",
-                              background: "rgba(255,255,255,0.92)",
+                              background: "var(--color-background-surface)",
                             }}
                           >
-                            <button
+                            <Button
+                              variant="ghost"
                               type="button"
                               className="flex w-full items-start justify-between gap-4 px-4 py-4 text-left"
                               aria-expanded={expanded}
@@ -5248,21 +5001,25 @@ export function ApplicationDetailPage() {
                             >
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  <p
-                                    className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                                    style={{ color: "var(--color-ink-50)" }}
+                                  <Text
+                                    as="p"
+                                    display="block"
+                                    type="supporting"
+                                    style={{
+                                      color: "var(--color-text-secondary)",
+                                    }}
                                   >
                                     {RESUME_JUDGE_DIMENSION_LABELS[key] ?? key}
-                                  </p>
+                                  </Text>
                                   {(
                                     resumeJudge.regeneration_priority_dimensions ??
                                     []
                                   ).includes(key) ? (
                                     <span
-                                      className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                      className="rounded-full px-2 py-0.5 text-xs font-semibold"
                                       style={{
-                                        background: "var(--color-ember-05)",
-                                        color: "var(--color-ember)",
+                                        background: "var(--color-error-muted)",
+                                        color: "var(--color-error)",
                                       }}
                                     >
                                       Priority
@@ -5272,39 +5029,51 @@ export function ApplicationDetailPage() {
                                 <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
                                   <div>
                                     <div
-                                      style={{ color: "var(--color-ink-50)" }}
+                                      style={{
+                                        color: "var(--color-text-secondary)",
+                                      }}
                                     >
                                       Score
                                     </div>
                                     <div
                                       className="mt-1 font-semibold"
-                                      style={{ color: "var(--color-ink)" }}
+                                      style={{
+                                        color: "var(--color-text-primary)",
+                                      }}
                                     >
                                       {value.score.toFixed(1)} / 10
                                     </div>
                                   </div>
                                   <div>
                                     <div
-                                      style={{ color: "var(--color-ink-50)" }}
+                                      style={{
+                                        color: "var(--color-text-secondary)",
+                                      }}
                                     >
                                       Weight
                                     </div>
                                     <div
                                       className="mt-1 font-semibold"
-                                      style={{ color: "var(--color-ink)" }}
+                                      style={{
+                                        color: "var(--color-text-primary)",
+                                      }}
                                     >
                                       {(value.weight * 100).toFixed(0)}%
                                     </div>
                                   </div>
                                   <div>
                                     <div
-                                      style={{ color: "var(--color-ink-50)" }}
+                                      style={{
+                                        color: "var(--color-text-secondary)",
+                                      }}
                                     >
                                       Weighted impact
                                     </div>
                                     <div
                                       className="mt-1 font-semibold"
-                                      style={{ color: "var(--color-ink)" }}
+                                      style={{
+                                        color: "var(--color-text-primary)",
+                                      }}
                                     >
                                       {value.weighted_contribution.toFixed(1)}
                                     </div>
@@ -5316,21 +5085,21 @@ export function ApplicationDetailPage() {
                                 aria-hidden="true"
                                 className="mt-1 shrink-0 transition-transform"
                                 style={{
-                                  color: "var(--color-ink-50)",
+                                  color: "var(--color-text-secondary)",
                                   transform: expanded
                                     ? "rotate(180deg)"
                                     : "rotate(0deg)",
                                 }}
                               />
-                            </button>
+                            </Button>
                             {expanded ? (
                               <div
                                 id={`resume-judge-dimension-${key}`}
                                 className="border-t px-4 py-4 text-xs leading-5"
                                 style={{
                                   borderColor: "var(--color-border)",
-                                  color: "var(--color-ink-65)",
-                                  background: "var(--color-ink-05)",
+                                  color: "var(--color-text-secondary)",
+                                  background: "var(--color-background-muted)",
                                 }}
                               >
                                 {value.notes}
@@ -5343,35 +5112,37 @@ export function ApplicationDetailPage() {
 
                     <div className="space-y-4">
                       <div
-                        className="rounded-[1.25rem] border p-4"
+                        className="border-t p-4"
                         style={{
                           borderColor: "var(--color-border)",
-                          background: "rgba(255,255,255,0.88)",
+                          background: "var(--color-background-surface)",
                         }}
                       >
-                        <p
-                          className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                          style={{ color: "var(--color-ink-50)" }}
+                        <Text
+                          as="p"
+                          display="block"
+                          type="supporting"
+                          style={{ color: "var(--color-text-secondary)" }}
                         >
                           Verdict
-                        </p>
+                        </Text>
                         <div className="mt-3 flex items-center justify-between gap-3">
                           <span
                             className="text-sm font-semibold"
-                            style={{ color: "var(--color-ink)" }}
+                            style={{ color: "var(--color-text-primary)" }}
                           >
                             {resumeJudgeStale
                               ? "Out of date"
                               : resumeJudgeVerdictLabel(resumeJudge.verdict)}
                           </span>
                           <span
-                            className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                            className="rounded-full px-2.5 py-1 text-xs font-semibold"
                             style={{
                               background: resumeJudgeStale
-                                ? "var(--color-amber-10)"
+                                ? "var(--color-warning-muted)"
                                 : resumeJudgeToneStyle.bg,
                               color: resumeJudgeStale
-                                ? "var(--color-amber)"
+                                ? "var(--color-warning)"
                                 : resumeJudgeToneStyle.accent,
                             }}
                           >
@@ -5381,21 +5152,24 @@ export function ApplicationDetailPage() {
                         {resumeJudge.regeneration_priority_dimensions
                           ?.length ? (
                           <div className="mt-4">
-                            <p
-                              className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                              style={{ color: "var(--color-ink-50)" }}
+                            <Text
+                              as="p"
+                              display="block"
+                              type="supporting"
+                              style={{ color: "var(--color-text-secondary)" }}
                             >
                               Priority Dimensions
-                            </p>
+                            </Text>
                             <div className="mt-2 flex flex-wrap gap-2">
                               {resumeJudge.regeneration_priority_dimensions.map(
                                 (dimension) => (
                                   <span
                                     key={dimension}
-                                    className="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
                                     style={{
-                                      background: "var(--color-ink-05)",
-                                      color: "var(--color-ink-65)",
+                                      background:
+                                        "var(--color-background-muted)",
+                                      color: "var(--color-text-secondary)",
                                     }}
                                   >
                                     {RESUME_JUDGE_DIMENSION_LABELS[dimension] ??
@@ -5412,29 +5186,34 @@ export function ApplicationDetailPage() {
                         resumeJudge.status === "failed" ||
                         resumeJudge.final_score == null) && (
                         <div
-                          className="rounded-[1.25rem] border p-4"
+                          className="border-t p-4"
                           style={{
                             borderColor: "var(--color-border)",
-                            background: "var(--color-amber-10)",
+                            background: "var(--color-warning-muted)",
                           }}
                         >
-                          <p
-                            className="text-sm font-semibold"
-                            style={{ color: "var(--color-ink)" }}
+                          <Text
+                            as="p"
+                            display="block"
+                            type="label"
+                            style={{ color: "var(--color-text-primary)" }}
                           >
                             {resumeJudgeStale
                               ? "This score is stale."
                               : "Resume Judge needs another run."}
-                          </p>
-                          <p
-                            className="mt-2 text-xs leading-5"
-                            style={{ color: "var(--color-ink-65)" }}
+                          </Text>
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
+                            className="mt-2 leading-5"
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             {resumeJudgeStale
                               ? "You edited the draft after it was scored. Re-evaluate to refresh the breakdown."
                               : (resumeJudge.message ??
                                 "Run Resume Judge again to restore the score.")}
-                          </p>
+                          </Text>
                           <Button
                             className="mt-4"
                             size="sm"
@@ -5451,40 +5230,49 @@ export function ApplicationDetailPage() {
 
                       {resumeJudge.regeneration_instructions ? (
                         <div
-                          className="rounded-[1.25rem] border p-4"
+                          className="border-t p-4"
                           style={{
                             borderColor: "var(--color-border)",
-                            background: "var(--color-ink-05)",
+                            background: "var(--color-background-muted)",
                           }}
                         >
-                          <p
-                            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                            style={{ color: "var(--color-ink-50)" }}
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             Regeneration Instructions
-                          </p>
-                          <p
-                            className="mt-3 text-xs leading-5"
-                            style={{ color: "var(--color-ink)" }}
+                          </Text>
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
+                            className="mt-3 leading-5"
+                            style={{ color: "var(--color-text-primary)" }}
                           >
                             {formatJudgeInstructions(
                               resumeJudge.regeneration_instructions,
                             )}
-                          </p>
+                          </Text>
                           {resumeJudgeCanRegenerateWithFeedback ? (
                             <>
-                              <p
-                                className="mt-3 text-xs"
-                                style={{ color: "var(--color-ink-50)" }}
+                              <Text
+                                as="p"
+                                display="block"
+                                type="supporting"
+                                className="mt-3"
+                                style={{ color: "var(--color-text-secondary)" }}
                               >
                                 Full regeneration will keep your current
                                 instructions and append the judge’s corrective
                                 guidance.
-                              </p>
-                              <button
+                              </Text>
+                              <Button
+                                variant="ghost"
                                 type="button"
                                 disabled={Boolean(fullRegenerationBlocker)}
-                                className="ai-button mt-4 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                                className="mt-4 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                                 onClick={() => {
                                   setShowResumeJudgeDialog(false);
                                   void handleFullRegeneration(
@@ -5495,41 +5283,49 @@ export function ApplicationDetailPage() {
                               >
                                 <Sparkles size={14} />
                                 Regenerate with Judge Feedback
-                              </button>
+                              </Button>
                             </>
                           ) : null}
                           {fullRegenerationBlocker &&
                           resumeJudgeCanRegenerateWithFeedback ? (
-                            <p
-                              className="mt-2 text-xs"
-                              style={{ color: "var(--color-ink-50)" }}
+                            <Text
+                              as="p"
+                              display="block"
+                              type="supporting"
+                              className="mt-2"
+                              style={{ color: "var(--color-text-secondary)" }}
                             >
                               {fullRegenerationBlocker}
-                            </p>
+                            </Text>
                           ) : null}
                         </div>
                       ) : null}
 
                       {resumeJudge.evaluator_notes ? (
                         <div
-                          className="rounded-[1.25rem] border p-4"
+                          className="border-t p-4"
                           style={{
                             borderColor: "var(--color-border)",
-                            background: "rgba(255,255,255,0.88)",
+                            background: "var(--color-background-surface)",
                           }}
                         >
-                          <p
-                            className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-                            style={{ color: "var(--color-ink-50)" }}
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             Evaluator Notes
-                          </p>
-                          <p
-                            className="mt-3 text-xs leading-5"
-                            style={{ color: "var(--color-ink-65)" }}
+                          </Text>
+                          <Text
+                            as="p"
+                            display="block"
+                            type="supporting"
+                            className="mt-3 leading-5"
+                            style={{ color: "var(--color-text-secondary)" }}
                           >
                             {resumeJudge.evaluator_notes}
-                          </p>
+                          </Text>
                         </div>
                       ) : null}
                     </div>

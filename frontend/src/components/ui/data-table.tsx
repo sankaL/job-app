@@ -1,8 +1,38 @@
-import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { ActionButtons } from "@/components/ui/button-group";
+// Adapted from the Astryx CLI table-filter template.
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Table,
+  pixel,
+  proportional,
+  useTableGroupedRows,
+  type TablePlugin,
+} from "@astryxdesign/core/Table";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { Icon } from "@astryxdesign/core/Icon";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuDivider,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "@astryxdesign/core/DropdownMenu";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Bookmark,
+  BookmarkPlus,
+  Search,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 
 type SortableValue = string | number | boolean | Date | null | undefined;
-
 export type Column<T> = {
   key: string;
   header: ReactNode;
@@ -10,9 +40,25 @@ export type Column<T> = {
   sortable?: boolean;
   sortValue?: (row: T) => SortableValue;
   width?: string;
-  hiddenOnMobile?: boolean;
+  minWidth?: number;
+  groupValue?: (row: T) => string;
+  filterValue?: (row: T) => string;
 };
-
+export type TableFilter = {
+  key: string;
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  multiple?: boolean;
+  onChange: (value: string) => void;
+};
+export type TableToolbar = {
+  search: string;
+  onSearch: (value: string) => void;
+  searchLabel: string;
+  placeholder: string;
+  filters?: TableFilter[];
+};
 type DataTableProps<T> = {
   columns: Column<T>[];
   data: T[];
@@ -21,11 +67,13 @@ type DataTableProps<T> = {
   pageSize?: number;
   emptyState?: ReactNode;
   density?: "default" | "compact";
-  tableLayout?: "auto" | "fixed";
   verticalAlign?: "middle" | "top";
   onVisibleRowsChange?: (rows: T[]) => void;
+  toolbar?: TableToolbar;
+  defaultGroup?: string;
+  defaultSort?: { key: string; direction: "asc" | "desc" };
+  filterData?: T[];
 };
-
 function getDateSortValue(value: Exclude<SortableValue, null | undefined>) {
   if (value instanceof Date) return value.getTime();
   if (typeof value === "string" || typeof value === "number")
@@ -79,190 +127,95 @@ function sortTableData<T>(
   });
 }
 
-function SortIndicator({
-  active,
-  direction,
-}: {
-  active: boolean;
-  direction: "asc" | "desc";
-}) {
-  return (
-    <span
-      className="inline-flex flex-col gap-px transition-opacity"
-      style={{ opacity: active ? 1 : 0.35 }}
-    >
-      <svg
-        width="8"
-        height="5"
-        viewBox="0 0 8 5"
-        fill="currentColor"
-        style={{ opacity: active && direction === "desc" ? 0.3 : 1 }}
-      >
-        <path d="M4 0l4 5H0L4 0z" />
-      </svg>
-      <svg
-        width="8"
-        height="5"
-        viewBox="0 0 8 5"
-        fill="currentColor"
-        style={{ opacity: active && direction === "asc" ? 0.3 : 1 }}
-      >
-        <path d="M4 5L0 0h8L4 5z" />
-      </svg>
-    </span>
-  );
-}
-
-function TableHeader<T>({
-  columns,
-  density,
-  sortKey,
-  sortDir,
-  onSort,
-}: {
-  columns: Column<T>[];
-  density: "default" | "compact";
+type View = {
+  hidden: string[];
+  group: string;
+  density: "compact" | "balanced" | "spacious";
   sortKey: string | null;
   sortDir: "asc" | "desc";
-  onSort: (key: string) => void;
-}) {
-  return (
-    <thead>
-      <tr className="border-b border-[var(--color-border)]">
-        {columns.map((column) => {
-          const active = sortKey === column.key;
-          const className = `${density === "compact" ? "px-4 py-2.5 text-[11px] tracking-[0.18em]" : "px-4 py-3 text-xs tracking-wider"} text-left font-semibold uppercase${column.hiddenOnMobile ? " dt-hide-mobile" : ""}`;
-          return (
-            <th
-              key={column.key}
-              className={className}
-              style={{
-                color: "var(--color-ink-50)",
-                background: "var(--color-ink-05)",
-                width: column.width,
-                cursor: column.sortable ? "pointer" : "default",
-                userSelect: column.sortable ? "none" : "auto",
-              }}
-              onClick={column.sortable ? () => onSort(column.key) : undefined}
-            >
-              <span className="flex items-center gap-1.5">
-                {column.header}
-                {column.sortable ? (
-                  <SortIndicator active={active} direction={sortDir} />
-                ) : null}
-              </span>
-            </th>
-          );
-        })}
-      </tr>
-    </thead>
-  );
-}
+  filters: Record<string, string[]>;
+};
+type SavedView = {
+  id: number;
+  name: string;
+  view: View;
+  search: string;
+  external: Record<string, string>;
+};
 
-function TableBody<T>({
-  rows,
-  columns,
-  getRowKey,
-  density,
-  verticalAlign,
-  onRowClick,
-}: {
-  rows: T[];
-  columns: Column<T>[];
-  getRowKey: (row: T) => string;
-  density: "default" | "compact";
-  verticalAlign: "middle" | "top";
-  onRowClick?: (row: T) => void;
-}) {
-  const cellPadding = density === "compact" ? "px-4 py-2.5" : "px-4 py-3";
-  const alignment = verticalAlign === "top" ? "align-top" : "align-middle";
-  return (
-    <tbody>
-      {rows.map((row) => (
-        <tr
-          key={getRowKey(row)}
-          className="border-b border-[var(--color-border)] transition-colors hover:bg-[var(--color-ink-05)]"
-          style={{ cursor: onRowClick ? "pointer" : "default" }}
-          onClick={onRowClick ? () => onRowClick(row) : undefined}
-        >
-          {columns.map((column) => (
-            <td
-              key={column.key}
-              className={`${cellPadding} ${alignment}${column.hiddenOnMobile ? " dt-hide-mobile" : ""}`}
-            >
-              {column.render(row)}
-            </td>
-          ))}
-        </tr>
-      ))}
-    </tbody>
-  );
-}
-
-function getPageNumbers(totalPages: number, currentPage: number) {
-  const count = Math.min(totalPages, 7);
-  const start =
-    totalPages <= 7 || currentPage <= 4
-      ? 1
-      : currentPage >= totalPages - 3
-        ? totalPages - 6
-        : currentPage - 3;
-  return Array.from({ length: count }, (_, index) => start + index);
-}
-
-function Pagination({
-  totalPages,
-  currentPage,
-  startIndex,
-  pageSize,
-  totalItems,
+function FilterChip({
+  label,
+  values,
+  options,
   onChange,
+  multiple = true,
 }: {
-  totalPages: number;
-  currentPage: number;
-  startIndex: number;
-  pageSize: number;
-  totalItems: number;
-  onChange: (page: number) => void;
+  label: string;
+  multiple?: boolean;
+  values: string[];
+  options: { value: string; label: string }[];
+  onChange: (values: string[]) => void;
 }) {
-  if (totalPages <= 1) return null;
+  const active = values.length > 0;
+  const first = options.find((option) => option.value === values[0])?.label;
   return (
-    <div className="mt-4 flex items-center justify-between">
-      <div className="text-xs text-[var(--color-ink-40)]">
-        Showing {startIndex + 1}–{Math.min(startIndex + pageSize, totalItems)}{" "}
-        of {totalItems}
-      </div>
-      <div className="flex items-center gap-1">
-        <button
-          disabled={currentPage === 1}
-          onClick={() => onChange(currentPage - 1)}
-          className="rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-65)] transition-colors disabled:opacity-40"
-        >
-          Previous
-        </button>
-        {getPageNumbers(totalPages, currentPage).map((page) => (
-          <button
-            key={page}
-            onClick={() => onChange(page)}
-            className="rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
-            style={{
-              background:
-                currentPage === page ? "var(--color-ink)" : "transparent",
-              color: currentPage === page ? "#fff" : "var(--color-ink-65)",
-            }}
+    <HStack gap={0} vAlign="center">
+      <DropdownMenu
+        button={{
+          label: active
+            ? `${first ?? values[0]}${values.length > 1 ? `, +${values.length - 1}` : ""}`
+            : label,
+          "aria-label": `Filter by ${label.toLowerCase()}`,
+          variant: "secondary",
+          size: "sm",
+          className: active
+            ? "!border !border-solid !border-control"
+            : "!border !border-solid !border-control bg-transparent",
+        }}
+      >
+        {!multiple ? (
+          <DropdownMenuRadioGroup
+            key="choices"
+            label={label}
+            value={values[0] ?? "all"}
+            onChange={(value) => onChange(value === "all" ? [] : [value])}
           >
-            {page}
-          </button>
-        ))}
-        <button
-          disabled={currentPage === totalPages}
-          onClick={() => onChange(currentPage + 1)}
-          className="rounded-md border border-[var(--color-border)] bg-white px-2.5 py-1.5 text-xs font-medium text-[var(--color-ink-65)] transition-colors disabled:opacity-40"
+            <DropdownMenuRadioItem value="all" label="All" />
+            {options.map((option) => (
+              <DropdownMenuRadioItem
+                key={option.value}
+                value={option.value}
+                label={option.label}
+              />
+            ))}
+          </DropdownMenuRadioGroup>
+        ) : (
+          options.map((option) => (
+            <DropdownMenuCheckboxItem
+              key={option.value}
+              label={option.label}
+              value={values.includes(option.value)}
+              onChange={(checked) =>
+                onChange(
+                  checked
+                    ? [...values, option.value]
+                    : values.filter((value) => value !== option.value),
+                )
+              }
+            />
+          ))
+        )}
+      </DropdownMenu>
+      {active && (
+        <IconButton
+          aria-label={`Clear ${label.toLowerCase()} filter`}
+          title={`Clear ${label.toLowerCase()} filter`}
+          onClick={() => onChange([])}
         >
-          Next
-        </button>
-      </div>
-    </div>
+          <X size={14} />
+        </IconButton>
+      )}
+    </HStack>
   );
 }
 
@@ -274,88 +227,435 @@ export function DataTable<T>({
   pageSize = 25,
   emptyState,
   density = "default",
-  tableLayout = "auto",
   verticalAlign = "middle",
   onVisibleRowsChange,
+  toolbar,
+  defaultGroup = "",
+  defaultSort,
+  filterData = data,
 }: DataTableProps<T>) {
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-
-  const sortedColumn = sortKey
-    ? columns.find((column) => column.key === sortKey)
-    : undefined;
-  const sortedData = sortTableData(data, sortedColumn, sortDir);
-  const totalPages = Math.ceil(sortedData.length / pageSize);
-  const safeCurrentPage =
-    totalPages === 0 ? 1 : Math.min(currentPage, totalPages);
-  const startIdx = (safeCurrentPage - 1) * pageSize;
-  const pageData = sortedData.slice(startIdx, startIdx + pageSize);
-
+  const [view, setView] = useState<View>({
+    hidden: [],
+    group: defaultGroup,
+    density: density === "compact" ? "compact" : "balanced",
+    sortKey: defaultSort?.key ?? null,
+    sortDir: defaultSort?.direction ?? "asc",
+    filters: {},
+  });
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [saved, setSaved] = useState<SavedView[]>([]);
+  const [saveName, setSaveName] = useState<string | null>(null);
+  const nextViewId = useRef(1);
+  const patchView = (patch: Partial<View>) => {
+    setView((current) => ({ ...current, ...patch }));
+    setCurrentPage(1);
+  };
+  const filterColumns = columns.filter((column) => column.filterValue);
+  const groupColumn = columns.find(
+    (column) => column.key === view.group && column.groupValue,
+  );
+  const filtered = data.filter((row) =>
+    filterColumns.every(
+      (column) =>
+        !view.filters[column.key]?.length ||
+        view.filters[column.key].includes(column.filterValue!(row)),
+    ),
+  );
+  const ordered = sortTableData(
+    filtered,
+    columns.find((column) => column.key === view.sortKey),
+    view.sortDir,
+  );
+  if (groupColumn && view.sortKey !== groupColumn.key)
+    ordered.sort((a, b) =>
+      groupColumn.groupValue!(a).localeCompare(groupColumn.groupValue!(b)),
+    );
+  const safePageSize = Math.max(1, pageSize);
+  const totalPages = Math.ceil(ordered.length / safePageSize);
+  const page = Math.max(1, Math.min(currentPage, totalPages));
   useEffect(() => {
-    if (currentPage !== safeCurrentPage) {
-      setCurrentPage(safeCurrentPage);
-    }
-  }, [currentPage, safeCurrentPage]);
-
+    if (page !== currentPage) setCurrentPage(page);
+  }, [page, currentPage]);
+  const start = (page - 1) * safePageSize;
+  const rows = ordered
+    .slice(start, start + safePageSize)
+    .map((record) => ({ record }));
+  const grouped = useTableGroupedRows({
+    data: rows,
+    groupBy: (row) => groupColumn?.groupValue?.(row.record) ?? "",
+    collapsedGroups: collapsed,
+    onToggleGroup: (key) =>
+      setCollapsed((current) => {
+        const next = new Set(current);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      }),
+    getRowKey: (row) => getRowKey(row.record),
+  });
+  const visibleRows = rows
+    .filter(
+      (row) =>
+        !groupColumn || !collapsed.has(groupColumn.groupValue!(row.record)),
+    )
+    .map((row) => row.record);
+  const visibleKey = JSON.stringify(visibleRows.map(getRowKey));
+  const visibleRef = useRef(visibleRows);
+  visibleRef.current = visibleRows;
   useEffect(() => {
-    onVisibleRowsChange?.(pageData);
-  }, [onVisibleRowsChange, pageData]);
+    onVisibleRowsChange?.(visibleRef.current);
+  }, [visibleKey, onVisibleRowsChange]);
+  const filterKey = JSON.stringify([
+    toolbar?.search,
+    toolbar?.filters?.map((filter) => filter.value),
+    view.filters,
+  ]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterKey]);
 
-  function handleSort(key: string) {
-    if (sortKey === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
+  const visibleColumns = columns.filter(
+    (column) => !view.hidden.includes(column.key),
+  );
+  const adapter: TablePlugin<{ record: T }> = {
+    transformHeaderCell: (props, column) => ({
+      ...props,
+      htmlProps: {
+        ...props.htmlProps,
+        "aria-sort":
+          view.sortKey === column.key
+            ? view.sortDir === "asc"
+              ? "ascending"
+              : "descending"
+            : undefined,
+      },
+    }),
+    transformBodyRow: (props, row) => {
+      if (!onRowClick || !row.record) return props;
+      return {
+        ...props,
+        htmlProps: {
+          ...props.htmlProps,
+          tabIndex: 0,
+          className: "cursor-pointer",
+          onClick: (event) => {
+            if (
+              (event.target as HTMLElement).closest(
+                "button, input, a, [role=checkbox]",
+              )
+            )
+              return;
+            onRowClick(row.record);
+          },
+          onKeyDown: (event) => {
+            if (
+              event.target === event.currentTarget &&
+              (event.key === "Enter" || event.key === " ")
+            ) {
+              event.preventDefault();
+              onRowClick(row.record);
+            }
+          },
+        },
+      };
+    },
+  };
+  function clearAll() {
+    toolbar?.onSearch("");
+    toolbar?.filters?.forEach((filter) => filter.onChange("all"));
+    patchView({ filters: {} });
   }
-
-  if (data.length === 0 && emptyState) {
-    return <>{emptyState}</>;
-  }
-
+  const hasFilters = Boolean(
+    toolbar?.search ||
+    toolbar?.filters?.some((filter) => filter.value !== "all") ||
+    Object.values(view.filters).some((values) => values.length),
+  );
   return (
-    <div className="animate-fadeIn">
-      <div
-        className="overflow-hidden rounded-xl border"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "var(--color-surface)",
-        }}
-      >
-        <div className="overflow-x-auto">
-          <table
-            className="w-full text-sm"
-            style={{ color: "var(--color-ink)", tableLayout }}
+    <VStack gap={0} className="app-table-frame min-w-0">
+      <HStack gap={3} paddingBlock={4} vAlign="center" wrap="wrap">
+        {toolbar && (
+          <TextInput
+            label={toolbar.searchLabel}
+            isLabelHidden
+            size="sm"
+            placeholder={toolbar.placeholder}
+            startIcon={Search}
+            value={toolbar.search}
+            onChange={toolbar.onSearch}
+            hasClear
+            className="w-full sm:w-48"
+          />
+        )}
+        {toolbar?.filters?.map((filter) => (
+          <FilterChip
+            key={filter.key}
+            label={filter.label}
+            multiple={filter.multiple ?? false}
+            values={filter.value === "all" ? [] : filter.value.split("|")}
+            options={filter.options}
+            onChange={(values) => filter.onChange(values.join("|") || "all")}
+          />
+        ))}
+        {filterColumns.map((column) => (
+          <FilterChip
+            key={column.key}
+            label={String(column.header)}
+            values={view.filters[column.key] ?? []}
+            options={[...new Set(filterData.map(column.filterValue!))]
+              .sort()
+              .map((value) => ({ value, label: value }))}
+            onChange={(values) =>
+              patchView({ filters: { ...view.filters, [column.key]: values } })
+            }
+          />
+        ))}
+        <Text type="supporting" color="secondary" role="status">
+          {filtered.length} {filtered.length === 1 ? "result" : "results"}
+        </Text>
+        {hasFilters && (
+          <Button variant="ghost" size="sm" onClick={clearAll}>
+            Clear all
+          </Button>
+        )}
+        <HStack gap={2} vAlign="center" className="ml-auto">
+          <DropdownMenu
+            button={{ label: "View options", variant: "ghost", size: "sm" }}
           >
-            <TableHeader
-              columns={columns}
-              density={density}
-              sortKey={sortKey}
-              sortDir={sortDir}
-              onSort={handleSort}
-            />
-            <TableBody
-              rows={pageData}
-              columns={columns}
-              getRowKey={getRowKey}
-              density={density}
-              verticalAlign={verticalAlign}
-              onRowClick={onRowClick}
-            />
-          </table>
-        </div>
-      </div>
-
-      <Pagination
-        totalPages={totalPages}
-        currentPage={safeCurrentPage}
-        startIndex={startIdx}
-        pageSize={pageSize}
-        totalItems={data.length}
-        onChange={setCurrentPage}
-      />
-    </div>
+            <DropdownMenuRadioGroup
+              label="Group by"
+              value={view.group}
+              onChange={(group) => {
+                patchView({ group });
+                setCollapsed(new Set());
+              }}
+            >
+              <DropdownMenuRadioItem value="" label="No grouping" />
+              {columns
+                .filter((column) => column.groupValue)
+                .map((column) => (
+                  <DropdownMenuRadioItem
+                    key={column.key}
+                    value={column.key}
+                    label={`Group by ${String(column.header)}`}
+                  />
+                ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuDivider />
+            <DropdownMenuRadioGroup
+              label="Row density"
+              value={view.density}
+              onChange={(value) =>
+                patchView({ density: value as View["density"] })
+              }
+            >
+              <DropdownMenuRadioItem value="compact" label="Compact rows" />
+              <DropdownMenuRadioItem
+                value="balanced"
+                label="Comfortable rows"
+              />
+              <DropdownMenuRadioItem value="spacious" label="Spacious rows" />
+            </DropdownMenuRadioGroup>
+            <DropdownMenuDivider />
+            {columns
+              .filter(
+                (column) => typeof column.header === "string" && column.header,
+              )
+              .map((column, index) => (
+                <DropdownMenuCheckboxItem
+                  key={column.key}
+                  label={`Show ${column.header}`}
+                  value={!view.hidden.includes(column.key)}
+                  isDisabled={index === 0}
+                  onChange={(checked) =>
+                    patchView({
+                      hidden: checked
+                        ? view.hidden.filter((key) => key !== column.key)
+                        : [...view.hidden, column.key],
+                    })
+                  }
+                />
+              ))}
+          </DropdownMenu>
+          <IconButton
+            aria-label="Create saved view"
+            title="Create saved view for this page session"
+            onClick={() => setSaveName("")}
+          >
+            <BookmarkPlus size={18} />
+          </IconButton>
+          <DropdownMenu
+            button={{
+              label: "Saved views",
+              tooltip: "Saved views for this page session",
+              variant: "ghost",
+              size: "sm",
+              isIconOnly: true,
+              icon: <Icon icon={Bookmark} size="sm" />,
+            }}
+          >
+            {saved.length === 0 && (
+              <DropdownMenuItem
+                label="No saved views in this session"
+                isDisabled
+              />
+            )}
+            {saved.map((item) => (
+              <DropdownMenuItem
+                key={item.id}
+                label={item.name}
+                onClick={() => {
+                  setView(item.view);
+                  setCollapsed(new Set());
+                  setCurrentPage(1);
+                  toolbar?.onSearch(item.search);
+                  toolbar?.filters?.forEach((filter) =>
+                    filter.onChange(item.external[filter.key] ?? "all"),
+                  );
+                }}
+              />
+            ))}
+            {saved.length > 0 && (
+              <DropdownMenuItem
+                label="Clear saved views"
+                variant="destructive"
+                onClick={() => setSaved([])}
+              />
+            )}
+          </DropdownMenu>
+        </HStack>
+      </HStack>
+      {saveName !== null && (
+        <HStack gap={2} paddingBlockEnd={4} wrap="wrap">
+          <TextInput
+            label="Saved view name"
+            isLabelHidden
+            placeholder="Name this view"
+            size="sm"
+            value={saveName}
+            onChange={setSaveName}
+            hasAutoFocus
+          />
+          <ActionButtons label="Saved view actions" size="sm">
+          <Button
+            size="sm"
+            disabled={!saveName.trim()}
+            onClick={() => {
+              setSaved((current) => [
+                ...current,
+                {
+                  id: nextViewId.current++,
+                  name: saveName.trim(),
+                  view,
+                  search: toolbar?.search ?? "",
+                  external: Object.fromEntries(
+                    toolbar?.filters?.map((filter) => [
+                      filter.key,
+                      filter.value,
+                    ]) ?? [],
+                  ),
+                },
+              ]);
+              setSaveName(null);
+            }}
+          >
+            Save view
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSaveName(null)}>
+            Cancel
+          </Button>
+          </ActionButtons>
+        </HStack>
+      )}
+      {filtered.length === 0 ? (
+        (emptyState ?? <Text type="body">No matching results.</Text>)
+      ) : (
+        <Table<{ record: T }>
+          data={groupColumn ? grouped.data : rows}
+          idKey={groupColumn ? grouped.idKey : (row) => getRowKey(row.record)}
+          density={view.density}
+          dividers="rows"
+          hasHover
+          textOverflow="wrap"
+          verticalAlign={verticalAlign}
+          plugins={
+            groupColumn ? { adapter, grouped: grouped.plugin } : { adapter }
+          }
+          columns={visibleColumns.map((column) => ({
+            key: column.key,
+            width: column.width?.endsWith("px")
+              ? pixel(Number.parseFloat(column.width))
+              : proportional(
+                  column.width?.endsWith("%")
+                    ? Number.parseFloat(column.width) / 10
+                    : 2,
+                  { minWidth: column.minWidth },
+                ),
+            header: column.sortable ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="app-table-sort"
+                onClick={() =>
+                  patchView({
+                    sortKey: column.key,
+                    sortDir:
+                      view.sortKey === column.key && view.sortDir === "asc"
+                        ? "desc"
+                        : "asc",
+                  })
+                }
+              >
+                {column.header}
+                {view.sortKey === column.key ? (
+                  view.sortDir === "asc" ? (
+                    <ArrowUp size={14} />
+                  ) : (
+                    <ArrowDown size={14} />
+                  )
+                ) : (
+                  <ArrowUpDown size={14} className="opacity-40" />
+                )}
+              </Button>
+            ) : (
+              column.header
+            ),
+            renderCell: (row) =>
+              row.record ? column.render(row.record) : null,
+          }))}
+        />
+      )}
+      {totalPages > 1 && (
+        <HStack gap={3} paddingBlock={4} hAlign="between" wrap="wrap">
+          <Text type="supporting" color="secondary">
+            Showing {start + 1}–
+            {Math.min(start + safePageSize, filtered.length)} of{" "}
+            {filtered.length}
+          </Text>
+          <HStack gap={2} vAlign="center">
+            <Text type="supporting">
+              Page {page} of {totalPages}
+            </Text>
+            <ActionButtons label="Pagination" size="sm">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={page === 1}
+              onClick={() => setCurrentPage(page - 1)}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={page === totalPages}
+              onClick={() => setCurrentPage(page + 1)}
+            >
+              Next
+            </Button>
+            </ActionButtons>
+          </HStack>
+        </HStack>
+      )}
+    </VStack>
   );
 }

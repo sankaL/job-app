@@ -1,13 +1,23 @@
-import { useEffect, useState } from "react";
+import {
+  VStack,
+  HStack,
+  Layout,
+  LayoutContent,
+} from "@astryxdesign/core/Layout";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Field } from "@astryxdesign/core/Field";
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { updateProfile, type ProfileData } from "@/lib/api";
 import { updateBootstrapProfile } from "@/lib/queries";
 
@@ -29,120 +39,145 @@ function getEditableProfileState(profile: ProfileData) {
   };
 }
 
+// Keep the settings template's section spacing and responsive columns,
+// using the full available page width without a second navigation rail.
+function ProfileSettingsLayout({ children }: { children: ReactNode }) {
+  return (
+    <Layout
+      height="auto"
+      content={
+        <LayoutContent padding={4}>
+          <VStack gap={4}>{children}</VStack>
+        </LayoutContent>
+      }
+    />
+  );
+}
+
 function ProfileLoading() {
   return (
-    <div className="page-enter space-y-5">
-      <PageHeader
-        title="Profile & Preferences"
-        subtitle="Manage your personal information and resume settings"
-      />
-      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <SkeletonCard density="compact" />
-        <SkeletonCard density="compact" />
-      </div>
-    </div>
+    <VStack className="page-enter">
+      <PageHeader title="Profile & Preferences" />
+      <ProfileSettingsLayout>
+        <SkeletonSection density="compact" />
+        <SkeletonSection density="compact" />
+      </ProfileSettingsLayout>
+    </VStack>
+  );
+}
+
+function ProfileError({ error }: { error: string }) {
+  return (
+    <VStack gap={1} role="alert">
+      <Text type="label" className="text-error">
+        Profile unavailable
+      </Text>
+      <Text as="p" color="secondary">
+        {error}
+      </Text>
+    </VStack>
   );
 }
 
 function ProfileUnavailable({ error }: { error: string | null }) {
   return (
-    <div className="page-enter space-y-5">
-      <PageHeader
-        title="Profile & Preferences"
-        subtitle="Manage your personal information and resume settings"
-      />
-      <Card variant="danger" density="compact">
-        <p className="text-sm font-semibold text-[var(--color-ember)]">
-          Profile unavailable
-        </p>
-        <p className="mt-1 text-sm text-[var(--color-ink-65)]">
-          {error ?? "Refresh the page or sign in again."}
-        </p>
-      </Card>
-    </div>
+    <VStack className="page-enter">
+      <PageHeader title="Profile & Preferences" />
+      <ProfileSettingsLayout>
+        <ProfileError error={error ?? "Refresh the page or sign in again."} />
+      </ProfileSettingsLayout>
+    </VStack>
   );
 }
 
-function PersonalInformationCard({
-  name,
+function PersonalInformationSection({
+  fields,
   email,
-  phone,
-  address,
-  linkedinUrl,
-  onNameChange,
-  onPhoneChange,
-  onAddressChange,
-  onLinkedinChange,
+  isSaving,
+  updateField,
 }: {
-  name: string;
+  fields: EditableProfileState;
   email: string;
-  phone: string;
-  address: string;
-  linkedinUrl: string;
-  onNameChange: (value: string) => void;
-  onPhoneChange: (value: string) => void;
-  onAddressChange: (value: string) => void;
-  onLinkedinChange: (value: string) => void;
+  isSaving: boolean;
+  updateField: <K extends keyof EditableProfileState>(
+    key: K,
+    value: EditableProfileState[K],
+  ) => void;
 }) {
+  const isNarrow = useMediaQuery("(max-width: 768px)");
   return (
-    <Card density="compact">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--color-ink-40)]">
-        Personal Information
-      </h3>
-      <p className="mt-1 text-xs text-[var(--color-ink-40)]">
-        Used in generated resumes.
-      </p>
-      <div className="mt-4 space-y-3">
-        <div>
-          <Label htmlFor="name">Name</Label>
+    <Grid columns={isNarrow ? 1 : { minWidth: 320, max: 2 }} gap={10}>
+      <VStack gap={1}>
+        <Heading level={3} id="profile-personal-information">
+          Personal information
+        </Heading>
+        <Text type="supporting" color="secondary">
+          Your contact details appear in generated resumes and exports.
+        </Text>
+      </VStack>
+      <VStack gap={4}>
+        <Field label="Name" inputID="name" isDisabled={isSaving}>
           <Input
             id="name"
+            name="name"
+            autoComplete="name"
             placeholder="Your full name"
-            value={name}
-            onChange={(event) => onNameChange(event.target.value)}
+            value={fields.name}
+            disabled={isSaving}
+            onChange={(event) => updateField("name", event.target.value)}
           />
-        </div>
-        <div>
-          <Label htmlFor="email">Email</Label>
+        </Field>
+        <Field
+          label="Email"
+          inputID="email"
+          isDisabled
+          description="Managed through your account."
+          descriptionID="email-help"
+        >
           <Input
             id="email"
+            name="email"
+            type="email"
+            autoComplete="email"
             value={email}
             disabled
-            className="cursor-not-allowed opacity-60"
+            aria-describedby="email-help"
           />
-          <p className="mt-1 text-[10px] text-[var(--color-ink-40)]">
-            Managed through your account.
-          </p>
-        </div>
-        <div>
-          <Label htmlFor="phone">Phone</Label>
+        </Field>
+        <Field label="Phone" inputID="phone" isDisabled={isSaving}>
           <Input
             id="phone"
+            name="phone"
+            type="tel"
+            autoComplete="tel"
             placeholder="Your phone number"
-            value={phone}
-            onChange={(event) => onPhoneChange(event.target.value)}
+            value={fields.phone}
+            disabled={isSaving}
+            onChange={(event) => updateField("phone", event.target.value)}
           />
-        </div>
-        <div>
-          <Label htmlFor="address">Location</Label>
+        </Field>
+        <Field label="Location" inputID="address" isDisabled={isSaving}>
           <Input
             id="address"
+            name="address"
             placeholder="City, Province/State"
-            value={address}
-            onChange={(event) => onAddressChange(event.target.value)}
+            value={fields.address}
+            disabled={isSaving}
+            onChange={(event) => updateField("address", event.target.value)}
           />
-        </div>
-        <div>
-          <Label htmlFor="linkedin_url">LinkedIn</Label>
+        </Field>
+        <Field label="LinkedIn" inputID="linkedin_url" isDisabled={isSaving}>
           <Input
             id="linkedin_url"
+            name="linkedin_url"
             placeholder="https://linkedin.com/in/your-handle"
-            value={linkedinUrl}
-            onChange={(event) => onLinkedinChange(event.target.value)}
+            value={fields.linkedinUrl}
+            disabled={isSaving}
+            onChange={(event) => updateField("linkedinUrl", event.target.value)}
           />
-        </div>
-      </div>
-    </Card>
+        </Field>
+      </VStack>
+    </Grid>
   );
 }
 
@@ -209,6 +244,7 @@ function useProfileEditor() {
     value: EditableProfileState[K],
   ) => setFields((current) => ({ ...current, [key]: value }));
   const save = async () => {
+    if (!isProfileDirty(fields, original) || saveState === "saving") return;
     setSaveState("saving");
     setError(null);
     try {
@@ -239,7 +275,6 @@ function useProfileEditor() {
 }
 
 export function ProfilePage() {
-  const editor = useProfileEditor();
   const {
     profile,
     fields,
@@ -249,74 +284,93 @@ export function ProfilePage() {
     isDirty,
     updateField,
     save,
-  } = editor;
+  } = useProfileEditor();
+  const isNarrow = useMediaQuery("(max-width: 768px)");
 
-  if (isLoading) {
-    return <ProfileLoading />;
-  }
-
-  if (!profile) {
-    return <ProfileUnavailable error={error} />;
-  }
+  if (isLoading) return <ProfileLoading />;
+  if (!profile) return <ProfileUnavailable error={error} />;
 
   return (
-    <div className="page-enter space-y-5">
+    <VStack className="page-enter">
       <PageHeader
         title="Profile & Preferences"
-        subtitle="Manage your personal information and resume settings"
         actions={
-          <div className="flex items-center gap-3">
-            {saveState === "saved" && (
-              <span
-                className="text-xs"
-                style={{ color: "var(--color-spruce)" }}
-              >
-                Saved
-              </span>
-            )}
+          <HStack gap={3} vAlign="center">
+            <Text
+              type="supporting"
+              color="secondary"
+              role="status"
+              aria-live="polite"
+            >
+              {saveState === "saved"
+                ? "Saved"
+                : isDirty
+                  ? "Unsaved changes"
+                  : ""}
+            </Text>
             <Button
+              type="submit"
+              form="profile-settings-form"
               disabled={!isDirty || saveState === "saving"}
               loading={saveState === "saving"}
-              onClick={() => void save()}
             >
               {saveState === "saving" ? "Saving…" : "Save"}
             </Button>
-          </div>
+          </HStack>
         }
       />
-
-      {error && (
-        <Card variant="danger" density="compact">
-          <p
-            className="text-sm font-semibold"
-            style={{ color: "var(--color-ember)" }}
-          >
-            Error
-          </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
-            {error}
-          </p>
-        </Card>
-      )}
-
-      <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <PersonalInformationCard
-          name={fields.name}
-          email={profile.email}
-          phone={fields.phone}
-          address={fields.address}
-          linkedinUrl={fields.linkedinUrl}
-          onNameChange={(value) => updateField("name", value)}
-          onPhoneChange={(value) => updateField("phone", value)}
-          onAddressChange={(value) => updateField("address", value)}
-          onLinkedinChange={(value) => updateField("linkedinUrl", value)}
-        />
-        <Card density="compact">
-          <h3 className="text-sm font-semibold">Resume sections</h3>
-          <p className="mt-2 text-sm text-[var(--color-ink-65)]">Choose sections and their order in each resume workbench, including custom sections. Base resume changes apply to new generations. Generated resumes keep their own saved layout.</p>
-          <Link to="/app/resumes" className="mt-3 inline-block text-sm font-semibold underline text-[var(--color-spruce)]">Manage base resumes</Link>
-        </Card>
-      </div>
-    </div>
+      <form
+        id="profile-settings-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <ProfileSettingsLayout>
+          {error && (
+            <VStack gap={1} role="alert">
+              <Text type="label" className="text-error">
+                Could not save profile
+              </Text>
+              <Text as="p" color="secondary">
+                {error}
+              </Text>
+            </VStack>
+          )}
+          <PersonalInformationSection
+            fields={fields}
+            email={profile.email}
+            isSaving={saveState === "saving"}
+            updateField={updateField}
+          />
+          <Divider />
+          <Grid columns={isNarrow ? 1 : { minWidth: 320, max: 2 }} gap={10}>
+            <VStack gap={1}>
+              <Heading level={3} id="profile-resume-sections">
+                Resume sections
+              </Heading>
+              <Text type="supporting" color="secondary">
+                Manage the content and layout in each resume workbench.
+              </Text>
+            </VStack>
+            <VStack gap={4}>
+              <Text as="p" color="secondary">
+                Choose sections and their order in each resume workbench,
+                including custom sections. Base resume changes apply to new
+                generations. Generated resumes keep their own saved layout.
+              </Text>
+              <HStack>
+                <Link
+                  to="/app/resumes"
+                  className="text-sm font-semibold underline"
+                >
+                  Manage base resumes
+                </Link>
+              </HStack>
+            </VStack>
+          </Grid>
+        </ProfileSettingsLayout>
+      </form>
+    </VStack>
   );
 }

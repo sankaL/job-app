@@ -46,12 +46,13 @@ describe("invite signup flow", () => {
 
     renderSignup("/signup");
 
-    expect(screen.getByRole("heading", { name: /request access to applix/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^request access$/i })).toBeInTheDocument();
     expect(api.fetchInvitePreview).not.toHaveBeenCalled();
 
     await userEvent.type(screen.getByLabelText(/full name/i), "Jane Doe");
     await userEvent.type(screen.getByLabelText(/^email$/i), "jane@example.com");
-    await userEvent.selectOptions(screen.getByLabelText(/plan/i), "pro");
+    await userEvent.click(screen.getByLabelText(/plan/i));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Pro: 200 generations/month" }));
     await userEvent.type(screen.getByLabelText(/note/i), "I am applying to product roles.");
     await userEvent.click(screen.getByRole("button", { name: /send access request/i }));
 

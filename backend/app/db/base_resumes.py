@@ -13,6 +13,8 @@ from app.db.connection import rls_connection
 
 
 class BaseResumeListRecord(BaseModel):
+    summary_md: str = ""
+    legacy_content_md: Optional[str] = None
     id: str
     name: str
     user_id: str
@@ -57,6 +59,14 @@ class BaseResumeRepository:
           id::text,
           name,
           user_id::text,
+          coalesce((
+            select section->>'content_md'
+            from jsonb_array_elements(document->'sections') as section
+            where section->>'kind' = 'summary'
+              and btrim(section->>'content_md') <> ''
+            limit 1
+          ), '') as summary_md,
+          case when document is null then content_md end as legacy_content_md,
           created_at::text,
           updated_at::text
         from public.base_resumes

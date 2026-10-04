@@ -68,3 +68,93 @@ async def test_jev_invalid_decisions_fail_closed_without_output_retry(monkeypatc
     with pytest.raises(ValueError):
         await classify_resume_sections({"section-1": {"heading": "Skills", "content": "Python"}}, api_key="test-key", model="typesafe/jev-1.13")
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_classification_traces_each_retry_with_safe_metrics(monkeypatch):
+    from contextlib import contextmanager
+    from app.core.tracing import TraceConfig
+
+    traces = []
+    requests = []
+    class Run:
+        def __init__(self, record):
+            self.record = record
+        def end(self, **kwargs):
+            self.record.update(kwargs)
+    @contextmanager
+    def scope(**kwargs):
+        record = dict(kwargs)
+        traces.append(record)
+        yield Run(record)
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(503, json={"error": {"message": "Private echoed resume body"}})
+        return httpx.Response(200, json={"answers": {"section-1": _answer()},
+            "usage": {"prompt_tokens": 12, "completion_tokens": 4}})
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr("app.services.resume_classifier.httpx.AsyncClient",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr("app.services.resume_classifier.trace_llm_scope", scope)
+    result = await classify_resume_sections({"section-1": {"heading": "Skills", "content": "Private source text"}},
+        api_key="provider-secret", model="typesafe/jev-1.13",
+        trace_config=TraceConfig(enabled=True, api_key="telemetry-key", project_name="applix-dev"))
+    assert result["section-1"].choice == "skills"
+    assert len(traces) == 3
+    assert traces[0]["run_type"] == "chain"
+    assert [item["metadata"]["attempt"] for item in traces[1:]] == [1, 2]
+    assert traces[1]["outputs"]["outcome"] == "failed"
+    assert traces[2]["outputs"]["input_tokens"] == 12
+    assert traces[2]["outputs"]["output_tokens"] == 4
+    assert traces[2]["metadata"]["is_retry"] is True
+    assert all(item["project_name"] == "applix-dev" for item in traces)
+    assert "Private source" not in str(traces)
+    assert "Private echoed" not in str(traces)
+    assert "provider-secret" not in str(traces)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answers", [
+    {},
+    {"section-1": {**_answer(), "confidence": 1.5}},
+])
+async def test_rejected_classification_keeps_usage_without_answer_content(monkeypatch, answers):
+    from contextlib import contextmanager
+    from app.core.tracing import TraceConfig
+
+    traces = []
+    calls = []
+    class Run:
+        def __init__(self, record):
+            self.record = record
+        def end(self, **kwargs):
+            self.record.update(kwargs)
+    @contextmanager
+    def scope(**kwargs):
+        record = dict(kwargs)
+        traces.append(record)
+        yield Run(record)
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"answers": answers,
+            "usage": {"prompt_tokens": 12, "completion_tokens": 4},
+            "private_provider_field": "Private echoed resume body"})
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr("app.services.resume_classifier.httpx.AsyncClient",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr("app.services.resume_classifier.trace_llm_scope", scope)
+
+    with pytest.raises(ValueError):
+        await classify_resume_sections({"section-1": {"heading": "Skills", "content": "Private source text"}},
+            api_key="provider-secret", model="typesafe/jev-1.13",
+            trace_config=TraceConfig(enabled=True, api_key="telemetry-key", project_name="applix-dev"))
+
+    assert len(calls) == 1
+    assert traces[-1]["outputs"]["outcome"] == "failed"
+    assert traces[-1]["outputs"]["http_status"] == 200
+    assert traces[-1]["outputs"]["input_tokens"] == 12
+    assert traces[-1]["outputs"]["output_tokens"] == 4
+    assert "Private source" not in str(traces)
+    assert "Private echoed" not in str(traces)
+    assert "provider-secret" not in str(traces)

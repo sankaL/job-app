@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any, Optional
 
+from psycopg import errors as pg_errors
 from psycopg import sql
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
@@ -87,6 +89,12 @@ class ApplicationSummaryCountsRecord(BaseModel):
     total_count: int
     applied_count: int
     needs_action_count: int
+
+
+class DailyCreationCountRecord(BaseModel):
+    local_date: date
+    created_count: int
+    applied_count: int
 
 
 BASE_SELECT = """
@@ -209,6 +217,37 @@ class ApplicationRepository:
             return ApplicationSummaryCountsRecord(total_count=0, applied_count=0, needs_action_count=0)
 
         return ApplicationSummaryCountsRecord.model_validate(row)
+
+    def fetch_daily_creation_counts(
+        self,
+        user_id: str,
+        *,
+        timezone: str,
+        start_at: datetime,
+        end_before: datetime,
+    ) -> list[DailyCreationCountRecord]:
+        """Aggregate creations per local day inside one bounded window; never returns rows."""
+        query = """
+        select
+          (a.created_at at time zone %s)::date as local_date,
+          count(*)::int as created_count,
+          count(*) filter (where a.applied = true)::int as applied_count
+        from public.applications a
+        where a.user_id = %s
+          and a.created_at >= %s
+          and a.created_at < %s
+        group by local_date
+        order by local_date
+        """
+
+        try:
+            with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
+                cursor.execute(query, (timezone, user_id, start_at, end_before))
+                rows = cursor.fetchall()
+        except pg_errors.InvalidParameterValue as error:
+            raise ValueError("Unsupported timezone.") from error
+
+        return [DailyCreationCountRecord.model_validate(row) for row in rows]
 
     def create_application(
         self,

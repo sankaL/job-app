@@ -1,3 +1,6 @@
+import { ActionButtons } from "@/components/ui/button-group";
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
@@ -9,7 +12,7 @@ import {
   ArrowRight,
   type LucideIcon,
 } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 interface ErrorBannerProps {
@@ -125,7 +128,7 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
   } = getErrorPresentation(errorStr);
 
   return (
-    <Card variant={variant} density="compact" className={className}>
+    <Section variant={variant} density="compact" className={className}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <span
@@ -133,75 +136,84 @@ export function ErrorBanner({ error, className, onClear }: ErrorBannerProps) {
             style={{
               background:
                 variant === "danger"
-                  ? "var(--color-ember-10)"
-                  : "var(--color-amber-10)",
+                  ? "var(--color-error-muted)"
+                  : "var(--color-warning-muted)",
               color:
                 variant === "danger"
-                  ? "var(--color-ember)"
-                  : "var(--color-amber)",
+                  ? "var(--color-error)"
+                  : "var(--color-warning)",
             }}
           >
             <Icon size={18} />
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: "var(--color-ink)" }}
+              <Heading
+                level={3}
+                style={{ color: "var(--color-text-primary)" }}
               >
                 {title}
-              </h3>
+              </Heading>
               {subtitle && (
                 <span
-                  className="text-[10px] font-bold uppercase tracking-wider"
+                  className="text-xs font-bold"
                   style={{
                     color:
                       variant === "danger"
-                        ? "var(--color-ember)"
-                        : "var(--color-amber)",
+                        ? "var(--color-error)"
+                        : "var(--color-warning)",
                   }}
                 >
                   · {subtitle}
                 </span>
               )}
             </div>
-            <p
-              className="mt-1 text-sm leading-relaxed"
-              style={{ color: "var(--color-ink-65)" }}
+            <Text
+              as="p"
+              display="block"
+              type="body"
+              className="mt-1 leading-relaxed"
+              style={{ color: "var(--color-text-secondary)" }}
             >
               {description}
-            </p>
+            </Text>
             {description !== errorStr && (
-              <p
-                className="mt-1 text-xs"
-                style={{ color: "var(--color-ink-45)" }}
+              <Text
+                as="p"
+                display="block"
+                type="supporting"
+                className="mt-1"
+                style={{ color: "var(--color-text-secondary)" }}
               >
                 Details: {errorStr}
-              </p>
+              </Text>
             )}
           </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2 self-end sm:self-center">
-          {cta && (
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => navigate(cta.path)}
-              className="flex items-center gap-1 hover:border-gray-300"
-            >
-              <cta.icon size={13} />
-              {cta.text}
-              <ArrowRight size={13} />
-            </Button>
-          )}
-          {onClear && (
-            <Button size="sm" variant="secondary" onClick={onClear}>
-              Dismiss
-            </Button>
-          )}
-        </div>
+          <ActionButtons label="Error recovery" size="sm" primaryIndex={0}>
+            {cta && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => navigate(cta.path)}
+                className="flex items-center gap-1 hover:border-[var(--color-border-emphasized)]"
+              >
+                <cta.icon size={13} />
+                {cta.text}
+                <ArrowRight size={13} />
+              </Button>
+            )}
+            {onClear && (
+              <Button size="sm" variant="secondary" onClick={onClear}>
+                Dismiss
+              </Button>
+            )}
+
+          </ActionButtons>
+</div>
       </div>
-    </Card>
+    </Section>
   );
 }

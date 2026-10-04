@@ -1,6 +1,6 @@
 import type { ResumeBullet, ResumeDocument, ResumeRenderModel, ResumeSectionEntry } from "@/lib/api";
 
-export type SectionKind =
+type SectionKind =
   | "header"
   | "summary"
   | "professional_experience"
@@ -44,7 +44,7 @@ export interface ParsedSection {
   entries?: ResumeSectionEntry[];
 }
 
-export interface ParsedResumeHeader {
+interface ParsedResumeHeader {
   name: string | null;
   contactLine: string | null;
   extraLines: string[];
@@ -76,7 +76,7 @@ const INSTITUTION_RE =
 const DEGREE_RE =
   /\b(?:bachelor|master|doctor|phd|mba|b\.?s\.?|m\.?s\.?|b\.?a\.?|m\.?a\.?|degree|certificate|diploma)\b/i;
 
-export function classifyHeading(heading: string): SectionKind {
+function classifyHeading(heading: string): SectionKind {
   const norm = heading.trim().toLowerCase();
   if (norm.includes("experience") || norm.includes("employment") || norm.includes("history") || norm.includes("work")) {
     return "professional_experience";
@@ -300,7 +300,7 @@ function parseEducationBlock(block: string[], index: number): ParsedEducationEnt
   };
 }
 
-export function slugify(text: string): string {
+function slugify(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^\w\s-]/g, "")
@@ -309,7 +309,7 @@ export function slugify(text: string): string {
     .trim();
 }
 
-export function parseSkillsList(lines: string[]): string[] {
+function parseSkillsList(lines: string[]): string[] {
   const skills: string[] = [];
   for (const line of lines) {
     const trimmed = line.trim();
@@ -448,7 +448,7 @@ export function parseMarkdownResume(markdown: string): ParsedResumeDoc {
   };
 }
 
-export function parseFromRenderModel(model: ResumeRenderModel): ParsedResumeDoc {
+function parseFromRenderModel(model: ResumeRenderModel): ParsedResumeDoc {
   const sections: ParsedSection[] = model.sections.map((sec, idx) => {
     const kind = classifyHeading(sec.heading);
     if (sec.kind === "professional_experience" || kind === "professional_experience") {

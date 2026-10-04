@@ -1,20 +1,20 @@
-import {
-  useDeferredValue,
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-} from "react";
+import { ActionButtons } from "@/components/ui/button-group";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Text } from "@astryxdesign/core/Text";
+import { useDeferredValue, useEffect, useState, type ChangeEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CircleStop, Trash2 } from "lucide-react";
 import { CreateApplicationModal } from "@/components/applications/CreateApplicationModal";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { DataTable, type Column } from "@/components/ui/data-table";
+import { Section } from "@/components/ui/card";
+import {
+  DataTable,
+  type Column,
+  type TableToolbar,
+} from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AppliedToggleButton } from "@/components/AppliedToggleButton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -27,7 +27,6 @@ import {
   cancelExtraction,
   createApplication,
   deleteApplication,
-  listApplications,
   patchApplication,
   type ApplicationSummary,
 } from "@/lib/api";
@@ -78,47 +77,6 @@ function getSettledErrorMessage(result: PromiseSettledResult<unknown>) {
     : "Request failed.";
 }
 
-function ApplicationFilterSelects({
-  status,
-  applied,
-  onStatusChange,
-  onAppliedChange,
-  className,
-}: {
-  status: string;
-  applied: string;
-  onStatusChange: (value: string) => void;
-  onAppliedChange: (value: string) => void;
-  className: string;
-}) {
-  return (
-    <>
-      <Select
-        aria-label="Filter by status"
-        value={status}
-        onChange={(event) => onStatusChange(event.target.value)}
-        className={className}
-      >
-        <option value="all">All statuses</option>
-        <option value="draft">Draft</option>
-        <option value="needs_action">Needs Action</option>
-        <option value="in_progress">In Progress</option>
-        <option value="complete">Complete</option>
-      </Select>
-      <Select
-        aria-label="Filter by applied"
-        value={applied}
-        onChange={(event) => onAppliedChange(event.target.value)}
-        className={className}
-      >
-        <option value="all">All</option>
-        <option value="applied">Applied</option>
-        <option value="not_applied">Not Applied</option>
-      </Select>
-    </>
-  );
-}
-
 function SelectionCheckbox({
   checked,
   indeterminate = false,
@@ -132,25 +90,14 @@ function SelectionCheckbox({
   ariaLabel: string;
   disabled?: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (inputRef.current) {
-      inputRef.current.indeterminate = indeterminate;
-    }
-  }, [indeterminate]);
-
   return (
-    <input
-      ref={inputRef}
-      type="checkbox"
-      checked={checked}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      onChange={onChange}
+    <CheckboxInput
+      label={ariaLabel}
+      isLabelHidden
+      value={indeterminate ? "indeterminate" : checked}
+      isDisabled={disabled}
+      onChange={(_checked, event) => onChange(event)}
       onClick={(event) => event.stopPropagation()}
-      className="h-4 w-4 cursor-pointer rounded border"
-      style={{ accentColor: "var(--color-spruce)" }}
     />
   );
 }
@@ -169,25 +116,22 @@ function ApplicationTitleCell({
       ? "Duplicate review pending"
       : null;
   const noticeColor = actionRequired
-    ? "var(--color-ember)"
-    : "var(--color-spruce)";
+    ? "var(--color-error)"
+    : "var(--color-accent)";
   return (
-    <div className="flex min-w-0 flex-col justify-center">
-      <div
-        className="truncate whitespace-nowrap text-sm font-medium"
-        style={{ color: "var(--color-ink)" }}
-      >
+    <VStack gap={1} className="min-w-0">
+      <Text type="body" className="line-clamp-2">
         {application.job_title ?? "Awaiting extraction"}
-      </div>
+      </Text>
       {notice && (
-        <div
-          className="truncate text-[10px] font-medium leading-[1.2]"
+        <Text
+          className="truncate text-xs font-medium leading-[1.2]"
           style={{ color: noticeColor }}
         >
           {notice}
-        </div>
+        </Text>
       )}
-    </div>
+    </VStack>
   );
 }
 
@@ -208,10 +152,13 @@ function ApplicationActionsCell({
   );
   const label = application.job_title ?? application.company ?? "application";
   return (
-    <div
-      className="flex items-center justify-end gap-2"
+    <HStack
+      gap={2}
+      hAlign="end"
+      vAlign="center"
       onClick={(event) => event.stopPropagation()}
     >
+      <ActionButtons label="Application row actions" size="sm" primaryIndex={0}>
       <AppliedToggleButton
         applied={application.applied}
         compact
@@ -245,7 +192,8 @@ function ApplicationActionsCell({
           <Trash2 size={16} aria-hidden="true" />
         </IconButton>
       )}
-    </div>
+      </ActionButtons>
+    </HStack>
   );
 }
 
@@ -285,8 +233,7 @@ function buildApplicationColumns({
           />
         </div>
       ),
-      width: "56px",
-      hiddenOnMobile: true,
+      width: "48px",
       render: (app) => (
         <div
           className="flex items-start"
@@ -301,51 +248,62 @@ function buildApplicationColumns({
       ),
     },
     {
-      key: "status",
-      header: "Status",
-      width: "132px",
-      sortable: true,
-      sortValue: (app) => STATUS_ORDER[app.visible_status] ?? 99,
-      render: (app) => (
-        <div className="flex items-start">
-          <StatusBadge status={app.visible_status} size="sm" layout="rail" />
-        </div>
-      ),
-    },
-    {
       key: "title",
+      minWidth: 280,
       header: "Job Title",
       sortable: true,
-      width: "minmax(200px, 1fr)",
+
       sortValue: (app) => app.job_title?.toLowerCase() ?? "",
       render: (app) => <ApplicationTitleCell application={app} />,
     },
     {
       key: "company",
+      groupValue: (app) => app.company ?? "Unknown company",
+      filterValue: (app) => app.company ?? "Unknown company",
       header: "Company",
-      width: "180px",
+      width: "144px",
       sortable: true,
       sortValue: (app) => app.company?.toLowerCase() ?? "zzz",
       render: (app) => (
         <span
           className="block truncate text-sm"
-          style={{ color: "var(--color-ink-65)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {app.company ?? "—"}
         </span>
       ),
     },
     {
+      key: "status",
+      groupValue: (app) =>
+        ({
+          draft: "Draft",
+          needs_action: "Needs Action",
+          in_progress: "In Progress",
+          complete: "Complete",
+        })[app.visible_status],
+      header: "Status",
+      width: "132px",
+      sortable: true,
+      sortValue: (app) => STATUS_ORDER[app.visible_status] ?? 99,
+      render: (app) => (
+        <div className="flex items-start">
+          <StatusBadge status={app.visible_status} size="sm" layout="natural" />
+        </div>
+      ),
+    },
+    {
       key: "resume",
+      filterValue: (app) => app.base_resume_name ?? "No base resume",
+      groupValue: (app) => app.base_resume_name ?? "No base resume",
       header: "Base Resume",
       width: "180px",
       sortable: true,
-      hiddenOnMobile: true,
       sortValue: (app) => app.base_resume_name?.toLowerCase() ?? "zzz",
       render: (app) => (
         <span
           className="block truncate text-xs"
-          style={{ color: "var(--color-ink-40)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {app.base_resume_name ?? "—"}
         </span>
@@ -354,14 +312,13 @@ function buildApplicationColumns({
     {
       key: "updated",
       header: "Updated",
-      width: "118px",
+      width: "108px",
       sortable: true,
-      hiddenOnMobile: true,
       sortValue: (app) => new Date(app.updated_at).getTime(),
       render: (app) => (
         <span
           className="block text-xs tabular-nums"
-          style={{ color: "var(--color-ink-40)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
           {new Date(app.updated_at).toLocaleDateString()}
         </span>
@@ -370,8 +327,7 @@ function buildApplicationColumns({
     {
       key: "actions",
       header: "",
-      width: "196px",
-      hiddenOnMobile: true,
+      width: "96px",
       render: (app) => (
         <ApplicationActionsCell
           application={app}
@@ -390,7 +346,6 @@ type ApplicationsListViewProps = {
   search: string;
   statusFilter: string;
   appliedFilter: string;
-  showMobileFilters: boolean;
   selectedIds: string[];
   activeSelectedCount: number;
   isBulkApplying: boolean;
@@ -410,7 +365,6 @@ type ApplicationsListViewProps = {
   setSearch: (value: string) => void;
   setStatusFilter: (value: string) => void;
   setAppliedFilter: (value: string) => void;
-  setShowMobileFilters: (value: boolean) => void;
   setShowCreateModal: (value: boolean) => void;
   setConfirmAppliedId: (value: string | null) => void;
   setDeleteConfirmationOpen: (value: boolean) => void;
@@ -454,88 +408,7 @@ function ApplicationsHeader({
   );
 }
 
-function ApplicationsFilters({
-  search,
-  status,
-  applied,
-  mobileOpen,
-  onSearch,
-  onStatus,
-  onApplied,
-  onMobileOpen,
-}: {
-  search: string;
-  status: string;
-  applied: string;
-  mobileOpen: boolean;
-  onSearch: (value: string) => void;
-  onStatus: (value: string) => void;
-  onApplied: (value: string) => void;
-  onMobileOpen: (value: boolean) => void;
-}) {
-  return (
-    <>
-      <div className="hidden gap-3 md:grid md:grid-cols-[minmax(0,1.8fr)_minmax(180px,0.8fr)_minmax(160px,0.7fr)] xl:grid-cols-[minmax(320px,2.2fr)_240px_220px]">
-        <Input
-          aria-label="Search applications"
-          placeholder="Search title or company…"
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
-          className="w-full"
-        />
-        <ApplicationFilterSelects
-          status={status}
-          applied={applied}
-          onStatusChange={onStatus}
-          onAppliedChange={onApplied}
-          className="w-full"
-        />
-      </div>
-      <div className="flex flex-col gap-2 md:hidden">
-        <div className="flex gap-2">
-          <Input
-            aria-label="Search applications"
-            placeholder="Search…"
-            value={search}
-            onChange={(event) => onSearch(event.target.value)}
-            className="flex-1"
-          />
-          <button
-            type="button"
-            className="mobile-filters-toggle"
-            onClick={() => onMobileOpen(!mobileOpen)}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            >
-              <path d="M2 4h12M4 8h8M6 12h4" />
-            </svg>
-            Filters
-          </button>
-        </div>
-        {mobileOpen && (
-          <div className="flex gap-2">
-            <ApplicationFilterSelects
-              status={status}
-              applied={applied}
-              onStatusChange={onStatus}
-              onAppliedChange={onApplied}
-              className="flex-1"
-            />
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-function BulkSelectionCard({
+function BulkSelectionSection({
   count,
   activeCount,
   applying,
@@ -556,46 +429,57 @@ function BulkSelectionCard({
       ? "Delete is unavailable while 1 selected application is still processing."
       : `Delete is unavailable while ${activeCount} selected applications are still processing.`;
   return (
-    <Card variant="default" density="compact">
+    <Section variant="default" density="compact">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
-          <p
-            className="text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            style={{ color: "var(--color-text-primary)" }}
           >
             {formatApplicationCount(count)} selected
-          </p>
+          </Text>
           {activeCount > 0 && (
-            <p className="text-xs" style={{ color: "var(--color-ember)" }}>
+            <Text
+              as="p"
+              display="block"
+              type="supporting"
+              style={{ color: "var(--color-error)" }}
+            >
               {warning}
-            </p>
+            </Text>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onApply}
-            loading={applying}
-            disabled={applying || deleting}
-          >
-            Mark Applied
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={onDelete}
-            disabled={applying || deleting || activeCount > 0}
-          >
-            Delete
-          </Button>
-        </div>
+          <ActionButtons label="Selected applications" size="sm" primaryIndex={0}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onApply}
+              loading={applying}
+              disabled={applying || deleting}
+            >
+              Mark Applied
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={onDelete}
+              disabled={applying || deleting || activeCount > 0}
+            >
+              Delete
+            </Button>
+
+          </ActionButtons>
+</div>
       </div>
-    </Card>
+    </Section>
   );
 }
 
 function ApplicationsTableSection({
+  toolbar,
   applications,
   columns,
   filtered,
@@ -611,6 +495,7 @@ function ApplicationsTableSection({
   onNavigate: (id: string) => void;
   onVisibleRows: (rows: ApplicationSummary[]) => void;
   onCreate: () => void;
+  toolbar: TableToolbar;
 }) {
   if (!applications) return <SkeletonTable rows={8} columns={7} />;
   const empty = source.length === 0;
@@ -631,13 +516,16 @@ function ApplicationsTableSection({
   );
   return (
     <DataTable
+      toolbar={toolbar}
+      filterData={source}
+      defaultGroup="status"
+      defaultSort={{ key: "updated", direction: "desc" }}
       columns={columns}
       data={filtered}
       getRowKey={(app) => app.id}
       onRowClick={(app) => onNavigate(app.id)}
       pageSize={25}
-      density="compact"
-      tableLayout="fixed"
+      density="default"
       verticalAlign="middle"
       onVisibleRowsChange={onVisibleRows}
       emptyState={emptyState}
@@ -795,17 +683,7 @@ function ApplicationsListView(props: ApplicationsListViewProps) {
         className="mb-4"
         onClear={props.error ? () => props.setError(null) : undefined}
       />
-      <ApplicationsFilters
-        search={props.search}
-        status={props.statusFilter}
-        applied={props.appliedFilter}
-        mobileOpen={props.showMobileFilters}
-        onSearch={props.setSearch}
-        onStatus={props.setStatusFilter}
-        onApplied={props.setAppliedFilter}
-        onMobileOpen={props.setShowMobileFilters}
-      />
-      <BulkSelectionCard
+      <BulkSelectionSection
         count={props.selectedIds.length}
         activeCount={props.activeSelectedCount}
         applying={props.isBulkApplying}
@@ -814,6 +692,37 @@ function ApplicationsListView(props: ApplicationsListViewProps) {
         onDelete={() => props.setDeleteConfirmationOpen(true)}
       />
       <ApplicationsTableSection
+        toolbar={{
+          search: props.search,
+          onSearch: props.setSearch,
+          searchLabel: "Search applications",
+          placeholder: "Job title or company",
+          filters: [
+            {
+              key: "status",
+              label: "Status",
+              multiple: true,
+              value: props.statusFilter,
+              onChange: props.setStatusFilter,
+              options: [
+                { value: "draft", label: "Draft" },
+                { value: "needs_action", label: "Needs Action" },
+                { value: "in_progress", label: "In Progress" },
+                { value: "complete", label: "Complete" },
+              ],
+            },
+            {
+              key: "applied",
+              label: "Applied",
+              value: props.appliedFilter,
+              onChange: props.setAppliedFilter,
+              options: [
+                { value: "applied", label: "Applied" },
+                { value: "not_applied", label: "Not Applied" },
+              ],
+            },
+          ],
+        }}
         applications={props.applications}
         columns={props.columns}
         filtered={props.filteredApplications}
@@ -848,7 +757,6 @@ export function ApplicationsListPage() {
     application: ApplicationSummary;
   } | null>(null);
   const [isRowActionSubmitting, setIsRowActionSubmitting] = useState(false);
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
   const { data: applications, error: queryError } = useApplicationsQuery();
   const sourceApplications = applications ?? [];
   const requestError = queryError instanceof Error ? queryError.message : null;
@@ -860,7 +768,9 @@ export function ApplicationsListPage() {
       app.job_title?.toLowerCase().includes(searchTerm) ||
       app.company?.toLowerCase().includes(searchTerm);
     const matchesStatus =
-      statusFilter === "all" ? true : app.visible_status === statusFilter;
+      statusFilter === "all"
+        ? true
+        : statusFilter.split("|").includes(app.visible_status);
     const matchesApplied =
       appliedFilter === "all"
         ? true
@@ -1137,7 +1047,6 @@ export function ApplicationsListPage() {
       search={search}
       statusFilter={statusFilter}
       appliedFilter={appliedFilter}
-      showMobileFilters={showMobileFilters}
       selectedIds={selectedIds}
       activeSelectedCount={activeSelectedCount}
       isBulkApplying={isBulkApplying}
@@ -1154,7 +1063,6 @@ export function ApplicationsListPage() {
       setSearch={setSearch}
       setStatusFilter={setStatusFilter}
       setAppliedFilter={setAppliedFilter}
-      setShowMobileFilters={setShowMobileFilters}
       setShowCreateModal={setShowCreateModal}
       setConfirmAppliedId={setConfirmAppliedId}
       setDeleteConfirmationOpen={setDeleteConfirmationOpen}

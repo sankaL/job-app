@@ -34,7 +34,7 @@ The product should enable a user to:
 
 | Layer | Technology |
 |---|---|
-| Frontend | React + Vite + Tailwind CSS + shadcn |
+| Frontend | React + Vite + Tailwind CSS + Astryx core / neutral theme |
 | Backend | FastAPI (Python) |
 | Database & Auth | Postgres + custom JWT auth |
 | AI Orchestration | Pydantic AI with local validation and bounded section recovery |
@@ -59,7 +59,7 @@ Basic includes 10 monthly writing requests and Pro includes 60. Both use the sam
 
 Typed output correction, model fallback and targeted repairs share explicit request, output-token and wall-clock budgets. SDK retries are disabled. Resume jobs allow at most six provider requests and 24,000 output tokens within the existing 240s full/120s section windows. Authentication/billing rejection stops model fallback. The first full-writing request may fall back within Tier 1 on provider/schema failure; subsequent semantic repairs and all factual audits use Tier 2. Repairs include typed, privacy-masked rejected output and rule codes; repeated semantic rejection switches the final repair writer to the Tier 2 fallback. Import assistance shares a 30s upload deadline. Tier 2 identifies role and education boundaries and factual fields by default; duty text is copied locally from validated source-line references.
 
-LangSmith tracing remains opt-in, sanitized and best-effort. Tracing availability must not change workflow outcomes. Automatic Resume Judge runs after generation are removed; scoring remains an explicit user action.
+LangSmith tracing uses explicit configuration, remains sanitized and best-effort, and is enabled for normal configured local and production LLM tasks. Unconfigured installations, automated tests and offline evaluations default to tracing off. Tracing availability must not change workflow outcomes. Automatic Resume Judge runs after generation are removed; scoring remains an explicit user action.
 
 ---
 
@@ -81,6 +81,7 @@ This is an **invite-only** application.
 - All application data is private to the authenticated user
 - Supabase Row Level Security (RLS) must enforce per-user data isolation on all tables
 - All application APIs require a valid Supabase JWT. Unauthenticated endpoints are limited to login, invite-link preview/accept endpoints, and the public access-request endpoint.
+- Local dev login uses a dropdown of existing active accounts from the local database, including seeded users, with no password field. Its email-only user-list endpoint is available only in local dev mode and returns 404 otherwise. Production retains email/password login. The local login API still supports email-based fixture setup; selecting an account in the UI does not create users.
 
 ---
 
@@ -102,10 +103,20 @@ Initial generation and full regeneration batch writable sections into one typed 
 ### 5.4 Generation must stay grounded in source material
 The system should tailor, prioritize, rewrite, and reorganize content from the user's base resume, but must not invent credentials, employers, titles, dates, or work history. This is a hard product rule, not just a quality guideline.
 
+Base resume review navigation uses single-line section names with ellipses and full-name tooltips. Reviewed sections have green dots; pending and excluded states remain distinct. Keep the review count and progress at the bottom of the desktop section sidebar. Base resume editor actions are grouped in the app shell top bar beside notifications. The resume-name edit action is a subtle standalone pencil beside the actual resume title. Excluded sections use a faint red background and a red exclusion label. Save feedback stays in the header save action and transient success/error messages, without a duplicate save-status footer or sidebar guidance.
+
+Application draft generation and export timestamps and revision appear in small secondary text beside the company under the application title. The workbench starts directly with resume sections, without a separate “Generated resume” heading or preview instructions.
+
 ### 5.5 Strong user feedback during async actions
 The app must provide meaningful loading, progress, success, error, and attention states throughout the entire workflow. At every stage, the user should understand what the system is doing, whether it succeeded or failed, and what they need to do next.
 
-Resume generation opens an in-flow processing panel immediately, explaining source/job preparation, tailored writing, factual checks and draft assembly. Show the active job’s reported message and percentage, with an indeterminate bar until progress arrives; do not simulate advancing percentages or completed steps. Include elapsed time and retain cancellation after the job is active. During full regeneration, keep the existing draft available below the panel with editing locked until processing ends. Announce status changes politely and respect reduced-motion preferences.
+Action controls use Astryx Button styling throughout the app. Related actions shown together, including page actions, resume editing, row actions and dialog confirmations, form a connected Astryx ButtonGroup with consistent sizing. Each group has one designated main action. App-shell page-action primaries use orange backgrounds with white text; other primary buttons use the neutral theme’s black background. Other actions use secondary styling. The primary choice stays fixed during loading or disabled states. A single action remains a regular button. Keep destructive intent visible and preserve loading, disabled states, form association and keyboard operation. Groups use one Tab stop with arrow-key navigation; view selectors, tabs and menus retain their existing semantics. Page actions sit beside notifications in the app shell top bar without a separate pill shape or per-button shadow.
+
+The application Activity Log groups events by date. Each event uses the same layout: title and right-aligned time, description beneath, then status on the left and an optional Details disclosure on the right. Separate events with subtle horizontal rules. Expandable rows support keyboard activation; the timeline connector runs between the first and last event dots.
+
+The application details panel starts expanded for each application, with consistent section headings, padding and separators for Resume Judge, ATS keywords, job information, generation settings and notes. A persistent header control collapses the panel into a narrow, light orange rail at the right edge, giving the resume the remaining width. The rail reopens the panel by pointer or keyboard. Collapsing hides the controls from focus while preserving unsaved fields and mounted content. On narrow screens the expanded panel follows the resume; the collapsed rail sits beside it.
+
+Full resume generation opens an in-flow processing panel immediately with an animated, resume-shaped Astryx Skeleton preview and Astryx ProgressBar, explaining source/job preparation, tailored writing, factual checks and draft assembly. Show the active job’s reported message and percentage, with an indeterminate bar until progress arrives; do not simulate advancing percentages or completed steps. Section or role regeneration keeps the existing workbench mounted and replaces only the target content with unframed Skeleton lines, a slim ProgressBar, the reported status message and cancellation. Keep section navigation, headers, other roles and the supporting column in place; do not add a processing panel above the draft. If the target is unavailable after reconnecting, show compact feedback within the workbench without guessing which content to replace. Include elapsed time for full generation and retain cancellation after the job is active. During full regeneration, keep the existing draft available below the panel with editing locked until processing ends. Announce status changes politely and respect reduced-motion preferences.
 
 ---
 
@@ -211,11 +222,13 @@ The landing page shows a list of job applications for the logged-in user.
 **Dashboard capabilities:**
 - New Application CTA (prominent)
 - Search by company or job title
-- Filter by status
-- Sort by date updated (default: newest first)
+- Filter by one or more statuses, applied flag, company, and base resume; show result counts and individual/all-filter clearing
+- Group applications by status by default, with collapsible headers and counts for the current page. View options can remove grouping or group by company/base resume. Sort by date updated within groups by default, newest first; sortable headers change the row order.
 - Delete applications directly from the table
 - Stop active extractions directly from the table so stuck rows can be recovered or deleted
 - Multi-select applications for bulk delete and bulk mark-as-applied actions
+- Current-page selection covers expanded rows only. Collapsing a group preserves existing selections; the bulk bar shows the full selected count.
+- Use borderless row action icons, including an applied toggle with an accessible label, pressed state and tooltip. Applied stays independent of primary status.
 
 **UX requirements:**
 - Skeleton loading while the list is fetching
@@ -378,7 +391,7 @@ Before initial generation, the user configures:
 - **Medium:** Rewrite Summary for stronger alignment, make Professional Experience the primary tailoring surface by materially rewriting bullet framing in the first up to 2 source-ordered roles with bullets, explicitly allow merging two related source bullets into one stronger grounded bullet when that improves focus, allow light professional-experience title reframing only when the title stays grounded in the same core role family and seniority, reorder or regroup Skills with the strongest relevant cluster first, allow job-description keyword-skill additions for fit, and keep Education fact-fixed apart from minimal formatting cleanup
 - **High:** Strongest rewrite of Summary, including bounded professional inference from demonstrated source patterns, make Professional Experience the primary tailoring surface by materially rewriting bullet framing in the first up to 2 source-ordered roles with bullets, professional-experience role titles should be actively retitled for target alignment when the new title still matches the demonstrated work and preserves seniority, aggressive regrouping or pruning of Skills with the strongest relevant cluster first, allow broader job-description keyword-skill additions for fit, and Education still fact-fixed apart from minimal formatting cleanup. This mode is an explicit user opt-in and may materially change wording, emphasis, role framing, and keyword coverage, so the generated output must be presented with a clear warning that careful user review is required.
 
-**Settings UI note:** The Generation Settings card may stay compact as long as the full low, medium, and high behavior breakdown remains available inline through a tooltip or popover. When High is selected, the UI must also show an inline warning that this mode can make substantial changes and should be used only when the user wants a more aggressive rewrite and will review the result carefully.
+**Settings UI note:** Application details align with the application heading on desktop and use a subtle warm background distinct from the resume. Job information, base resume, target length, additional instructions and notes open as compact read-only values, with a per-field Edit action and a short “Not specified” placeholder when empty. Long text has a three-line preview with an expansion action. Opening or closing an editor does not save or discard changes; job information and generation settings retain their explicit section Save actions, shown when dirty, and notes retain autosave. Aggressiveness uses a three-stop Low/Medium/High slider with full mode descriptions available on hover, keyboard focus and touch. When High is selected, the UI must also show an inline warning that this mode can make substantial changes and should be used only when the user wants a more aggressive rewrite and will review the result carefully.
 For medium and high runs, the application detail workspace must preserve an explicit review path for job-description-driven additions that are not explicit in the source resume. In MVP, that review path is the compare workflow, which lets the user inspect the tailored draft beside the generation-time base resume before applying or exporting.
 
 **Length note:** Page count is a content target, not a visual page-fill guarantee. Structured generation enforces hard word caps; source-aware underfill is visible guidance and does not discard a truthful draft or cause padding. Keyword optimization preserves minimal edits, and section regeneration is not judged against a full-draft minimum. Final pagination may vary based on content and formatting. Historical Markdown jobs retain their existing source-aware minimum validation.
@@ -522,6 +535,7 @@ The main working page for a single application.
 - One section workbench with inline Markdown prose and structured entry editing, include/order controls, flexible custom sections and required instructions for regeneration
 - Contact card uses profile data; upload suggestions are local and require user review
 - Comparison groups changes by stable section/entry IDs and bullet provenance against the source snapshot. Legacy drafts show an explicit limited-comparison notice.
+- **Application controls:** Place Activity and Actions in an Astryx ButtonGroup beside the application title, with the delete/stop control separate. Group section Edit/Preview, Include and ordering buttons; Include is a pressed-state toggle. Keep comparison section navigation in the same toolbar row as highlighting/layout controls, and use the page-level actions for closing comparison and export. The details column uses a faint warm orange background and thin orange scrollbar to separate it from the resume paper.
 - **Desktop layout:** Put the resume workbench on the left and Resume Judge, ATS Keywords, Job Description, Generation Settings and Notes on the right, in that order. Keep the resume tabs and save controls outside the selected panel’s scroll area. Bound the supporting column separately so its cards remain reachable without moving resume navigation. Stack the resume before supporting cards at narrower widths; comparison uses the full workspace width.
 - **Resume Judge card:** A dedicated right-column review card sits above the job description once a draft exists. It owns all judge states, including pending, queued, stale, failed, and scored results, and opens the full breakdown when review details are available.
 - **Resume Judge breakdown:** Shows exact score, verdict, weighted dimension notes, evaluator notes, and regeneration instructions. Judge failure or stale score must not block editing or export.
@@ -627,6 +641,11 @@ Users can edit section Markdown and structured entries in one workbench when gen
 ---
 
 ### 10.15 Base Resume Management
+
+**Resume library:**
+- Use the Astryx documentation template’s responsive grid of clickable cards, with a subtle custom SVG document illustration, a prominent resume name and starred Default badge, an excerpt from the saved Summary section, and secondary created/updated dates. Dates remain plain text with separate labels. Right-align the icon-only Edit and Delete controls, retaining accessible names and tooltips. The illustration is decorative and does not claim the original file format. Show “No summary added yet.” when no Summary section exists.
+- Keep name search visible when there are no matching results, with a clear action to restore the collection.
+- Clicking a card or activating its link with the keyboard opens that resume’s details/workbench. Keep Edit, Delete and Set Default as independent controls inside each card; these controls must not trigger card navigation. Delete retains confirmation and recoverable error feedback.
 
 **Supported creation methods:**
 
@@ -933,6 +952,14 @@ Admin has three product responsibilities in MVP:
 
 ## 12. UX Requirements
 
+Application and admin-user tables follow the Astryx `table-filter` template with compact filter chips, flat divided rows, status pills, sortable headers, collapsible grouping, column visibility and density controls. Tables retain pagination and horizontal scrolling on narrow screens so all actions remain reachable. Saved views capture search, filters, grouping, columns, density and sorting for the current mounted page session; leaving or reloading the page clears them. Admin user filters preserve the server-side active/invited/deactivated contract and add client-side tier filtering.
+
+Authenticated routes, including admin, use one shared Astryx neutral theme. Tables, buttons, sections, menus, filters and form controls use shared adapters and semantic tokens. Use flat sections with spacing and dividers for page regions, forms, metrics and lists; keep a distinct resume paper surface and raised overlays. Avoid nested card frames. Follow Astryx shell, searchable table, dashboard, settings and editor templates. Preserve screen content and actions while allowing orientation changes that improve reading and use. Profile uses the Astryx settings template across the full available page width with description/form columns and stacked fields on narrow screens, without a separate section rail or tabs; resume libraries use the documentation template’s clickable card grid; authenticated typography uses shared Heading/Text styles. Native form validation, field types, refs and Markdown editing contracts remain intact. The marketing page keeps its public design. Login, access-request and invite-setup pages share one auth layout. An illustration panel on the left shows only the Applix logo. The form on the right has a short heading, all feedback directly under it, a divider, then the fields.
+
+The shared top bar provides navigation context. Profile is a standalone sidebar destination for every authenticated user and opens that user's own profile at `/app/profile`. Page-level actions appear in the app shell top bar immediately beside notifications. Retain accessible headings without adding duplicate body titles; individual application and resume editor pages keep their existing body headings. Related actions use a button group; lone actions remain regular buttons. Header actions wrap on narrow screens. Keep section-specific controls beside their content. Source resume naming and save/upload controls remain associated with their native forms. Page actions do not float over content or reserve a bottom action strip.
+
+Use the Astryx neutral theme and its standard primary and secondary CTA button styles, with page actions beside notifications in the app shell top bar. Destructive actions retain error styling. Selection dropdowns and account/application action menus use Astryx DropdownMenu, with native select backing fields for form validation, form data and refs. Preserve keyboard navigation, disabled choices, dismissal and focus restoration. Informational popovers and the notifications dialog retain their existing roles. The dashboard Activity chart shows applications created per local day for the last 7 days, 30 days (default) or 3 months, and per Monday-start week for the last 12 months. Each bar stacks the applications that are currently marked applied under those not yet applied, with a matching legend, per-bar tooltip and a screen-reader table. A segmented range control refetches only the selected window from the server; the previous chart stays visible, dimmed, while the next range loads, and a failed load offers retry without hiding the rest of the dashboard. Job sources use a thin donut with the total in its center and labeled count/percentage rows; status breakdown shows one figure per status with its badge and share; top companies are a ranked list with initials avatars and count badges. These three panels share one section separated by hairline dividers, side by side on wide screens and stacked when narrow. Admin Metrics shows headline totals, user and invite donuts, and one success/failure row per workflow operation; an operation with no runs reads "No runs" instead of a 0% rate.
+
 - **Skeleton loading** on all async data fetches
 - **Step-by-step progress messages** during extraction and generation (not just a spinner)
 - **Success and error toasts** for transient feedback
@@ -953,7 +980,7 @@ Admin has three product responsibilities in MVP:
 | Async processing | Extraction and generation must run as background jobs |
 | Timeouts | See §9 for required timeout boundaries per operation |
 | Logging | Structured logging required on all background jobs, LLM calls, and export operations |
-| AI tracing | LangSmith tracing is disabled by default, requires an explicit project and API key when enabled, and records sanitized workflow roots plus nested model attempts without user ids, profile data, credentials, or raw callbacks. |
+| AI tracing | LangSmith tracing covers every external AI task, including Jev import classification, nested entry extraction and live fictional evaluations. Configured local and production runs use selectable projects, initially applix-dev and applix-prod; unconfigured installations default off. Enabled tracing requires an explicit project and API key, plus a workspace ID when required by the LangSmith key scope, records workflow roots and nested attempts using counts, usage and safe metadata, publishes model identity and available token counts in LangSmith-native fields, and excludes private resume/job bodies, user/profile data, credentials, callbacks and raw exception/provider payloads. Telemetry outages do not change workflow outcomes. |
 | Failure recovery | All failure states must be recoverable by the user (retry, manual entry, regenerate) |
 | PDF freshness | PDF is always generated from the latest `content_md` at export time; no cached PDFs |
 

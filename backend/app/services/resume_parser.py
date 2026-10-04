@@ -14,7 +14,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.core.tracing import end_trace_safely, trace_llm_scope
+from app.core.tracing import TraceConfig, end_trace_safely, trace_llm_scope
 from app.services.resume_privacy import reattach_header_lines, sanitize_resume_markdown
 from app.services.unslop_prompt import build_unslop_prompt_block
 from app.services.import_ai import invoke_import_output
@@ -235,6 +235,7 @@ class ResumeParserService:
         langsmith_tracing: bool = False,
         langsmith_project: Optional[str] = None,
         langsmith_api_key: Optional[str] = None,
+        langsmith_workspace_id: Optional[str] = None,
         openrouter_base_url: str = "https://openrouter.ai/api/v1",
         classifier: str = "jev",
         classification_model: str = "typesafe/jev-1.13",
@@ -250,6 +251,8 @@ class ResumeParserService:
         self.langsmith_tracing = langsmith_tracing
         self.langsmith_project = langsmith_project
         self.langsmith_api_key = langsmith_api_key
+        self.langsmith_workspace_id = langsmith_workspace_id
+        self.trace_config = TraceConfig(enabled=langsmith_tracing, api_key=langsmith_api_key, project_name=langsmith_project, workspace_id=langsmith_workspace_id)
         if self.langsmith_tracing:
             if not str(self.langsmith_project or "").strip():
                 raise ValueError("LANGSMITH_PROJECT is required when LANGSMITH_TRACING=true.")
@@ -452,7 +455,9 @@ class ResumeParserService:
                 enabled=self.langsmith_tracing,
                 api_key=self.langsmith_api_key,
                 project_name=self.langsmith_project,
+                workspace_id=self.langsmith_workspace_id,
                 name="applix.resume_cleanup",
+                run_type="chain",
                 inputs={
                     "messages": [
                         {"role": "system", "content": system_prompt},
@@ -479,6 +484,8 @@ class ResumeParserService:
                     output_type=CleanupOutput,
                     timeout_seconds=timeout_seconds,
                     validator=preserve_source,
+                    trace_config=self.trace_config,
+                    operation="resume_cleanup",
                 )
                 # The check also applies to injected/test providers.
                 preserve_source(output)
@@ -538,6 +545,7 @@ class ResumeParserService:
                         blocks,
                         api_key=self.openrouter_api_key,
                         model=self.classification_model,
+                        trace_config=self.trace_config,
                         timeout_seconds=min(10.0, max(0.01, deadline - time.monotonic())),
                     )
                     for section in document.sections:
@@ -677,6 +685,9 @@ class ResumeParserService:
                     output_type=NestedExtractionOutput,
                     timeout_seconds=attempt_timeout,
                     validator=preserve_facts,
+                    trace_config=self.trace_config,
+                    operation="resume_entry_extraction",
+                    is_fallback=index > 0,
                 )
                 # Injected providers must pass the same gate before fallback
                 # stops and before any section is mutated.

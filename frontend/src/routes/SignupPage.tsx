@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AuthBrand, AuthPageShell } from "@/components/auth/AuthIllustration";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { AuthFooterLink, AuthNotice, AuthPageShell } from "@/components/auth/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,8 +55,6 @@ type AccessRequestFormProps = {
   email: string;
   plan: AccessRequestPayload["interested_plan"];
   note: string;
-  error: string | null;
-  succeeded: boolean;
   submitting: boolean;
   onNameChange: (value: string) => void;
   onEmailChange: (value: string) => void;
@@ -116,17 +114,6 @@ function AccessRequestForm(props: AccessRequestFormProps) {
           placeholder="Share your job-search timeline or what you want Applix to help with."
         />
       </div>
-      {props.error && (
-        <div className="rounded-lg border border-[var(--color-ember-10)] bg-[var(--color-ember-05)] px-4 py-3 text-sm text-ember">
-          {props.error}
-        </div>
-      )}
-      {props.succeeded && (
-        <div className="rounded-lg border border-[var(--color-spruce-10)] bg-[var(--color-spruce-05)] px-4 py-3 text-sm text-spruce">
-          Request sent. Applix is still in beta, and the admin team will reach
-          out by email if early access is available.
-        </div>
-      )}
       <Button
         type="submit"
         className="w-full"
@@ -181,52 +168,38 @@ function AccessRequestPage() {
     }
   };
   return (
-    <AuthPageShell ambient={false} illustrationAccents={false}>
-      <AuthBrand subtitle="Early access" linkTo="/" uppercaseSubtitle={false} />
-      <div className="mt-8">
-        <p
-          className="text-xs font-semibold"
-          style={{ color: "var(--color-spruce)" }}
-        >
-          Invite-only beta
-        </p>
-        <h1
-          className="mt-3 max-w-lg font-display text-3xl leading-[1.08] sm:text-4xl lg:text-[2.75rem]"
-          style={{ color: "var(--color-ink)" }}
-        >
-          Request access to Applix
-        </h1>
-        <p
-          className="mt-5 max-w-lg text-base leading-7 sm:text-lg"
-          style={{ color: "var(--color-ink-65)" }}
-        >
-          Tell us where to reach you. If there is room in the beta, an admin
-          will follow up by email with an invite link.
-        </p>
-      </div>
-      <div className="mt-8 max-w-md">
-        <AccessRequestForm
-          name={name}
-          email={email}
-          plan={plan}
-          note={note}
-          error={error}
-          succeeded={succeeded}
-          submitting={submitting}
-          onNameChange={setName}
-          onEmailChange={setEmail}
-          onPlanChange={setPlan}
-          onNoteChange={setNote}
-          onSubmit={handleSubmit}
-        />
-        <p className="mt-5 text-sm" style={{ color: "var(--color-ink-50)" }}>
+    <AuthPageShell
+      title="Request access"
+      description="Applix is invite-only. Tell us where to reach you and an admin will follow up by email."
+      notice={
+        error ? (
+          <AuthNotice>{error}</AuthNotice>
+        ) : succeeded ? (
+          <AuthNotice tone="success">
+            Request sent. Applix is still in beta, and the admin team will reach
+            out by email if early access is available.
+          </AuthNotice>
+        ) : null
+      }
+      footer={
+        <>
           Already invited? Open your invite link, or{" "}
-          <Link to="/login" className="font-semibold text-spruce">
-            log in
-          </Link>
-          .
-        </p>
-      </div>
+          <AuthFooterLink to="/login">sign in</AuthFooterLink>.
+        </>
+      }
+    >
+      <AccessRequestForm
+        name={name}
+        email={email}
+        plan={plan}
+        note={note}
+        submitting={submitting}
+        onNameChange={setName}
+        onEmailChange={setEmail}
+        onPlanChange={setPlan}
+        onNoteChange={setNote}
+        onSubmit={handleSubmit}
+      />
     </AuthPageShell>
   );
 }
@@ -234,7 +207,6 @@ function AccessRequestPage() {
 type InviteFormProps = ReturnType<typeof useContactFields> & {
   password: string;
   confirmPassword: string;
-  error: string | null;
   submitting: boolean;
   onPasswordChange: (value: string) => void;
   onConfirmPasswordChange: (value: string) => void;
@@ -336,14 +308,9 @@ function InviteForm(props: InviteFormProps) {
           />
         </div>
       </div>
-      <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>
+      <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
         Use 12+ characters with uppercase, lowercase, a number, and a symbol.
       </p>
-      {props.error && (
-        <div className="rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-sm text-ember">
-          {props.error}
-        </div>
-      )}
       <Button
         type="submit"
         className="w-full"
@@ -355,54 +322,6 @@ function InviteForm(props: InviteFormProps) {
           : "Create account and sign in"}
       </Button>
     </form>
-  );
-}
-
-function InviteStatus({
-  loading,
-  error,
-  preview,
-  expiryLabel,
-  children,
-}: {
-  loading: boolean;
-  error: string | null;
-  preview: InvitePreview | null;
-  expiryLabel: string;
-  children: React.ReactNode;
-}) {
-  if (loading)
-    return (
-      <div className="mt-6 text-sm" style={{ color: "var(--color-ink-50)" }}>
-        Loading invite details…
-      </div>
-    );
-  if (error)
-    return (
-      <div className="mt-6 rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-sm text-ember">
-        {error}
-      </div>
-    );
-  return (
-    <>
-      {preview && (
-        <div
-          className="mt-6 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium"
-          style={{
-            background: "var(--color-spruce-05)",
-            color: "var(--color-spruce)",
-            border: "1px solid var(--color-spruce-10)",
-          }}
-        >
-          <span>Invite active</span>
-          <span style={{ color: "var(--color-ink-50)" }}>·</span>
-          <span style={{ color: "var(--color-ink-65)" }}>
-            Expires {expiryLabel}
-          </span>
-        </div>
-      )}
-      {children}
-    </>
   );
 }
 
@@ -500,48 +419,39 @@ function InviteSignupPage({ token }: { token: string }) {
       setSubmitting(false);
     }
   };
+  const pageError = previewState.error ?? error;
   return (
-    <AuthPageShell>
-      <AuthBrand subtitle="AI Job Applications" />
-      <div className="mt-8">
-        <p
-          className="text-xs font-semibold uppercase tracking-[0.22em]"
-          style={{ color: "var(--color-spruce)" }}
-        >
-          Invite-only MVP
-        </p>
-        <h1
-          className="mt-3 max-w-lg font-display text-3xl leading-[1.08] sm:text-4xl lg:text-[2.75rem]"
-          style={{ color: "var(--color-ink)" }}
-        >
-          Finish account setup
-        </h1>
-        <p
-          className="mt-5 max-w-lg text-base leading-7 sm:text-lg"
-          style={{ color: "var(--color-ink-65)" }}
-        >
-          Create your profile and password to enter the invite-only workspace.
-        </p>
-      </div>
-      <InviteStatus
-        loading={previewState.loading}
-        error={previewState.error}
-        preview={previewState.preview}
-        expiryLabel={previewState.expiryLabel}
-      >
-        <div className="mt-8 max-w-md">
-          <InviteForm
-            {...contact}
-            password={password}
-            confirmPassword={confirmPassword}
-            error={error}
-            submitting={submitting}
-            onPasswordChange={setPassword}
-            onConfirmPasswordChange={setConfirmPassword}
-            onSubmit={handleSubmit}
-          />
-        </div>
-      </InviteStatus>
+    <AuthPageShell
+      title="Set up your account"
+      width="wide"
+      description={
+        previewState.loading ? (
+          "Loading invite details…"
+        ) : previewState.preview ? (
+          <>
+            Invite active · Expires {previewState.expiryLabel}. Create your
+            profile and password to enter the workspace.
+          </>
+        ) : null
+      }
+      notice={pageError ? <AuthNotice>{pageError}</AuthNotice> : null}
+      footer={
+        <>
+          Already set up? <AuthFooterLink to="/login">Sign in</AuthFooterLink>
+        </>
+      }
+    >
+      {previewState.preview ? (
+        <InviteForm
+          {...contact}
+          password={password}
+          confirmPassword={confirmPassword}
+          submitting={submitting}
+          onPasswordChange={setPassword}
+          onConfirmPasswordChange={setConfirmPassword}
+          onSubmit={handleSubmit}
+        />
+      ) : null}
     </AuthPageShell>
   );
 }

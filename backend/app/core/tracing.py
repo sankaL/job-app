@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import re
 from contextlib import contextmanager
+from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Iterator, Optional
 from urllib.parse import urlsplit, urlunsplit
 
@@ -25,6 +27,19 @@ CONTACT_PROFILE_URL_RE = re.compile(
 )
 
 
+@dataclass(frozen=True)
+class TraceConfig:
+    enabled: bool = False
+    api_key: Optional[str] = field(default=None, repr=False)
+    project_name: Optional[str] = None
+    workspace_id: Optional[str] = None
+
+
+@lru_cache(maxsize=4)
+def _build_client(api_key: str, workspace_id: Optional[str] = None) -> Client:
+    return Client(api_key=api_key, workspace_id=workspace_id, anonymizer=_anonymizer, timeout_ms=5000)
+
+
 def _strip_url_secrets(value: str) -> str:
     try:
         parsed = urlsplit(value)
@@ -41,7 +56,7 @@ def sanitize_trace_data(value: Any, *, depth: int = 12) -> Any:
             str(key): (
                 "<redacted>"
                 if str(key).strip().lower()
-                in {"api_key", "authorization", "auth_token", "user_id", "personal_info", "callback_payload"}
+                in {"api_key", "authorization", "auth_token", "access_token", "secret", "user_id", "personal_info", "callback_payload", "raw_callback"}
                 else sanitize_trace_data(item, depth=depth - 1)
             )
             for key, item in value.items()
@@ -70,6 +85,14 @@ def end_trace_safely(run_tree: Any, **kwargs: Any) -> None:
     if run_tree is None:
         return
     try:
+        outputs = kwargs.get("outputs")
+        if isinstance(outputs, dict):
+            usage = {key: outputs[key] for key in ("input_tokens", "output_tokens")
+                if type(outputs.get(key)) is int and outputs[key] >= 0}
+            if usage:
+                if len(usage) == 2:
+                    usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+                kwargs["outputs"] = {**outputs, "usage_metadata": usage}
         run_tree.end(**kwargs)
     except Exception as error:
         logger.warning("LangSmith run completion failed; continuing without telemetry. error_type=%s", type(error).__name__)
@@ -84,6 +107,8 @@ def trace_llm_scope(
     name: str,
     inputs: dict[str, Any],
     metadata: dict[str, Any],
+    run_type: str = "llm",
+    workspace_id: Optional[str] = None,
 ) -> Iterator[Any]:
     if not enabled:
         yield None
@@ -99,23 +124,26 @@ def trace_llm_scope(
     run_tree = None
     operation_error: Optional[BaseException] = None
     try:
-        client = Client(api_key=api_key, anonymizer=_anonymizer)
+        if run_type == "llm" and metadata.get("model"):
+            metadata = {**metadata, "ls_provider": "openrouter",
+                "ls_model_name": metadata["model"], "ls_model_type": "chat"}
+        client = _build_client(api_key.strip(), str(workspace_id or "").strip() or None)
         tracing_manager = tracing_context(
             enabled=True,
             client=client,
-            project_name=project_name,
-            tags=["applix", "resume_cleanup"],
+            project_name=project_name.strip(),
+            tags=["applix", str(metadata.get("operation", "resume_import"))],
             metadata=sanitize_trace_data(metadata),
         )
         tracing_manager.__enter__()
         run_manager = trace(
             name,
-            run_type="llm",
+            run_type=run_type,
             inputs=sanitize_trace_data(inputs),
             metadata=sanitize_trace_data(metadata),
-            tags=["applix", "resume_cleanup"],
+            tags=["applix", str(metadata.get("operation", "resume_import"))],
             client=client,
-            project_name=project_name,
+            project_name=project_name.strip(),
         )
         run_tree = run_manager.__enter__()
     except Exception as error:
@@ -132,19 +160,20 @@ def trace_llm_scope(
         yield run_tree
     except BaseException as error:
         operation_error = error
+        end_trace_safely(run_tree, error=type(error).__name__)
         raise
     finally:
-        error_type = type(operation_error) if operation_error is not None else None
-        traceback = operation_error.__traceback__ if operation_error is not None else None
+        # SDK exception formatting includes provider bodies and traceback locals.
+        # Preserve the original exception for the caller, but send only its type.
         try:
             if run_manager is not None:
-                run_manager.__exit__(error_type, operation_error, traceback)
+                run_manager.__exit__(None, None, None)
         except Exception as error:
             if operation_error is None:
                 logger.warning("LangSmith trace finalization failed. error_type=%s", type(error).__name__)
         try:
             if tracing_manager is not None:
-                tracing_manager.__exit__(error_type, operation_error, traceback)
+                tracing_manager.__exit__(None, None, None)
         except Exception as error:
             if operation_error is None:
                 logger.warning("LangSmith context finalization failed. error_type=%s", type(error).__name__)

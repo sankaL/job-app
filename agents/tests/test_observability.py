@@ -253,8 +253,112 @@ def test_local_environment_defaults_disable_and_forward_langsmith():
 
     assert compose.count("LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}") == 2
     assert compose.count("LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-}") == 2
+    assert compose.count("LANGSMITH_WORKSPACE_ID: ${LANGSMITH_WORKSPACE_ID:-}") == 2
     assert compose.count("LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}") == 2
     assert "TIER1_MODEL: ${TIER1_MODEL:-anthropic/claude-sonnet-5.5}" in compose
     assert "TIER1_FALLBACK_MODEL: ${TIER1_FALLBACK_MODEL:-openai/gpt-6.1-sol}" in compose
     assert "TIER2_MODEL: ${TIER2_MODEL:-google/gemini-3.8-flash}" in compose
     assert "LANGSMITH_TRACING=false" in root_env
+
+
+def test_worker_trace_errors_keep_provider_payload_out_of_telemetry(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "project-b")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
+    captured = []
+    class Run:
+        def end(self, **kwargs):
+            captured.append(kwargs)
+    class Manager:
+        def __init__(self, value=None):
+            self.value = value
+        def __enter__(self):
+            return self.value
+        def __exit__(self, *args):
+            captured.append({"exit": args})
+    monkeypatch.setattr(tracing, "_build_client", lambda *_args: object())
+    monkeypatch.setattr(tracing, "tracing_context", lambda **_kwargs: Manager())
+    monkeypatch.setattr(tracing, "trace", lambda *_args, **_kwargs: Manager(Run()))
+    error = ValueError("Private provider response body")
+    with pytest.raises(ValueError) as raised:
+        with tracing.trace_scope("applix.test"):
+            raise error
+    assert raised.value is error
+    assert {"error": "ValueError"} in captured
+    assert all(item["exit"] == (None, None, None) for item in captured if "exit" in item)
+    assert "Private provider" not in str(captured)
+
+
+def test_worker_trace_uses_explicit_workspace_from_settings(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "project-test")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
+    monkeypatch.setenv("LANGSMITH_WORKSPACE_ID", " workspace-test ")
+    captured = []
+    class Manager:
+        def __enter__(self):
+            return None
+        def __exit__(self, *_args):
+            return False
+    def client(*args):
+        captured.append(args)
+        return object()
+    monkeypatch.setattr(tracing, "_build_client", client)
+    monkeypatch.setattr(tracing, "tracing_context", lambda **_kwargs: Manager())
+    monkeypatch.setattr(tracing, "trace", lambda *_args, **_kwargs: Manager())
+    with tracing.trace_scope("applix.test"):
+        pass
+    assert captured == [("test-key", "project-test", "workspace-test")]
+
+
+def test_worker_client_separates_cached_workspaces(monkeypatch):
+    created = []
+    def client(**kwargs):
+        created.append(kwargs)
+        return object()
+    tracing._build_client.cache_clear()
+    monkeypatch.setattr(tracing, "Client", client)
+    try:
+        first = tracing._build_client("test-key", "project", "workspace-a")
+        second = tracing._build_client("test-key", "project", "workspace-b")
+        assert first is tracing._build_client("test-key", "project", "workspace-a")
+        assert first is not second
+        assert [item["workspace_id"] for item in created] == ["workspace-a", "workspace-b"]
+    finally:
+        tracing._build_client.cache_clear()
+
+
+def test_worker_llm_trace_has_native_model_metadata(monkeypatch):
+    from contextlib import nullcontext
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "project")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test")
+    monkeypatch.setattr(tracing, "_build_client", lambda *_args: object())
+    monkeypatch.setattr(tracing, "tracing_context", lambda **_kwargs: nullcontext())
+    captured = []
+    def trace(_name, **kwargs):
+        captured.append(kwargs)
+        return nullcontext()
+    monkeypatch.setattr(tracing, "trace", trace)
+    for run_type in ("llm", "chain"):
+        with tracing.trace_scope("applix.test", run_type=run_type, metadata={"model": "openai/test-model"}):
+            pass
+    assert captured[0]["metadata"]["ls_model_name"] == "openai/test-model"
+    assert captured[0]["metadata"]["ls_provider"] == "openrouter"
+    assert "ls_model_name" not in captured[1]["metadata"]
+
+
+@pytest.mark.parametrize("counts,expected", [
+    ({"input_tokens": 11, "output_tokens": 7}, {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18}),
+    ({"input_tokens": 0, "output_tokens": 0}, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}),
+    ({"output_tokens": 7}, {"output_tokens": 7}),
+    ({"input_tokens": -1, "output_tokens": True}, None),
+    ({}, None),
+])
+def test_worker_native_usage_preserves_unknown_counts(counts, expected):
+    from langsmith.run_trees import RunTree
+    run = RunTree(name="test", run_type="llm", inputs={})
+    original = {"outcome": "success", **counts}
+    tracing.end_trace_safely(run, outputs=original)
+    assert run.outputs.get("usage_metadata") == expected
+    assert "usage_metadata" not in original

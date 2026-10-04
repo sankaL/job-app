@@ -1,4 +1,7 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import { ActionButtons } from "@/components/ui/button-group";
+import { Text } from "@astryxdesign/core/Text";
+import { Heading } from "@astryxdesign/core/Heading";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { gsap } from "gsap";
 import type { BaseResumeDetail, ResumeDraft } from "@/lib/api";
 import { parseResume, parseResumeDocument } from "./resume-parser";
@@ -6,7 +9,7 @@ import { compareResumeDocs, type DiffHighlightMode } from "./diff-engine";
 import { CompareHeroBar } from "./CompareHeroBar";
 import { CompareSectionNav } from "./CompareSectionNav";
 import { SectionDiffCard } from "./SectionDiffCard";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -17,13 +20,9 @@ interface CompareWorkspaceProps {
   editMode: boolean;
   editContent: string;
   isSavingDraft: boolean;
-  onEnterEdit: () => void;
   onCancelEdit: () => void;
   onContentChange: (val: string) => void;
   onSaveDraft: () => void;
-  onCloseCompare: () => void;
-  onExportPdf?: () => void;
-  isExporting?: boolean;
   pageLength?: string | null;
   aggressiveness?: string | null;
   className?: string;
@@ -35,19 +34,18 @@ export function CompareWorkspace({
   editMode,
   editContent,
   isSavingDraft,
-  onEnterEdit,
   onCancelEdit,
   onContentChange,
   onSaveDraft,
-  onCloseCompare,
-  onExportPdf,
-  isExporting = false,
   pageLength,
   aggressiveness,
   className = "",
 }: CompareWorkspaceProps) {
-  const [viewLayout, setViewLayout] = useState<"unified" | "split" | "clean">("unified");
-  const [highlightMode, setHighlightMode] = useState<DiffHighlightMode>("smart");
+  const [viewLayout, setViewLayout] = useState<"unified" | "split" | "clean">(
+    "unified",
+  );
+  const [highlightMode, setHighlightMode] =
+    useState<DiffHighlightMode>("smart");
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
 
   const sectionsContainerRef = useRef<HTMLDivElement>(null);
@@ -55,13 +53,35 @@ export function CompareWorkspace({
   // Compute structured diff
   const summary = useMemo(() => {
     const source = draft?.source_snapshot;
-    const includedDraftIds = new Set(draft?.document?.sections.filter((section) => section.enabled).map((section) => section.id));
+    const includedDraftIds = new Set(
+      draft?.document?.sections
+        .filter((section) => section.enabled)
+        .map((section) => section.id),
+    );
     // Re-included sections still compare with their frozen source content.
-    const comparisonSource = source?.document ? { ...source.document, sections: source.document.sections.map((section) => ({ ...section, enabled: section.enabled || includedDraftIds.has(section.id) })) } : null;
-    const baseDoc = comparisonSource ? parseResumeDocument(comparisonSource, source?.content_md) : parseResume(baseResume?.content_md ?? "");
-    const tailoredDoc = draft?.document ? parseResumeDocument(draft.document, draft.content_md) : parseResume(draft?.content_md ?? "", draft?.render_model);
+    const comparisonSource = source?.document
+      ? {
+          ...source.document,
+          sections: source.document.sections.map((section) => ({
+            ...section,
+            enabled: section.enabled || includedDraftIds.has(section.id),
+          })),
+        }
+      : null;
+    const baseDoc = comparisonSource
+      ? parseResumeDocument(comparisonSource, source?.content_md)
+      : parseResume(baseResume?.content_md ?? "");
+    const tailoredDoc = draft?.document
+      ? parseResumeDocument(draft.document, draft.content_md)
+      : parseResume(draft?.content_md ?? "", draft?.render_model);
     return compareResumeDocs(baseDoc, tailoredDoc);
-  }, [baseResume?.content_md, draft?.content_md, draft?.render_model, draft?.document, draft?.source_snapshot]);
+  }, [
+    baseResume?.content_md,
+    draft?.content_md,
+    draft?.render_model,
+    draft?.document,
+    draft?.source_snapshot,
+  ]);
 
   // Filter sections if one is selected
   const displayedSections = useMemo(() => {
@@ -72,7 +92,8 @@ export function CompareWorkspace({
   // GSAP animation when sections change or view updates
   useEffect(() => {
     if (!sectionsContainerRef.current) return;
-    const cards = sectionsContainerRef.current.querySelectorAll(".diff-section-card");
+    const cards =
+      sectionsContainerRef.current.querySelectorAll(".diff-section-card");
     if (cards.length > 0) {
       const animation = gsap.fromTo(
         cards,
@@ -86,11 +107,15 @@ export function CompareWorkspace({
           clearProps: "transform,opacity",
         },
       );
-      return () => { animation.kill(); };
+      return () => {
+        animation.kill();
+      };
     }
   }, [displayedSections, viewLayout]);
 
-  const baseResumeName = draft?.source_snapshot ? `Source revision ${draft.source_snapshot.revision}` : baseResume?.name ?? "Baseline Resume";
+  const baseResumeName = draft?.source_snapshot
+    ? `Source revision ${draft.source_snapshot.revision}`
+    : (baseResume?.name ?? "Baseline Resume");
 
   return (
     <div
@@ -98,40 +123,50 @@ export function CompareWorkspace({
       data-testid="compare-workspace"
     >
       {/* Hidden baseline semantic anchors for screen readers & test assertions */}
-      <h2 className="sr-only">Base Resume</h2>
+      <Heading level={2} className="sr-only">
+        Base Resume
+      </Heading>
 
-      {!draft?.source_snapshot && <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>Legacy comparison uses the available base resume. Its text may have changed since generation, and matches use headings and text.</p>}
+      {!draft?.source_snapshot && (
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          Legacy comparison uses the available base resume. Its text may have
+          changed since generation, and matches use headings and text.
+        </Text>
+      )}
       {/* Hero Control Bar */}
       <CompareHeroBar
         summary={summary}
         baseResumeName={baseResumeName}
-        generatedTimestamp={draft?.last_generated_at ?? null}
         pageLength={pageLength}
         aggressiveness={aggressiveness}
         viewLayout={viewLayout}
         highlightMode={highlightMode}
         onViewLayoutChange={setViewLayout}
         onHighlightModeChange={setHighlightMode}
-        onEnterEdit={onEnterEdit}
-        onExportPdf={onExportPdf}
-        onCloseCompare={onCloseCompare}
-        isExporting={isExporting}
+        sectionNavigation={!editMode && summary.sections.length > 1 ? (
+          <CompareSectionNav sections={summary.sections} activeSectionId={activeSectionId} onSelectSection={setActiveSectionId} />
+        ) : undefined}
       />
 
       {/* Edit Mode Panel or Comparison Stream */}
       {editMode ? (
-        <Card
-          className="rounded-2xl border p-4 sm:p-6 shadow-sm"
-          style={{
-            borderColor: "var(--color-border)",
-            background: "var(--color-white)",
-          }}
-        >
+        <Section className="p-4 sm:p-6">
           <div className="mb-3 flex items-center justify-between border-b pb-2.5">
-            <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: "var(--color-spruce)" }}>
+            <Heading
+              level={3}
+              style={{ color: "var(--color-accent)" }}
+            >
               Edit Tailored Draft
-            </h3>
-            <span className="text-xs" style={{ color: "var(--color-ink-40)" }}>
+            </Heading>
+            <span
+              className="text-xs"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
               Changes will immediately update the comparison diff upon saving.
             </span>
           </div>
@@ -145,35 +180,31 @@ export function CompareWorkspace({
               onChange={(event) => onContentChange(event.target.value)}
             />
             <div className="markdown-editor-footer flex-shrink-0">
-              <span>Markdown · {editContent.length.toLocaleString()} characters</span>
+              <span>
+                Markdown · {editContent.length.toLocaleString()} characters
+              </span>
               <span>Tab = 2 spaces</span>
             </div>
             <div className="mt-3 flex flex-shrink-0 items-center gap-3">
-              <Button
-                size="sm"
-                loading={isSavingDraft}
-                disabled={isSavingDraft || !editContent.trim()}
-                onClick={onSaveDraft}
-              >
-                {isSavingDraft ? "Saving…" : "Save Draft"}
-              </Button>
-              <Button size="sm" variant="secondary" onClick={onCancelEdit}>
-                Cancel
-              </Button>
-            </div>
+              <ActionButtons label="Draft editing" size="sm" primaryIndex={0}>
+                <Button
+                  size="sm"
+                  loading={isSavingDraft}
+                  disabled={isSavingDraft || !editContent.trim()}
+                  onClick={onSaveDraft}
+                >
+                  {isSavingDraft ? "Saving…" : "Save Draft"}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={onCancelEdit}>
+                  Cancel
+                </Button>
+
+              </ActionButtons>
+</div>
           </div>
-        </Card>
+        </Section>
       ) : (
         <div className="space-y-4">
-          {/* Section Navigation Tabs */}
-          {summary.sections.length > 1 && (
-            <CompareSectionNav
-              sections={summary.sections}
-              activeSectionId={activeSectionId}
-              onSelectSection={setActiveSectionId}
-            />
-          )}
-
           {/* Section Cards Stream */}
           <div ref={sectionsContainerRef} className="space-y-6">
             {displayedSections.map((sec, idx) => (

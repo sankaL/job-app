@@ -1,11 +1,26 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-09-30
+**Last updated:** 2026-10-03
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
+
+## 2026-10-03 resume library summary excerpts
+
+- No SQL migration or backfill. The list query reads the first nonempty Summary section from the existing JSON document. Legacy rows without a document use the stored Markdown projection.
+- The API adds a bounded plain-text `summary` field. Old clients ignore it; the new frontend accepts an absent field and displays its empty-summary state, so rollout and rollback remain compatible.
+- Verify updated Summary text appears after a save, missing summaries remain empty, and another user's rows remain inaccessible. Do not expose the internal Markdown fields in the list response. The local Postgres integration test covers these conditions.
+
+## 2026-10-03 dashboard creation-activity index
+
+- Apply `20261003_000023_applications_user_created_at_index.sql` before or with the API that serves `GET /api/applications/creation-activity`. It is additive: one `(user_id, created_at DESC)` index on `applications`, no backfill, no data change. Lock acquisition is bounded at five seconds and SQL at sixty seconds; a failure rolls back cleanly and is safe to retry because the index uses `if not exists`.
+- The plain index build blocks application writes while it runs. That is brief at current volume; a large table needs a planned window or a manual `create index concurrently` outside the transaction, followed by the ledger insert.
+- The API still works without the index (same results, slower scans), so deploy order is flexible. Deploy the API before the frontend: an older API treats `creation-activity` as an application ID and returns an error, which leaves only the Activity panel in its retry state.
+- The backend now depends on `tzdata` so IANA time-zone names resolve on slim images without system zone files. Postgres bucketing uses its own zone database; an unknown zone name fails with HTTP 422.
+- Verify migration 023 in the ledger and the index definition. Check each range returns 7, 30, 90 daily or 52 weekly buckets; that counts match local-day boundaries for a non-UTC zone; that another user's applications never appear; and that unauthenticated requests return 401 and unknown ranges/zones return 422.
+- Rollback: revert application code. The index can stay; drop it only through a separate reviewed migration.
 
 ## 2026-09-30 Railway release rollout
 
@@ -138,7 +153,7 @@ Local validation uses Makefile test targets and local Docker Postgres/Redis. `te
 - The initial Phase 0 migration is implemented as repo-owned SQL under `supabase/migrations/`.
 - Local development applies migrations through the Compose-managed `migration-runner` service instead of ad-hoc manual SQL execution.
 - Local dev mode does not send invite or recovery emails; app-level email tests should use the backend Resend gate instead.
-- When `APP_DEV_MODE=true`, the login surface accepts an email-only local sign-in and protected routes restore an existing session only after a refresh-cookie-backed auth check succeeds.
+- When `APP_DEV_MODE=true`, the login surface selects an existing active local account from a dropdown without a password. `/api/auth/local-users` returns only active local account emails and is unavailable outside dev mode. The email-only login API remains available for local fixture setup. Protected routes restore an existing session only after a refresh-cookie-backed auth check succeeds.
 - Auth provisioning is repo-owned: `public.users` stores credentials, `public.refresh_tokens` stores refresh-token hashes, and profile rows are created or aligned by backend code instead of `auth.users` triggers.
 - Post-deploy or post-reset verification for Phase 0 should confirm:
   - the schema migration applies before backend reads begin

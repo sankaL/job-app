@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import html
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -8,6 +7,7 @@ from fastapi import Depends
 
 from app.core.config import Settings, get_settings
 from app.services.email import EmailMessage, EmailSender, build_email_sender
+from app.services.email_templates import render_branded_email
 
 
 @dataclass
@@ -41,33 +41,25 @@ class AccessRequestService:
 
         safe_name = clean_name.translate(str.maketrans("", "", "\n\r\t\v\f\x00"))
         subject = f"Applix early access request: {safe_name}"
-        text = (
-            "New Applix early access request\n\n"
-            f"Name: {clean_name}\n"
-            f"Email: {clean_email}\n"
-            f"Interested plan: {plan_label}\n"
-            f"Note: {(clean_note or 'None provided').replace(chr(10), ' ').replace(chr(13), ' ')}\n\n"
-            "Review this request and send an invite from the admin user management screen if approved."
+        note = (clean_note or "None provided").replace("\r", " ")
+        email = render_branded_email(
+            eyebrow="Early access",
+            heading="New early access request",
+            body="Review this request and send an invite from the admin user management screen if approved.",
+            details=[
+                ("Name", clean_name),
+                ("Email", clean_email),
+                ("Interested plan", plan_label),
+                ("Note", note),
+            ],
         )
-        html_body = f"""
-        <div style="font-family: Arial, sans-serif; color: #101828; line-height: 1.5;">
-          <h2 style="margin: 0 0 12px;">New Applix early access request</h2>
-          <p><strong>Name:</strong> {html.escape(clean_name)}</p>
-          <p><strong>Email:</strong> {html.escape(clean_email)}</p>
-          <p><strong>Interested plan:</strong> {html.escape(plan_label)}</p>
-          <p><strong>Note:</strong><br />{html.escape(clean_note or "None provided")}</p>
-          <p style="margin-top: 20px; color: #667085;">
-            Review this request and send an invite from the admin user management screen if approved.
-          </p>
-        </div>
-        """
 
         delivery_id = await self.email_sender.send(
             EmailMessage(
                 to=recipients,
                 subject=subject,
-                text=text,
-                html=html_body,
+                text=email.text,
+                html=email.html,
             )
         )
         if not delivery_id:

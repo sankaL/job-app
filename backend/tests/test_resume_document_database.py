@@ -138,3 +138,27 @@ def test_name_migration_preserves_content_and_avoids_existing_suffixes(local_doc
             assert all(row[4] == {**document, "revision": row[2]} for row in rows)
         finally:
             connection.rollback()
+
+
+def test_resume_library_summary_reads_current_document_and_preserves_ownership(local_document_db):
+    from app.db.profiles import ProfileRepository
+    from app.services.base_resumes import BaseResumeService
+    from app.api.base_resumes import BaseResumeSummary
+    url, users, _ = local_document_db
+    repository = BaseResumeRepository(url)
+    document = parse_resume_document("## Summary\n**Builds reliable tools.**\n\n## Skills\nPrivate skill text").model_dump(mode="json")
+    record = repository.create_resume(user_id=users[0], name="Library", content_md="old content", document=document)
+    service = BaseResumeService(repository, ProfileRepository(url))
+    assert service.list_resumes(users[1]) == []
+    rows = service.list_resumes(users[0])
+    assert len(rows) == 1
+    payload = BaseResumeSummary.model_validate(rows[0].model_dump()).model_dump()
+    assert payload["id"] == record.id
+    assert payload["summary"] == "Builds reliable tools."
+    assert "summary_md" not in payload and "legacy_content_md" not in payload
+    assert "Private skill text" not in str(payload)
+    document["sections"][0]["content_md"] = "Updated summary."
+    repository.update_resume(record.id, users[0], {"document": document}, expected_revision=1)
+    assert service.list_resumes(users[0])[0].summary == "Updated summary."
+    repository.create_resume(user_id=users[0], name="Legacy", content_md="## Summary\nLegacy summary.")
+    assert any(row.summary == "Legacy summary." for row in service.list_resumes(users[0]))

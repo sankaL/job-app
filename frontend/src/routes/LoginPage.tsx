@@ -1,11 +1,15 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AuthBrand, AuthPageShell } from "@/components/auth/AuthIllustration";
+import { AuthFooterLink, AuthNotice, AuthPageShell } from "@/components/auth/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { z } from "zod";
 import { env } from "@/lib/env";
 import { useAuth } from "@/lib/auth";
+
+const localUsersResponse = z.object({ emails: z.array(z.string().email()) });
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -15,6 +19,10 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [localUsers, setLocalUsers] = useState<string[] | null>(null);
+  const [localUsersError, setLocalUsersError] = useState<string | null>(null);
+  const [localUsersAttempt, setLocalUsersAttempt] = useState(0);
 
   useEffect(() => {
     if (user) {
@@ -22,11 +30,48 @@ export function LoginPage() {
       return;
     }
 
-    void ensureSession();
+    let active = true;
+    void ensureSession().finally(() => {
+      if (active) setSessionChecked(true);
+    });
+    return () => {
+      active = false;
+    };
   }, [user, ensureSession, navigate]);
+
+  useEffect(() => {
+    if (!isLocalDevMode || !sessionChecked || user) return;
+    const controller = new AbortController();
+    let active = true;
+    const timeout = window.setTimeout(() => controller.abort(), 10_000);
+    setLocalUsers(null);
+    setLocalUsersError(null);
+    setEmail("");
+    void (async () => {
+      try {
+        const response = await fetch(`${env.VITE_API_URL}/api/auth/local-users`, {
+          signal: controller.signal,
+          credentials: "omit",
+        });
+        if (!response.ok) throw new Error("Local users unavailable.");
+        const data = localUsersResponse.parse(await response.json());
+        if (active) setLocalUsers(data.emails);
+      } catch {
+        if (active) setLocalUsersError("Couldn't load local users. Try again.");
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    })();
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [isLocalDevMode, sessionChecked, user, localUsersAttempt]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting || (isLocalDevMode && !localUsers?.includes(email))) return;
     setError(null);
     setIsSubmitting(true);
 
@@ -40,90 +85,105 @@ export function LoginPage() {
     }
   }
 
+  const localUsersUnavailable = isLocalDevMode && (localUsersError !== null || localUsers?.length === 0);
+  const notice = error ? (
+    <AuthNotice>{error}</AuthNotice>
+  ) : localUsersUnavailable ? (
+    <AuthNotice
+      action={
+        <Button variant="secondary" size="sm" onClick={() => setLocalUsersAttempt((attempt) => attempt + 1)}>
+          Retry
+        </Button>
+      }
+    >
+      {localUsersError ?? "No local accounts are available. Seed a local user first."}
+    </AuthNotice>
+  ) : null;
+
   return (
-    <AuthPageShell illustrationMobileHeight="compact">
-      <AuthBrand subtitle="AI Job Applications" />
-
-            <div className="mt-8">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em]" style={{ color: "var(--color-spruce)" }}>
-                Invite-only MVP
-              </p>
-              <h1
-                className="mt-3 max-w-lg font-display text-2xl leading-[1.08] sm:text-3xl lg:text-[2.75rem]"
-                style={{ color: "var(--color-ink)" }}
-              >
-                AI-Powered Resume Tailoring
-              </h1>
-              <p className="mt-5 max-w-lg text-base leading-7 sm:text-lg" style={{ color: "var(--color-ink-65)" }}>
-                Sign in to manage your job applications, generate tailored resumes, and track your progress.
-              </p>
-              {isLocalDevMode && (
-                <span
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
-                  style={{
-                    background: "rgba(24, 74, 69, 0.10)",
-                    color: "var(--color-spruce)",
-                    border: "1px solid rgba(24, 74, 69, 0.18)",
-                  }}
-                >
-                  <span
-                    className="inline-block h-1.5 w-1.5 rounded-full"
-                    style={{ background: "var(--color-spruce)" }}
-                  />
-                  Local dev
-                </span>
-              )}
+    <AuthPageShell
+      title="Sign in"
+      notice={notice}
+      footer={
+        <>
+          Need an invite? <AuthFooterLink to="/signup">Request access</AuthFooterLink>
+        </>
+      }
+    >
+      <form className="space-y-5" onSubmit={handleSubmit}>
+        {isLocalDevMode ? (
+          <div>
+            <Label htmlFor="local-user">Account</Label>
+            <Select
+              id="local-user"
+              name="email"
+              aria-label="Local user"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              disabled={isSubmitting || !localUsers?.length}
+              required
+            >
+              <option value="" disabled>
+                {localUsersError
+                  ? "Users unavailable"
+                  : localUsers === null
+                    ? "Loading local users…"
+                    : localUsers.length
+                      ? "Select an account"
+                      : "No local users available"}
+              </option>
+              {localUsers?.map((localEmail) => (
+                <option key={localEmail} value={localEmail}>
+                  {localEmail}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1.5 text-xs text-[var(--color-text-secondary)]">
+              Local dev: choose an existing account. No password required.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div>
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                required
+                data-gramm="false"
+                data-gramm_editor="false"
+              />
             </div>
-
-            <div className="mt-8 max-w-md">
-              <form className="space-y-5" onSubmit={handleSubmit}>
-                <div>
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="invite-only@example.com"
-                    required
-                    data-gramm="false"
-                    data-gramm_editor="false"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder={isLocalDevMode ? "Not required in dev mode" : "Your assigned password"}
-                    required={!isLocalDevMode}
-                    disabled={isLocalDevMode}
-                    data-gramm="false"
-                    data-gramm_editor="false"
-                  />
-                  {isLocalDevMode && (
-                    <p className="mt-1.5 text-xs" style={{ color: "var(--color-spruce)" }}>
-                      Auth disabled — enter any email to sign in.
-                    </p>
-                  )}
-                </div>
-                {error ? (
-                  <div className="rounded-2xl border border-ember/20 bg-ember/5 px-4 py-3 text-sm text-ember">
-                    {error}
-                  </div>
-                ) : null}
-                <Button className="w-full" disabled={isSubmitting} type="submit">
-                  {isSubmitting ? "Signing in…" : "Enter the workspace"}
-                </Button>
-              </form>
-
+            <div>
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                data-gramm="false"
+                data-gramm_editor="false"
+              />
             </div>
+          </>
+        )}
+        <Button
+          type="submit"
+          className="w-full"
+          loading={isSubmitting}
+          disabled={isSubmitting || (isLocalDevMode && !localUsers?.includes(email))}
+        >
+          {isSubmitting ? "Signing in…" : "Sign in"}
+        </Button>
+      </form>
     </AuthPageShell>
   );
 }

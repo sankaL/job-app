@@ -178,3 +178,181 @@ describe("data table", () => {
     ]);
   });
 });
+
+function TemplateTable({
+  onVisibleRowsChange,
+}: {
+  onVisibleRowsChange?: (rows: Array<Row & { company: string }>) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const rows = [
+    { id: "a", label: "Alpha", company: "Acme", updated: 3 },
+    { id: "b", label: "Beta", company: "Acme", updated: 1 },
+    { id: "c", label: "Gamma", company: "Other", updated: 2 },
+  ];
+  return (
+    <DataTable
+      data={rows.filter((row) =>
+        row.label.toLowerCase().includes(search.toLowerCase()),
+      )}
+      filterData={rows}
+      defaultGroup="company"
+      getRowKey={(row) => row.id}
+      onVisibleRowsChange={onVisibleRowsChange}
+      toolbar={{
+        search,
+        onSearch: setSearch,
+        searchLabel: "Search records",
+        placeholder: "Search",
+      }}
+      columns={[
+        {
+          key: "label",
+          header: "Label",
+          render: (row) => row.label,
+          sortable: true,
+        },
+        {
+          key: "company",
+          header: "Company",
+          render: (row) => row.company,
+          groupValue: (row) => row.company,
+          filterValue: (row) => row.company,
+        },
+        {
+          key: "updated",
+          header: "Updated",
+          render: (row) => row.updated,
+          sortable: true,
+        },
+      ]}
+    />
+  );
+}
+
+describe("Astryx table-filter behavior", () => {
+  it("sorts groups in the requested direction using the grouped column's custom order", async () => {
+    const user = userEvent.setup();
+    const statusOrder = ["Draft", "Needs Action", "Complete"];
+    render(
+      <DataTable
+        data={[
+          { id: "complete", status: "Complete" },
+          { id: "needs-action", status: "Needs Action" },
+          { id: "draft", status: "Draft" },
+        ]}
+        defaultGroup="status"
+        getRowKey={(row) => row.id}
+        columns={[
+          {
+            key: "status",
+            header: "Status",
+            render: (row) => row.status,
+            sortable: true,
+            sortValue: (row) => statusOrder.indexOf(row.status),
+            groupValue: (row) => row.status,
+          },
+        ]}
+      />,
+    );
+    const groupOrder = () =>
+      screen
+        .getAllByRole("button", { name: /^Collapse group / })
+        .map((button) =>
+          button.getAttribute("aria-label")?.replace("Collapse group ", ""),
+        );
+
+    await user.click(screen.getByRole("button", { name: "Status" }));
+    expect(groupOrder()).toEqual(statusOrder);
+    expect(screen.getByRole("columnheader", { name: "Status" })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Status" }));
+    expect(groupOrder()).toEqual([...statusOrder].reverse());
+    expect(screen.getByRole("columnheader", { name: "Status" })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+  });
+
+  it("excludes collapsed groups from the current-page selection scope", async () => {
+    const user = userEvent.setup();
+    const onVisibleRowsChange = vi.fn();
+    render(<TemplateTable onVisibleRowsChange={onVisibleRowsChange} />);
+    await user.click(
+      screen.getByRole("button", { name: "Collapse group Acme" }),
+    );
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(
+      onVisibleRowsChange.mock.lastCall?.[0].map((row: Row) => row.id),
+    ).toEqual(["c"]);
+    await user.click(screen.getByRole("button", { name: "Expand group Acme" }));
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(onVisibleRowsChange.mock.lastCall?.[0]).toHaveLength(3);
+  });
+
+  it("combines company filters with search and clears an empty result", async () => {
+    const user = userEvent.setup();
+    render(<TemplateTable />);
+    await user.click(screen.getByRole("button", { name: "Filter by company" }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Acme" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByText("Gamma")).not.toBeInTheDocument();
+    await user.type(
+      screen.getByRole("textbox", { name: "Search records" }),
+      "gamma",
+    );
+    expect(screen.getByText("No matching results.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Gamma")).toBeInTheDocument();
+  });
+
+  it("restores filters, grouping, column visibility and density from a saved view", async () => {
+    const user = userEvent.setup();
+    render(<TemplateTable />);
+    await user.type(
+      screen.getByRole("textbox", { name: "Search records" }),
+      "alpha",
+    );
+    await user.click(screen.getByRole("button", { name: "View options" }));
+    await user.click(
+      screen.getByRole("menuitemcheckbox", { name: "Show Updated" }),
+    );
+    await user.click(
+      screen.getByRole("menuitemradio", { name: "Compact rows" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Create saved view" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Saved view name" }),
+      "Review queue",
+    );
+    await user.click(screen.getByRole("button", { name: "Save view" }));
+    await user.click(screen.getByRole("button", { name: "Clear all" }));
+    await user.click(screen.getByRole("button", { name: "View options" }));
+    await user.click(
+      screen.getByRole("menuitemcheckbox", { name: "Show Updated" }),
+    );
+    await user.click(
+      screen.getByRole("menuitemradio", { name: "No grouping" }),
+    );
+    expect(screen.getByRole("button", { name: "Updated" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Saved views" }));
+    await user.click(screen.getByRole("menuitem", { name: "Review queue" }));
+    expect(screen.getByRole("textbox", { name: "Search records" })).toHaveValue(
+      "alpha",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Updated" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Collapse group Acme" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "View options" }));
+    expect(
+      screen.getByRole("menuitemradio", { name: "Compact rows" }),
+    ).toHaveAttribute("aria-checked", "true");
+  }, 15000);
+});

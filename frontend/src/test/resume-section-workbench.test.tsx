@@ -94,7 +94,8 @@ describe("section workbench", () => {
   it("adds flexible custom sections without losing existing entries", async () => {
     const user = userEvent.setup();
     render(<ControlledWorkbench />);
-    await user.selectOptions(screen.getByLabelText("New section type"), "custom");
+    await user.click(screen.getByLabelText("New section type"));
+    await user.click(screen.getByRole("menuitemradio", { name: "Custom section" }));
     await user.click(screen.getByRole("button", { name: "Add section" }));
     expect(screen.getByLabelText("Section heading 2")).toHaveValue("Custom section");
     expect(screen.queryByTestId("section-preview-experience-1")).not.toBeInTheDocument();
@@ -241,7 +242,7 @@ describe("canonical comparison", () => {
   });
 
   it("reads the generation snapshot even when the current base has changed", () => {
-    render(<CompareWorkspace baseResume={{ id: "base-1", name: "Changed base", content_md: "## Experience\nDifferent Employer", is_default: false, created_at: "", updated_at: "" }} draft={draft} editMode={false} editContent="" isSavingDraft={false} onEnterEdit={vi.fn()} onCancelEdit={vi.fn()} onContentChange={vi.fn()} onSaveDraft={vi.fn()} onCloseCompare={vi.fn()} />);
+    render(<CompareWorkspace baseResume={{ id: "base-1", name: "Changed base", content_md: "## Experience\nDifferent Employer", is_default: false, created_at: "", updated_at: "" }} draft={draft} editMode={false} editContent="" isSavingDraft={false} onCancelEdit={vi.fn()} onContentChange={vi.fn()} onSaveDraft={vi.fn()} />);
     expect(screen.getByText("Source revision 4")).toBeInTheDocument();
     expect(screen.queryByText(/Different Employer/)).not.toBeInTheDocument();
     expect(within(screen.getByTestId("diff-section-professional_experience")).getByText("Acme")).toBeInTheDocument();
@@ -257,7 +258,7 @@ describe("resume-owned section structure", () => {
     await user.click(screen.getByRole("tab", { name: /Community/ }));
     await user.click(screen.getByRole("button", { name: "Move Community up" }));
     await user.click(screen.getByRole("tab", { name: /Experience/ }));
-    await user.click(screen.getByRole("checkbox", { name: "Include Experience" }));
+    await user.click(screen.getByRole("button", { name: "Include Experience" }));
     await user.click(screen.getByRole("button", { name: "Save Draft" }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     const saved = onSave.mock.calls[0][0] as ResumeDocument;
@@ -290,7 +291,7 @@ it("compares a re-included section with its frozen source rather than labeling i
   const custom = { ...source.sections[0], id: "community", kind: "custom" as const, heading: "Community", entries: [], content_md: "Community work", enabled: false };
   const frozen = { ...source, sections: [...source.sections, custom] };
   const current = { ...source, sections: [...source.sections, { ...custom, enabled: true }] };
-  render(<CompareWorkspace baseResume={null} draft={{ ...draft, document: current, source_snapshot: { base_resume_id: "base-1", revision: 4, document: frozen, content_md: "" } }} editMode={false} editContent="" isSavingDraft={false} onEnterEdit={vi.fn()} onCancelEdit={vi.fn()} onContentChange={vi.fn()} onSaveDraft={vi.fn()} onCloseCompare={vi.fn()} />);
+  render(<CompareWorkspace baseResume={null} draft={{ ...draft, document: current, source_snapshot: { base_resume_id: "base-1", revision: 4, document: frozen, content_md: "" } }} editMode={false} editContent="" isSavingDraft={false} onCancelEdit={vi.fn()} onContentChange={vi.fn()} onSaveDraft={vi.fn()} />);
   const card = screen.getByTestId("diff-section-custom");
   expect(within(card).queryByText("Added")).not.toBeInTheDocument();
   expect(card).toHaveTextContent("Community work");
@@ -318,10 +319,12 @@ describe("focused source review", () => {
     await user.type(screen.getByLabelText(/Section content/), ", SQL");
     await user.click(screen.getByRole("button", { name: "Mark reviewed" }));
     expect(screen.getByText("1 of 2 populated sections reviewed")).toBeInTheDocument();
+    expect(within(navigation).getByLabelText("Section reviewed")).toHaveClass("reviewed");
+    expect(screen.queryByRole("button", { name: /Continue review/ })).not.toBeInTheDocument();
     await user.click(within(navigation).getByRole("tab", { name: /Experience/ }));
     editSection();
     expect(screen.getByLabelText("Employer")).toHaveValue("Acme Ltd");
-    await user.click(screen.getByRole("checkbox", { name: "Include Experience" }));
+    await user.click(screen.getByRole("button", { name: "Include Experience" }));
     expect(screen.getByText("1 of 1 populated sections reviewed")).toBeInTheDocument();
     await user.click(within(navigation).getByRole("tab", { name: /Skills/ }));
     editSection("Skills");
@@ -458,4 +461,32 @@ it.each([true, false])("uses the shared section preview for profile contact deta
   await user.click(screen.getByRole("tab", { name: "Experience" }));
   await user.click(screen.getByRole("tab", { name: "Contact information" }));
   expect(screen.getByRole("link", { name: "Edit profile" })).toBeInTheDocument();
+});
+
+it("keeps the workbench mounted and limits section loading to the target content", async () => {
+  const props = { draft, profile: null, onSave: vi.fn(), onRegenerate: vi.fn() };
+  const { rerender } = render(<MemoryRouter><DraftSectionWorkbench {...props} /></MemoryRouter>);
+  await userEvent.click(screen.getByRole("tab", { name: "Experience" }));
+  const navigation = screen.getByRole("tablist", { name: "Resume sections" });
+  rerender(<MemoryRouter><DraftSectionWorkbench {...props} locked processing={{ sectionId: "experience-1", content: <p role="status" aria-label="Regeneration">Rewriting experience</p> }} /></MemoryRouter>);
+  expect(screen.getByRole("tablist", { name: "Resume sections" })).toBe(navigation);
+  expect(screen.getByRole("tabpanel", { name: "Experience" })).toContainElement(screen.getByRole("status", { name: "Regeneration" }));
+  expect(screen.queryByText("Built services")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Edit Experience" })).toBeDisabled();
+  await userEvent.click(screen.getByRole("tab", { name: "Contact information" }));
+  expect(screen.getByRole("tabpanel", { name: "Contact information" })).toBeInTheDocument();
+  rerender(<MemoryRouter><DraftSectionWorkbench {...props} /></MemoryRouter>);
+  await userEvent.click(screen.getByRole("tab", { name: "Experience" }));
+  expect(screen.getByText("Built services")).toBeInTheDocument();
+});
+
+it("preserves sibling roles while one role regenerates", () => {
+  const document = { ...source, sections: [{ ...source.sections[0], entries: [
+    source.sections[0].entries[0],
+    { id: "role-2", fields: { title: "Lead", company: "Second employer" }, bullets: [{ id: "b2", text: "Kept sibling content", source_ids: [] }] },
+  ] }] };
+  render(<ResumeSectionWorkbench document={document} disabled onChange={vi.fn()} processing={{ sectionId: "experience-1", entryId: "role-1", content: <p role="status" aria-label="Regeneration">Rewriting one role</p> }} />);
+  expect(screen.getByText("Kept sibling content")).toBeInTheDocument();
+  expect(screen.queryByText("Built services")).not.toBeInTheDocument();
+  expect(screen.getByRole("status", { name: "Regeneration" })).toHaveTextContent("Rewriting one role");
 });

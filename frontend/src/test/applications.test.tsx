@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   act,
   fireEvent,
@@ -17,8 +17,10 @@ import { TopBar } from "@/components/layout/TopBar";
 import { ToastProvider } from "@/components/ui/toast";
 import { AppBreadcrumbs } from "@/components/layout/Breadcrumbs";
 import { AppShell } from "@/routes/AppShell";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { ApplicationDetailPage } from "@/routes/ApplicationDetailPage";
 import { ApplicationsListPage } from "@/routes/ApplicationsListPage";
+import { AdminDashboardPage } from "@/routes/AdminDashboardPage";
 import { AdminUsersPage } from "@/routes/AdminUsersPage";
 import { AdminSubscriptionsPage } from "@/routes/AdminSubscriptionsPage";
 import { BaseResumeEditorPage } from "@/routes/BaseResumeEditorPage";
@@ -45,6 +47,7 @@ const api = vi.hoisted(() => ({
   fetchAdminMetrics: vi.fn(),
   fetchApplicationProgress: vi.fn(),
   fetchBaseResume: vi.fn(),
+  fetchCreationActivity: vi.fn(),
   fetchDraft: vi.fn(),
   fetchSessionBootstrap: vi.fn(),
   inviteAdminUser: vi.fn(),
@@ -163,6 +166,38 @@ function buildApplicationSummary(overrides: Record<string, unknown> = {}) {
     has_action_required_notification: false,
     has_unresolved_duplicate: false,
     ...overrides,
+  };
+}
+
+function buildCreationActivity(
+  range: "7d" | "30d" | "3m" | "1y",
+  counts: Record<number, [number, number]> = {},
+) {
+  const bucketCount = { "7d": 7, "30d": 30, "3m": 90, "1y": 52 }[range];
+  const stepDays = range === "1y" ? 7 : 1;
+  const end = new Date(Date.UTC(2026, 9, 3));
+  const buckets = Array.from({ length: bucketCount }, (_, index) => {
+    const start = new Date(end);
+    start.setUTCDate(end.getUTCDate() - (bucketCount - 1 - index) * stepDays);
+    const bucketEnd = new Date(start);
+    bucketEnd.setUTCDate(start.getUTCDate() + stepDays - 1);
+    const [created, applied] = counts[index] ?? [0, 0];
+    return {
+      start_date: start.toISOString().slice(0, 10),
+      end_date: (bucketEnd > end ? end : bucketEnd).toISOString().slice(0, 10),
+      created,
+      applied,
+    };
+  });
+  return {
+    range,
+    granularity: range === "1y" ? "week" : "day",
+    timezone: "UTC",
+    start_date: buckets[0].start_date,
+    end_date: "2026-10-03",
+    total_created: buckets.reduce((sum, bucket) => sum + bucket.created, 0),
+    total_applied: buckets.reduce((sum, bucket) => sum + bucket.applied, 0),
+    buckets,
   };
 }
 
@@ -318,6 +353,9 @@ describe("phase 1 applications UI", () => {
     api.listBaseResumes.mockResolvedValue([]);
     api.listApplications.mockResolvedValue([]);
     api.listApplicationActivity.mockResolvedValue([]);
+    api.fetchCreationActivity.mockImplementation(
+      async (range: "7d" | "30d" | "3m" | "1y") => buildCreationActivity(range),
+    );
     api.listNotifications.mockResolvedValue([]);
     api.updateProfile.mockImplementation(async (payload) => ({
       id: "user-1",
@@ -374,7 +412,7 @@ describe("phase 1 applications UI", () => {
     expect(api.listApplications).toHaveBeenCalledTimes(1);
   });
 
-  it("loads the dashboard with one bootstrap request and one applications request", async () => {
+  it("loads the dashboard with one bootstrap request, one applications request and one activity request", async () => {
     api.listApplications.mockResolvedValue([]);
 
     renderWithAppProvider(<DashboardPage />);
@@ -384,6 +422,7 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText(/3 of 10 used/i)).toBeInTheDocument();
     expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
     expect(api.listApplications).toHaveBeenCalledTimes(1);
+    expect(api.fetchCreationActivity).toHaveBeenCalledTimes(1);
   });
 
   it("loads the resumes page with one bootstrap request and one base resumes request", async () => {
@@ -430,7 +469,43 @@ describe("phase 1 applications UI", () => {
     expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Section Preferences")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Manage base resumes" })).toHaveAttribute("href", "/app/resumes");
+    expect(
+      screen.getByRole("link", { name: "Manage base resumes" }),
+    ).toHaveAttribute("href", "/app/resumes");
+  });
+
+  it("shows profile settings directly without section navigation", async () => {
+    const user = userEvent.setup();
+    renderWithAppProvider(<ProfilePage />);
+    const name = await screen.findByLabelText("Name");
+    await user.clear(name);
+    await user.type(name, "Alex Updated");
+    expect(screen.queryByLabelText("Profile sections")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume sections" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Resume sections" })).toBeInTheDocument();
+    expect(name).toHaveValue("Alex Updated");
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(api.updateProfile).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toBeDisabled();
+  });
+
+  it("keeps profile edits after a failed keyboard save and allows retry", async () => {
+    const user = userEvent.setup();
+    api.updateProfile.mockRejectedValueOnce(new Error("Could not save. Try again."));
+    renderWithAppProvider(<ProfilePage />);
+    const name = await screen.findByLabelText("Name");
+    await user.clear(name);
+    await user.type(name, "Alex Updated");
+    screen.getByRole("button", { name: "Save" }).focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save. Try again.");
+    expect(name).toHaveValue("Alex Updated");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(api.updateProfile).toHaveBeenCalledTimes(2);
   });
 
   it("shows a recoverable error on the profile page when bootstrap fails", async () => {
@@ -710,7 +785,7 @@ describe("phase 1 applications UI", () => {
         buildNotificationSummary({
           id: `notif-${index}`,
           application_id: `app-${index}`,
-          message: `Notification ${index + 1}`,
+          message: `Notification ${index + 1}: Resume keyword optimization completed successfully. Review the updated application before proceeding.`,
           created_at: `2026-04-09T12:${String(index).padStart(2, "0")}:00Z`,
         }),
       ),
@@ -727,6 +802,10 @@ describe("phase 1 applications UI", () => {
     });
     expect(notificationsList).toHaveClass("max-h-96");
     expect(notificationsList).toHaveClass("overflow-y-auto");
+    for (const row of within(notificationsList).getAllByRole("button")) {
+      expect(row).toHaveStyle({ height: "auto" });
+      expect(row.querySelector(".app-button-content--block")).toBeInTheDocument();
+    }
   });
 
   it("navigates to the linked application when a notification is selected", async () => {
@@ -910,6 +989,47 @@ describe("phase 1 applications UI", () => {
     expect(
       screen.getByText("Failed to clear notifications"),
     ).toBeInTheDocument();
+  });
+
+  it("filters applications by multiple statuses and clears the selection", async () => {
+    const user = userEvent.setup();
+    api.listApplications.mockResolvedValue([
+      buildApplicationSummary({
+        id: "draft",
+        job_title: "Draft role",
+        visible_status: "draft",
+      }),
+      buildApplicationSummary({
+        id: "attention",
+        job_title: "Attention role",
+        visible_status: "needs_action",
+      }),
+      buildApplicationSummary({
+        id: "complete",
+        job_title: "Completed role",
+        visible_status: "complete",
+      }),
+    ]);
+    renderWithAppProvider(<ApplicationsListPage />);
+    expect(await screen.findByText("Draft role")).toBeInTheDocument();
+    for (const status of ["Draft", "Needs Action", "Complete"]) {
+      expect(
+        screen.getByRole("button", { name: `Collapse group ${status}` }),
+      ).toBeInTheDocument();
+    }
+    await user.click(screen.getByRole("button", { name: "Filter by status" }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Draft" }));
+    await user.click(
+      screen.getByRole("menuitemcheckbox", { name: "Needs Action" }),
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.getByText("Draft role")).toBeInTheDocument();
+    expect(screen.getByText("Attention role")).toBeInTheDocument();
+    expect(screen.queryByText("Completed role")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Clear status filter" }),
+    );
+    expect(screen.getByText("Completed role")).toBeInTheDocument();
   });
 
   it("supports current-page selection without triggering row navigation", async () => {
@@ -1169,18 +1289,64 @@ describe("phase 1 applications UI", () => {
     ).toBeDisabled();
   });
 
-  it("renders middle-aligned application table cells for the compact list layout", async () => {
-    api.listApplications.mockResolvedValue([
-      buildApplicationSummary({ id: "app-1", job_title: "Backend Engineer" }),
-    ]);
+  it("summarizes admin metrics with labeled composition and outcome rows", async () => {
+    api.fetchAdminMetrics.mockResolvedValue({
+      total_users: 10,
+      active_users: 8,
+      deactivated_users: 2,
+      invited_users: 3,
+      total_applications: 42,
+      invites_sent: 8,
+      invites_accepted: 5,
+      invites_pending: 2,
+      extraction: {
+        total: 8,
+        success_count: 6,
+        failure_count: 2,
+        success_rate: 75,
+      },
+      generation: {
+        total: 3,
+        success_count: 3,
+        failure_count: 0,
+        success_rate: 100,
+      },
+      regeneration: {
+        total: 0,
+        success_count: 0,
+        failure_count: 0,
+        success_rate: 0,
+      },
+      export: {
+        total: 9,
+        success_count: 9,
+        failure_count: 0,
+        success_rate: 100,
+      },
+    });
 
-    renderWithAppProvider(<ApplicationsListPage />);
+    renderWithAppProvider(<AdminDashboardPage />);
 
-    const titleCell = await screen.findByText("Backend Engineer");
-    const row = titleCell.closest("tr");
-    const firstCell = row?.querySelector("td");
-
-    expect(firstCell?.className).toContain("align-middle");
+    expect(await screen.findByText("Workflow outcomes")).toBeInTheDocument();
+    expect(screen.getByText("62.5%")).toBeInTheDocument();
+    expect(screen.getByText("90.0%")).toBeInTheDocument();
+    expect(screen.getByText("2 failed of 20 runs")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("composition-row-onboarded")).getByText("5"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("composition-row-closed")).getByText("1"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("operation-row-regeneration")).getByText(
+        "No runs",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", {
+        name: "Extraction outcomes: Succeeded 6 (75%), Failed 2 (25%)",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("surfaces dashboard load failures instead of showing the empty state", async () => {
@@ -1195,142 +1361,146 @@ describe("phase 1 applications UI", () => {
     expect(screen.queryByText(/no applications yet/i)).not.toBeInTheDocument();
   });
 
-  it("renders the monthly activity year selector and updates dashboard analytics for prior years", async () => {
+  it("requests bounded creation activity and refetches when the range changes", async () => {
     const user = userEvent.setup();
-    const currentYear = new Date().getFullYear();
-    const previousYear = currentYear - 1;
-
     api.listApplications.mockResolvedValue([
-      {
-        id: "app-current-1",
-        job_url: "https://example.com/1",
-        job_title: "Platform Engineer",
-        company: "Northstar",
-        job_posting_origin: "linkedin",
-        visible_status: "in_progress",
-        internal_state: "resume_ready",
-        failure_reason: null,
-        applied: true,
-        duplicate_similarity_score: null,
-        duplicate_resolution_status: null,
-        duplicate_matched_application_id: null,
-        created_at: `${currentYear}-01-12T12:00:00Z`,
-        updated_at: `${currentYear}-01-14T12:00:00Z`,
-        base_resume_name: "Default Resume",
-        has_action_required_notification: false,
-        has_unresolved_duplicate: false,
-      },
-      {
-        id: "app-current-2",
-        job_url: "https://example.com/2",
-        job_title: "Product Analyst",
-        company: "Northstar",
-        job_posting_origin: "indeed",
-        visible_status: "draft",
-        internal_state: "draft_created",
-        failure_reason: null,
-        applied: false,
-        duplicate_similarity_score: null,
-        duplicate_resolution_status: null,
-        duplicate_matched_application_id: null,
-        created_at: `${currentYear}-03-03T12:00:00Z`,
-        updated_at: `${currentYear}-03-03T12:00:00Z`,
-        base_resume_name: "Default Resume",
-        has_action_required_notification: false,
-        has_unresolved_duplicate: false,
-      },
-      {
-        id: "app-previous-1",
-        job_url: "https://example.com/3",
-        job_title: "Backend Engineer",
-        company: "Acme",
-        job_posting_origin: "linkedin",
-        visible_status: "complete",
-        internal_state: "applied",
-        failure_reason: null,
-        applied: true,
-        duplicate_similarity_score: null,
-        duplicate_resolution_status: null,
-        duplicate_matched_application_id: null,
-        created_at: `${previousYear}-02-11T12:00:00Z`,
-        updated_at: `${previousYear}-02-12T12:00:00Z`,
-        base_resume_name: "Default Resume",
-        has_action_required_notification: false,
-        has_unresolved_duplicate: false,
-      },
-      {
-        id: "app-previous-2",
-        job_url: "https://example.com/4",
-        job_title: "ML Engineer",
-        company: "Beacon",
-        job_posting_origin: "company_website",
-        visible_status: "needs_action",
-        internal_state: "manual_entry_required",
-        failure_reason: "extraction_failed",
-        applied: true,
-        duplicate_similarity_score: null,
-        duplicate_resolution_status: null,
-        duplicate_matched_application_id: null,
-        created_at: `${previousYear}-05-08T12:00:00Z`,
-        updated_at: `${previousYear}-05-09T12:00:00Z`,
-        base_resume_name: "Default Resume",
-        has_action_required_notification: true,
-        has_unresolved_duplicate: false,
-      },
-      {
-        id: "app-previous-3",
-        job_url: "https://example.com/5",
-        job_title: "Design Systems Lead",
-        company: "Beacon",
-        job_posting_origin: "glassdoor",
-        visible_status: "in_progress",
-        internal_state: "resume_ready",
-        failure_reason: null,
-        applied: false,
-        duplicate_similarity_score: null,
-        duplicate_resolution_status: null,
-        duplicate_matched_application_id: null,
-        created_at: `${previousYear}-10-02T12:00:00Z`,
-        updated_at: `${previousYear}-10-03T12:00:00Z`,
-        base_resume_name: "Default Resume",
-        has_action_required_notification: false,
-        has_unresolved_duplicate: false,
-      },
+      buildApplicationSummary({ id: "app-1", applied: true }),
+      buildApplicationSummary({ id: "app-2", company: "Northstar" }),
     ]);
+    api.fetchCreationActivity.mockImplementation(
+      async (range: "7d" | "30d" | "3m" | "1y") =>
+        range === "30d"
+          ? buildCreationActivity(range, { 28: [2, 1], 29: [1, 0] })
+          : buildCreationActivity(range, { 51: [4, 3] }),
+    );
 
     renderWithAppProvider(<DashboardPage />);
 
-    expect(await screen.findByText("Monthly Activity")).toBeInTheDocument();
-    expect(screen.getByText("Job Sources")).toBeInTheDocument();
-    expect(screen.getByText("Top Companies")).toBeInTheDocument();
-    expect(screen.getByText("Status Breakdown")).toBeInTheDocument();
-
-    const yearSelect = screen.getByRole("combobox", {
-      name: /select monthly activity year/i,
-    });
-    expect(yearSelect).toHaveValue(String(currentYear));
+    const chart = await screen.findByTestId("creation-activity-chart");
+    expect(chart).toHaveAttribute("data-range", "30d");
+    expect(chart.getAttribute("aria-label")).toMatch(
+      /3 created, 1 marked applied/,
+    );
+    expect(api.fetchCreationActivity).toHaveBeenCalledTimes(1);
+    expect(api.fetchCreationActivity).toHaveBeenCalledWith(
+      "30d",
+      expect.any(String),
+    );
     expect(
-      within(yearSelect).getByRole("option", { name: String(previousYear) }),
+      screen.getByText("Applications created per day, last 30 days"),
     ).toBeInTheDocument();
+    expect(screen.getByText("Job sources")).toBeInTheDocument();
+    expect(screen.getByText("Top companies")).toBeInTheDocument();
+    expect(screen.getByText("Status breakdown")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("row").filter((row) => row.closest("table.sr-only")),
+    ).toHaveLength(31);
 
-    const chart = screen.getByTestId("monthly-activity-chart");
+    await user.click(screen.getByRole("radio", { name: "1Y" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("creation-activity-chart")).toHaveAttribute(
+        "data-range",
+        "1y",
+      ),
+    );
+    expect(api.fetchCreationActivity).toHaveBeenLastCalledWith(
+      "1y",
+      expect.any(String),
+    );
+    expect(
+      screen.getByText("Applications created per week, last 12 months"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("creation-activity-chart").getAttribute("aria-label"),
+    ).toMatch(/4 created, 3 marked applied/);
+  });
+
+  it("keeps the dashboard usable when creation activity fails", async () => {
+    const user = userEvent.setup();
+    api.listApplications.mockResolvedValue([buildApplicationSummary()]);
+    const failure = new Error("Activity service unavailable.");
+    // The shared query client retries once before surfacing the error.
+    api.fetchCreationActivity
+      .mockRejectedValueOnce(failure)
+      .mockRejectedValueOnce(failure);
+
+    renderWithAppProvider(<DashboardPage />);
+
+    expect(
+      await screen.findByText(/activity could not be loaded/i, undefined, {
+        timeout: 4000,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Recent activity")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(
+      await screen.findByTestId("creation-activity-chart"),
+    ).toBeInTheDocument();
+  });
+
+  it("retains cached creation activity and surfaces a failed refresh with a working retry", async () => {
+    const user = userEvent.setup();
+    api.listApplications.mockResolvedValue([buildApplicationSummary()]);
+    const initialActivity = buildCreationActivity("30d", { 29: [2, 1] });
+    const refreshedActivity = buildCreationActivity("30d", { 29: [3, 2] });
+    const failure = new Error("Activity service unavailable.");
+    let finishRetry!: (
+      activity: ReturnType<typeof buildCreationActivity>,
+    ) => void;
+    api.fetchCreationActivity
+      .mockResolvedValueOnce(initialActivity)
+      .mockRejectedValueOnce(failure)
+      .mockRejectedValueOnce(failure)
+      .mockImplementationOnce(
+        () => new Promise((resolve) => { finishRetry = resolve; }),
+      );
+    const queryClient = createAppQueryClient();
+    queryClient.setDefaultOptions({
+      queries: { ...queryClient.getDefaultOptions().queries, retryDelay: 0 },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AppProvider>
+            <ToastProvider>
+              <ShellLayoutProvider><DashboardPage /></ShellLayoutProvider>
+            </ToastProvider>
+          </AppProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const chart = await screen.findByTestId("creation-activity-chart");
     expect(chart).toHaveAttribute(
       "aria-label",
-      `Monthly activity for ${currentYear}`,
+      expect.stringContaining("2 created, 1 marked applied"),
     );
-    expect(screen.getByText("2 created")).toBeInTheDocument();
-    expect(screen.getByText("1 created + applied")).toBeInTheDocument();
-    expect(screen.getByText(`${currentYear} overview`)).toBeInTheDocument();
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["applications", "creationActivity"] });
+    });
+    expect(await screen.findByText(
+      /activity could not be refreshed.*last loaded activity/i,
+    )).toBeInTheDocument();
+    expect(chart).toBeInTheDocument();
+    expect(screen.getByText("Recent activity")).toBeInTheDocument();
 
-    await user.selectOptions(yearSelect, String(previousYear));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(api.fetchCreationActivity).toHaveBeenCalledTimes(4));
+    expect(chart.parentElement).toHaveAttribute("aria-busy", "true");
+    expect(chart.parentElement).toHaveClass("opacity-50");
+    await act(async () => {
+      finishRetry(refreshedActivity);
+    });
 
-    expect(chart).toHaveAttribute(
+    await waitFor(() => expect(chart).toHaveAttribute(
       "aria-label",
-      `Monthly activity for ${previousYear}`,
-    );
-    expect(screen.getByText("3 created")).toBeInTheDocument();
-    expect(screen.getByText("2 created + applied")).toBeInTheDocument();
-    expect(screen.getByText(`${previousYear} overview`)).toBeInTheDocument();
+      expect.stringContaining("3 created, 2 marked applied"),
+    ));
+    expect(screen.queryByText(/activity could not be refreshed/i)).not.toBeInTheDocument();
+    expect(chart.parentElement).toHaveAttribute("aria-busy", "false");
   });
 
   it("aggregates lower-volume job sources into an other bucket", async () => {
@@ -1350,19 +1520,25 @@ describe("phase 1 applications UI", () => {
 
     renderWithAppProvider(<DashboardPage />);
 
-    expect(await screen.findByText("Job Sources")).toBeInTheDocument();
+    expect(await screen.findByText("Job sources")).toBeInTheDocument();
     expect(screen.getByText("LinkedIn")).toBeInTheDocument();
     expect(screen.getByText("Indeed")).toBeInTheDocument();
     expect(screen.getByText("Company Website")).toBeInTheDocument();
-    const otherRow = screen
-      .getByText("Other")
-      .closest("div.flex.items-center.justify-between.gap-3");
-
-    expect(otherRow).not.toBeNull();
-    expect(screen.getByLabelText("Job sources pie chart")).toHaveTextContent(
-      "8",
-    );
-    expect(within(otherRow as HTMLElement).getByText("2")).toBeInTheDocument();
+    expect(screen.queryByText("Glassdoor")).not.toBeInTheDocument();
+    const otherRow = screen.getByTestId("composition-row-other");
+    expect(within(otherRow).getByText("Other")).toBeInTheDocument();
+    expect(within(otherRow).getByText("2")).toBeInTheDocument();
+    expect(within(otherRow).getByText("25%")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: /^Job sources: LinkedIn 3 \(38%\)/ }),
+    ).toBeInTheDocument();
+    const inProgress = screen.getByTestId("status-figure-in_progress");
+    expect(within(inProgress).getByText("8")).toBeInTheDocument();
+    expect(within(inProgress).getByText("100%")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("status-figure-draft")).getByText("0"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("listitem")).toHaveTextContent("Acme");
   });
 
   it("renders authenticated pages inside the fluid shell without a desktop max-width cap", async () => {
@@ -1481,10 +1657,8 @@ describe("phase 1 applications UI", () => {
       screen.queryByPlaceholderText(/other source label/i),
     ).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(
-      screen.getByLabelText(/posting source/i),
-      "other",
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Posting Source" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Other" }));
 
     expect(
       await screen.findByPlaceholderText(/other source label/i),
@@ -1724,8 +1898,10 @@ describe("phase 1 applications UI", () => {
     expect(
       screen.getByRole("button", { name: /open existing/i }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText(/job title/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/company/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Job Title" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Company" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Job Title" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Company" })).not.toBeInTheDocument();
   });
 
   it("renders the wide detail workspace with settings and generated resume panels", async () => {
@@ -1787,7 +1963,15 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText(/generated resume/i)).toBeInTheDocument();
+    const heading = await screen.findByRole("heading", { name: "AI & Data Senior Manager" });
+    const header = heading.closest(".app-page-header");
+    expect(header).not.toBeNull();
+    expect(within(header as HTMLElement).getByText("Accenture")).toBeInTheDocument();
+    expect(await within(header as HTMLElement).findByText(/Generated .*Revision 1/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /generated resume/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Preview your resume. Double-click/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Job Description" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit Job Description" })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /job description/i }),
     ).toBeInTheDocument();
@@ -1795,11 +1979,13 @@ describe("phase 1 applications UI", () => {
       screen.getByRole("heading", { name: /generation settings/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByDisplayValue("$170,000 - $210,000 base salary"),
+      screen.getByText("$170,000 - $210,000 base salary"),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: /Summary/ }));
     expect(screen.getByText(/grounded summary/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit Summary" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edit Summary" }),
+    ).toBeInTheDocument();
     const actionsButton = screen.getByRole("button", { name: /actions/i });
     expect(actionsButton).toHaveAttribute("aria-haspopup", "menu");
     expect(actionsButton).toHaveAttribute("aria-expanded", "false");
@@ -1936,11 +2122,11 @@ describe("phase 1 applications UI", () => {
     expect(missingKeywordPill as HTMLElement).not.toHaveTextContent(/missing/i);
     expect(matchedKeywordPill as HTMLElement).toHaveAttribute(
       "style",
-      expect.stringContaining("var(--color-spruce)"),
+      expect.stringContaining("var(--color-accent)"),
     );
     expect(missingKeywordPill as HTMLElement).toHaveAttribute(
       "style",
-      expect.stringContaining("var(--color-ember)"),
+      expect.stringContaining("var(--color-error)"),
     );
     expect(within(dialog).getByText(/2\/3/i)).toBeInTheDocument();
     expect(
@@ -2401,7 +2587,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await screen.findByText(/generated resume/i);
+    await screen.findByRole("tab", { name: /Summary/ });
     await user.click(screen.getByRole("button", { name: /^actions$/i }));
     await user.click(screen.getByRole("menuitem", { name: /export docx/i }));
 
@@ -2473,17 +2659,121 @@ describe("phase 1 applications UI", () => {
     expect(await screen.findByText("Product Resume")).toBeInTheDocument();
     expect(screen.getByText("Backend Resume")).toBeInTheDocument();
 
-    await userEvent.type(screen.getByLabelText(/search resumes/i), "product");
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Search resumes" }),
+      "product",
+    );
 
     expect(screen.getByText("Product Resume")).toBeInTheDocument();
     expect(screen.queryByText("Backend Resume")).not.toBeInTheDocument();
+
+    await userEvent.clear(
+      screen.getByRole("textbox", { name: "Search resumes" }),
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Search resumes" }),
+      "no match",
+    );
+    expect(await screen.findByText("No matching resumes")).toBeInTheDocument();
+    await userEvent.clear(
+      screen.getByRole("textbox", { name: "Search resumes" }),
+    );
+    expect(await screen.findByText("Product Resume")).toBeInTheDocument();
+    expect(screen.getByText("Backend Resume")).toBeInTheDocument();
   });
 
-  it("renders icon-only delete controls on resume cards", async () => {
+  it.each(["surface", "keyboard", "edit"])(
+    "opens resume cards through %s navigation",
+    async (interaction) => {
+      const user = userEvent.setup();
+      api.listBaseResumes.mockResolvedValue([
+        {
+          id: "resume-1",
+          name: "Product Resume",
+          is_default: true,
+          created_at: "2026-04-07T12:00:00Z",
+          updated_at: "2026-04-07T12:00:00Z",
+        },
+      ]);
+      renderWithAppProvider(
+        <Routes>
+          <Route path="/app/resumes" element={<BaseResumesPage />} />
+          <Route path="/app/resumes/resume-1" element={<p>Resume details</p>} />
+        </Routes>,
+        { initialEntries: ["/app/resumes"] },
+      );
+      const cardLink = await screen.findByRole("link", {
+        name: "Open Product Resume",
+      });
+      expect(cardLink).toHaveAttribute("href", "/app/resumes/resume-1");
+      if (interaction === "keyboard") {
+        cardLink.focus();
+        await user.keyboard("{Enter}");
+      } else if (interaction === "edit") {
+        await user.click(
+          screen.getByRole("button", { name: "Edit Product Resume" }),
+        );
+      } else {
+        await user.click(screen.getByText("Product Resume"));
+      }
+      expect(await screen.findByText("Resume details")).toBeInTheDocument();
+    },
+  );
+
+  it("keeps default and delete actions independent of resume cards", async () => {
+    const user = userEvent.setup();
     api.listBaseResumes.mockResolvedValue([
       {
         id: "resume-1",
         name: "Product Resume",
+        is_default: false,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:00:00Z",
+      },
+    ]);
+    api.setDefaultBaseResume.mockResolvedValue(undefined);
+    api.deleteBaseResume.mockResolvedValue(undefined);
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/resumes" element={<BaseResumesPage />} />
+        <Route path="/app/resumes/resume-1" element={<p>Resume details</p>} />
+      </Routes>,
+      { initialEntries: ["/app/resumes"] },
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Set Default" }),
+    );
+    await waitFor(() =>
+      expect(api.setDefaultBaseResume).toHaveBeenCalledWith("resume-1"),
+    );
+    expect(screen.queryByText("Resume details")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Delete Product Resume" }),
+    );
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Delete resume?",
+    );
+    expect(api.deleteBaseResume).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(
+      screen.getByRole("link", { name: "Open Product Resume" }),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Delete Product Resume" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete Resume" }));
+    await waitFor(() =>
+      expect(api.deleteBaseResume).toHaveBeenCalledWith("resume-1"),
+    );
+    expect(screen.queryByText("Resume details")).not.toBeInTheDocument();
+  });
+
+  it("shows resume summaries with icon-only edit and delete controls", async () => {
+    api.listBaseResumes.mockResolvedValue([
+      {
+        id: "resume-1",
+        name: "Product Resume",
+        summary: "Product leader building accessible tools for small teams.",
         is_default: false,
         created_at: "2026-04-07T12:00:00Z",
         updated_at: "2026-04-07T12:00:00Z",
@@ -2494,8 +2784,19 @@ describe("phase 1 applications UI", () => {
 
     expect(await screen.findByText("Product Resume")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /delete product resume/i }),
+      screen.getByText(
+        "Product leader building accessible tools for small teams.",
+      ),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /edit product resume/i }).textContent,
+    ).toBe("");
+    expect(
+      screen.getByRole("button", { name: /delete product resume/i })
+        .textContent,
+    ).toBe("");
+    expect(screen.getByText("Updated")).toBeInTheDocument();
+    expect(screen.getByText("Created")).toBeInTheDocument();
   });
 
   it("returns to resume upload without submitting the review form", async () => {
@@ -2529,7 +2830,9 @@ describe("phase 1 applications UI", () => {
       screen.getByRole("button", { name: /upload & parse/i }),
     );
 
-    await userEvent.click(await screen.findByRole("tab", { name: "Extracted text" }));
+    await userEvent.click(
+      await screen.findByRole("tab", { name: "Extracted text" }),
+    );
     expect(
       await screen.findByRole("button", { name: /re-upload/i }),
     ).toBeInTheDocument();
@@ -2699,6 +3002,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Notes" }));
     const notesInput =
       await screen.findByPlaceholderText(/add your own notes/i);
     expect(api.listBaseResumes).toHaveBeenCalledTimes(1);
@@ -2735,8 +3039,8 @@ describe("phase 1 applications UI", () => {
     ]);
 
     let resolveNotesSave:
-      | ((value: ReturnType<typeof buildApplicationDetail>) => void)
-      | null = null;
+      ((value: ReturnType<typeof buildApplicationDetail>) => void) | null =
+      null;
     api.patchApplication.mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -2754,9 +3058,11 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
+    await userEvent.click(await screen.findByRole("button", { name: "Edit Notes" }));
     const notesInput =
       await screen.findByPlaceholderText(/add your own notes/i);
-    const jobTitleInput = screen.getByLabelText("Job Title");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Job Title" }));
+    const jobTitleInput = screen.getByRole("textbox", { name: "Job Title" });
 
     fireEvent.change(notesInput, {
       target: { value: "Remember recruiter context" },
@@ -2782,7 +3088,7 @@ describe("phase 1 applications UI", () => {
       );
     });
 
-    expect(screen.getByLabelText("Job Title")).toHaveValue(
+    expect(screen.getByRole("textbox", { name: "Job Title" })).toHaveValue(
       "Staff Backend Engineer",
     );
     expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(1);
@@ -2821,10 +3127,12 @@ describe("phase 1 applications UI", () => {
 
     expect(await screen.findByText("Casey Member")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole("combobox"), "active");
+    await user.click(screen.getByRole("button", { name: "Filter by status" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Active" }));
     expect(await screen.findByText("Casey Member")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByRole("combobox"), "all");
+    await user.click(screen.getByRole("button", { name: "Filter by status" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "All" }));
     expect(await screen.findByText("Casey Member")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /deactivate/i }));
@@ -2832,7 +3140,8 @@ describe("phase 1 applications UI", () => {
       expect(api.deactivateAdminUser).toHaveBeenCalledWith("user-2"),
     );
 
-    await user.selectOptions(screen.getByRole("combobox"), "active");
+    await user.click(screen.getByRole("button", { name: "Filter by status" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Active" }));
 
     expect(await screen.findByText(/no users found/i)).toBeInTheDocument();
     expect(screen.queryByText("Casey Member")).not.toBeInTheDocument();
@@ -2851,10 +3160,8 @@ describe("phase 1 applications UI", () => {
     await user.click(
       screen.getByRole("button", { name: /edit member@example.com/i }),
     );
-    await user.selectOptions(
-      screen.getByLabelText(/subscription tier/i),
-      "pro",
-    );
+    await user.click(screen.getByLabelText(/subscription tier/i));
+    await user.click(screen.getByRole("menuitemradio", { name: "Pro" }));
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() =>
@@ -2964,7 +3271,9 @@ describe("phase 1 applications UI", () => {
 
     await screen.findByRole("heading", { name: /subscription settings/i });
     await screen.findByText("Basic");
-    expect(screen.queryByLabelText(/primary model|fallback model|reasoning/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/primary model|fallback model|reasoning/i),
+    ).not.toBeInTheDocument();
     const limitInput = screen.getByDisplayValue("10");
     await user.clear(limitInput);
     await user.type(limitInput, "12");
@@ -2984,18 +3293,28 @@ describe("phase 1 applications UI", () => {
 
   it("refreshes request allowances without overwriting unsaved edits", async () => {
     const user = userEvent.setup();
-    const tier = { key: "basic" as const, name: "Basic", monthly_resume_generation_limit: 10,
-      is_active: true, created_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z" };
+    const tier = {
+      key: "basic" as const,
+      name: "Basic",
+      monthly_resume_generation_limit: 10,
+      is_active: true,
+      created_at: "2026-09-30T00:00:00Z",
+      updated_at: "2026-09-30T00:00:00Z",
+    };
     api.listSubscriptionTiers.mockResolvedValue([tier]);
     renderWithAppProvider(<AdminSubscriptionsPage />);
     const input = await screen.findByLabelText("Monthly requests");
     await waitFor(() => expect(input).toHaveValue(10));
-    api.listSubscriptionTiers.mockResolvedValue([{ ...tier, monthly_resume_generation_limit: 20 }]);
+    api.listSubscriptionTiers.mockResolvedValue([
+      { ...tier, monthly_resume_generation_limit: 20 },
+    ]);
     await user.click(screen.getByRole("button", { name: /refresh/i }));
     await waitFor(() => expect(input).toHaveValue(20));
     await user.clear(input);
     await user.type(input, "15");
-    api.listSubscriptionTiers.mockResolvedValue([{ ...tier, monthly_resume_generation_limit: 25 }]);
+    api.listSubscriptionTiers.mockResolvedValue([
+      { ...tier, monthly_resume_generation_limit: 25 },
+    ]);
     await user.click(screen.getByRole("button", { name: /refresh/i }));
     await screen.findByText("25 requests/month");
     expect(input).toHaveValue(15);
@@ -3176,19 +3495,23 @@ describe("phase 1 applications UI", () => {
       await screen.findByText("Acme — Backend Engineer"),
     ).toBeInTheDocument();
 
-    await userEvent.clear(screen.getByLabelText(/job title/i));
+    await userEvent.click(screen.getByRole("button", { name: "Edit Job Title" }));
+    await userEvent.clear(screen.getByRole("textbox", { name: "Job Title" }));
     await userEvent.type(
-      screen.getByLabelText(/job title/i),
+      screen.getByRole("textbox", { name: "Job Title" }),
       "Staff Backend Engineer",
     );
-    await userEvent.clear(screen.getByLabelText(/company/i));
-    await userEvent.type(screen.getByLabelText(/company/i), "Beta Labs");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Company" }));
+    await userEvent.clear(screen.getByRole("textbox", { name: "Company" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Company" }), "Beta Labs");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Location" }));
     await userEvent.type(
-      screen.getByLabelText(/location/i),
+      screen.getByRole("textbox", { name: "Location" }),
       "British Columbia/Ontario",
     );
+    await userEvent.click(screen.getByRole("button", { name: "Edit Compensation" }));
     await userEvent.type(
-      screen.getByLabelText(/compensation/i),
+      screen.getByRole("textbox", { name: "Compensation" }),
       "$145,000 - $175,000",
     );
     await userEvent.click(
@@ -3210,7 +3533,7 @@ describe("phase 1 applications UI", () => {
     await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(0));
   });
 
-  it("shows detailed aggressiveness help in compact popovers", async () => {
+  it("shows aggressiveness details on hover and preserves the High warning", async () => {
     api.listBaseResumes.mockResolvedValue([
       {
         id: "resume-1",
@@ -3273,26 +3596,27 @@ describe("phase 1 applications UI", () => {
       await screen.findByRole("heading", { name: /generation settings/i }),
     ).toBeInTheDocument();
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /high aggressiveness details/i }),
-    );
+    expect(screen.getByText(/professional experience: aggressively reframe/i)).not.toBeVisible();
+    await userEvent.hover(screen.getByRole("button", { name: "High aggressiveness" }));
 
+    const experienceHelp = screen.getByText(/professional experience: aggressively reframe, reprioritize, consolidate, and condense grounded bullets/i);
+    await waitFor(() => expect(experienceHelp).toBeVisible());
+    const tooltip = experienceHelp.closest('[role="tooltip"]') as HTMLElement;
     expect(
-      await screen.findByText(
-        /professional experience: aggressively reframe, reprioritize, consolidate, and condense grounded bullets/i,
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
+      within(tooltip).getByText(
         /role titles may be rewritten when the new title still matches the demonstrated work\. company and dates remain fixed\./i,
       ),
-    ).toBeInTheDocument();
+    ).toBeVisible();
     expect(
-      screen.getByText(
+      within(tooltip).getByText(
         /education: no factual rewrites beyond minimal formatting cleanup\./i,
       ),
-    ).toBeInTheDocument();
-    await userEvent.click(screen.getByText("High"));
+    ).toBeVisible();
+    await userEvent.unhover(screen.getByRole("button", { name: "High aggressiveness" }));
+    const slider = screen.getByRole("slider", { name: "Aggressiveness" });
+    act(() => slider.focus());
+    await userEvent.keyboard("{ArrowRight}");
+    expect(slider).toHaveAttribute("aria-valuenow", "2");
     expect(
       await screen.findByText(
         /high aggressiveness can make substantial changes to wording, emphasis, professional experience role framing, and keyword\/skills coverage, while company and dates stay fixed/i,
@@ -3356,7 +3680,7 @@ describe("phase 1 applications UI", () => {
       updated_at: "2026-04-07T12:00:00Z",
     });
 
-    const { container } = renderWithAppProvider(
+    renderWithAppProvider(
       <Routes>
         <Route
           path="/app/applications/:applicationId"
@@ -3499,12 +3823,15 @@ describe("phase 1 applications UI", () => {
     });
 
     renderWithAppProvider(
+      <>
+      <TopBar />
       <Routes>
         <Route
           path="/app/applications/:applicationId"
           element={<ApplicationDetailPage />}
         />
-      </Routes>,
+      </Routes>
+      </>,
       { initialEntries: ["/app/applications/app-1"] },
     );
 
@@ -3525,6 +3852,10 @@ describe("phase 1 applications UI", () => {
         /tailored draft shown beside the generation-time base resume/i,
       ),
     ).not.toBeInTheDocument();
+    const actions = screen.getByRole("group", { name: "Application actions" });
+    expect(actions.closest(".app-topbar-page-actions")).not.toBeNull();
+    expect(actions.closest(".app-floating-page-actions")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^close comparison$/i })).toHaveLength(1);
     const baseHeading = screen.getByRole("heading", { name: /base resume/i });
     const basePane = baseHeading.closest(".compare-pane-card");
     expect(basePane).not.toBeNull();
@@ -3533,18 +3864,31 @@ describe("phase 1 applications UI", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText(/base summary/i).length).toBeGreaterThan(0);
 
-    await userEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^close comparison$/i }));
     await userEvent.click(screen.getByRole("tab", { name: /Summary/ }));
     expect(screen.getByText(/tailored summary/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Edit Summary" }));
     expect(screen.getByDisplayValue(/tailored summary/i)).toBeInTheDocument();
     const workbench = screen.getByTestId("draft-section-workbench");
-    const support = screen.getByRole("complementary", { name: "Application details" });
-    expect(workbench.compareDocumentPosition(support) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(support).getByRole("heading", { name: /job description/i })).toBeInTheDocument();
-    expect(within(support).getByRole("heading", { name: /generation settings/i })).toBeInTheDocument();
-    expect(within(support).getByRole("heading", { name: /notes/i })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /base resume/i })).not.toBeInTheDocument();
+    const support = screen.getByRole("complementary", {
+      name: "Application details",
+    });
+    expect(
+      workbench.compareDocumentPosition(support) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      within(support).getByRole("heading", { name: /job description/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(support).getByRole("heading", { name: /generation settings/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(support).getByRole("button", { name: "Edit Notes" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /base resume/i }),
+    ).not.toBeInTheDocument();
 
     await userEvent.click(
       await screen.findByRole("button", { name: /^actions$/i }),
@@ -3632,6 +3976,82 @@ describe("phase 1 applications UI", () => {
     );
   });
 
+  it.each([false, true])("offers the current user's profile in navigation, admin=%s", async (isAdmin) => {
+    api.fetchSessionBootstrap.mockResolvedValue({
+      ...defaultBootstrap,
+      profile: { ...defaultBootstrap.profile, is_admin: isAdmin },
+    });
+    renderWithAppProvider(<Sidebar />, { initialEntries: ["/app/profile"] });
+    const navigation = screen.getByRole("navigation", { name: "Primary navigation" });
+    const profile = within(navigation).getByRole("link", { name: "Profile" });
+    expect(profile).toHaveAttribute("href", "/app/profile");
+    expect(profile).toHaveAttribute("aria-current", "page");
+    await waitFor(() => expect(api.fetchSessionBootstrap).toHaveBeenCalled());
+    if (isAdmin) {
+      expect(await within(navigation).findByRole("link", { name: "Admin" })).toBeInTheDocument();
+    } else {
+      expect(within(navigation).queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+    }
+  });
+
+  it("opens the mobile navigation drawer and closes it after choosing a destination", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    const showModal = vi
+      .spyOn(HTMLDialogElement.prototype, "showModal")
+      .mockImplementation(function (this: HTMLDialogElement) {
+        this.setAttribute("open", "");
+      });
+    const close = vi
+      .spyOn(HTMLDialogElement.prototype, "close")
+      .mockImplementation(function (this: HTMLDialogElement) {
+        this.removeAttribute("open");
+      });
+    const queryClient = createAppQueryClient();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/app"]}>
+          <Routes>
+            <Route path="/app" element={<AppShell />}>
+              <Route index element={<h1>Mobile dashboard</h1>} />
+              <Route path="resumes" element={<h1>Mobile resumes</h1>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    try {
+      await screen.findByRole("heading", { name: "Mobile dashboard" });
+      const toggle = screen.getByRole("button", { name: "Toggle sidebar" });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(toggle);
+      const drawer = await screen.findByRole("dialog", { name: "Applix" });
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(drawer.id).toBe(toggle.getAttribute("aria-controls"));
+      await userEvent.click(
+        within(drawer).getByRole("link", { name: "Resumes" }),
+      );
+      await screen.findByRole("heading", { name: "Mobile resumes" });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: "Applix" }),
+        ).not.toBeInTheDocument(),
+      );
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      view.unmount();
+      showModal.mockRestore();
+      close.mockRestore();
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+      });
+    }
+  });
+
   it("switches the shell into immersive mode during compare and restores the default shell on close", async () => {
     api.fetchApplicationDetail.mockResolvedValue(
       buildApplicationDetail({
@@ -3698,19 +4118,31 @@ describe("phase 1 applications UI", () => {
     const actionsButton = await screen.findByRole("button", {
       name: /^actions$/i,
     });
-    const shellRoot = actionsButton.closest(".app-shell-root");
-    const shellFrame = actionsButton.closest(".app-shell-frame");
+    const shellRoot = screen.getByRole("main").closest(".app-shell-root");
+    const navigation = screen.getByRole("navigation", {
+      name: "Primary navigation",
+    });
 
     expect(shellRoot).not.toBeNull();
-    expect(shellFrame).not.toBeNull();
+    expect(navigation).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Skip to content" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(shellRoot).toHaveAttribute("data-shell-mode", "default");
-    expect(screen.getByLabelText(/toggle sidebar/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/toggle sidebar/i)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit Company" }));
+    const company = screen.getByRole("textbox", { name: "Company" });
+    fireEvent.change(company, { target: { value: "Unsaved company" } });
 
     await userEvent.click(actionsButton);
     await userEvent.click(screen.getByRole("menuitem", { name: /^compare$/i }));
 
     expect(shellRoot).toHaveAttribute("data-shell-mode", "immersive");
-    expect(shellFrame).toHaveStyle({ marginLeft: "0px" });
+    expect(
+      screen.queryByRole("navigation", { name: "Primary navigation" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/toggle sidebar/i)).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /^actions$/i }));
@@ -3719,6 +4151,72 @@ describe("phase 1 applications UI", () => {
     );
 
     expect(shellRoot).toHaveAttribute("data-shell-mode", "default");
+    expect(screen.getByRole("textbox", { name: "Company" })).toBe(company);
+    expect(company).toHaveValue("Unsaved company");
+    expect(api.patchApplication).not.toHaveBeenCalled();
+  });
+
+  it("preserves mounted page edits when the shell crosses its navigation breakpoint", async () => {
+    const mediaQueries = new Map<string, MediaQueryList>();
+    const matchMedia = vi.spyOn(window, "matchMedia").mockImplementation((query) => {
+      if (!mediaQueries.has(query)) {
+        mediaQueries.set(query, Object.assign(new EventTarget(), {
+          matches: false,
+          media: query,
+          onchange: null,
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        }) as MediaQueryList);
+      }
+      return mediaQueries.get(query)!;
+    });
+    function UnsavedEditor() {
+      const [text, setText] = useState("");
+      return (
+        <input
+          aria-label="Unsaved editor"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+      );
+    }
+    const queryClient = createAppQueryClient();
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/app"]}>
+          <Routes>
+            <Route path="/app" element={<AppShell />}>
+              <Route index element={<UnsavedEditor />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    try {
+      const editor = await screen.findByRole("textbox", { name: "Unsaved editor" });
+      await userEvent.type(editor, "Unsaved text");
+      expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
+      const setMobile = (mobile: boolean) => {
+        for (const [query, media] of mediaQueries) {
+          if (!/width\s*</.test(query)) continue;
+          Object.defineProperty(media, "matches", { configurable: true, value: mobile });
+          media.dispatchEvent(new Event("change"));
+        }
+      };
+      act(() => setMobile(true));
+      expect(screen.queryByRole("navigation", { name: "Primary navigation" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Toggle sidebar" })).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Unsaved editor" })).toBe(editor);
+      expect(editor).toHaveValue("Unsaved text");
+
+      act(() => setMobile(false));
+      expect(screen.getByRole("navigation", { name: "Primary navigation" })).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Unsaved editor" })).toBe(editor);
+      expect(editor).toHaveValue("Unsaved text");
+    } finally {
+      view.unmount();
+      matchMedia.mockRestore();
+    }
   });
 
   it("uses the generation-time base resume id for compare even after the selected base resume changes", async () => {
@@ -3917,7 +4415,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await screen.findByText("Backend Engineer");
+    await screen.findByRole("heading", { name: "Backend Engineer" });
 
     await userEvent.click(
       screen.getByRole("button", { name: /^delete application$/i }),
@@ -4271,7 +4769,9 @@ describe("phase 1 applications UI", () => {
     expect(
       screen.queryByRole("button", { name: /cancel generation/i }),
     ).not.toBeInTheDocument();
-    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(3));
+    await waitFor(() =>
+      expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(3),
+    );
     expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1);
   });
 
@@ -4602,8 +5102,12 @@ describe("phase 1 applications UI", () => {
       await screen.findByLabelText(/custom instructions/i),
       "Also emphasize senior leadership scope.",
     );
-    expect(screen.getByText(/This legacy draft has no frozen source links/)).toBeInTheDocument();
-    const reset = screen.getByRole("checkbox", { name: /Use latest base resume/ });
+    expect(
+      screen.getByText(/This legacy draft has no frozen source links/),
+    ).toBeInTheDocument();
+    const reset = screen.getByRole("checkbox", {
+      name: /Use latest base resume/,
+    });
     expect(reset).not.toBeChecked();
     await user.click(reset);
     await user.click(screen.getByRole("button", { name: /^regenerate$/i }));
@@ -5080,7 +5584,9 @@ describe("phase 1 applications UI", () => {
     await userEvent.click(await screen.findByRole("tab", { name: /Summary/ }));
     await waitFor(() => {
       expect(screen.getByText("Grounded summary")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Edit Summary" })).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "Edit Summary" }),
+      ).toBeDisabled();
     });
     expect(
       screen.getByText(/refreshing experience bullets/i),
@@ -5255,11 +5761,14 @@ describe("phase 1 applications UI", () => {
     );
 
     await waitFor(() => expect(api.fetchDraft).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByLabelText("3 Pages")).toBeChecked());
-    expect(screen.getByRole("radio", { name: /high/i })).toBeChecked();
-    expect(
-      screen.getByDisplayValue("Emphasize architecture leadership."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("3 Pages")).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "Aggressiveness" })).toHaveAttribute("aria-valuenow", "2");
+    expect(screen.getByText("Emphasize architecture leadership.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Additional Instructions" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Target Length" }));
+    expect(screen.getByRole("button", { name: "Target Length" })).toHaveTextContent("3 Pages");
+    await userEvent.click(screen.getByRole("button", { name: "Edit Additional Instructions" }));
+    expect(screen.getByRole("textbox", { name: "Additional Instructions" })).toHaveValue("Emphasize architecture leadership.");
   });
 
   it("keeps generation settings dirty when the user changes them locally", async () => {
@@ -5344,16 +5853,13 @@ describe("phase 1 applications UI", () => {
     const settingsForm = settingsHeading.closest("form");
     expect(settingsForm).not.toBeNull();
 
-    const saveButton = within(settingsForm as HTMLFormElement).getByRole(
-      "button",
-      { name: /^save$/i },
-    );
-    expect(saveButton).toBeDisabled();
+    expect(within(settingsForm as HTMLFormElement).queryByRole("button", { name: /^save$/i })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit Target Length" }));
+    await userEvent.click(screen.getByRole("button", { name: "Target Length" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "2 Pages" }));
 
-    await userEvent.click(screen.getByLabelText("2 Pages"));
-
-    expect(screen.getByLabelText("2 Pages")).toBeChecked();
-    expect(saveButton).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Target Length" })).toHaveTextContent("2 Pages");
+    expect(within(settingsForm as HTMLFormElement).getByRole("button", { name: /^save$/i })).toBeEnabled();
   });
 
   it("renders the resume judge score tile and opens the breakdown dialog", async () => {
@@ -5486,7 +5992,7 @@ describe("phase 1 applications UI", () => {
       screen.getByRole("button", { name: /role alignment/i }),
     );
     expect(screen.getByText(/aligned to the jd/i)).toBeInTheDocument();
-    expect(screen.getByText(/summary:/i)).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: /resume judge breakdown/i })).getByText(/summary:/i)).toBeInTheDocument();
     expect(
       screen.getByText(/- tighten the summary voice\./i),
     ).toBeInTheDocument();
@@ -6427,6 +6933,32 @@ describe("phase 1 applications UI", () => {
     ).toBeDisabled();
   });
 
+  it("collapses application details and restores unsaved fields with keyboard activation", async () => {
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+    const collapse = await screen.findByRole("button", { name: "Collapse application details" });
+    await userEvent.click(screen.getByRole("button", { name: "Edit Company" }));
+    const company = screen.getByRole("textbox", { name: "Company" });
+    await userEvent.clear(company);
+    await userEvent.type(company, "Unsaved company");
+    const content = document.getElementById(collapse.getAttribute("aria-controls")!);
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(collapse);
+    expect(content).not.toBeVisible();
+    expect(company).toBeInTheDocument();
+    const expand = screen.getByRole("button", { name: "Expand application details" });
+    expect(expand).toHaveFocus();
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    await userEvent.keyboard("{Enter}");
+    expect(content).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Company" })).toHaveValue("Unsaved company");
+    expect(api.patchApplication).not.toHaveBeenCalled();
+  });
+
   it("shows the activity button in the detail header and fetches activity only when opened", async () => {
     renderWithAppProvider(
       <Routes>
@@ -6438,7 +6970,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    expect(await screen.findByText("Backend Engineer")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Backend Engineer" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /activity/i }),
     ).toBeInTheDocument();
@@ -6539,7 +7071,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await screen.findByText("Backend Engineer");
+    await screen.findByRole("heading", { name: "Backend Engineer" });
     await userEvent.click(screen.getByRole("button", { name: /activity/i }));
 
     expect(await screen.findByText("Generation failed")).toBeInTheDocument();
@@ -6561,9 +7093,11 @@ describe("phase 1 applications UI", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /generation failed/i }),
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: /resume generated/i }),
-    );
+    const completedActivity = screen.getByRole("button", { name: /resume generated/i });
+    expect(completedActivity).toHaveAttribute("aria-expanded", "false");
+    completedActivity.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(completedActivity).toHaveAttribute("aria-expanded", "true");
 
     expect(await screen.findByText(/model:/i)).toBeInTheDocument();
     expect(screen.getByText("openai/gpt-5-mini")).toBeInTheDocument();
@@ -6572,6 +7106,9 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText(/length check:/i)).toBeInTheDocument();
     expect(screen.getByText(/generated:/i)).toBeInTheDocument();
     expect(screen.getByText(/820 words/i)).toBeInTheDocument();
+    await userEvent.keyboard("{Enter}");
+    expect(completedActivity).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("openai/gpt-5-mini")).not.toBeInTheDocument();
   });
 
   it("renders a loading state in the activity panel while activity is being fetched", async () => {
@@ -6592,7 +7129,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await screen.findByText("Backend Engineer");
+    await screen.findByRole("heading", { name: "Backend Engineer" });
     await userEvent.click(screen.getByRole("button", { name: /activity/i }));
     expect(await screen.findByText(/loading activity/i)).toBeInTheDocument();
   });
@@ -6612,7 +7149,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await screen.findByText("Backend Engineer");
+    await screen.findByRole("heading", { name: "Backend Engineer" });
     await userEvent.click(screen.getByRole("button", { name: /activity/i }));
     expect(
       await screen.findByText(/activity unavailable/i),
@@ -6633,7 +7170,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await screen.findByText("Backend Engineer");
+    await screen.findByRole("heading", { name: "Backend Engineer" });
     await userEvent.click(screen.getByRole("button", { name: /activity/i }));
     expect(await screen.findByText(/no activity yet/i)).toBeInTheDocument();
   });
@@ -6651,7 +7188,7 @@ describe("phase 1 applications UI", () => {
       { initialEntries: ["/app/applications/app-1"] },
     );
 
-    await screen.findByText("Backend Engineer");
+    await screen.findByRole("heading", { name: "Backend Engineer" });
     const activityButton = screen.getByRole("button", { name: /activity/i });
     await userEvent.click(activityButton);
 
@@ -6668,58 +7205,191 @@ describe("phase 1 applications UI", () => {
   it("compares against the saved source revision and regenerates one stable role", async () => {
     const user = userEvent.setup();
     const document = {
-      schema_version: 1, revision: 3, sections: [{
-        id: "stable-experience", kind: "professional_experience", heading: "Experience", enabled: true,
-        review_state: "reviewed", confidence: null, content_md: "", entries: [{
-          id: "stable-role", fields: { company: "Acme", title: "Engineer", date_range: "2022 - Present" },
-          bullets: [{ id: "stable-bullet", text: "Built customer APIs", source_ids: ["stable-bullet"] }],
-        }],
-      }],
+      schema_version: 1,
+      revision: 3,
+      sections: [
+        {
+          id: "stable-experience",
+          kind: "professional_experience",
+          heading: "Experience",
+          enabled: true,
+          review_state: "reviewed",
+          confidence: null,
+          content_md: "",
+          entries: [
+            {
+              id: "stable-role",
+              fields: {
+                company: "Acme",
+                title: "Engineer",
+                date_range: "2022 - Present",
+              },
+              bullets: [
+                {
+                  id: "stable-bullet",
+                  text: "Built customer APIs",
+                  source_ids: ["stable-bullet"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
     };
-    api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail({ id: "app-1", visible_status: "in_progress", internal_state: "resume_ready", base_resume_id: "resume-1" }));
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        base_resume_id: "resume-1",
+      }),
+    );
     api.fetchDraft.mockResolvedValue({
-      id: "draft-1", application_id: "app-1", document,
-      source_snapshot: { base_resume_id: "resume-1", revision: 3, document, content_md: "## Experience\nAcme" },
-      content_md: "## Experience\nAcme", generation_params: { base_resume_id: "resume-1" }, sections_snapshot: {},
-      last_generated_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z", last_exported_at: null,
+      id: "draft-1",
+      application_id: "app-1",
+      document,
+      source_snapshot: {
+        base_resume_id: "resume-1",
+        revision: 3,
+        document,
+        content_md: "## Experience\nAcme",
+      },
+      content_md: "## Experience\nAcme",
+      generation_params: { base_resume_id: "resume-1" },
+      sections_snapshot: {},
+      last_generated_at: "2026-09-30T00:00:00Z",
+      updated_at: "2026-09-30T00:00:00Z",
+      last_exported_at: null,
     });
-    api.triggerSectionRegeneration.mockResolvedValue(buildApplicationDetail({ id: "app-1", internal_state: "regenerating_section", visible_status: "in_progress" }));
-    renderWithAppProvider(<Routes><Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} /></Routes>, { initialEntries: ["/app/applications/app-1"] });
+    api.triggerSectionRegeneration.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        internal_state: "regenerating_section",
+        visible_status: "in_progress",
+      }),
+    );
+    renderWithAppProvider(
+      <Routes>
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
     await user.click(await screen.findByRole("tab", { name: /Experience/ }));
     await screen.findByRole("button", { name: "Regenerate role" });
     expect(api.fetchBaseResume).not.toHaveBeenCalled();
+    const originalWorkbench = screen.getByTestId("draft-section-workbench");
     await user.click(screen.getByRole("button", { name: "Regenerate role" }));
-    await user.type(screen.getByPlaceholderText("Instructions for regenerating (required)…"), "Emphasize customer API delivery.");
+    await user.type(
+      screen.getByPlaceholderText("Instructions for regenerating (required)…"),
+      "Emphasize customer API delivery.",
+    );
     await user.click(screen.getByRole("button", { name: /^regenerate$/i }));
-    await waitFor(() => expect(api.triggerSectionRegeneration).toHaveBeenCalledWith("app-1", "stable-experience", "Emphasize customer API delivery.", "stable-role"));
+    await waitFor(() =>
+      expect(api.triggerSectionRegeneration).toHaveBeenCalledWith(
+        "app-1",
+        "stable-experience",
+        "Emphasize customer API delivery.",
+        "stable-role",
+      ),
+    );
+    const loading = await screen.findByTestId("section-regeneration-progress");
+    expect(screen.getByTestId("draft-section-workbench")).toBe(originalWorkbench);
+    expect(screen.getByRole("tabpanel", { name: "Experience" })).toContainElement(loading);
+    expect(screen.queryByRole("heading", { name: "Updating your resume section" })).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Application details" })).toBeInTheDocument();
+
   });
 
   it("uses the frozen source and tailoring level to prevent no-op regeneration requests", async () => {
     const user = userEvent.setup();
-    const fixed = { enabled: true, review_state: "reviewed", confidence: null, content_md: "", entries: [] };
-    const sourceDocument = { schema_version: 1, revision: 2, sections: [
-      { ...fixed, id: "education", kind: "education", heading: "Education", content_md: "College, BSc" },
-      { ...fixed, id: "skills", kind: "skills", heading: "Skills", content_md: "Python" },
-    ] };
-    const document = { ...sourceDocument, sections: [...sourceDocument.sections,
-      { ...fixed, id: "new-project", kind: "projects", heading: "New project", content_md: "Weather app" },
-    ] };
-    api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail({ id: "app-1", visible_status: "in_progress", internal_state: "resume_ready", base_resume_id: "resume-1" }));
+    const fixed = {
+      enabled: true,
+      review_state: "reviewed",
+      confidence: null,
+      content_md: "",
+      entries: [],
+    };
+    const sourceDocument = {
+      schema_version: 1,
+      revision: 2,
+      sections: [
+        {
+          ...fixed,
+          id: "education",
+          kind: "education",
+          heading: "Education",
+          content_md: "College, BSc",
+        },
+        {
+          ...fixed,
+          id: "skills",
+          kind: "skills",
+          heading: "Skills",
+          content_md: "Python",
+        },
+      ],
+    };
+    const document = {
+      ...sourceDocument,
+      sections: [
+        ...sourceDocument.sections,
+        {
+          ...fixed,
+          id: "new-project",
+          kind: "projects",
+          heading: "New project",
+          content_md: "Weather app",
+        },
+      ],
+    };
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        base_resume_id: "resume-1",
+      }),
+    );
     api.fetchDraft.mockResolvedValue({
-      id: "draft-1", application_id: "app-1", document,
-      source_snapshot: { base_resume_id: "resume-1", revision: 2, document: sourceDocument, content_md: "" },
-      content_md: "", generation_params: { base_resume_id: "resume-1", aggressiveness: "low" }, sections_snapshot: {},
-      last_generated_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z", last_exported_at: null,
+      id: "draft-1",
+      application_id: "app-1",
+      document,
+      source_snapshot: {
+        base_resume_id: "resume-1",
+        revision: 2,
+        document: sourceDocument,
+        content_md: "",
+      },
+      content_md: "",
+      generation_params: { base_resume_id: "resume-1", aggressiveness: "low" },
+      sections_snapshot: {},
+      last_generated_at: "2026-09-30T00:00:00Z",
+      updated_at: "2026-09-30T00:00:00Z",
+      last_exported_at: null,
     });
-    renderWithAppProvider(<Routes><Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} /></Routes>, { initialEntries: ["/app/applications/app-1"] });
+    renderWithAppProvider(
+      <Routes>
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
     for (const section of document.sections) {
-      await user.click(await screen.findByRole("tab", { name: new RegExp(section.heading) }));
+      await user.click(
+        await screen.findByRole("tab", { name: new RegExp(section.heading) }),
+      );
       const button = screen.getByRole("button", { name: "Regenerate section" });
       expect(button).toBeDisabled();
       await user.click(button);
     }
     expect(api.triggerSectionRegeneration).not.toHaveBeenCalled();
-    expect(screen.getByText(/Add this section to your base resume/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Add this section to your base resume/),
+    ).toBeInTheDocument();
   });
-
 });

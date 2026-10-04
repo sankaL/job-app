@@ -63,7 +63,12 @@ async def test_error_message_diagnostics_are_absent_unless_explicitly_enabled():
 
 
 @pytest.mark.asyncio
-async def test_all_synthetic_cases_use_real_runtime_without_network():
+async def test_all_synthetic_cases_use_real_runtime_without_network(monkeypatch):
+    import langsmith_tracing as tracing
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "ambient-project")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "ambient-key")
+    monkeypatch.setattr(tracing, "_build_client", lambda *_args: pytest.fail("Offline evaluation created a telemetry client"))
     report = await run_cases(CASES, {}, arguments())
     assert len(report["results"]) == len(CASES)
     for case in report["results"]:
@@ -146,3 +151,56 @@ async def test_outbound_synthetic_contact_is_blocked_before_transport():
     with pytest.raises(EvaluationLimit, match="outbound_privacy_failed"):
         await meter.request_hook(request)
     assert not meter.requests
+
+
+@pytest.mark.asyncio
+async def test_live_evaluation_honors_env_file_project_and_tags_case(monkeypatch, tmp_path):
+    from contextlib import contextmanager
+    import langsmith_tracing as tracing
+    from evals import run_sections as evaluator
+    from evals.fixtures import source_document
+
+    for key in ("LANGSMITH_TRACING", "LANGSMITH_PROJECT", "LANGSMITH_API_KEY", "LANGSMITH_WORKSPACE_ID"):
+        monkeypatch.delenv(key, raising=False)
+    env_file = tmp_path / "eval.env"
+    env_file.write_text("LANGSMITH_TRACING=true\nLANGSMITH_PROJECT=eval-project\nLANGSMITH_API_KEY=eval-key\nLANGSMITH_WORKSPACE_ID=eval-workspace\n")
+    values = {**evaluator.configuration(env_file), "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key",
+        "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1", "TIER1_MODEL": "test/primary",
+        "TIER1_FALLBACK_MODEL": "test/fallback", "TIER2_MODEL": "test/routine", "TIER2_FALLBACK_MODEL": "test/routine-fallback"}
+    captured = []
+    @contextmanager
+    def scope(name, **kwargs):
+        captured.append({"name": name, "config": tracing._trace_config(), "workspace": tracing._TraceSettings().langsmith_workspace_id, **kwargs})
+        yield None
+    async def generate(**_kwargs):
+        with evaluator.llm_runtime.trace_scope("applix.section_generation.pydantic_ai", metadata={"is_fallback": False}):
+            pass
+        return {"document": source_document()}
+    monkeypatch.setattr(tracing, "trace_scope", scope)
+    monkeypatch.setattr(evaluator.pipeline, "generate_document", generate)
+    monkeypatch.setattr(evaluator, "assertions", lambda *_args: {"verified": True})
+    report = await run_cases(CASES[:1], values, arguments(live=True))
+    assert report["results"][0]["status"] == "passed"
+    assert captured[0]["config"] == (True, "eval-key", "eval-project")
+    assert captured[0]["workspace"] == "eval-workspace"
+    assert captured[0]["metadata"]["evaluation"] is True
+    assert captured[0]["metadata"]["case"] == CASES[0].id
+    assert "evaluation" in captured[0]["tags"]
+    assert tracing._trace_config() == (False, None, None)  # Scoped settings restored.
+    assert "eval-key" not in json.dumps(report)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["LANGSMITH_PROJECT", "LANGSMITH_API_KEY"])
+async def test_live_tracing_missing_config_blocks_provider_work(monkeypatch, missing):
+    from evals import run_sections as evaluator
+    values = {"LANGSMITH_TRACING": "true", "LANGSMITH_PROJECT": "project", "LANGSMITH_API_KEY": "key",
+        "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key", "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
+        "TIER1_MODEL": "test/primary", "TIER1_FALLBACK_MODEL": "test/fallback",
+        "TIER2_MODEL": "test/routine", "TIER2_FALLBACK_MODEL": "test/routine-fallback"}
+    del values[missing]
+    async def unexpected(**_kwargs):
+        pytest.fail("Invalid tracing configuration reached provider work")
+    monkeypatch.setattr(evaluator.pipeline, "generate_document", unexpected)
+    with pytest.raises(RuntimeError, match=missing):
+        await run_cases(CASES[:1], values, arguments(live=True))

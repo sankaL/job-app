@@ -1,0 +1,156 @@
+/* Native form contracts share Astryx's input tokens, focus and state treatments. */
+.app-input {
+  border: 1px solid var(--color-border-emphasized);
+  border-radius: var(--radius-element);
+  background-color: var(--color-background-surface);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-body);
+  outline: none;
+  transition:
+    border-color var(--duration-fast),
+    box-shadow var(--duration-fast);
+}
+.app-input::placeholder {
+  color: var(--color-text-disabled);
+}
+.app-input:focus-visible {
+  outline: var(--focus-outline-width) solid var(--focus-outline-color);
+  outline-offset: var(--focus-outline-offset);
+}
+.app-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.app-check {
+  accent-color: var(--color-accent);
+}
+.app-button[data-variant="ghost"][aria-selected="true"],
+.app-button[data-variant="ghost"][aria-pressed="true"] {
+  background: var(--color-accent-muted);
+  color: var(--color-text-accent);
+}
+.app-button {
+  flex-shrink: 0;
+}
+
+.app-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: inherit;
+  gap: var(--spacing-2);
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  text-align: inherit;
+}
+
+.app-button-content--block {
+  display: block;
+  width: 100%;
+}
+.app-button:has(.app-button-content--block) > span:first-child > span {
+  display: block;
+  width: 100%;
+}
+
+.app-table-sort {
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  justify-content: flex-start;
+}
+
+/* Retain the existing table frame inside page regions without Astryx edge bleed. */
+.app-table-frame {
+  --container-padding-inline-start: 0px;
+  --container-padding-inline-end: 0px;
+  --container-padding-block-start: 0px;
+  --container-padding-block-end: 0px;
+}
+.app-button-content {
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.app-button.app-table-sort {
+  padding: 0;
+  font: inherit;
+}
+
+.app-popover .app-button,
+.app-button.text-left,
+.resume-section-links .app-button {
+  justify-content: flex-start;
+}
+.resume-section-links .app-button > span:first-child,
+.resume-section-links .app-button > span:first-child > span,
+.resume-section-links .app-button-content {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/* Keep existing region padding and flex/grid children on Section's outer frame.
+   Its decorative inner wrapper must not become an extra layout item. */
+.app-section {
+  --container-padding-inline-start: 0px;
+  --container-padding-inline-end: 0px;
+  --container-padding-block-start: 0px;
+  --container-padding-block-end: 0px;
+  border-bottom: 1px solid var(--color-border);
+}
+.app-section > .astryx-section {
+  display: contents;
+}
+.app-section[data-tone="danger"],
+.app-section[data-tone="success"],
+.app-section[data-tone="warning"] {
+  border-inline-start: var(--spacing-1) solid var(--section-accent);
+  background: var(--section-background);
+}
+.app-section[data-tone="danger"] {
+  --section-accent: var(--color-error);
+  --section-background: var(--color-error-muted);
+}
+.app-section[data-tone="success"] {
+  --section-accent: var(--color-success);
+  --section-background: var(--color-success-muted);
+}
+.app-section[data-tone="warning"] {
+  --section-accent: var(--color-warning);
+  --section-background: var(--color-warning-muted);
+}
+
+.app-field-label {
+  font-size: var(--text-label-size);
+  font-weight: var(--text-label-weight);
+  line-height: var(--text-label-leading);
+}
+
+.app-review-trigger {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+}
+.app-section[data-tone="danger"],
+.app-section[data-tone="success"],
+.app-section[data-tone="warning"] {
+  padding-inline: var(--spacing-4);
+}
+
+.app-select-field {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+.app-select-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.app-select-trigger {
+  min-width: 0;
+  text-align: start;
+}

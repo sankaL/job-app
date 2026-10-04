@@ -1,15 +1,28 @@
-import { useDeferredValue, useEffect, useState } from "react";
+import { ActionButtons } from "@/components/ui/button-group";
+import { Card } from "@astryxdesign/core/Card";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { Grid } from "@astryxdesign/core/Grid";
+import { LinkProvider } from "@astryxdesign/core/Link";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { Token } from "@astryxdesign/core/Token";
+import {
+  forwardRef,
+  useDeferredValue,
+  useState,
+  type ComponentPropsWithoutRef,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import { Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Pencil, Search, Star, Trash2 } from "lucide-react";
+import { ResumeDocumentArtwork } from "@/components/ResumeDocumentArtwork";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
 import { IconButton } from "@/components/ui/icon-button";
-import { SkeletonCard } from "@/components/ui/skeleton";
+import { SkeletonSection } from "@/components/ui/skeleton";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -22,151 +35,198 @@ import {
   useBaseResumesQuery,
 } from "@/lib/queries";
 
+const ResumeCardLink = forwardRef<
+  HTMLAnchorElement,
+  ComponentPropsWithoutRef<"a">
+>(function ResumeCardLink({ href = "", ...props }, ref) {
+  return <Link {...props} ref={ref} to={href} />;
+});
+
+type ResumeCardProps = {
+  resume: BaseResumeSummary;
+  busy: boolean;
+  onEdit: () => void;
+  onSetDefault: () => void;
+  onDelete: () => void;
+};
+
 function ResumeActions({
   resume,
   busy,
   onEdit,
   onSetDefault,
   onDelete,
-}: {
-  resume: BaseResumeSummary;
-  busy: boolean;
-  onEdit: () => void;
-  onSetDefault: () => void;
-  onDelete: () => void;
-}) {
+}: ResumeCardProps) {
   return (
-    <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
-      <Button size="sm" variant="secondary" onClick={onEdit}>
-        Edit
-      </Button>
-      {!resume.is_default && (
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={busy}
-          onClick={onSetDefault}
+    <HStack gap={1} vAlign="center" hAlign="end" className="ml-auto shrink-0">
+      <ActionButtons label="Resume actions" size="sm" primaryIndex={resume.is_default ? 0 : 1}>
+        {!resume.is_default && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={onSetDefault}
+          >
+            Set Default
+          </Button>
+        )}
+        <IconButton
+          onClick={onEdit}
+          aria-label={`Edit ${resume.name}`}
+          title="Edit resume"
         >
-          Set Default
-        </Button>
-      )}
-      <IconButton
-        variant="danger"
-        aria-label={`Delete ${resume.name}`}
-        title="Delete resume"
-        disabled={busy}
-        onClick={onDelete}
-      >
-        <Trash2 size={16} aria-hidden="true" />
-      </IconButton>
-    </div>
+          <Pencil size={16} aria-hidden="true" />
+        </IconButton>
+        <IconButton
+          variant="danger"
+          aria-label={`Delete ${resume.name}`}
+          title="Delete resume"
+          disabled={busy}
+          onClick={onDelete}
+        >
+          <Trash2 size={16} aria-hidden="true" />
+        </IconButton>
+
+      </ActionButtons>
+</HStack>
   );
 }
 
-function ResumeCard({
-  resume,
-  busy,
-  onEdit,
-  onSetDefault,
-  onDelete,
-}: {
-  resume: BaseResumeSummary;
-  busy: boolean;
-  onEdit: () => void;
-  onSetDefault: () => void;
-  onDelete: () => void;
-}) {
+// Astryx documentation template: transparent clickable tiles, muted previews,
+// then a name and supporting text. Nested actions retain their own targets.
+function formatResumeDate(value: string) {
+  return new Date(value).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function ResumeCard(props: ResumeCardProps) {
+  const { resume } = props;
   return (
-    <Card density="compact" className="transition-all hover:shadow-md">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3
-              className="truncate font-display text-lg font-semibold"
-              style={{ color: "var(--color-ink)" }}
+    <ClickableCard
+      label={`Open ${resume.name}`}
+      href={`/app/resumes/${resume.id}`}
+      variant="transparent"
+      padding={2}
+    >
+      <VStack gap={4} height="fill">
+        <Card
+          variant="muted"
+          padding={0}
+          className="rounded-lg overflow-hidden"
+        >
+          <ResumeDocumentArtwork />
+        </Card>
+        <VStack gap={2}>
+          <HStack gap={2} vAlign="center" hAlign="between">
+            <Text
+              type="large"
+              weight="semibold"
+              className="min-w-0"
+              maxLines={2}
             >
               {resume.name}
-            </h3>
+            </Text>
             {resume.is_default && (
-              <span
-                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase"
-                style={{
-                  background: "var(--color-spruce-10)",
-                  color: "var(--color-spruce)",
-                }}
-              >
-                <svg
-                  className="h-3 w-3"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                  aria-hidden="true"
-                >
-                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                </svg>
-                Default
-              </span>
+              <Token
+                label="Default"
+                color="blue"
+                size="md"
+                icon={<Star size={14} fill="currentColor" aria-hidden="true" />}
+                className="shrink-0 rounded-full"
+              />
             )}
-          </div>
-          <div
-            className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs"
-            style={{ color: "var(--color-ink-40)" }}
-          >
-            <span>
-              Created {new Date(resume.created_at).toLocaleDateString()}
-            </span>
-            <span>
-              Updated {new Date(resume.updated_at).toLocaleDateString()}
-            </span>
-          </div>
-        </div>
-        <ResumeActions
-          resume={resume}
-          busy={busy}
-          onEdit={onEdit}
-          onSetDefault={onSetDefault}
-          onDelete={onDelete}
-        />
-      </div>
-    </Card>
+          </HStack>
+          <VStack minHeight={60}>
+            <Text type="body" color="secondary" maxLines={3}>
+              {resume.summary || "No summary added yet."}
+            </Text>
+          </VStack>
+        </VStack>
+        <HStack gap={2} vAlign="center" hAlign="between" wrap="wrap">
+          <HStack gap={5}>
+            <VStack gap={1}>
+              <Text type="supporting" color="secondary">
+                Updated
+              </Text>
+              <Text type="supporting" color="primary" weight="medium">
+                {formatResumeDate(resume.updated_at)}
+              </Text>
+            </VStack>
+            <VStack gap={1}>
+              <Text type="supporting" color="secondary">
+                Created
+              </Text>
+              <Text type="supporting" color="primary" weight="medium">
+                {formatResumeDate(resume.created_at)}
+              </Text>
+            </VStack>
+          </HStack>
+          <ResumeActions {...props} />
+        </HStack>
+      </VStack>
+    </ClickableCard>
   );
 }
 
-function ResumeCollection({
+function BaseResumeContent({
   resumes,
-  search,
+  filteredResumes,
   actionInProgress,
-  onSearchChange,
+  onCreate,
   onEdit,
   onSetDefault,
   onDelete,
 }: {
-  resumes: BaseResumeSummary[];
-  search: string;
+  resumes: BaseResumeSummary[] | undefined;
+  filteredResumes: BaseResumeSummary[];
   actionInProgress: string | null;
-  onSearchChange: (value: string) => void;
+  onCreate: (mode: "upload" | "blank") => void;
   onEdit: (id: string) => void;
   onSetDefault: (id: string) => void;
   onDelete: (resume: BaseResumeSummary) => void;
 }) {
+  if (!resumes)
+    return (
+      <Grid columns={{ minWidth: 320 }} gap={2}>
+        {Array.from({ length: 3 }, (_, index) => (
+          <SkeletonSection key={index} />
+        ))}
+      </Grid>
+    );
   if (resumes.length === 0)
     return (
       <EmptyState
+        title="No resumes yet"
+        description="Upload a PDF or start from scratch to create your first base resume. These serve as the foundation for tailoring job-specific applications."
+        action={
+          <HStack gap={2} wrap="wrap">
+            <ActionButtons label="Create a resume" size="sm">
+              <Button variant="secondary" onClick={() => onCreate("upload")}>
+                Upload PDF
+              </Button>
+              <Button onClick={() => onCreate("blank")}>
+                Start from Scratch
+              </Button>
+
+            </ActionButtons>
+</HStack>
+        }
+      />
+    );
+  if (filteredResumes.length === 0)
+    return (
+      <EmptyState
         title="No matching resumes"
-        description="Try a different search term."
+        description="Try a different search term or clear your search."
       />
     );
   return (
-    <>
-      <div className="max-w-md">
-        <Input
-          aria-label="Search resumes"
-          placeholder="Search resumes…"
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-        />
-      </div>
-      <div className="stagger-children grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr))]">
-        {resumes.map((resume) => (
+    <LinkProvider component={ResumeCardLink}>
+      <Grid columns={{ minWidth: 320 }} gap={2} className="-m-2">
+        {filteredResumes.map((resume) => (
           <ResumeCard
             key={resume.id}
             resume={resume}
@@ -176,67 +236,8 @@ function ResumeCollection({
             onDelete={() => onDelete(resume)}
           />
         ))}
-      </div>
-    </>
-  );
-}
-
-function BaseResumeContent({
-  resumes,
-  filteredResumes,
-  search,
-  actionInProgress,
-  onSearchChange,
-  onCreate,
-  onEdit,
-  onSetDefault,
-  onDelete,
-}: {
-  resumes: BaseResumeSummary[] | undefined;
-  filteredResumes: BaseResumeSummary[];
-  search: string;
-  actionInProgress: string | null;
-  onSearchChange: (value: string) => void;
-  onCreate: (mode: "upload" | "blank") => void;
-  onEdit: (id: string) => void;
-  onSetDefault: (id: string) => void;
-  onDelete: (resume: BaseResumeSummary) => void;
-}) {
-  if (!resumes)
-    return (
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(320px,1fr))]">
-        {Array.from({ length: 2 }).map((_, index) => (
-          <SkeletonCard key={index} density="compact" />
-        ))}
-      </div>
-    );
-  if (resumes.length === 0)
-    return (
-      <EmptyState
-        title="No resumes yet"
-        description="Upload a PDF or start from scratch to create your first base resume. These serve as the foundation for tailoring job-specific applications."
-        action={
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => onCreate("upload")}>
-              Upload PDF
-            </Button>
-            <Button onClick={() => onCreate("blank")}>
-              Start from Scratch
-            </Button>
-          </div>
-        }
-      />
-    );
-  return (
-    <ResumeCollection
-      resumes={filteredResumes}
-      search={search}
-      actionInProgress={actionInProgress}
-      onSearchChange={onSearchChange}
-      onEdit={onEdit}
-      onSetDefault={onSetDefault}
-      onDelete={onDelete}
-    />
+      </Grid>
+    </LinkProvider>
   );
 }
 
@@ -294,12 +295,12 @@ export function BaseResumesPage() {
   );
 
   return (
-    <div className="page-enter space-y-5">
+    <VStack gap={5} className="page-enter">
       <PageHeader
         title="Resumes"
         subtitle="Manage your base resume templates"
         actions={
-          <div className="flex flex-wrap gap-2">
+          <>
             <Button
               variant="secondary"
               onClick={() => navigate("/app/resumes/new?mode=upload")}
@@ -309,7 +310,7 @@ export function BaseResumesPage() {
             <Button onClick={() => navigate("/app/resumes/new?mode=blank")}>
               Start from Scratch
             </Button>
-          </div>
+          </>
         }
       />
 
@@ -319,18 +320,27 @@ export function BaseResumesPage() {
         onClear={error ? () => setError(null) : undefined}
       />
 
-      <BaseResumeContent
-        resumes={resumes}
-        filteredResumes={filteredResumes}
-        search={search}
-        actionInProgress={actionInProgress}
-        onSearchChange={setSearch}
-        onCreate={(mode) => navigate(`/app/resumes/new?mode=${mode}`)}
-        onEdit={(id) => navigate(`/app/resumes/${id}`)}
-        onSetDefault={(id) => void handleSetDefault(id)}
-        onDelete={setDeleteTarget}
-      />
-
+      <VStack gap={4} width="100%">
+        <TextInput
+          label="Search resumes"
+          isLabelHidden
+          placeholder="Search resumes…"
+          startIcon={Search}
+          value={search}
+          onChange={setSearch}
+          hasClear
+          className="w-full"
+        />
+        <BaseResumeContent
+          resumes={resumes}
+          filteredResumes={filteredResumes}
+          actionInProgress={actionInProgress}
+          onCreate={(mode) => navigate(`/app/resumes/new?mode=${mode}`)}
+          onEdit={(id) => navigate(`/app/resumes/${id}`)}
+          onSetDefault={(id) => void handleSetDefault(id)}
+          onDelete={setDeleteTarget}
+        />
+      </VStack>
       <ConfirmModal
         open={deleteTarget !== null}
         title="Delete resume?"
@@ -347,6 +357,6 @@ export function BaseResumesPage() {
           }
         }}
       />
-    </div>
+    </VStack>
   );
 }

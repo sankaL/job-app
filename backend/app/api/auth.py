@@ -46,6 +46,10 @@ class MeResponse(BaseModel):
     email: str
 
 
+class LocalLoginUsersResponse(BaseModel):
+    emails: list[str]
+
+
 REFRESH_COOKIE_NAME = "refresh_token"
 REFRESH_COOKIE_PATH = "/api/auth"
 
@@ -101,6 +105,18 @@ def _issue_refresh_token(
         max_age=settings.refresh_token_expire_days * 86400,
         settings=settings,
     )
+
+
+@router.get("/local-users", response_model=LocalLoginUsersResponse)
+def local_login_users(
+    response: Response,
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    if not settings.is_local_dev_mode:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
+    response.headers["Cache-Control"] = "no-store"
+    return LocalLoginUsersResponse(emails=user_repo.list_active_login_emails())
 
 
 @router.post("/login", response_model=LoginResponse)

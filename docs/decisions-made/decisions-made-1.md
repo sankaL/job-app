@@ -1,3 +1,82 @@
+## 2026-10-03 — Verify and commit the uncommitted branch snapshot
+
+Completed the CE review and five regression fixes (2026-10-03 22:06:31 EDT). Keep the shared shell’s route mounted across immersive comparison and responsive navigation changes; Astryx 0.6.5’s `section` variant supplies a stable content tree. This supersedes the earlier elevated-shell choice. Honor grouped-column custom sorting and direction, retain cached activity with visible refresh errors and Retry, record available classifier token counts before answer validation, and leave example tracing disabled until explicitly configured.
+
+Verified 1,021 tests and the TypeScript/Vite production build using the local stack. The user explicitly requested committing only the verified snapshot while another chat continues editing; later working-tree changes remain outside that commit. See `docs/task-output/2026-10-03-uncommitted-code-review.md`.
+
+## 2026-10-03 — Read-only application details with per-field editing
+
+Application support fields now present saved/current values first, with explicit per-field editing. This reduces the form density beside the resume while retaining existing job/settings saves and notes autosave. Closing an editor preserves pending changes. Aggressiveness remains directly adjustable through a three-stop slider, with mode details disclosed on hover, focus or touch and High warning retained. The panel aligns with the title; generation metadata moves beside the company. No AI, backend, or data-contract changes.
+
+## 2026-10-03: Replace the Applix logo and share one auth layout
+
+The user rejected the check-mark logo and chose a rounded peak "A" drawn as one uniform stroke. The sides use a dark-teal gradient and the base is orange, separated by a hairline gap. It is now the only logo: app top bar, landing, auth pages, favicon, Chrome extension and social preview. The social preview uses lighter teal sides for its dark background.
+
+Login, access request and invite setup share one layout, flipped from the previous design: the illustration and logo on the left, the form on the right. Feedback always appears directly under the page heading so errors are seen before the fields. The forms use the shared Astryx controls, so the auth pages no longer keep a separate login-only control set.
+
+## 2026-10-03: Server-bounded dashboard activity ranges and composition charts
+
+The user asked for a better-looking dashboard on Astryx, finer activity bars than months, 7-day/30-day/3-month/year ranges, and an endpoint that filters instead of always returning all data. Later in the same task they asked to remove the Created/Marked applied/Busiest figures above the chart and to improve Admin Metrics.
+
+`GET /api/applications/creation-activity?range=7d|30d|3m|1y&timezone=<IANA>` aggregates creations per local day in Postgres inside one bounded window and returns a fixed number of buckets: 7, 30 or 90 daily, or 52 Monday-start weekly for the year. 3 months stays daily because the user asked for more bars; the year uses weeks so bars stay legible. Unknown ranges or zones return 422, and the query is owner-scoped under RLS. A new `(user_id, created_at DESC)` index serves the window. "Marked applied" still means currently applied, since there is no `applied_at`; we did not add one.
+
+The chart stacks two steps of the Astryx blue data ramp (validated for contrast and CVD separation) and has a range SegmentedControl, tooltip, legend and screen-reader table. The previous range stays visible, dimmed, while the next one loads. A follow-up request said the page had too many bars, so each breakdown now uses the form that fits its data. Job sources and the admin user/invite views are parts of a whole, so they share a thin SVG donut (2px gaps, total in the center) with labeled rows. Status breakdown is four figures with badges. Top companies is a ranked list with Avatar initials and count Badges. Bars remain only for the activity time series and admin workflow outcomes. Grouped breakdowns share one flat section with hairline column/row dividers, keeping the no-nested-cards rule while separating the panels. Sources keep fixed categorical colors per entity. Status colors are reserved for state. `--color-info` was not a real Astryx token, so in-progress/pending use `--color-icon-blue`. The mobile chart toggle and unused chart tooltip helpers were removed. See `docs/task-output/2026-10-03-dashboard-activity-ranges.md`.
+
+## 2026-10-03 17:55:00 EDT - Trace every configured LLM task into environment-specific LangSmith projects
+
+- Status: Accepted; implementation deployed and trace ingestion plus native model/token reporting verified locally and in production (2026-10-03 19:22:53 EDT).
+- Use the existing `LANGSMITH_PROJECT` selector for every backend and worker task. Normal local runs use `applix-dev`; production retains `applix-prod`. Unconfigured installations and offline/automated checks remain untraced.
+- Trace Jev classification at the Decisions HTTP attempt boundary and nested extraction/cleanup at the shared Pydantic AI import boundary. Record retries, primary/fallback selection, usage, timing and outcomes using counts and safe metadata.
+- Live fictional evaluations honor merged env-file/shell settings and identify each case in model metadata. Keep prompt and provider payloads out of telemetry; record exception types instead of SDK-formatted private errors and tracebacks.
+- Publish configured OpenRouter model identity using LangSmith-native `ls_provider`/`ls_model_name`, and copy available token counts into recognized `usage_metadata`. Generic fields alone leave the native UI counters empty or zero despite delivered usage. Keep unknown usage omitted, preserve chain summaries, and avoid guessed prices. This follow-up changes telemetry formatting without changing prompts, application outputs or the counts-only content policy; verified native counters and metadata in both environments.
+- The user selected reuse of the existing Railway key locally and later updated the ignored local env files. Keys were handled without printing or committing them. The initial HTTP 403 diagnosis was corrected: organization-scoped keys were valid but required `LANGSMITH_WORKSPACE_ID`. Support that selector explicitly across Compose, backend/worker clients and live evaluation env-file settings, while keeping project selection independent. Configured the sole workspace locally and in Railway; six fictional backend/worker traces were confirmed in each environment with private input and credentials absent.
+- Release only these tracing source changes over the currently deployed production commit, keeping unrelated local work out of the deployment. No schema, prompt text, model routing or frontend changes are part of this task.
+- See `docs/task-output/2026-10-03-langsmith-all-llm-tasks.md` for verification and release evidence.
+
+## 2026-10-03: Use documentation cards for the resume library
+
+The user explicitly selected the Astryx documentation template for resumes, superseding the earlier flat-row layout on this page. Adapt the CLI template’s responsive preview-card grid with persistent search, resume metadata and separate Edit, Delete and Set Default actions. Use native ClickableCard with the React Router link provider so keyboard and pointer activation share client-side navigation. Keep deletion confirmation and existing user-scoped APIs. The refined cards use custom SVG paper artwork, a saved Summary excerpt, a starred Default badge, quiet date labels and right-aligned icon actions. The list API exposes a bounded plain-text excerpt from the current document’s Summary section (with a legacy Markdown fallback); it performs no AI summarization and exposes no extra full document data. Stored resumes do not identify their original file format, so the illustration does not label them as PDF or text uploads.
+
+## 2026-10-03: Share the Astryx table-filter pattern
+
+The user requested the Astryx CLI table-filter reference across app tables, with borderless icons and an applied icon. Adapt the official template into the shared DataTable using Astryx's data-driven Table and grouped-row plugin. Applications open grouped by status, ordered newest first within each group, following the user's request to make workflow status the default grouping. Admin users share filtering, grouping, density, column visibility and saved-view controls. Preserve server-side admin status filtering, application mutation safeguards and the separate applied flag.
+
+Keep saved view configurations in the mounted page session, with that lifetime stated in the controls. No application content or tokens are persisted to browser storage. Table columns remain available through horizontal scrolling on narrow screens. Collapsed rows leave the current-page selection scope, while previously selected rows remain selected and counted. See `docs/task-output/2026-10-03-astryx-table-filter.md` for validation.
+
+## 2026-10-03: Restore neutral colors and floating CTA styles
+
+The user rejected the orange theme and CTA color. Restore Astryx neutral across authenticated screens and floating portals, including standard primary and secondary button variants. Remove the unused custom theme source and generated assets. This supersedes the orange styling decision below; shared DropdownMenu controls, bar charts, floating placement and compact page spacing remain.
+
+## 2026-10-03: Share Astryx dropdowns and logo-orange CTA styling
+
+The user requested Astryx DropdownMenu for dropdowns, orange CTA buttons matching the logo, and a bar chart for Monthly Activity. Selection controls use DropdownMenu radio groups while native backing select fields retain validation, form data, refs and change events. Account/application menus use the library's action items and focus/dismissal behavior; information and notification panels retain their existing dialog/popover roles.
+
+The CLI-built Applix theme extends neutral with the logo's `#f47721` and dark `#1c1917` text. Primary and floating CTA buttons share the accent; destructive actions remain red. Monthly counts use grouped bars in both sizes, with legends matched to the series colors. See `docs/task-output/2026-10-03-astryx-template-redesign.md` for review and verification.
+
+## 2026-10-03: Use the top bar for page identity and float page actions
+
+The user requested removal of repeated body page titles and introductions. The shared top bar identifies authenticated routes, with an accessible hidden page heading retained. Individual applications keep their full job title and company in the body to accommodate long titles.
+
+Page actions use a shared bottom-right floating group. Source naming, save/upload and extension connection actions move into that group; section controls remain beside their content. Preserve form association, Enter submission, Escape cancellation and pending feedback. Measure wrapped group height to reserve content space and place notifications above actions. Menus anchored to floating buttons open upward. See `docs/task-output/2026-10-03-astryx-template-redesign.md` for verification.
+
+## 2026-10-03: Use Astryx templates for a minimal app layout
+
+The user expanded the design-system task to permit orientation, typography and icon changes, and requested template-based layouts with fewer cards. This supersedes the placement restriction in the earlier Astryx decision. Adapt the official Shell Nav, Searchable Table, Analytics Dashboard, Settings Form and Page Editor patterns around the existing product flows.
+
+Use Astryx AppShell, SideNav and MobileNav for the shared frame and navigation. Share Heading/Text typography and existing control adapters. Put application titles first in tables, show base resumes as rows, use the settings template’s description/form columns across the full available profile width, with stacked fields on narrow screens, and group supporting content with whitespace and rules. Keep the resume paper and overlay surfaces distinct. Remove decorative metric tiles, review card frames and the floating save-bar frame. Preserve public pages, auth, data, AI and export contracts.
+
+Profile follow-up: the user specifically selected the CLI `settings` template. Keep its section spacing and description/form columns with stacked fields on narrow screens. The user subsequently requested removal of the section navigation and expansion to the full available page width. Remove the secondary rail, mobile section tabs and maximum-width cap; the shared top bar and floating Save retain app-wide placement. Native Field/Input adapters preserve labels, field types and form submission.
+
+The shell uses a configured MobileNav because a custom top bar does not implement Astryx TopNav's automatic drawer context. MobileNavToggle owns expanded/controls attributes. A regression check covers opening the drawer and selecting a route; browser checks cover Escape and focus restoration. See `docs/task-output/2026-10-03-astryx-template-redesign.md`.
+
+## 2026-10-03: Share Astryx controls across the authenticated app
+
+Use Astryx core 0.6.5 with the neutral theme for app and admin screens. Keep the existing page frame, placement, density and responsive rules. The user requested a design-system conversion without new UI or features, so retain layout containers instead of scaffolding new Astryx page templates. Marketing and login keep their existing appearance through a scoped public palette and their original form adapters.
+
+Shared UI adapters use Astryx Button, Card, Badge, Token and Table. Native input, textarea and select elements use semantic theme tokens while preserving browser validation, numeric/file types, selection refs and change-event consumers. Existing menu frames share a Card-backed popover adapter. Keep Tailwind's reset in the library's reset layer so it cannot override Astryx component treatments. Pin the core, theme and CLI together; generated CLI agent guidance is committed.
+
+Remove only code without runtime callers, along with superseded styles and packages. Keep Chrome extension manifest assets and dynamically loaded bridge helpers despite static-analysis false positives. Add TypeScript unused-symbol checks. No schema, AI orchestration, prompt or export behavior changes are needed. See `docs/task-output/2026-10-03-astryx-design-system.md` for review fixes, verification and remaining development-tool advisories.
+
 ## 2026-09-30: Release section resumes to Railway
 
 The user authorized merging the release and completing migrations/configuration through the CLI. Apply migrations 019–022 before the coordinated API, worker and frontend rollout. Back up labels, check an empty work queue, use bounded database calls, and commit each migration with its ledger entry. Explicit operation models and Jev settings match committed defaults. Verified all three deployments from merged main, public health and auth rejection, running modules/configuration, and 913 local tests plus the production build. See `docs/task-output/2026-09-30-main-railway-release.md`.

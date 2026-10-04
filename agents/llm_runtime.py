@@ -188,6 +188,7 @@ async def structured_call(
     reasoning: Optional[dict[str, Any]] = None,
     output_validator: Optional[Callable[[Any], Any]] = None,
     operation: str = "structured_call",
+    is_fallback: bool = False,
 ) -> Any:
     # Lazy imports allow the deterministic document/validation code to run on its
     # own. A missing runtime dependency still fails closed at the call boundary.
@@ -222,7 +223,7 @@ async def structured_call(
         trace_manager = trace_scope(
             "applix." + safe_operation + ".pydantic_ai", run_type="llm",
             inputs={"message_count": len(prompt), "prompt_chars": sum(len(content) for _, content in prompt)},
-            metadata={"operation": safe_operation, "model": model_name, "request_limit": remaining_requests, "timeout_seconds": call_timeout},
+            metadata={"operation": safe_operation, "model": model_name, "is_fallback": is_fallback, "request_limit": remaining_requests, "timeout_seconds": call_timeout},
             tags=["applix", safe_operation, "pydantic_ai"],
         )
         run_trace = trace_manager.__enter__()
@@ -331,6 +332,7 @@ class StructuredLLM:
             temperature=self.temperature,
             reasoning=self.reasoning,
             operation=str((config or {}).get("metadata", {}).get("operation") or "structured_call"),
+            is_fallback=(config or {}).get("metadata", {}).get("is_fallback") is True,
         )
         if self.output_type is not None:
             return value

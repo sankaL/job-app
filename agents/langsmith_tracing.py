@@ -44,6 +44,7 @@ class _TraceSettings(BaseSettings):
 
     langsmith_tracing: bool = False
     langsmith_project: Optional[str] = None
+    langsmith_workspace_id: Optional[str] = None
     langsmith_api_key: Optional[str] = None
 
 
@@ -96,9 +97,9 @@ def _trace_anonymizer(value: dict) -> dict:
 
 
 @lru_cache(maxsize=4)
-def _build_client(api_key: str, project_name: str) -> Client:
+def _build_client(api_key: str, project_name: str, workspace_id: Optional[str] = None) -> Client:
     del project_name
-    return Client(api_key=api_key, anonymizer=_trace_anonymizer)
+    return Client(api_key=api_key, workspace_id=workspace_id, anonymizer=_trace_anonymizer, timeout_ms=5000)
 
 
 def _trace_config() -> tuple[bool, Optional[str], Optional[str]]:
@@ -134,7 +135,11 @@ def trace_scope(
     run_tree = None
     operation_error: Optional[BaseException] = None
     try:
-        client = _build_client(str(api_key), str(project_name))
+        if run_type == "llm" and metadata and metadata.get("model"):
+            metadata = {**metadata, "ls_provider": "openrouter",
+                "ls_model_name": metadata["model"], "ls_model_type": "chat"}
+        workspace_id = str(_TraceSettings().langsmith_workspace_id or "").strip() or None
+        client = _build_client(str(api_key), str(project_name), workspace_id)
         tracing_manager = tracing_context(
             enabled=True,
             client=client,
@@ -167,19 +172,19 @@ def trace_scope(
         yield run_tree
     except BaseException as error:
         operation_error = error
+        end_trace_safely(run_tree, error=type(error).__name__)
         raise
     finally:
-        error_type = type(operation_error) if operation_error is not None else None
-        traceback = operation_error.__traceback__ if operation_error is not None else None
+        # Do not let SDK exception formatting copy private provider bodies.
         try:
             if run_manager is not None:
-                run_manager.__exit__(error_type, operation_error, traceback)
+                run_manager.__exit__(None, None, None)
         except Exception as error:
             if operation_error is None:
                 logger.warning("LangSmith trace finalization failed. error_type=%s", type(error).__name__)
         try:
             if tracing_manager is not None:
-                tracing_manager.__exit__(error_type, operation_error, traceback)
+                tracing_manager.__exit__(None, None, None)
         except Exception as error:
             if operation_error is None:
                 logger.warning("LangSmith context finalization failed. error_type=%s", type(error).__name__)
@@ -206,6 +211,7 @@ def model_run_config(
         "retry_reason": retry_reason,
         **dict(extra_metadata or {}),
     }
+    metadata.update(ls_provider="openrouter", ls_model_name=model, ls_model_type="chat")
     return {
         "run_name": f"applix.{operation}.{transport_mode}",
         "tags": ["applix", operation, transport_mode, "fallback" if is_fallback else "primary"],
@@ -225,6 +231,14 @@ def end_trace_safely(run_tree: Any, **kwargs: Any) -> None:
     if run_tree is None:
         return
     try:
+        outputs = kwargs.get("outputs")
+        if isinstance(outputs, dict):
+            usage = {key: outputs[key] for key in ("input_tokens", "output_tokens")
+                if type(outputs.get(key)) is int and outputs[key] >= 0}
+            if usage:
+                if len(usage) == 2:
+                    usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+                kwargs["outputs"] = {**outputs, "usage_metadata": usage}
         run_tree.end(**kwargs)
     except Exception as error:
         logger.warning("LangSmith run completion failed; continuing without telemetry. error_type=%s", type(error).__name__)

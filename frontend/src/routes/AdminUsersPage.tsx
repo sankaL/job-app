@@ -1,14 +1,24 @@
+import { ActionButtons } from "@/components/ui/button-group";
+import { Token } from "@astryxdesign/core/Token";
+import { HStack, VStack } from "@astryxdesign/core/Layout";
+import { Text } from "@astryxdesign/core/Text";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Pencil, RefreshCcw, Send, Trash2, UserPlus } from "lucide-react";
+import {
+  Pencil,
+  RefreshCcw,
+  Send,
+  Trash2,
+  UserPlus,
+  UserRoundX,
+  UserRoundCheck,
+} from "lucide-react";
 import { useAppContext } from "@/components/layout/AppContext";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { DataTable } from "@/components/ui/data-table";
+import { DataTable, type TableToolbar } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
@@ -56,48 +66,50 @@ function fullName(user: AdminUser) {
 function UserIdentityCell({ user }: { user: AdminUser }) {
   return (
     <div className="space-y-0.5">
-      <p
-        className="text-sm font-semibold"
-        style={{ color: "var(--color-ink)" }}
+      <Text
+        as="p"
+        display="block"
+        type="label"
+        style={{ color: "var(--color-text-primary)" }}
       >
         {fullName(user)}
-      </p>
-      <p className="text-xs" style={{ color: "var(--color-ink-50)" }}>
+      </Text>
+      <Text
+        as="p"
+        display="block"
+        type="supporting"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
         {user.email}
-      </p>
+      </Text>
     </div>
   );
 }
 
 function UserStatusCell({ user }: { user: AdminUser }) {
   return (
-    <div className="flex flex-col gap-1 text-xs">
-      <span
-        style={{
-          color: user.is_active ? "var(--color-spruce)" : "var(--color-ember)",
-        }}
-      >
-        {user.is_active ? "Active" : "Deactivated"}
-      </span>
-      <span style={{ color: "var(--color-ink-50)" }}>
+    <VStack gap={1} hAlign="start">
+      <Token
+        label={user.is_active ? "Active" : "Deactivated"}
+        color={user.is_active ? "green" : "gray"}
+        size="sm"
+        className="rounded-full"
+      />
+      <Text type="supporting" color="secondary">
         {user.onboarding_completed_at ? "Onboarded" : "Invite pending"}
-      </span>
-    </div>
+      </Text>
+    </VStack>
   );
 }
 
 function UserTierCell({ user }: { user: AdminUser }) {
-  const isPro = user.subscription_tier === "pro";
   return (
-    <span
-      className="inline-flex rounded-md px-2 py-1 text-xs font-semibold capitalize"
-      style={{
-        background: isPro ? "var(--color-amber-10)" : "var(--color-spruce-10)",
-        color: isPro ? "var(--color-amber)" : "var(--color-spruce)",
-      }}
-    >
-      {user.subscription_tier}
-    </span>
+    <Token
+      label={user.subscription_tier}
+      color={user.subscription_tier === "pro" ? "blue" : "gray"}
+      size="sm"
+      className="rounded-full capitalize"
+    />
   );
 }
 
@@ -115,36 +127,45 @@ function UserActionsCell({
   onDelete: () => void;
 }) {
   return (
-    <div className="ml-auto flex w-full flex-wrap items-center justify-end gap-1.5">
-      <IconButton
-        onClick={onEdit}
-        aria-label={`Edit ${user.email}`}
-        title="Edit user"
-      >
-        <Pencil size={15} aria-hidden="true" />
-      </IconButton>
-      <Button
-        size="sm"
-        variant={user.is_active ? "danger" : "secondary"}
-        onClick={onToggleActive}
-        disabled={isSelf}
-      >
-        {user.is_active ? "Deactivate" : "Reactivate"}
-      </Button>
-      <IconButton
-        variant="danger"
-        onClick={onDelete}
-        disabled={isSelf}
-        aria-label={`Delete ${user.email}`}
-        title="Delete user"
-      >
-        <Trash2 size={15} aria-hidden="true" />
-      </IconButton>
-    </div>
+    <HStack gap={2} hAlign="end" vAlign="center">
+      <ActionButtons label="User actions" size="sm" primaryIndex={0}>
+        <IconButton
+          onClick={onEdit}
+          aria-label={`Edit ${user.email}`}
+          title="Edit user"
+        >
+          <Pencil size={15} aria-hidden="true" />
+        </IconButton>
+        <IconButton
+          variant={user.is_active ? "danger" : "default"}
+          onClick={onToggleActive}
+          disabled={isSelf}
+          aria-label={`${user.is_active ? "Deactivate" : "Reactivate"} ${user.email}`}
+          title={user.is_active ? "Deactivate user" : "Reactivate user"}
+        >
+          {user.is_active ? (
+            <UserRoundX size={16} aria-hidden="true" />
+          ) : (
+            <UserRoundCheck size={16} aria-hidden="true" />
+          )}
+        </IconButton>
+        <IconButton
+          variant="danger"
+          onClick={onDelete}
+          disabled={isSelf}
+          aria-label={`Delete ${user.email}`}
+          title="Delete user"
+        >
+          <Trash2 size={15} aria-hidden="true" />
+        </IconButton>
+
+      </ActionButtons>
+</HStack>
   );
 }
 
 function AdminUsersTable({
+  toolbar,
   users,
   currentUserId,
   onEdit,
@@ -152,6 +173,7 @@ function AdminUsersTable({
   onDelete,
 }: {
   users: AdminUser[];
+  toolbar: TableToolbar;
   currentUserId: string | null;
   onEdit: (user: AdminUser) => void;
   onToggleActive: (user: AdminUser) => void;
@@ -160,6 +182,7 @@ function AdminUsersTable({
   const columns = [
     {
       key: "name",
+      minWidth: 240,
       header: "User",
       width: "30%",
       sortable: true,
@@ -168,6 +191,8 @@ function AdminUsersTable({
     },
     {
       key: "status",
+      groupValue: (user: AdminUser) =>
+        user.is_active ? "Active" : "Deactivated",
       header: "Status",
       width: "14%",
       sortable: true,
@@ -177,6 +202,8 @@ function AdminUsersTable({
     },
     {
       key: "tier",
+      groupValue: (user: AdminUser) => user.subscription_tier,
+      filterValue: (user: AdminUser) => user.subscription_tier,
       header: "Tier",
       width: "12%",
       sortable: true,
@@ -190,11 +217,17 @@ function AdminUsersTable({
       render: (user: AdminUser) => (
         <div
           className="space-y-0.5 text-xs"
-          style={{ color: "var(--color-ink-50)" }}
+          style={{ color: "var(--color-text-secondary)" }}
         >
-          <p>{user.latest_invite_status || "—"}</p>
-          <p>Sent: {formatDate(user.latest_invite_sent_at)}</p>
-          <p>Expires: {formatDate(user.latest_invite_expires_at)}</p>
+          <Text as="p" display="block" type="body">
+            {user.latest_invite_status || "—"}
+          </Text>
+          <Text as="p" display="block" type="body">
+            Sent: {formatDate(user.latest_invite_sent_at)}
+          </Text>
+          <Text as="p" display="block" type="body">
+            Expires: {formatDate(user.latest_invite_expires_at)}
+          </Text>
         </div>
       ),
     },
@@ -205,7 +238,10 @@ function AdminUsersTable({
       sortable: true,
       sortValue: (user: AdminUser) => user.updated_at,
       render: (user: AdminUser) => (
-        <span className="text-xs" style={{ color: "var(--color-ink-50)" }}>
+        <span
+          className="text-xs"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
           {formatDate(user.updated_at)}
         </span>
       ),
@@ -213,7 +249,7 @@ function AdminUsersTable({
     {
       key: "actions",
       header: <span className="block w-full text-right">Actions</span>,
-      width: "12%",
+      width: "120px",
       render: (user: AdminUser) => (
         <UserActionsCell
           user={user}
@@ -227,29 +263,37 @@ function AdminUsersTable({
   ];
   return (
     <DataTable
+      toolbar={toolbar}
       data={users}
       getRowKey={(user) => user.id}
       pageSize={12}
-      density="compact"
+      density="default"
       verticalAlign="top"
-      tableLayout="fixed"
       columns={columns}
       emptyState={
         <div className="rounded-xl border border-dashed px-6 py-10 text-center">
           <UserPlus
             size={20}
             className="mx-auto mb-2"
-            style={{ color: "var(--color-ink-40)" }}
+            style={{ color: "var(--color-text-secondary)" }}
           />
-          <p
-            className="text-sm font-semibold"
-            style={{ color: "var(--color-ink)" }}
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            style={{ color: "var(--color-text-primary)" }}
           >
             No users found
-          </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-50)" }}>
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-1"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
             Adjust filters or invite a new user.
-          </p>
+          </Text>
         </div>
       }
     />
@@ -305,7 +349,7 @@ function AdminUsersContent(props: AdminUsersContentProps) {
         title="User Management"
         subtitle="Invite, update, and control user access."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
             <Button
               variant="secondary"
               onClick={props.onRefresh}
@@ -318,50 +362,57 @@ function AdminUsersContent(props: AdminUsersContentProps) {
               <Send size={14} />
               Send Invite
             </Button>
-          </div>
+          </>
         }
       />
       {props.error && (
-        <Card variant="danger" density="compact">
-          <p
-            className="text-sm font-semibold"
-            style={{ color: "var(--color-ember)" }}
+        <Section variant="danger" density="compact">
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            style={{ color: "var(--color-error)" }}
           >
             User list unavailable
-          </p>
-          <p className="mt-1 text-sm" style={{ color: "var(--color-ink-65)" }}>
-            {props.error}
-          </p>
-        </Card>
-      )}
-      <Card density="compact">
-        <div className="mb-4 grid gap-3 md:grid-cols-[2fr_220px]">
-          <Input
-            placeholder="Search by email or name"
-            value={props.search}
-            onChange={(event) => props.onSearchChange(event.target.value)}
-          />
-          <Select
-            value={props.statusFilter}
-            onChange={(event) =>
-              props.onStatusFilterChange(event.target.value as StatusFilter)
-            }
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="body"
+            className="mt-1"
+            style={{ color: "var(--color-text-secondary)" }}
           >
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </div>
+            {props.error}
+          </Text>
+        </Section>
+      )}
+      <VStack gap={0}>
         <AdminUsersTable
+          toolbar={{
+            search: props.search,
+            onSearch: props.onSearchChange,
+            searchLabel: "Search users",
+            placeholder: "Email or name",
+            filters: [
+              {
+                key: "status",
+                label: "Status",
+                value: props.statusFilter,
+                onChange: (value) =>
+                  props.onStatusFilterChange(value as StatusFilter),
+                options: STATUS_OPTIONS.filter(
+                  (option) => option.value !== "all",
+                ),
+              },
+            ],
+          }}
           users={props.users ?? []}
           currentUserId={props.currentUserId}
           onEdit={props.onEdit}
           onToggleActive={props.onToggleActive}
           onDelete={props.onChooseDelete}
         />
-      </Card>
+      </VStack>
       <InviteUserModal
         open={props.inviteModalOpen}
         onClose={props.onCloseInvite}
@@ -424,7 +475,7 @@ export function AdminUsersPage() {
   const { bootstrap } = useAppContext();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const deferredSearch = useDeferredValue(search);

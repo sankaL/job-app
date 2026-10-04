@@ -1,3 +1,5 @@
+import { Text } from "@astryxdesign/core/Text";
+import { Button } from "@/components/ui/button";
 import { Component, type ReactNode } from "react";
 
 interface Props {
@@ -47,10 +49,15 @@ export class ErrorBoundary extends Component<Props, State> {
           window.location.reload();
           return;
         }
-        console.warn("ErrorBoundary: Suppressed automatic reload loop for DOM mutation error.");
+        console.warn(
+          "ErrorBoundary: Suppressed automatic reload loop for DOM mutation error.",
+        );
       } catch (storageError) {
         // Handle SecurityError when sessionStorage is disabled (e.g. private mode)
-        console.warn("ErrorBoundary: Failed to read/write sessionStorage:", storageError);
+        console.warn(
+          "ErrorBoundary: Failed to read/write sessionStorage:",
+          storageError,
+        );
       }
     }
   }
@@ -58,17 +65,26 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center bg-canvas text-ink font-sans">
-          <p className="text-lg font-semibold">Something went wrong.</p>
-          <p className="text-sm font-medium" style={{ color: "var(--color-ink-65)" }}>
-            Try disabling browser extensions (Grammarly, password managers) and reload.
-          </p>
-          <button
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center bg-[var(--color-background-body)] text-[var(--color-text-primary)] font-sans">
+          <Text as="p" display="block" type="label">
+            Something went wrong.
+          </Text>
+          <Text
+            as="p"
+            display="block"
+            type="label"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            Try disabling browser extensions (Grammarly, password managers) and
+            reload.
+          </Text>
+          <Button
+            variant="ghost"
             onClick={() => window.location.reload()}
-            className="mt-2 px-5 py-2.5 rounded-lg border-none text-sm font-semibold cursor-pointer bg-spruce text-white hover:opacity-90 active:scale-95 transition-all"
+            className="mt-2 px-5 py-2.5 border-none text-sm cursor-pointer hover:opacity-90 active:scale-95 transition-all"
           >
             Reload page
-          </button>
+          </Button>
         </div>
       );
     }
@@ -76,4 +92,3 @@ export class ErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
-

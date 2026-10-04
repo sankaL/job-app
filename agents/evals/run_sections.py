@@ -31,6 +31,7 @@ from dotenv import dotenv_values
 import openai
 
 import llm_runtime
+import langsmith_tracing as tracing
 import section_generation as pipeline
 from resume_document import render_resume_document, validate_resume_document
 from evals.fixtures import CASES, JOB_DESCRIPTION, PRIVACY_VALUES, UNSUPPORTED_TERMS, Case, case_settings, current_document, offline_writer, source_document
@@ -131,11 +132,11 @@ def diagnostic_error_messages(body: Any, redactions: list[str]) -> list[str]:
 
 def synthetic_redactions(values: dict[str, str]) -> list[str]:
     redactions = [*PRIVACY_VALUES, JOB_DESCRIPTION, "Backend Engineer", "Fictional Northstar Tools"]
-    for key in ("OPENROUTER_API_KEY", "TIER1_MODEL", "TIER1_FALLBACK_MODEL", "TIER2_MODEL", "TIER2_FALLBACK_MODEL"):
+    for key in ("OPENROUTER_API_KEY", "LANGSMITH_API_KEY", "TIER1_MODEL", "TIER1_FALLBACK_MODEL", "TIER2_MODEL", "TIER2_FALLBACK_MODEL"):
         value = values.get(key, "").strip()
         if value:
             redactions.append(value)
-            if key != "OPENROUTER_API_KEY" and "/" in value:
+            if key not in {"OPENROUTER_API_KEY", "LANGSMITH_API_KEY"} and "/" in value:
                 redactions.append(value.split("/", 1)[1])
     for document in (source_document(), current_document()):
         for section in document["sections"]:
@@ -348,9 +349,26 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
     with ExitStack() as stack:
         stack.enter_context(patch.object(openai, "AsyncOpenAI", measured_client))
         stack.enter_context(patch.object(pipeline, "structured_call", meter.structured_call))
-        # Evaluation artifacts stay local, including usage metadata. Production
-        # tracing behavior is unchanged and no LangSmith connection is made here.
-        stack.enter_context(patch.object(llm_runtime, "trace_scope", lambda *_args, **_kwargs: nullcontext(None)))
+        if live:
+            # Resolve the merged --env-file/environment settings explicitly.
+            # The runtime reads these settings only within this bounded run.
+            trace_settings = tracing._TraceSettings(_env_file=None,
+                langsmith_tracing=values.get("LANGSMITH_TRACING", "false"),
+                langsmith_project=values.get("LANGSMITH_PROJECT"),
+                langsmith_workspace_id=values.get("LANGSMITH_WORKSPACE_ID"),
+                langsmith_api_key=values.get("LANGSMITH_API_KEY"))
+            stack.enter_context(patch.object(tracing, "_TraceSettings", lambda: trace_settings))
+            tracing._trace_config()  # Invalid enabled configuration blocks provider work.
+            original_scope = tracing.trace_scope
+            def evaluation_scope(name, **kwargs):
+                kwargs["metadata"] = {**kwargs.get("metadata", {}),
+                    "evaluation": True, "case": meter.current_case.id, "environment": "development"}
+                kwargs["tags"] = [*kwargs.get("tags", []), "evaluation", "live"]
+                return original_scope(name, **kwargs)
+            stack.enter_context(patch.object(llm_runtime, "trace_scope", evaluation_scope))
+        else:
+            # Offline checks never create a telemetry client, even with ambient credentials.
+            stack.enter_context(patch.object(llm_runtime, "trace_scope", lambda *_args, **_kwargs: nullcontext(None)))
         for case in cases:
             meter.current_case = case
             settings = {**case_settings(case), "_routine_model": routine, "_routine_fallback_model": routine_fallback}

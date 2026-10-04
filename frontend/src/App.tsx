@@ -80,9 +80,22 @@ export default function App() {
       }
     >
       <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignupPage />} />
+        <Route
+          path="/"
+          element={
+            <div className="public-design">
+              <LandingPage />
+            </div>
+          }
+        />
+        <Route
+          path="/login"
+          element={<LoginPage />}
+        />
+        <Route
+          path="/signup"
+          element={<SignupPage />}
+        />
         <Route
           path="/app"
           element={

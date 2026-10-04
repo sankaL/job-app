@@ -62,7 +62,7 @@ Software QA/QC Test Manager | Jan 2022 - Present
     updated_at: "2026-04-07T12:00:00Z",
   };
 
-  it("renders the comparison workspace with hero metrics and section cards", () => {
+  it("renders the comparison workspace with hero metrics and comparison sections", () => {
     render(
       <CompareWorkspace
         baseResume={mockBaseResume}
@@ -70,11 +70,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={false}
         editContent=""
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={vi.fn()}
         onContentChange={vi.fn()}
         onSaveDraft={vi.fn()}
-        onCloseCompare={vi.fn()}
       />,
     );
 
@@ -82,7 +80,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
     expect(screen.getAllByText("Standard Resume").length).toBeGreaterThan(0);
     expect(screen.getByText(/Roles \(/i)).toBeInTheDocument();
     expect(screen.getByText(/Deloitte Canada/i)).toBeInTheDocument();
-    expect(screen.getByText(/Software QA\/QC Test Manager/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Software QA\/QC Test Manager/i),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Role Title Targeted/i)).toBeInTheDocument();
   });
 
@@ -95,15 +95,15 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={false}
         editContent=""
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={vi.fn()}
         onContentChange={vi.fn()}
         onSaveDraft={vi.fn()}
-        onCloseCompare={vi.fn()}
       />,
     );
 
-    const sideBySideBtn = screen.getByTitle("Side-by-side cards comparing base and tailored");
+    const sideBySideBtn = screen.getByTitle(
+      "Side-by-side sections comparing base and tailored",
+    );
     await user.click(sideBySideBtn);
 
     expect(screen.getAllByText(/Base Resume/i).length).toBeGreaterThan(0);
@@ -119,11 +119,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={false}
         editContent=""
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={vi.fn()}
         onContentChange={vi.fn()}
         onSaveDraft={vi.fn()}
-        onCloseCompare={vi.fn()}
       />,
     );
 
@@ -153,11 +151,9 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={true}
         editContent="# Custom Content"
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={handleCancel}
         onContentChange={handleChange}
         onSaveDraft={handleSave}
-        onCloseCompare={vi.fn()}
       />,
     );
 
@@ -171,9 +167,7 @@ Software QA/QC Test Manager | Jan 2022 - Present
     expect(handleCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("triggers close compare callback", async () => {
-    const user = userEvent.setup();
-    const handleClose = vi.fn();
+  it("places section navigation beside display controls without duplicate page actions", () => {
 
     render(
       <CompareWorkspace
@@ -182,16 +176,16 @@ Software QA/QC Test Manager | Jan 2022 - Present
         editMode={false}
         editContent=""
         isSavingDraft={false}
-        onEnterEdit={vi.fn()}
         onCancelEdit={vi.fn()}
         onContentChange={vi.fn()}
         onSaveDraft={vi.fn()}
-        onCloseCompare={handleClose}
       />,
     );
 
-    const closeBtn = screen.getByRole("button", { name: /close comparison/i });
-    await user.click(closeBtn);
-    expect(handleClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /close comparison/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /export pdf/i })).not.toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "Comparison sections" });
+    expect(within(navigation.parentElement!).getByRole("button", { name: "Smart Diff" })).toBeInTheDocument();
   });
 });
