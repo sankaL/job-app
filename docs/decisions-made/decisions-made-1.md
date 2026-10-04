@@ -1,3 +1,9 @@
+## 2026-10-04 16:00:00 EDT - Jev judges retitled roles
+
+- Context: High generations took about 23s against about 15s for Medium, because every retitled role sent the whole Experience section to a Sonnet audit (about 5s) after the slowest write.
+- Decision: A retitled role becomes a Jev `title` claim (evidence: source title plus the whole reviewed role) with title-specific thresholds (accept >= 0.25, reject <= 0.15). Uncertain titles still escalate the whole section. The deterministic title rule remains first.
+- Evidence: 16 labelled retitles (QA and engineering roles). High 16/16 correct. Medium 14/16; the two accepted cases match the existing Medium worked example (Backend -> Platform). No bad retitle was accepted; seniority bumps and field changes scored <= 0.09. Live High runs fell from about 23s to 12-17s with two LLM calls.
+
 ## 2026-10-04 15:00:00 EDT - Parallel writing, keep-original sections and progressive display
 
 - Context: After bounding reasoning, routing providers and adding the Jev audit, writing was the remaining latency, and one unverifiable section still failed whole generations. The user approved splitting writing into two calls (about +$0.03-0.05), Sonnet repairs, a 10-request allowance, keeping original text instead of failing, prompt caching and progressive display.

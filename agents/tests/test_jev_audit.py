@@ -91,7 +91,25 @@ def test_section_claims_split_bullets_and_sentences_with_role_evidence_and_flag_
     texts = {"summary": "Backend engineer building APIs.", "b1": "Built APIs.", "b2": "Wrote tests.",
              "role": "Backend Engineer Acme 2020 - 2024 Built APIs. Wrote tests."}
     claims, needs_llm = jev_audit.section_claims(document.sections, texts, {"role": "Backend Engineer"})
-    assert [c.text for c in claims] == ["Backend engineer.", "Builds APIs.", "Built APIs.", "Wrote tests."]
-    assert claims[2].evidence.startswith("Built APIs.") and "Same role:" in claims[2].evidence
-    assert claims[2].role == "Platform Engineer | Acme | 2020 - 2024"
-    assert needs_llm == {"experience"}
+    assert [c.text for c in claims] == ["Backend engineer.", "Builds APIs.", "Role title: Platform Engineer", "Built APIs.", "Wrote tests."]
+    title = claims[2]
+    assert title.kind == "title" and title.evidence.startswith("Source title: Backend Engineer")
+    assert claims[3].evidence.startswith("Built APIs.") and "Same role:" in claims[3].evidence
+    assert claims[3].role == "Platform Engineer | Acme | 2020 - 2024"
+    assert needs_llm == set()
+    request = jev_audit.build_request(claims, "high", "typesafe/jev-1.13")
+    assert set(request["questions"][title.id]["criteria"]) == {"acceptable_reframe", "unsupported_role_reframe"}
+    assert set(request["questions"][claims[3].id]["criteria"]) == set(jev_audit.HIGH_OPTIONS)
+
+
+def test_title_claims_route_on_acceptable_reframe_probability():
+    parsed = jev_audit.JevAnswer.model_validate({"type": "choice", "choice": "unsupported_role_reframe", "confidence": 0.9,
+        "probabilities": {"acceptable_reframe": 0.05, "unsupported_role_reframe": 0.95}})
+    assert jev_audit.route(parsed, "high", kind="title") == ("reject", "unsupported_role_reframe")
+
+
+@pytest.mark.parametrize("p_accept,expected", [(0.3, "accept"), (0.2, "escalate"), (0.1, "reject")])
+def test_title_claims_use_their_own_thresholds(p_accept, expected):
+    parsed = jev_audit.JevAnswer.model_validate({"type": "choice", "choice": "acceptable_reframe" if p_accept >= 0.5 else "unsupported_role_reframe",
+        "confidence": max(p_accept, 1 - p_accept), "probabilities": {"acceptable_reframe": p_accept, "unsupported_role_reframe": round(1 - p_accept, 6)}})
+    assert jev_audit.route(parsed, "medium", kind="title")[0] == expected

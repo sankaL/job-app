@@ -25,6 +25,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 - **Tests:** agents 331, backend 522, local guards OK, frontend build OK. 3 frontend failures are unrelated (2 pre-existing shell tests, 1 timing flake).
 - **Rollout:** backend and frontend before the worker.
 - **Details:** `docs/task-output/2026-10-04-generation-speed-robustness.md`.
+- **Follow-up (2026-10-04 16:00 EDT):** Jev now judges retitled roles, so High no longer always pays a Sonnet audit. Live High runs took 12-17s, down from about 23s; agents tests 335 passed.
 
 ## Landing feature card review
 

@@ -626,13 +626,15 @@ async def audit_section_grounding(
             llm_sections = sections
         else:
             for claim in claims:
-                decision, code = jev_audit.route(answers[claim.id], level)
+                decision, code = jev_audit.route(answers[claim.id], level, kind=claim.kind)
                 if decision == "reject":
                     failures.setdefault(claim.section_id, set()).add(str(code))
                 elif decision == "escalate":
                     uncertain.setdefault(claim.section_id, []).append(claim)
             escalate_ids = (set(uncertain) | needs_llm) - set(failures)
-            llm_sections = [_escalation_view(section, uncertain.get(section.id), section.id in needs_llm)
+            # An uncertain title is judged with its whole section (title plus responsibilities).
+            llm_sections = [_escalation_view(section, uncertain.get(section.id),
+                                             section.id in needs_llm or any(c.kind == "title" for c in uncertain.get(section.id, [])))
                             for section in sections if section.id in escalate_ids]
         budget.attempts.append({"model": str(jev_model), "transport_mode": "decisions", "operation": "jev_audit",
             "outcome": "failed" if jev_error else "success", "elapsed_ms": round((perf_counter() - started) * 1000),
