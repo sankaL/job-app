@@ -1,5 +1,27 @@
 # Merged main production verification
 
+## Content-tracing release follow-up
+
+Verified 2026-10-03 23:30 EDT. The user requested deployment of the latest changes and `LANGSMITH_TRACE_CONTENT=true`. The latest local committed snapshot was `d8bf7fbef89b4ea3c35d9fd8e951fa2b62fa19fc`; repeated remote checks still showed GitHub main at `bfa54bc`. Deployed an archive of the committed snapshot through Railway CLI, excluding private env files and unrelated working-tree files. No GitHub branch was pushed or merged during this task. No SQL migrations differ from the previous deployed main.
+
+Saved `LANGSMITH_TRACE_CONTENT=true` on backend and agents with early deployment disabled, then deployed all three services. Production queue and active-job counts were zero before rollout.
+
+| Service | Successful deployment |
+| --- | --- |
+| Frontend | `4bac7264-445e-4f91-a0db-60c59032be3c` |
+| Backend | `d3ef146a-8503-4f3e-a7e5-397af55a419e` |
+| Agents | `8609bf52-88d7-449c-a410-12755d6952e3` |
+
+Each deployment became the corresponding active release. Remote hashes match the committed backend configuration, tracing, import/classifier/parser and API wiring, plus worker settings, model runtime and tracing. Both running services report the true flag and an effective content-enabled setting in `applix-prod`.
+
+Synthetic model runs submitted through each deployed shared trace helper include a fictional prompt and parsed-output marker. Readback confirms the expected project, completion, both bodies, contact redaction and absence of the configured key. No provider call, private user content or application write was used. Initial backend readback returned not-found within its shorter retrieval window; the subsequent bounded verification succeeded for both services.
+
+- Backend verification run: `01a104f5-6845-75d2-8566-af6fe7631cac`.
+- Agents verification run: `01a104f5-6e61-7ba1-b3b0-eadb93954710`.
+- Public site and backend health return HTTP 200; unauthenticated application API returns HTTP 401.
+
+GitHub main must incorporate the released commit to align subsequent automatic deployments with this CLI release. These probes verify deployment, effective configuration and trace serialization/delivery; they do not replace a complete new resume-generation check.
+
 Verified 2026-10-03 22:29 EDT. Deployment and migrations are complete. A replacement production LangSmith key remains pending user input; the existing key was verified successfully and retained.
 
 ## Running release

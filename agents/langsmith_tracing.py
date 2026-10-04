@@ -116,6 +116,17 @@ def _trace_config() -> tuple[bool, Optional[str], Optional[str]]:
     return True, api_key, project_name
 
 
+SAFE_TRACE_REASON_RE = re.compile(r"^[a-z0-9_]+(?:,[a-z0-9_]+)*$")
+
+
+def safe_error_label(error: BaseException) -> str:
+    """Exception type plus an optional fixed reason code, never exception text."""
+    reason = getattr(error, "safe_trace_reason", None)
+    if isinstance(reason, str) and len(reason) <= 300 and SAFE_TRACE_REASON_RE.fullmatch(reason):
+        return f"{type(error).__name__}: {reason}"
+    return type(error).__name__
+
+
 def trace_content_enabled() -> bool:
     """Redacted prompt/output bodies are an explicit opt-in on top of tracing."""
     settings = _TraceSettings()
@@ -179,7 +190,7 @@ def trace_scope(
         yield run_tree
     except BaseException as error:
         operation_error = error
-        end_trace_safely(run_tree, error=type(error).__name__)
+        end_trace_safely(run_tree, error=safe_error_label(error))
         raise
     finally:
         # Do not let SDK exception formatting copy private provider bodies.

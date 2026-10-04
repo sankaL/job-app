@@ -25,7 +25,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
 - All application data is private to the authenticated user. Treat user isolation as a hard requirement across UI, API, background work, and notifications.
 - Resume content remains Markdown inside versioned section documents. Stable section, entry and bullet IDs support editing, regeneration and comparison; deterministic Markdown projections support export.
 - Personal information such as name, email, phone, and address comes from the user profile and must not be invented by the LLM.
-- Resume tailoring must stay grounded in the user's source resume and the job posting. Do not invent employers, dates, credentials, or education history. High aggressiveness may retitle Professional Experience role names only when the new title remains a truthful reframing of the same source role and keeps employer and dates unchanged.
+- Resume tailoring is grounded in the user's source resume and the job posting. Never invent employers, dates, tenure, credentials, or education history at any level. Low and Medium add no unsupported claims. High is an explicit user opt-in for job fit: it may add plausible technologies, scope, outcomes and metrics that fit the source role, seniority and domain, and may retitle Professional Experience roles when the new title stays a credible reframing of the same role with employer and dates unchanged. See the PRD aggressiveness definitions.
 - The `applied` flag is separate from the primary application status and must remain independently user-controlled.
 - Exported PDFs are generated on demand from the latest draft. Do not add persistent PDF storage for MVP.
 

@@ -5,10 +5,10 @@ import { JobExtractionProgress } from "@/components/ui/resume-processing";
 
 afterEach(() => vi.useRealTimers());
 
-it("shows job extraction immediately, rotates explanations and uses only reported percentages", () => {
+it("shows job extraction immediately, rotates explanations and catches up smoothly to reported percentages", () => {
   vi.useFakeTimers();
   const { rerender, unmount } = render(<JobExtractionProgress progress={null} isCancelling={false} />);
-  expect(screen.getByRole("progressbar", { name: "Job extraction progress" })).not.toHaveAttribute("aria-valuenow");
+  expect(screen.getByRole("progressbar", { name: "Job extraction progress" })).toHaveAttribute("aria-valuenow", "0");
   expect(screen.getByRole("status", { name: "Job extraction status" })).toHaveTextContent("Waiting for the first update");
   expect(screen.getByTestId("resume-generation-skeleton")).toHaveAttribute("aria-hidden", "true");
   expect(screen.queryByRole("list")).not.toBeInTheDocument();
@@ -16,9 +16,10 @@ it("shows job extraction immediately, rotates explanations and uses only reporte
   expect(screen.getByText("Relevant skills and responsibilities help shape your tailored resume.")).toBeInTheDocument();
   rerender(<JobExtractionProgress progress={{ job_id: "job-1", message: "Reading the job requirements", percent_complete: 42 }} isCancelling={false} />);
   expect(screen.getByText("0s")).toBeInTheDocument();
-  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "42");
   act(() => vi.advanceTimersByTime(30000));
-  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "42");
+  const eased = Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"));
+  expect(eased).toBeGreaterThanOrEqual(42);
+  expect(eased).toBeLessThan(94);
   rerender(<JobExtractionProgress progress={{ job_id: "job-1", message: "Reading the job requirements", percent_complete: 42 }} isCancelling />);
   expect(screen.getByRole("status", { name: "Job extraction status" })).toHaveTextContent("Stopping extraction. Waiting for confirmation.");
   unmount();

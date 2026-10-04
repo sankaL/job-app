@@ -659,3 +659,169 @@ async def test_worker_full_validation_carries_operation_into_canonical_boundary(
         model='primary', fallback_model='fallback', model_used='primary', attempt_diagnostics=[], api_key='test',
         base_url='https://provider.invalid/v1', repair_deadline=monotonic()+240, on_progress=None)
     assert validation['valid'], validation
+
+
+@pytest.mark.asyncio
+async def test_claim_audit_prompt_omits_unslop_policy(monkeypatch):
+    from llm_runtime import CallBudget
+    captured = {}
+
+    async def call(**kwargs):
+        captured['system'] = kwargs['prompt'][0][1]
+        payload = json.loads(kwargs['prompt'][1][1])
+        return pipeline.GroundingAudit(sections=[pipeline.GroundingAssessment(id=section['id'], supported=True, issues=[]) for section in payload['sections_to_verify']])
+
+    monkeypatch.setattr(pipeline, 'structured_call', call)
+    source = validate_resume_document(source_document())
+    section = next(item for item in source.sections if item.id == 'summary-id')
+    await pipeline.audit_section_grounding(
+        sections=[section], source=source, generation_settings={}, model='primary',
+        api_key='test-key', base_url='https://example.invalid', budget=CallBudget.for_seconds(30),
+    )
+    assert 'Unslop' not in captured['system']
+    assert captured['system'].startswith('Check rewritten resume claims')
+
+
+def _budgeted_call(writes, audit_plan, failing_models=()):
+    """Fake provider that spends the shared budget like structured_call does."""
+    import asyncio
+    calls = []
+    async def call(**kwargs):
+        budget = kwargs['budget']
+        budget.remaining_seconds()
+        budget.requests += 1
+        calls.append((kwargs['operation'], kwargs['model_name']))
+        if kwargs['model_name'] in failing_models or (kwargs['operation'] == 'section_grounding_audit' and audit_plan and audit_plan[0] == 'timeout'):
+            if kwargs['operation'] == 'section_grounding_audit' and audit_plan and audit_plan[0] == 'timeout':
+                audit_plan.pop(0)
+            budget.attempts.append({'model': kwargs['model_name'], 'outcome': 'timeout'})
+            raise asyncio.TimeoutError('AI provider request timed out.')
+        budget.attempts.append({'model': kwargs['model_name'], 'outcome': 'success'})
+        payload = json.loads(kwargs['prompt'][1][1])
+        if kwargs['operation'] == 'section_grounding_audit':
+            flagged = audit_plan.pop(0) if audit_plan else set()
+            return pipeline.GroundingAudit(sections=[{'id': s['id'], 'supported': s['id'] not in flagged,
+                'issues': ['unsupported_scope'] if s['id'] in flagged else []} for s in payload['sections_to_verify']])
+        writes.append(kwargs['model_name'])
+        outputs = {'summary-id': summary_output(), 'experience-id': experience_output(), 'custom-id': custom_output()}
+        return pipeline.SectionBatch.model_validate({'sections': [outputs[s['id']] for s in payload['requested_sections']]})
+    return call, calls
+
+
+async def _generate(monkeypatch, call):
+    monkeypatch.setattr(pipeline, 'structured_call', call)
+    return await pipeline.generate_document(source_payload=source_document(), generation_settings={
+        'aggressiveness': 'medium', '_routine_model': 'tier2-primary', '_routine_fallback_model': 'tier2-fallback'},
+        section_preferences=[], job_title='Engineer', company_name='Example', job_description='Build APIs',
+        model='tier1-primary', fallback_model='tier1-fallback', api_key='test', base_url='https://provider.invalid/v1', on_progress=None)
+
+
+@pytest.mark.asyncio
+async def test_audit_fallback_still_leaves_room_to_audit_the_final_repair(monkeypatch):
+    # Production sequence: the first audit times out, then Summary is rejected in every round.
+    writes = []
+    call, calls = _budgeted_call(writes, ['timeout', {'summary-id'}, {'summary-id'}, {'summary-id'}])
+    with pytest.raises(pipeline.SectionGenerationError) as raised:
+        await _generate(monkeypatch, call)
+    assert len(calls) == 7
+    assert calls[-1][0] == 'section_grounding_audit'
+    assert len(raised.value.attempt_diagnostics) == 7
+    assert raised.value.validation_errors[0]['section'] == 'summary-id'
+    assert raised.value.safe_trace_reason == 'unsupported_scope'
+
+
+@pytest.mark.asyncio
+async def test_repair_round_is_not_started_without_budget_for_its_audit(monkeypatch):
+    # Every primary call fails, so each write and audit spends two requests.
+    writes = []
+    call, calls = _budgeted_call(writes, [{'summary-id'}, {'summary-id'}, {'summary-id'}],
+        failing_models=('tier1-primary', 'tier2-primary'))
+    with pytest.raises(pipeline.SectionGenerationError) as raised:
+        await _generate(monkeypatch, call)
+    assert len(calls) == pipeline.WRITING_MAX_REQUESTS
+    assert calls[-1][0] == 'section_grounding_audit'
+    assert len(raised.value.attempt_diagnostics) == pipeline.WRITING_MAX_REQUESTS
+
+
+@pytest.mark.asyncio
+async def test_exhausted_budget_marks_audit_unavailable_instead_of_raising(monkeypatch):
+    call, calls = _budgeted_call([], [])
+    monkeypatch.setattr(pipeline, 'structured_call', call)
+    budget = pipeline.CallBudget.for_seconds(5, max_requests=1)
+    budget.requests = 1
+    doc = validate_resume_document(source_document())
+    result = await pipeline.audit_section_grounding(sections=doc.sections[:1], source=doc, generation_settings={},
+        model='tier2-primary', fallback_model='tier2-fallback', api_key='test', base_url='https://provider.invalid/v1', budget=budget)
+    assert result == {'summary-id': 'grounding_audit_unavailable'}
+    assert calls == []
+
+
+def test_high_allows_plausible_new_metrics_but_keeps_years_and_strict_modes_bound():
+    texts = {'bullet-one': 'Built Python APIs in 2021.'}
+    pipeline._check_grounding('Built Python APIs serving 2M requests and cut latency 30%.', ['bullet-one'], texts, aggressiveness='high')
+    with pytest.raises(pipeline.SectionValidationError, match='unsupported_numeric_fact'):
+        pipeline._check_grounding('Built Python APIs serving 2M requests and cut latency 30%.', ['bullet-one'], texts, aggressiveness='medium')
+    with pytest.raises(pipeline.SectionValidationError, match='unsupported_numeric_fact'):
+        pipeline._check_grounding('Built Python APIs in 2019.', ['bullet-one'], texts, aggressiveness='high')
+
+
+@pytest.mark.parametrize('aggressiveness,operation,expected', [
+    ('high', 'generation', pipeline.HIGH_FIT_CLAIM_POLICY),
+    ('medium', 'generation', pipeline.STRICT_CLAIM_POLICY),
+    ('low', 'generation', pipeline.STRICT_CLAIM_POLICY),
+    ('high', 'keyword_optimization', pipeline.STRICT_CLAIM_POLICY),
+])
+def test_writer_claim_policy_follows_aggressiveness(aggressiveness, operation, expected):
+    doc = validate_resume_document(source_document())
+    prompt = pipeline.build_section_prompt(source=doc, requested=doc.sections[:1],
+        generation_settings={'aggressiveness': aggressiveness, '_operation': operation},
+        job_title='Engineer', company_name='Acme', job_description='Build APIs.', instructions=None, current=None, target_entry_id=None)
+    assert expected in prompt[0][1]
+    other = pipeline.STRICT_CLAIM_POLICY if expected == pipeline.HIGH_FIT_CLAIM_POLICY else pipeline.HIGH_FIT_CLAIM_POLICY
+    assert other not in prompt[0][1]
+
+
+def test_grounding_audit_prompt_is_plausibility_based_only_for_high():
+    high = pipeline.grounding_audit_system_prompt('high')
+    medium = pipeline.grounding_audit_system_prompt('medium')
+    assert 'implausible_claim' in high and 'unsupported_date_or_tenure' in high and 'unsupported_employer' in high
+    assert 'plausible for the cited role' in high
+    assert 'supported by its cited source' in medium and 'plausible' not in medium
+
+
+@pytest.mark.asyncio
+async def test_high_keyword_audit_rejects_unsupported_technology_with_strict_policy(monkeypatch):
+    doc = validate_resume_document(source_document())
+    rewritten, view = pipeline.apply_keyword_patch(
+        patch={'id': 'summary-id', 'paragraph': 'Built Python APIs using Kubernetes.', 'source_ids': ['summary-id']},
+        source=doc.sections[0], current=doc.sections[0], document=doc, privacy_values=[],
+    )
+    assert 'Kubernetes' in rewritten.content_md  # Local citation checks cannot decide technology support.
+
+    async def strict_audit(**kwargs):
+        assert 'supported by its cited source' in kwargs['prompt'][0][1]
+        assert 'plausible for the cited role' not in kwargs['prompt'][0][1]
+        assert json.loads(kwargs['prompt'][1][1])['aggressiveness'] == 'medium'
+        return pipeline.GroundingAudit(sections=[{'id': 'summary-id', 'supported': False, 'issues': ['unsupported_technology']}]), 'audit'
+
+    monkeypatch.setattr(pipeline, 'call_with_fallback', strict_audit)
+    result = await pipeline.audit_section_grounding(sections=[view], source=doc,
+        generation_settings={'aggressiveness': 'high', '_operation': 'keyword_optimization'},
+        model='audit', api_key='test', base_url='https://provider.invalid', budget=pipeline.CallBudget.for_seconds(5))
+    assert result == {'summary-id': 'unsupported_technology'}
+    prompt = pipeline.build_section_prompt(source=doc, requested=doc.sections[:2],
+        generation_settings={'aggressiveness': 'high', '_operation': 'keyword_optimization'},
+        job_title='Engineer', company_name='Acme', job_description='Kubernetes', instructions=None, current=doc, target_entry_id=None)
+    human = json.loads(prompt[1][1])
+    assert 'plausible' not in json.dumps(human['aggressiveness_contract'])
+    assert human['title_policy'] == 'Preserve current titles exactly.'
+
+
+def test_high_section_rules_allow_plausible_metrics_but_keyword_rules_stay_strict():
+    doc = validate_resume_document(source_document())
+    prompt = pipeline.build_section_prompt(source=doc, requested=doc.sections,
+        generation_settings={'aggressiveness': 'high'}, job_title='Engineer', company_name='Acme',
+        job_description='Build APIs.', instructions=None, current=None, target_entry_id=None)
+    rule = json.loads(prompt[1][1])['section_rules']['professional_experience']
+    assert 'do not invent metrics or scope' not in rule
+    assert 'High claim policy' in rule

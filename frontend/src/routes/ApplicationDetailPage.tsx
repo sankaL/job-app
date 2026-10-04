@@ -4061,7 +4061,11 @@ export function ApplicationDetailPage() {
                       : detail.extraction_failure_details?.kind ===
                           "user_cancelled"
                         ? "Extraction was stopped. Retry with text, retry the URL, or delete this application."
-                        : "Extraction incomplete. Paste text or fill in details."}
+                        : detail.extraction_failure_details?.kind === "posting_unavailable"
+                          ? "This posting appears to be closed or removed. Paste the job text or complete manual entry."
+                          : detail.extraction_failure_details?.kind === "no_job_posting"
+                            ? "No job posting was found on this page. Paste the job text or complete manual entry."
+                            : "Extraction incomplete. Paste text or fill in details."}
                   </Text>
                   <form
                     className="mt-3 space-y-3"

@@ -201,6 +201,21 @@ def test_keyword_optimization_prompt_includes_current_draft_and_minimal_edit_con
     assert human_payload["sanitized_current_draft_markdown"] == "## Summary\nBuilt React Native apps and CI/CD systems."
 
 
+def test_high_legacy_keyword_prompt_has_only_strict_minimal_edit_contracts():
+    prompt = generation._build_generation_prompt(operation='keyword_optimization',
+        base_resume_content='## Summary\nBuilt Python APIs.', job_title='Engineer', company_name='Acme',
+        job_description='Kubernetes', enabled_sections=['summary', 'professional_experience', 'skills'],
+        aggressiveness='high', target_length='1_page', additional_instructions=None,
+        professional_experience_anchors=[])
+    assert 'Plausible job-fit metrics' not in prompt[0][1]
+    assert 'Acceptable high-aggressiveness addition' not in prompt[0][1]
+    assert 'materially rewrite' not in prompt[0][1].lower()
+    assert 'never add unsupported claims' in json.dumps(json.loads(prompt[1][1])['aggressiveness_contract'])
+    human = json.loads(prompt[1][1])
+    assert 'materially' not in json.dumps(human['section_rules']).lower()
+    assert human['professional_experience_structure_contract']['title_rewrite_policy']['mode'] == 'preserve_current'
+
+
 def test_generated_payload_rejects_markdown_section_contract():
     with pytest.raises(Exception, match="content"):
         generation.GeneratedResumePayload.model_validate(
@@ -1201,8 +1216,8 @@ def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_expe
     )
 
     system_prompt = prompt[0][1]
-    assert "you may make bounded professional inferences from demonstrated patterns in the source" in system_prompt.lower()
-    assert "you may introduce jd-driven non-factual keywords for fit" in system_prompt.lower()
+    assert "you may add plausible job-fit claims, including technologies, scope, outcomes" in system_prompt.lower()
+    assert "never invent or change employers" in system_prompt.lower()
     assert "you should actively retitle the role name for alignment or adjacent role framing" in system_prompt.lower()
     assert "materially rewrite bullet framing in the first up to 2 source-ordered roles that have bullets" in system_prompt.lower()
     assert "keep company and dates unchanged" in system_prompt.lower()

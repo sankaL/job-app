@@ -11,7 +11,7 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 - Remove personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
 - Do not rely on provider-specific prompt syntax or model-specific features. Prompts must remain portable across OpenRouter-supported models.
 - Model selection belongs in configuration, not prompt assets or code constants. Initial/full writing uses Tier 1; section writing, extraction, audits, repairs and requested quality scoring use Tier 2. Subscription plans govern request allowances only; models use default reasoning.
-- Every model system prompt must include the shared Unslop policy verbatim. Grounding, privacy, exact-copy, ATS, structured-output, and operation-specific resume rules take precedence over conflicting general writing advice.
+- Every model system prompt that authors prose must include the shared Unslop policy verbatim. Prompts whose output copies source text or returns decisions (job posting extraction, ATS keyword extraction, resume cleanup, nested entry extraction, grounding claim audit) omit it, because the policy only adds tokens and risks rewriting source wording. Grounding, privacy, exact-copy, ATS, structured-output, and operation-specific resume rules take precedence over conflicting general writing advice.
 - Pydantic AI output corrections, explicit model fallback and targeted section repairs share a bounded request, token and deadline budget. Preserve validated sibling sections during repairs.
 
 ## Generation Rules
@@ -21,11 +21,11 @@ Keep this file focused on durable AI prompt and validation rules for the AI Resu
 - Use prompt variants that explicitly reflect the selected page-length target and aggressiveness level.
 - Section regeneration requires explicit user instructions and must reject blank instruction input.
 - Do not generate or rewrite personal information such as name, email, phone number, or address.
-- Tailoring may reorder, rephrase, and prioritize grounded source content, but it must not invent employers, dates, credentials, or institutions. Low aggressiveness keeps Professional Experience role titles source-exact. Medium may lightly reframe them only when the title stays grounded in the same core role family and seniority. High may retitle more freely only when the new title still matches the demonstrated work and keeps employer and dates unchanged.
+- Tailoring may reorder, rephrase, and prioritize grounded source content, but it must never invent employers, dates, tenure, credentials, or institutions. Low and Medium add no unsupported claims. High may add plausible job-fit technologies, scope, outcomes and metrics consistent with the source role, seniority and domain; the High audit checks plausibility and the identity limits instead of source support. Low aggressiveness keeps Professional Experience role titles source-exact. Medium may lightly reframe them only when the title stays grounded in the same core role family and seniority. High may retitle more freely only when the new title still matches the demonstrated work and keeps employer and dates unchanged.
 
 ## Validation Rules
 - Validate structured output deterministically with schema checks plus rule-based grounding, ATS-safety, section presence, section order, and cross-section consistency checks.
-- Detect contact leakage and hallucinated content, including invented employers, dates, credentials, or educational institutions not supported by the sanitized source resume. Medium and high Professional Experience role-title rewrites are allowed only inside their narrow product rules; employers and dates remain invariant in every mode.
+- Detect contact leakage and hallucinated content, including invented employers, dates, credentials, or educational institutions not supported by the sanitized source resume. In High, plausible job-fit additions are allowed; implausible or contradicting claims still fail. Medium and high Professional Experience role-title rewrites are allowed only inside their narrow product rules; employers and dates remain invariant in every mode.
 - Validator outcomes are limited to:
   - approve
   - fail

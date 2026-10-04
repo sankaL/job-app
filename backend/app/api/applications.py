@@ -965,6 +965,19 @@ async def stream_application_events(
                         break
                     event = None
                 if event is None:
+                    # A dead worker sends no events, so check for a stuck
+                    # extraction here; recovery publishes onto this stream.
+                    try:
+                        await service.recover_stale_extraction(
+                            user_id=current_user.id,
+                            application_id=application_id,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Stale extraction check failed for application %s",
+                            application_id,
+                            exc_info=True,
+                        )
                     yield _format_sse_event("heartbeat", {"sent_at": now_iso()})
                     continue
                 yield _format_sse_event(event.event, event.payload)

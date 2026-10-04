@@ -2946,6 +2946,20 @@ describe("phase 1 applications UI", () => {
     ).toBeInTheDocument();
   });
 
+  it.each([
+    ["posting_unavailable", "This posting appears to be closed or removed."],
+    ["no_job_posting", "No job posting was found on this page."],
+  ])("keeps the persisted %s explanation without a live progress response", async (kind, message) => {
+    api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail({
+      internal_state: "manual_entry_required", visible_status: "needs_action", failure_reason: "extraction_failed",
+      extraction_failure_details: { kind, provider: null, reference_id: null, blocked_url: null, detected_at: "2026-10-04T12:00:00Z" },
+    }));
+    api.fetchApplicationProgress.mockResolvedValue(null);
+    renderWithAppProvider(<Routes><Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} /></Routes>,
+      { initialEntries: ["/app/applications/app-1"] });
+    expect(await screen.findByText(new RegExp(message.replace(".", "\\.")))).toBeInTheDocument();
+  });
+
   it("does not re-request base resumes when notes autosave updates unrelated detail state", async () => {
     api.fetchApplicationDetail.mockResolvedValue({
       id: "app-1",
@@ -3602,12 +3616,12 @@ describe("phase 1 applications UI", () => {
     expect(screen.getByText(/professional experience: aggressively reframe/i)).not.toBeVisible();
     await userEvent.hover(screen.getByRole("button", { name: "High aggressiveness" }));
 
-    const experienceHelp = screen.getByText(/professional experience: aggressively reframe, reprioritize, consolidate, and condense grounded bullets/i);
+    const experienceHelp = screen.getByText(/professional experience: aggressively reframe and reprioritize bullets, and add plausible tools, scope, outcomes, and metrics/i);
     await waitFor(() => expect(experienceHelp).toBeVisible());
     const tooltip = experienceHelp.closest('[role="tooltip"]') as HTMLElement;
     expect(
       within(tooltip).getByText(
-        /role titles may be rewritten when the new title still matches the demonstrated work\. company and dates remain fixed\./i,
+        /role titles may be rewritten when the new title still matches the demonstrated work\. company, dates, credentials, and education remain fixed\./i,
       ),
     ).toBeVisible();
     expect(
@@ -3622,7 +3636,7 @@ describe("phase 1 applications UI", () => {
     expect(slider).toHaveAttribute("aria-valuenow", "2");
     expect(
       await screen.findByText(
-        /high aggressiveness can make substantial changes to wording, emphasis, professional experience role framing, and keyword\/skills coverage, while company and dates stay fixed/i,
+        /high aggressiveness can add plausible claims, metrics, and tools that are not in your resume/i,
       ),
     ).toBeInTheDocument();
   });

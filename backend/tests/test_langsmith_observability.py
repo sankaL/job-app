@@ -2,11 +2,8 @@ from __future__ import annotations
 
 """Backend LangSmith and prompt-policy regression coverage."""
 
-import hashlib
-import importlib.util
 import json
 from contextlib import contextmanager
-from pathlib import Path
 
 import pytest
 
@@ -14,22 +11,6 @@ from app.core.config import Settings
 from app.core.tracing import end_trace_safely, sanitize_trace_data
 from app.services import resume_parser
 from app.services.resume_parser import ResumeParserService
-from app.services.unslop_prompt import UNSLOP_INSTRUCTION, UNSLOP_PRECEDENCE
-
-
-EXPECTED_UNSLOP_SHA256 = "0a04c5bc42b4882a71ef4e5f2a38e8dcf89faba73a07285f652c22b15f5228cb"
-
-
-def test_backend_and_agents_unslop_policies_are_identical():
-    agents_policy_path = Path(__file__).resolve().parents[2] / "agents" / "unslop_prompt.py"
-    spec = importlib.util.spec_from_file_location("agents_unslop_policy_for_test", agents_policy_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    assert module.UNSLOP_INSTRUCTION == UNSLOP_INSTRUCTION
-    assert module.UNSLOP_PRECEDENCE == UNSLOP_PRECEDENCE
-    assert hashlib.sha256(UNSLOP_INSTRUCTION.encode()).hexdigest() == EXPECTED_UNSLOP_SHA256
 
 
 def test_backend_trace_sanitizer_removes_contacts_secrets_and_url_queries():
@@ -80,7 +61,7 @@ def test_backend_settings_require_langsmith_credentials_when_enabled(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_cleanup_traces_only_sanitized_content_and_unslop_prompt(monkeypatch):
+async def test_cleanup_traces_only_sanitized_content_without_unslop_prompt(monkeypatch):
     captured = {}
 
     @contextmanager
@@ -113,8 +94,7 @@ async def test_cleanup_traces_only_sanitized_content_and_unslop_prompt(monkeypat
     )
 
     traced_messages = captured["inputs"]["messages"]
-    assert UNSLOP_PRECEDENCE in traced_messages[0]["content"]
-    assert UNSLOP_INSTRUCTION in traced_messages[0]["content"]
+    assert "Unslop" not in traced_messages[0]["content"]
     assert "alex@example.com" not in str(traced_messages)
     assert "416" not in str(traced_messages)
     assert captured["name"] == "applix.resume_cleanup"

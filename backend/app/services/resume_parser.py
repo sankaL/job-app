@@ -16,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.tracing import TraceConfig, end_trace_safely, trace_llm_scope
 from app.services.resume_privacy import reattach_header_lines, sanitize_resume_markdown
-from app.services.unslop_prompt import build_unslop_prompt_block
 from app.services.import_ai import invoke_import_output
 from app.services.resume_classifier import classify_resume_sections
 from app.services.resume_contacts import extract_contact_suggestions
@@ -449,7 +448,6 @@ class ResumeParserService:
             "- Do not introduce em dashes.\n"
             "- Set needs_review to true when the source looks too degraded or ambiguous to structure confidently.\n"
             "- When needs_review is false, set review_reason to null.\n"
-            f"\n{build_unslop_prompt_block()}"
         )
 
         try:
@@ -666,7 +664,7 @@ class ResumeParserService:
             "Copy exact source excerpts into fields from that entry's header lines; retain spelling, punctuation, numbers and wording. "
             "Separate company from location and role title from dates, including a single graduation year. Never invent missing facts; absent locations or dates are empty strings. "
             "Retain every source word and number exactly once within that entry's fields and referenced bullet lines. Do not repeat the company inside the title or include header lines in bullets. "
-            "Contact data was removed locally; never add contact information.\n" + build_unslop_prompt_block()
+            "Contact data was removed locally; never add contact information."
         )
         deadline = time.monotonic() + timeout_seconds
         models = list(dict.fromkeys((self.openrouter_model, self.openrouter_fallback_model)))

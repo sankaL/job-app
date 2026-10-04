@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 /** Seconds without a new progress update before a job is described as slow. */
 export const STALLED_AFTER_SECONDS = 90;
 
-function parseTime(value?: string | null) {
+export function parseTime(value?: string | null) {
   if (!value) return undefined;
   const time = Date.parse(value);
   return Number.isFinite(time) ? time : undefined;

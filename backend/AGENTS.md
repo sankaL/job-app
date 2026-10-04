@@ -36,7 +36,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - PDF export must generate from the latest draft content at request time and must not persist generated PDFs for MVP.
 
 ## Async and Timeout Contract
-- Extraction must enforce a `30s` timeout.
+- Extraction must enforce a `30s` boundary on the whole Playwright capture and a separate `45s` model budget in which the primary is capped at `30s`, with a hard per-job worker timeout, cancellation of stopped or stalled worker jobs, and backend recovery of stalled or never-started extraction jobs.
 - Full resume generation and full regeneration must enforce a `240s` idle timeout with a `240s` maximum wall-clock window.
 - Single-section regeneration must enforce a `120s` idle timeout with a `120s` maximum wall-clock window.
 - PDF export must enforce a `20s` timeout.
@@ -47,7 +47,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Initial generation and full regeneration batch writable sections in one structured request, copy fixed facts locally, and repair only failed sections within the shared budget.
 - Respect saved document inclusion/order, reviewed source-supported eligibility, target length, aggressiveness setting, and additional instructions where applicable.
 - Strip personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
-- Never generate personal information or invent credentials, employers, dates, or educational institutions. Low aggressiveness keeps Professional Experience role titles source-exact. Medium may lightly reframe them only when the title stays grounded in the same core role family and seniority. High may retitle more freely only when the new title still matches the demonstrated work and keeps employer and dates unchanged.
+- Never generate personal information or invent credentials, employers, dates, or educational institutions. Only High aggressiveness may add plausible job-fit claims (technologies, scope, outcomes, metrics) beyond the source. Low aggressiveness keeps Professional Experience role titles source-exact. Medium may lightly reframe them only when the title stays grounded in the same core role family and seniority. High may retitle more freely only when the new title still matches the demonstrated work and keeps employer and dates unchanged.
 - Initial generation, full regeneration, and section regeneration must consume the user's subscription quota. The legacy `full_regeneration_count` field is retained for compatibility only.
 - Require reviewed source sections before generation. Preserve the exact source snapshot for comparison and section/keyword regeneration. Run deterministic schema and rule validation over generated content before assembly.
 - Validator outcomes are limited to approve or fail.

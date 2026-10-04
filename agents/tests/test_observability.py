@@ -51,7 +51,7 @@ def test_generation_and_judge_prompts_include_exact_unslop_policy():
 
 
 @pytest.mark.asyncio
-async def test_extraction_and_keyword_prompts_include_unslop_and_trace_metadata(monkeypatch):
+async def test_copy_only_extraction_prompts_omit_unslop_and_keep_trace_metadata(monkeypatch):
     captured: list[tuple[list[tuple[str, str]], dict[str, Any]]] = []
 
     class FakeRunnable:
@@ -60,7 +60,7 @@ async def test_extraction_and_keyword_prompts_include_unslop_and_trace_metadata(
 
         async def ainvoke(self, prompt, config=None):
             captured.append((prompt, config or {}))
-            if self.response_model is worker.ExtractedJobPosting:
+            if self.response_model is worker.JobPostingExtraction:
                 return self.response_model.model_validate(
                     {
                         "job_title": "Backend Engineer",
@@ -89,13 +89,15 @@ async def test_extraction_and_keyword_prompts_include_unslop_and_trace_metadata(
         visible_text="Build APIs.",
         detected_origin=None,
         extracted_reference_id=None,
-    ))
+    ), timeout_seconds=worker.EXTRACTION_PRIMARY_TIMEOUT_SECONDS)
     await worker.OpenRouterKeywordExtractionAgent(settings)._extract_with_model("primary", "Build APIs")
 
     assert len(captured) == 2
-    assert all(UNSLOP_PRECEDENCE in prompt[0][1] for prompt, _config in captured)
-    assert all(UNSLOP_INSTRUCTION in prompt[0][1] for prompt, _config in captured)
+    assert all("Unslop" not in prompt[0][1] for prompt, _config in captured)
+    assert all(UNSLOP_PRECEDENCE not in prompt[0][1] for prompt, _config in captured)
+    assert all(UNSLOP_INSTRUCTION not in prompt[0][1] for prompt, _config in captured)
     assert captured[0][1]["run_name"] == "applix.job_extraction.structured"
+    assert captured[0][1]["metadata"]["timeout_seconds"] == worker.EXTRACTION_PRIMARY_TIMEOUT_SECONDS
     assert captured[1][1]["run_name"] == "applix.keyword_extraction.structured"
 
 
@@ -380,3 +382,14 @@ def test_worker_settings_reject_invalid_trace_content_value():
 
     with pytest.raises(ValidationError):
         worker.WorkerSettingsEnv(_env_file=None, langsmith_trace_content="sometimes")
+
+
+def test_safe_error_label_appends_only_fixed_reason_codes():
+    from llm_runtime import AIBudgetExhausted
+
+    class Unsafe(RuntimeError):
+        safe_trace_reason = "Private resume text"
+
+    assert tracing.safe_error_label(AIBudgetExhausted("x")) == "AIBudgetExhausted: usage_budget_exhausted"
+    assert tracing.safe_error_label(ValueError("Private payload")) == "ValueError"
+    assert tracing.safe_error_label(Unsafe("x")) == "Unsafe"

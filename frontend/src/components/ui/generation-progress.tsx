@@ -20,7 +20,7 @@ export function GenerationProgress({ progress, isOptimistic, isActive, isCancell
   const sessionKey = isActive || isOptimistic ? `${reported?.workflow_kind ?? "optimistic"}:${reported?.job_id ?? "optimistic"}` : "inactive";
   return <ResumeProcessing title={section ? "Updating your resume section" : "Preparing your tailored resume"}
     preview={<ResumeGenerationSkeleton section={section} backdrop />}
-    message={message} percent={reported?.percent_complete}
+    message={message} percent={reported?.percent_complete} easeProgress
     startedAt={reported?.created_at} updatedAt={reported?.updated_at}
     stalledHint={isActive && !isCancelling ? "You can stop and try again." : undefined}
     messages={isCancelling ? ["Your current draft stays available while cancellation is confirmed."] : undefined}

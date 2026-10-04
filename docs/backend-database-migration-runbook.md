@@ -1,11 +1,20 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-04
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
+
+## 2026-10-04 extraction recovery and claim-policy compatibility
+
+- No SQL migration or backfill. New extraction diagnostics use the existing JSONB field: `timed_out`, `posting_unavailable` and `no_job_posting`. Older rows and their existing kinds remain readable. Deploy backend, worker and frontend together so persisted outcomes keep their specific recovery messages after navigation.
+- Restart the worker to load its 120-second extraction boundary and arq abort support. Backend stop, stalled recovery and stalled deletion request cancellation. Stale recovery replaces progress only if the checked snapshot still matches; a fresh update or retry wins. Deleted stalled applications retain an ID-only terminal progress fence, with fixed status/timestamps and no source text, for at most 24 hours. Result caches are cleared. This retention fences queued work when abort delivery fails; it does not retain the deleted application row.
+- Keep started delivery concurrent with capture/model work, but finish it before terminal progress or cache becomes visible. Cache the extracted payload before announcing success. Late started callbacks cannot move a terminal job back to extracting.
+- Writing actions now share eight model requests and a 45-second audit timeout within their existing wall-clock deadline. High generation/regeneration permits the documented plausible job-fit additions; keyword optimization remains source-supported at every level. This changes acceptance policy, not quota or stored document shape.
+- Verify a stopped running job frees its slot; a stopped queued job never opens a page; stalled recovery happens once and cannot replace fresh progress; stale deletion sends no failure notification and blocks late work even if abort fails; delayed started delivery cannot undo cached success; declined outcomes keep their explanation after reload. Verify a High keyword patch cannot use the permissive High audit.
+- Rollback application code together and drain queued work before returning to older workers. Keep existing documents and JSON diagnostics; no schema rollback is needed. Older code may show generic recovery text for the new kinds and lacks the new extraction timeout/abort guarantees.
 
 ## 2026-10-03 resume library summary excerpts
 

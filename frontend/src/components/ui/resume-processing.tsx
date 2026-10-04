@@ -6,6 +6,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import type { ReactNode } from "react";
 import { Button } from "./button";
 import { ResumeGenerationSkeleton } from "./resume-generation-skeleton";
+import { useEasedProgress } from "./use-eased-progress";
 import { useProcessingClock } from "./use-processing-clock";
 
 const DEFAULT_MESSAGES = [
@@ -38,10 +39,12 @@ function ProcessingAvatar({ active }: { active: boolean }) {
 
 export const STALLED_MESSAGE = "This is taking longer than usual.";
 
-export function ResumeProcessing({ title, message, percent, startedAt, updatedAt, stalledHint, active = true, sessionKey = "import", actions, preview, messages = DEFAULT_MESSAGES, statusLabel = "Resume processing status", progressLabel = "Resume processing progress" }: {
+export function ResumeProcessing({ title, message, percent, easeProgress = false, startedAt, updatedAt, stalledHint, active = true, sessionKey = "import", actions, preview, messages = DEFAULT_MESSAGES, statusLabel = "Resume processing status", progressLabel = "Resume processing progress" }: {
   title: string;
   message: string;
   percent?: number;
+  /** Ease toward the higher of elapsed-time feedback (capped at 94%) and reported progress. */
+  easeProgress?: boolean;
   /** Job start time from the server, so the elapsed clock survives reloads and navigation. */
   startedAt?: string | null;
   /** Last server progress update, used to detect a slow job. */
@@ -59,6 +62,8 @@ export function ResumeProcessing({ title, message, percent, startedAt, updatedAt
   const { elapsed, stalled } = useProcessingClock({ active, sessionKey, startedAt, updatedAt, updateKey: `${message}|${percent ?? ""}` });
   const measuredPercent = typeof percent === "number" && Number.isFinite(percent)
     ? Math.max(0, Math.min(100, percent)) : undefined;
+  const eased = useEasedProgress({ enabled: easeProgress && active, sessionKey, startedAt, reported: measuredPercent });
+  const shownPercent = eased ?? measuredPercent;
   const elapsedText = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
   const supportingMessage = messages.length ? messages[Math.floor(elapsed / 8) % messages.length] : undefined;
 
@@ -73,7 +78,7 @@ export function ResumeProcessing({ title, message, percent, startedAt, updatedAt
           <Heading level={2} className="text-base font-semibold">{title}</Heading>
           <VStack gap={3} className="w-full">
             <Text as="p" type="body" role="status" aria-label={statusLabel} aria-live="polite" aria-atomic="true">{message}</Text>
-            <ProgressBar label={progressLabel} isLabelHidden value={measuredPercent} isIndeterminate={measuredPercent === undefined && active} hasValueLabel={measuredPercent !== undefined} variant="neutral" isDisabled={!active} />
+            <ProgressBar label={progressLabel} isLabelHidden value={shownPercent} isIndeterminate={shownPercent === undefined && active} hasValueLabel={shownPercent !== undefined} variant="neutral" isDisabled={!active} />
             <Text as="p" type="supporting" color="secondary" className="min-h-10" aria-live="off">{supportingMessage}</Text>
             {stalled && <Text as="p" type="supporting" role="status" aria-label="Slow progress notice" aria-live="polite">{stalledHint ? `${STALLED_MESSAGE} ${stalledHint}` : STALLED_MESSAGE}</Text>}
           </VStack>
@@ -105,7 +110,7 @@ export function JobExtractionProgress({ progress, isCancelling, onCancel }: {
 }) {
   return <ResumeProcessing title="Reading the job posting" sessionKey={progress?.job_id ?? "extraction"}
     message={isCancelling ? "Stopping extraction. Waiting for confirmation." : progress?.message || "Opening the job posting. Waiting for the first update."}
-    percent={progress?.percent_complete} startedAt={progress?.created_at} updatedAt={progress?.updated_at}
+    percent={progress?.percent_complete} easeProgress startedAt={progress?.created_at} updatedAt={progress?.updated_at}
     stalledHint={onCancel && !isCancelling ? "You can stop extraction and enter the details yourself." : undefined}
     statusLabel="Job extraction status" progressLabel="Job extraction progress"
     actions={onCancel ? <Button type="button" variant="secondary" size="sm" disabled={isCancelling} onClick={onCancel}>{isCancelling ? "Stopping..." : "Stop extraction"}</Button> : undefined}

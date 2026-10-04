@@ -5,6 +5,8 @@ from uuid import uuid4
 
 from arq import create_pool
 from arq.connections import RedisSettings
+from arq.constants import abort_jobs_ss
+from arq.utils import timestamp_ms
 
 from app.core.config import get_settings
 
@@ -42,6 +44,18 @@ class ExtractionJobQueue:
             raise RuntimeError("Failed to enqueue extraction job.")
 
         return job_id
+
+    async def abort(self, job_id: str) -> None:
+        """Ask the worker to cancel a running job or skip a queued one, without waiting.
+
+        `arq.jobs.Job.abort` blocks until the job result exists, so the abort set
+        entry is written directly; the worker polls it about every 0.5s.
+        """
+        redis = await create_pool(self.redis_settings)
+        try:
+            await redis.zadd(abort_jobs_ss, {job_id: timestamp_ms()})
+        finally:
+            await redis.aclose()
 
 
 class GenerationJobQueue:

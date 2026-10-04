@@ -1,12 +1,30 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-04
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## Review and commit the full uncommitted snapshot
+
+**Status:** Complete; review fixes and local verification passed (2026-10-04 03:43:51 EDT).
+
+Reviewed all staged work against `HEAD`, preserving intentional spec changes. Confirmed strict keyword-policy gaps, extraction callback/cache ordering, stale recovery overwriting fresh progress, stale deletion leaving queued work alive, and persisted extraction-outcome copy. Clarified smooth catch-up wording and added the missing migration/compatibility note. Final verification: backend 518 passed, agents 296 passed, frontend 287 passed with two failures reproduced on pristine `HEAD`; TypeScript/Vite production build and whitespace checks passed. Actual local Redis CAS coverage passed. All uncommitted changes are included in the requested branch commit. Evidence and exact documentation updates are tracked in [review output](task-output/2026-10-04-uncommitted-code-review.md).
+
+## Extraction fallback window, job abort and prompt hardening
+
+**Status:** Complete; local verification passed (2026-10-04 00:22 EDT): agents (285) and backend (507) suites passed through the Makefile-managed local stack, and the rebuilt local backend venv runs the full backend suite (500 passed, 7 database tests skipped by design). An isolated end-to-end check against real Redis and arq (DB 15, private queue) confirmed that `ExtractionJobQueue.abort` skips a queued job and cancels a running one, freeing its slot in 0.42s.
+
+The extraction model budget is now 45s, with the primary capped at 30s so the fallback always gets at least 15s. Stopping or recovering an extraction cancels the worker job (`allow_abort_jobs`). The `started` callback no longer delays capture. The local backend venv was rebuilt on Python 3.12. The extraction prompt now lets the model decline sign-in walls, closed postings and non-posting pages instead of inventing fields. It also requires a verbatim description, defines `company` as the hiring employer, ignores instructions embedded in page text and no longer exposes `job_keywords`. A known board host overrides the model's origin, and model reference IDs must appear in the source. A test keeps `docs/prompts.md` identical to the code prompt, and `make test-agents` now mounts `docs/prompts.md` for it. The running local agents worker must be restarted to load `allow_abort_jobs`. Updated the PRD, `docs/database_schema.md`, `docs/prompts.md` and `backend/AGENTS.md`. No migration. See the decisions log entry of the same date.
+
+## Bounded job extraction and stalled-extraction recovery
+
+**Status:** Complete; local verification passed (2026-10-04 00:10 EDT): agents (274) and backend (503) suites passed through the Makefile-managed local stack. A real headless-Chromium capture in the agents container finished in 6.1s on a page that never reaches network idle; before the change that page failed as a timeout.
+
+Playwright capture now has one 30s boundary (URL check, 20s navigation, best-effort 5s network-idle settle, single-snapshot text read), and pages that never go idle continue with the loaded DOM. Each extraction job has a 120s arq timeout. The backend fails a started extraction with no progress for 150s, or a queued one not picked up in 300s, as `timed_out`. It checks on detail and progress reads and on every event-stream heartbeat, with one notification per stalled job, and allows deleting stalled rows. Also fixed: Cloudflare and "access denied" false positives in blocked-page detection, reference IDs matched inside words (worker and duplicate detector), superseded jobs clearing newer cached results and paying for model calls after a stop, and unbounded JSON-LD and meta in the prompt. Updated the PRD, `docs/database_schema.md`, `docs/prompts.md` (the job extraction prompt text now matches the code) and `backend/AGENTS.md`. No migration. See the decisions log entry of the same date.
 
 ## Processing clock, extraction stop and slow-job notice
 
@@ -14,13 +32,39 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 Elapsed time now counts from the job's reported `created_at`, so reloading or navigating mid-job no longer restarts it at 0s. Job extraction gains a Stop extraction button on the processing card that opens the existing confirmation. Full generation, job extraction and inline section regeneration show "This is taking longer than usual" after 90 seconds without a progress update; idle time is the smaller of the server and local readings so a fast client clock cannot raise a false notice. The processing card is now compact (smaller avatar, narrower card, tighter spacing) so more of the resume skeleton shows around it; the paper avatar and its animation are unchanged. Frontend-only; no backend or AI behavior changed. Twelve focused loading tests passed, the application suite passed 128 of 130 with the two known comparison-shell and breakpoint failures, and `tsc --noEmit -p tsconfig.app.json` is clean.
 
+## Eased processing progress bar
+
+**Status:** Complete; local verification passed (2026-10-04 00:25 EDT). 15 focused progress tests pass. The full frontend suite passes 285 of 287; two shell-mode tests in `applications.test.tsx` fail identically without this change, and the production build succeeds.
+
+Job extraction and full generation now show a bar that moves quickly to about 70% in 15 seconds and then slows toward a 94% ceiling, counted from the job's reported start. It never moves backwards, raises its target to higher reported progress and catches up smoothly and reaches 100% only on reported completion. Resume import and section regeneration are unchanged. Added `use-eased-progress.ts` with unit tests and amended the PRD and frontend guidance, which had forbidden simulated progress. See the decisions log entry of the same date.
+
+## Copy-only and decision-only prompts drop the Unslop block
+
+**Status:** Complete; local verification passed (2026-10-04 00:10 EDT): 253 agents and 495 backend tests through the Makefile stack.
+
+Job posting extraction, ATS keyword extraction, resume cleanup, nested entry extraction and the grounding claim audit no longer carry the shared Unslop policy, because they copy source wording or return decisions only. Prose-authoring prompts keep it. Removed the unused backend policy mirror. Updated `agents/worker.py`, `agents/section_generation.py`, `backend/app/services/resume_parser.py`, regression tests, `agents/AGENTS.md`, the PRD and `docs/prompts.md`. See the decisions log entry of the same date.
+
+## High aggressiveness job-fit claim policy
+
+**Status:** Complete; local verification passed (2026-10-04 02:00 EDT).
+
+High now allows plausible job-fit additions (tools, scope, outcomes, metrics) while never inventing employers, dates, tenure, credentials, education or seniority. Updated the writer prompt, aggressiveness-aware grounding audit and repair guidance, the High local numeric check, the legacy High contract and worked example, the UI copy, the PRD, all three AGENTS.md files and `docs/prompts.md`. Low, Medium and keyword optimization are unchanged. Agents (291) and the aggressiveness UI tests passed.
+
+## Generation request budget and failure reporting
+
+**Status:** Complete; local verification passed (2026-10-04 00:30 EDT).
+
+A production generation (`applix-prod`, 2026-10-03 23:33) failed with `RuntimeError` after using all six requests: the first Gemini audit hit its 30s timeout and the Luna fallback took a request, which left no room to audit the final repair. The UI reported "worker_start, LLM attempts: 0" and LangSmith showed the timed-out audit as successful. Changes: writing budgets are now 8 requests (generation, regeneration and keyword optimization), audits time out at 45s, a repair round starts only when its write and audit both fit, and budget exhaustion becomes a section-verification failure that keeps attempt diagnostics and shows a retry message. Failed model runs now get a LangSmith error status with fixed labels, and failed roots record allowlisted reason codes. Agents (260) and backend (495) suites passed through the Makefile-managed local stack.
+
 ## LangSmith request settings and opt-in content tracing
 
-**Status:** Complete; local verification passed (2026-10-03 23:20 EDT). Railway variable pending (owner action).
+**Status:** Complete; local verification passed (2026-10-03 23:20 EDT). Production deployment and content-tracing verification passed (2026-10-03 23:30 EDT).
 
 Model runs now record the request settings actually sent: output mode, output type, temperature, token cap, reasoning mode, reasoning-text exclusion and correction retries. A new `LANGSMITH_TRACE_CONTENT` flag (default off, effective only with tracing on) adds redacted prompt messages and parsed outputs to worker model runs, backend import model runs and Jev attempt runs. Workflow and chain roots, including the cleanup root, stay counts-only. Compose forwards the flag; Makefile test/eval targets force it off. No provider requests, prompts or reasoning defaults changed. Agents (250), backend (492) and local-guard (16) suites passed through the Makefile-managed local stack. Set `LANGSMITH_TRACE_CONTENT=true` on the Railway backend and worker, and in the ignored local env, to enable it.
 
 Code-review follow-up (2026-10-03 23:45 EDT): the cleanup root went back to its placeholder (the child model run carries the body). Building trace output can no longer skip client cleanup or replace a result. The worker now rejects an invalid flag value at startup. Classifier, cleanup-root and parser-wiring tests were added. Stray `tsc -b` output (`frontend/{vite,tailwind}.config.{js,d.ts}`) was removed and gitignored. Agents (252), backend (496), local guards and the frontend build passed.
+
+Production follow-up (2026-10-03 23:30 EDT): deployed committed snapshot `d8bf7fb` through Railway CLI to frontend, backend and agents. GitHub main still pointed to `bfa54bc`, so this release used an archive of the committed snapshot with private env files excluded. Set `LANGSMITH_TRACE_CONTENT=true` on backend and agents; both running configurations confirm effective content capture. Synthetic model-run readback in `applix-prod` confirms prompt/output bodies, contact redaction and credential exclusion. All three deployments, public health and unauthenticated API rejection passed. No new migration is required. See [deployment evidence](task-output/2026-10-03-main-production-verification.md).
 
 ## Activity Log outside-click dismissal
 

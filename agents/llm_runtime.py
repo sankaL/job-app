@@ -130,6 +130,16 @@ class AIRequestError(RuntimeError):
         super().__init__("AI provider rejected unsupported reasoning." if reasoning_rejected else "AI provider request failed.")
 
 
+class AIBudgetExhausted(RuntimeError):
+    """The shared per-workflow request or output-token allowance is spent."""
+    safe_trace_reason = "usage_budget_exhausted"
+
+
+class AIDeadlineReached(asyncio.TimeoutError):
+    """The shared per-workflow deadline passed before another provider call."""
+    safe_trace_reason = "deadline_reached"
+
+
 @dataclass
 class CallBudget:
     deadline: float
@@ -146,10 +156,15 @@ class CallBudget:
     def remaining_seconds(self) -> float:
         remaining = self.deadline - perf_counter()
         if remaining <= 0:
-            raise asyncio.TimeoutError("The AI workflow deadline was reached.")
+            raise AIDeadlineReached("The AI workflow deadline was reached.")
         if self.requests >= self.max_requests or self.output_tokens >= self.max_output_tokens:
-            raise RuntimeError("The AI workflow usage budget was reached.")
+            raise AIBudgetExhausted("The AI workflow usage budget was reached.")
         return remaining
+
+    def can_afford(self, requests: int) -> bool:
+        """Whether `requests` more provider calls fit before starting dependent work."""
+        return (self.deadline - perf_counter() > 0 and self.requests + requests <= self.max_requests
+            and self.output_tokens < self.max_output_tokens)
 
 _workflow_budget: ContextVar[Optional[CallBudget]] = ContextVar("resume_ai_budget", default=None)
 
@@ -235,6 +250,7 @@ async def structured_call(
     run_trace = None
     include_content = False
     output_value: Any = None
+    trace_error: Optional[str] = None
     outcome = "failed"
     try:
         include_content = trace_content_enabled()
@@ -306,6 +322,10 @@ async def structured_call(
             "operation": operation,
             **safe_provider_error_details(getattr(error, "status_code", None), getattr(error, "body", None)),
         })
+        # Fixed labels only: provider bodies and exception text never reach telemetry.
+        category = budget.attempts[-1].get("provider_error_category")
+        trace_error = "TimeoutError: provider_timeout" if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else (
+            type(error).__name__ + (": " + category if category else ""))
         if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
             raise asyncio.TimeoutError("AI provider request timed out.") from None
         message = str(error).lower()
@@ -324,7 +344,10 @@ async def structured_call(
                     output_value.model_dump(mode="json") if isinstance(output_value, BaseModel) else output_value)
             except Exception:
                 trace_outputs["output"] = "<unavailable>"  # Telemetry never replaces the AI result or skips cleanup.
-        end_trace_safely(run_trace, outputs=trace_outputs)
+        if trace_error is not None:
+            end_trace_safely(run_trace, outputs=trace_outputs, error=trace_error)
+        else:
+            end_trace_safely(run_trace, outputs=trace_outputs)
         if trace_manager is not None:
             try:
                 trace_manager.__exit__(None, None, None)

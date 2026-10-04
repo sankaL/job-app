@@ -419,3 +419,42 @@ async def test_trace_output_failure_keeps_result_and_closes_client(monkeypatch):
     assert result.count == 7
     assert closed == [True]
     assert captures[0]['outputs']['output'] == '<unavailable>'
+
+
+def test_budget_errors_keep_compatible_base_types_and_affordability():
+    from llm_runtime import AIBudgetExhausted, AIDeadlineReached
+    budget = CallBudget.for_seconds(5, max_requests=3)
+    budget.requests = 2
+    assert budget.can_afford(1) is True
+    assert budget.can_afford(2) is False
+    budget.requests = 3
+    with pytest.raises(AIBudgetExhausted) as raised:
+        budget.remaining_seconds()
+    assert isinstance(raised.value, RuntimeError)
+    expired = CallBudget(deadline=0)
+    assert expired.can_afford(1) is False
+    with pytest.raises(asyncio.TimeoutError):
+        expired.remaining_seconds()
+    assert issubclass(AIDeadlineReached, asyncio.TimeoutError)
+
+
+@pytest.mark.asyncio
+async def test_failed_model_run_is_marked_as_error_with_fixed_label(monkeypatch):
+    from contextlib import contextmanager
+    import llm_runtime
+    from llm_runtime import AIRequestError
+    captures = []
+    class Trace:
+        def end(self, **kwargs):
+            captures.append(kwargs)
+    @contextmanager
+    def scoped(name, **kwargs):
+        yield Trace()
+    monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    mock_provider(monkeypatch, [httpx.Response(503, json={'error': {'message': 'Private upstream body'}})])
+    with pytest.raises(AIRequestError):
+        await structured_call(prompt=[('human','Count.')],output_type=ExampleOutput,model_name='test/provider',
+            api_key='test',base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3))
+    assert captures[0]['error'] == 'ModelHTTPError: provider_unavailable'
+    assert captures[0]['outputs']['outcome'] == 'failed'
+    assert 'Private upstream' not in str(captures)

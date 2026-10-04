@@ -291,6 +291,17 @@ class FakeProgressStore:
         self.extraction_results.pop(application_id, None)
         self.generation_results.pop(application_id, None)
 
+    async def replace_if_unchanged(self, application_id: str, *, expected: Optional[ProgressRecord], replacement: ProgressRecord, ttl_seconds: int = 86400) -> bool:
+        del ttl_seconds
+        current = self.progress.get(application_id)
+        fields = ("job_id", "workflow_kind", "state", "updated_at", "completed_at", "terminal_error_code")
+        if (current is None) != (expected is None):
+            return False
+        if current is not None and any(getattr(current, field) != getattr(expected, field) for field in fields):
+            return False
+        self.progress[application_id] = replacement
+        return True
+
     async def get_extraction_result(self, application_id: str) -> Optional[dict[str, Any]]:
         return self.extraction_results.get(application_id)
 
@@ -334,6 +345,13 @@ class FakeExtractionJobQueue:
     def __init__(self, should_fail: bool = False) -> None:
         self.should_fail = should_fail
         self.enqueued: list[dict[str, Any]] = []
+        self.aborted: list[str] = []
+        self.abort_should_fail = False
+
+    async def abort(self, job_id: str) -> None:
+        if self.abort_should_fail:
+            raise RuntimeError("redis unavailable")
+        self.aborted.append(job_id)
 
     async def enqueue(
         self,
@@ -647,6 +665,14 @@ def build_service(
         subscription_repository=subscriptions,  # type: ignore[arg-type]
     )
     return service, repository, notifications, progress, queue, email, drafts
+
+
+def mark_recently_updated(repository: FakeApplicationRepository, application_id: str) -> None:
+    """Fixture rows use fixed past timestamps; active-work tests need a live row."""
+    record = repository.records[application_id]
+    repository.records[application_id] = record.model_copy(
+        update={"updated_at": datetime.now(timezone.utc).isoformat()}
+    )
 
 
 def read_first_sse_event(response) -> tuple[str, dict[str, Any]]:
@@ -2693,6 +2719,7 @@ async def test_delete_application_still_blocks_active_state_when_progress_unavai
         visible_status="draft",
         internal_state="extracting",
     )
+    mark_recently_updated(repository, created.id)
 
     async def fail_get(application_id: str) -> Optional[ProgressRecord]:
         raise RuntimeError("redis unavailable")
@@ -2719,6 +2746,7 @@ async def test_delete_application_blocks_active_async_states(internal_state: str
         visible_status="draft",
         internal_state=internal_state,
     )
+    mark_recently_updated(repository, created.id)
 
     with pytest.raises(PermissionError) as exc_info:
         await service.delete_application(user_id="user-1", application_id=created.id)
@@ -3125,7 +3153,7 @@ async def test_application_events_endpoint_streams_initial_snapshot():
             message="Extraction is running.",
             percent_complete=25,
             created_at="2026-04-07T12:00:00+00:00",
-            updated_at="2026-04-07T12:01:00+00:00",
+            updated_at=datetime.now(timezone.utc).isoformat(),
         ),
     )
 
@@ -6623,3 +6651,430 @@ def test_invalid_frozen_source_links_are_not_silently_repaired_from_current_base
     draft = type('Draft', (), {'document': base.document, 'source_snapshot': snapshot})()
     with pytest.raises(PermissionError, match='source links are invalid'):
         service._source_settings(base_resume=base, profile=service.profile_repository.fetch_profile('user-1'), draft=draft, use_snapshot=True)
+
+
+def _extraction_progress(*, job_id: str, state: str, idle_seconds: float) -> ProgressRecord:
+    updated_at = (datetime.now(timezone.utc) - timedelta(seconds=idle_seconds)).isoformat()
+    return ProgressRecord(
+        job_id=job_id,
+        workflow_kind="extraction",
+        state=state,
+        message="Extraction is running.",
+        percent_complete=40 if state == "extracting" else 0,
+        created_at=updated_at,
+        updated_at=updated_at,
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_application_detail_recovers_stalled_extraction_once():
+    service, repository, notifications, progress_store, _, email, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/stalled",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    idle = application_manager_service.EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS + 5
+    await progress_store.set(created.id, _extraction_progress(job_id="job-1", state="extracting", idle_seconds=idle))
+
+    detail = await service.get_application_detail(user_id="user-1", application_id=created.id)
+
+    assert detail.application.internal_state == "manual_entry_required"
+    assert detail.application.failure_reason == "extraction_failed"
+    assert detail.application.extraction_failure_details["kind"] == "timed_out"
+    assert detail.application.extraction_failure_details["blocked_url"] == "https://example.com/jobs/stalled"
+    progress = await progress_store.get(created.id)
+    assert progress is not None
+    assert progress.job_id != "job-1"
+    assert progress.terminal_error_code == "extraction_failed"
+    assert progress.message == application_manager_service.EXTRACTION_STALLED_MESSAGE
+    assert [n["message"] for n in notifications.notifications if n["action_required"]] == [
+        application_manager_service.EXTRACTION_STALLED_MESSAGE
+    ]
+    assert len(email.messages) == 1
+
+    await service.get_application_detail(user_id="user-1", application_id=created.id)
+    assert len(email.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_application_detail_keeps_recent_extraction_running():
+    service, repository, notifications, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/live",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    idle = application_manager_service.EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS - 30
+    await progress_store.set(created.id, _extraction_progress(job_id="job-1", state="extracting", idle_seconds=idle))
+
+    detail = await service.get_application_detail(user_id="user-1", application_id=created.id)
+
+    assert detail.application.internal_state == "extracting"
+    assert (await progress_store.get(created.id)).job_id == "job-1"
+    assert notifications.notifications == []
+
+
+@pytest.mark.asyncio
+async def test_queued_extraction_gets_longer_window_before_recovery():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/queued",
+        visible_status="draft",
+        internal_state="extraction_pending",
+    )
+    # Past the started boundary but inside the queue boundary: still waiting for a worker.
+    await progress_store.set(
+        created.id,
+        _extraction_progress(
+            job_id="job-1",
+            state="extraction_pending",
+            idle_seconds=application_manager_service.EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS + 5,
+        ),
+    )
+    progress = await service.get_progress(user_id="user-1", application_id=created.id)
+    assert progress.job_id == "job-1"
+    assert progress.terminal_error_code is None
+
+    await progress_store.set(
+        created.id,
+        _extraction_progress(
+            job_id="job-1",
+            state="extraction_pending",
+            idle_seconds=application_manager_service.EXTRACTION_QUEUE_STALE_TIMEOUT_SECONDS + 5,
+        ),
+    )
+    progress = await service.get_progress(user_id="user-1", application_id=created.id)
+    assert progress.terminal_error_code == "extraction_failed"
+    assert progress.message == application_manager_service.EXTRACTION_NOT_STARTED_MESSAGE
+    assert repository.fetch_application("user-1", created.id).internal_state == "manual_entry_required"
+
+
+@pytest.mark.asyncio
+async def test_late_worker_success_after_stale_recovery_is_ignored():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/late",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    idle = application_manager_service.EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS + 5
+    await progress_store.set(created.id, _extraction_progress(job_id="job-1", state="extracting", idle_seconds=idle))
+    await service.get_application_detail(user_id="user-1", application_id=created.id)
+
+    record = await service.handle_worker_callback(
+        WorkerCallbackPayload(
+            application_id=created.id,
+            user_id="user-1",
+            job_id="job-1",
+            event="succeeded",
+            extracted=WorkerSuccessPayload(job_title="Late Title", job_description="Late description."),
+        )
+    )
+
+    assert record.internal_state == "manual_entry_required"
+    assert record.job_title is None
+
+
+@pytest.mark.asyncio
+async def test_recover_stale_extraction_for_event_stream_publishes_recovery():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/stream",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    idle = application_manager_service.EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS + 5
+    await progress_store.set(created.id, _extraction_progress(job_id="job-1", state="extracting", idle_seconds=idle))
+    progress_store.events.clear()
+
+    await service.recover_stale_extraction(user_id="user-1", application_id=created.id)
+
+    published = [event.event for event in progress_store.events.get(created.id, [])]
+    assert "progress" in published
+    assert "detail" in published
+    assert repository.fetch_application("user-1", created.id).internal_state == "manual_entry_required"
+
+
+@pytest.mark.asyncio
+async def test_recover_stale_extraction_for_event_stream_skips_idle_applications():
+    service, repository, _, progress_store, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/idle",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    repository_reads: list[str] = []
+    original_fetch = repository.fetch_application
+
+    def tracking_fetch(user_id: str, application_id: str):
+        repository_reads.append(application_id)
+        return original_fetch(user_id, application_id)
+
+    repository.fetch_application = tracking_fetch  # type: ignore[method-assign]
+
+    await service.recover_stale_extraction(user_id="user-1", application_id=created.id)
+
+    assert repository_reads == []
+
+
+@pytest.mark.asyncio
+async def test_delete_application_allows_stale_extraction_without_notifying():
+    service, repository, notifications, progress_store, queue, email, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/stuck",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    idle = application_manager_service.EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS + 5
+    await progress_store.set(created.id, _extraction_progress(job_id="job-1", state="extracting", idle_seconds=idle))
+
+    await service.delete_application(user_id="user-1", application_id=created.id)
+
+    assert repository.fetch_application("user-1", created.id) is None
+    assert notifications.notifications == []
+    assert email.messages == []
+    assert queue.aborted == ['job-1']
+    assert (await progress_store.get(created.id)).job_id != 'job-1'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fresh_job_id', ['job-1', 'job-2'])
+async def test_stale_recovery_preserves_progress_changed_during_compare_and_set(fresh_job_id):
+    service, repository, notifications, store, queue, email, _ = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/race',
+        visible_status='draft', internal_state='extracting')
+    old = _extraction_progress(job_id='job-1', state='extraction_pending', idle_seconds=305)
+    await store.set(record.id, old)
+    fresh = _extraction_progress(job_id=fresh_job_id, state='extracting', idle_seconds=0)
+    replace = store.replace_if_unchanged
+    async def racing_replace(application_id, **kwargs):
+        await store.set(application_id, fresh)
+        return await replace(application_id, **kwargs)
+    store.replace_if_unchanged = racing_replace
+    await service._recover_stale_extraction_if_needed(record, old)
+    assert await store.get(record.id) == fresh
+    assert repository.fetch_application('user-1', record.id).failure_reason is None
+    assert notifications.notifications == []
+    assert email.messages == []
+    assert queue.aborted == []
+
+
+@pytest.mark.asyncio
+async def test_stale_extraction_record_does_not_overwrite_a_new_workflow():
+    service, repository, notifications, store, queue, email, _ = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/race',
+        visible_status='draft', internal_state='extracting')
+    fresh = _extraction_progress(job_id='generation-1', state='generating', idle_seconds=0)
+    fresh.workflow_kind = 'generation'
+    await store.set(record.id, fresh)
+    await service._recover_stale_extraction_if_needed(record, fresh)
+    assert await store.get(record.id) == fresh
+    assert notifications.notifications == [] and email.messages == [] and queue.aborted == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_stale_recovery_notifies_and_aborts_once():
+    service, repository, notifications, store, queue, email, _ = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/race',
+        visible_status='draft', internal_state='extracting')
+    old = _extraction_progress(job_id='job-1', state='extracting', idle_seconds=155)
+    await store.set(record.id, old)
+    await asyncio.gather(*(service._recover_stale_extraction_if_needed(record, old) for _ in range(2)))
+    assert len(notifications.notifications) == 1
+    assert len(email.messages) == 1
+    assert queue.aborted == ['job-1']
+
+
+@pytest.mark.asyncio
+async def test_stale_recovery_attempts_abort_when_progress_publication_fails():
+    service, repository, _, store, queue, _, _ = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/race',
+        visible_status='draft', internal_state='extracting')
+    old = _extraction_progress(job_id='job-1', state='extracting', idle_seconds=155)
+    await store.set(record.id, old)
+    publish = store.publish_event
+    async def fail_progress(application_id, event):
+        if event.event == 'progress':
+            raise RuntimeError('Redis publication unavailable')
+        await publish(application_id, event)
+    store.publish_event = fail_progress
+    with pytest.raises(RuntimeError, match='publication unavailable'):
+        await service._recover_stale_extraction_if_needed(record, old)
+    assert queue.aborted == ['job-1']
+    assert repository.fetch_application('user-1', record.id).internal_state == 'manual_entry_required'
+
+
+@pytest.mark.asyncio
+async def test_stale_delete_preserves_a_fresh_job_during_compare_and_set():
+    service, repository, _, store, queue, _, _ = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/queued',
+        visible_status='draft', internal_state='extraction_pending')
+    await store.set(record.id, _extraction_progress(job_id='old', state='extraction_pending', idle_seconds=305))
+    fresh = _extraction_progress(job_id='new', state='extracting', idle_seconds=0)
+    replace = store.replace_if_unchanged
+    async def racing_replace(application_id, **kwargs):
+        await store.set(application_id, fresh)
+        return await replace(application_id, **kwargs)
+    store.replace_if_unchanged = racing_replace
+    with pytest.raises(PermissionError, match='Extraction changed'):
+        await service.delete_application(user_id='user-1', application_id=record.id)
+    assert repository.fetch_application('user-1', record.id) is not None
+    assert await store.get(record.id) == fresh
+    assert queue.aborted == []
+
+
+@pytest.mark.asyncio
+async def test_stale_queued_delete_retains_tombstone_when_abort_fails():
+    service, repository, notifications, store, queue, email, _ = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/queued',
+        visible_status='draft', internal_state='extraction_pending')
+    await store.set(record.id, _extraction_progress(job_id='queued-1', state='extraction_pending', idle_seconds=305))
+    store.extraction_results[record.id] = {'job_id': 'queued-1', 'extracted': {}}
+    store.generation_results[record.id] = {'job_id': 'older', 'generated': {}}
+    queue.abort_should_fail = True
+    await service.delete_application(user_id='user-1', application_id=record.id)
+    tombstone = await store.get(record.id)
+    assert tombstone.job_id != 'queued-1'
+    assert tombstone.completed_at is not None
+    assert repository.fetch_application('user-1', record.id) is None
+    assert record.id not in store.extraction_results and record.id not in store.generation_results
+    assert notifications.notifications == [] and email.messages == []
+
+
+@pytest.mark.asyncio
+async def test_delayed_started_callback_cannot_rewind_reconciled_extraction():
+    service, repository, _, store, _, _, _ = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/finished',
+        visible_status='draft', internal_state='extracting')
+    progress = _extraction_progress(job_id='job-1', state='generation_pending', idle_seconds=0)
+    progress.completed_at = progress.updated_at
+    progress.percent_complete = 100
+    await store.set(record.id, progress)
+    store.extraction_results[record.id] = {'job_id': 'job-1', 'extracted': {
+        'job_title': 'Backend Engineer', 'job_description': 'Build Python APIs.', 'company': 'Acme'}}
+    await service.get_application_detail(user_id='user-1', application_id=record.id)
+    assert await store.get_extraction_result(record.id) is None
+    await service.handle_worker_callback(WorkerCallbackPayload(application_id=record.id,
+        user_id='user-1', job_id='job-1', event='started'))
+    detail = await service.get_application_detail(user_id='user-1', application_id=record.id)
+    assert detail.application.internal_state == 'generation_pending'
+    assert detail.application.failure_reason is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind,message', [
+    ('posting_unavailable', 'This posting appears to be closed or removed.'),
+    ('no_job_posting', 'No job posting was found on this page.'),
+])
+async def test_synthesized_progress_retains_declined_page_message(kind, message):
+    service, repository, _, _, _, _, _ = build_service()
+    record = repository.create_application(user_id='user-1', job_url='https://example.com/jobs/closed',
+        visible_status='needs_action', internal_state='manual_entry_required')
+    repository.update_application(user_id='user-1', application_id=record.id,
+        updates={'failure_reason': 'extraction_failed', 'extraction_failure_details': {'kind': kind}})
+    progress = await service.get_progress(user_id='user-1', application_id=record.id)
+    assert progress.message.startswith(message)
+
+
+def test_duplicate_reference_id_ignores_matches_inside_words():
+    from app.services.duplicates import extract_reference_id
+
+    assert extract_reference_id("Experience with Dijkstra and graph search.") is None
+    assert extract_reference_id("Own job identity verification flows.") is None
+    assert extract_reference_id("Requisition ID REQ-42") == "req-42"
+    assert extract_reference_id("https://boards.greenhouse.io/acme/jobs/1?gh_jid=98765") == "98765"
+
+
+@pytest.mark.asyncio
+async def test_cancel_extraction_aborts_the_worker_job():
+    service, repository, _, progress_store, queue, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/hung",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    await progress_store.set(created.id, _extraction_progress(job_id="job-7", state="extracting", idle_seconds=5))
+
+    await service.cancel_extraction(user_id="user-1", application_id=created.id)
+
+    assert queue.aborted == ["job-7"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_extraction_still_stops_when_abort_fails():
+    service, repository, _, progress_store, queue, _, _ = build_service()
+    queue.abort_should_fail = True
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/hung",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    await progress_store.set(created.id, _extraction_progress(job_id="job-7", state="extracting", idle_seconds=5))
+
+    detail = await service.cancel_extraction(user_id="user-1", application_id=created.id)
+
+    assert detail.application.internal_state == "manual_entry_required"
+    assert (await progress_store.get(created.id)).terminal_error_code == "extraction_failed"
+
+
+@pytest.mark.asyncio
+async def test_stale_extraction_recovery_aborts_the_worker_job():
+    service, repository, _, progress_store, queue, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/stalled",
+        visible_status="draft",
+        internal_state="extracting",
+    )
+    idle = application_manager_service.EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS + 5
+    await progress_store.set(created.id, _extraction_progress(job_id="job-9", state="extracting", idle_seconds=idle))
+
+    await service.get_application_detail(user_id="user-1", application_id=created.id)
+    await service.get_application_detail(user_id="user-1", application_id=created.id)
+
+    assert queue.aborted == ["job-9"]
+
+
+@pytest.mark.asyncio
+async def test_extraction_job_queue_abort_writes_arq_abort_set(monkeypatch):
+    from arq.constants import abort_jobs_ss
+
+    from app.services import jobs as jobs_service
+
+    class FakePool:
+        def __init__(self) -> None:
+            self.zadds: list[tuple[str, dict[str, int]]] = []
+            self.closed = False
+
+        async def zadd(self, key: str, mapping: dict[str, int]) -> int:
+            self.zadds.append((key, mapping))
+            return 1
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    pool = FakePool()
+
+    async def fake_create_pool(_settings):
+        return pool
+
+    monkeypatch.setattr(jobs_service, "create_pool", fake_create_pool)
+    queue = jobs_service.ExtractionJobQueue("redis://localhost:6379/0")
+
+    await queue.abort("job-42")
+
+    assert len(pool.zadds) == 1
+    key, mapping = pool.zadds[0]
+    assert key == abort_jobs_ss
+    assert list(mapping) == ["job-42"]
+    assert pool.closed is True
