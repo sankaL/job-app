@@ -173,3 +173,23 @@ it("drops partial sections once the job reaches a terminal state", () => {
   );
   expect(screen.queryByTestId("ready-section")).not.toBeInTheDocument();
 });
+
+it("keeps the eased bar where it is when the placeholder becomes the real job", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-14T00:00:20Z"));
+  const { rerender } = render(<GenerationProgress progress={null} isOptimistic isActive={false} isCancelling={false} onCancel={vi.fn()} />);
+  act(() => vi.advanceTimersByTime(20000));
+  const before = Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"));
+  expect(before).toBeGreaterThan(50);
+  rerender(
+    <GenerationProgress
+      progress={{ ...SERVER_PROGRESS, percent_complete: 5, created_at: "2026-07-14T00:00:39Z", updated_at: "2026-07-14T00:00:39Z" }}
+      isOptimistic={false}
+      isActive
+      isCancelling={false}
+      onCancel={vi.fn()}
+    />,
+  );
+  act(() => vi.advanceTimersByTime(400));
+  expect(Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(before);
+});

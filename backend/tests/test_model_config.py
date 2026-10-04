@@ -32,3 +32,12 @@ def test_unprofiled_role_model_fails_closed():
     raw["roles"]["resume_import"] = {"model": "vendor/unprofiled"}
     with pytest.raises(ValueError, match="has no model profile"):
         model_config.ModelConfig.model_validate(raw)
+
+
+def test_backend_and_agents_copies_are_identical():
+    agents = next((path for path in (REPO / "agents", Path("/agents")) if (path / "model_config.py").exists()), None)
+    if agents is None:
+        pytest.skip("agents/ is not available in this build context")
+    assert (agents / "model_config.py").read_bytes() == Path(model_config.__file__).read_bytes(), (
+        "backend/app/core/model_config.py must be byte-identical to agents/model_config.py")
+    assert json.loads((agents / "model-config.json").read_text()) == json.loads(model_config.BUNDLED_PATH.read_text())

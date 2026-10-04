@@ -205,9 +205,11 @@ def _keep_original_after_revalidation(gen_result: dict[str, Any], generated_sect
     return kept["sections"], kept["validation"]
 
 
-def _pipeline_model_settings(settings: "WorkerSettingsEnv") -> dict[str, Any]:
-    """Internal routing keys for the section pipeline; stripped before persistence."""
-    del settings  # Routing comes from model-config.json roles.
+def _pipeline_model_settings() -> dict[str, Any]:
+    """Internal routing keys for the section pipeline (from model-config.json roles); stripped before persistence.
+
+    Key names predate roles and are kept so already-queued jobs and stored settings stay compatible.
+    """
     routine, routine_fallback = _role_models("section_writer")
     repair, repair_fallback = _role_models("repair_writer")
     audit, audit_fallback = _role_models("audit_escalation")
@@ -223,20 +225,15 @@ def _pipeline_model_settings(settings: "WorkerSettingsEnv") -> dict[str, Any]:
     }
 
 
-def _resolve_generation_models(
-    generation_settings: dict[str, Any], settings: WorkerSettingsEnv,
-    *, operation: str = "generation",
-) -> tuple[str, str]:
-    # Ignore legacy subscription overrides even for already-queued jobs.
-    del generation_settings, settings
+def _resolve_generation_models(operation: str = "generation") -> tuple[str, str]:
+    """First writer by operation; legacy subscription/job model overrides are ignored."""
     if operation in {"generation", "full", "regeneration_full"}:
         return _role_models("resume_writer")
     return _role_models("section_writer")
 
 
-def _resolve_generation_reasoning_efforts(
-    generation_settings: dict[str, Any], settings: WorkerSettingsEnv,
-) -> tuple[str, str]:
+def _resolve_generation_reasoning_efforts() -> tuple[str, str]:
+    """Legacy per-job efforts are ignored; reasoning bounds come from model profiles."""
     return "auto", "auto"
 
 
@@ -1202,26 +1199,25 @@ async def _wait_for_network_idle(page) -> None:
         logger.info("Job page did not reach network idle; continuing with loaded content.")
 
 
-async def scrape_page_context(job_url: str) -> PageContext:
-    return await asyncio.wait_for(
-        _capture_page_context(job_url),
-        timeout=EXTRACTION_CAPTURE_TIMEOUT_SECONDS,
-    )
-
-
 # Generation jobs are I/O-bound, but each extraction launches Chromium. The worker
 # runs up to MAX_CONCURRENT_JOBS jobs; cap simultaneous browsers separately.
 MAX_CONCURRENT_JOBS = 20
 MAX_CONCURRENT_BROWSERS = 4
+# Waiting for a browser slot has its own bound, separate from the 30s capture, and
+# stays inside the 120s extraction job (queue + capture + 45s model budget).
+EXTRACTION_BROWSER_QUEUE_SECONDS = 40.0
 _browser_slots = asyncio.Semaphore(MAX_CONCURRENT_BROWSERS)
 
 
+async def scrape_page_context(job_url: str) -> PageContext:
+    await asyncio.wait_for(_browser_slots.acquire(), timeout=EXTRACTION_BROWSER_QUEUE_SECONDS)
+    try:
+        return await asyncio.wait_for(_capture_page_context(job_url), timeout=EXTRACTION_CAPTURE_TIMEOUT_SECONDS)
+    finally:
+        _browser_slots.release()
+
+
 async def _capture_page_context(job_url: str) -> PageContext:
-    async with _browser_slots:
-        return await _capture_page_context_unbounded(job_url)
-
-
-async def _capture_page_context_unbounded(job_url: str) -> PageContext:
     await validate_public_http_url(job_url)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
@@ -2295,18 +2291,15 @@ async def run_generation_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings)
-    generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts(
-        generation_settings,
-        settings,
-    )
+    generation_model, generation_fallback_model = _resolve_generation_models()
+    generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts()
     public_generation_settings = {
         key: value for key, value in generation_settings.items()
         if not str(key).startswith("_") or key in {
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
-    public_generation_settings.update(_pipeline_model_settings(settings))
+    public_generation_settings.update(_pipeline_model_settings())
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
 
@@ -2747,18 +2740,15 @@ async def run_regeneration_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    generation_model, generation_fallback_model = _resolve_generation_models(generation_settings, settings, operation=regeneration_target)
-    generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts(
-        generation_settings,
-        settings,
-    )
+    generation_model, generation_fallback_model = _resolve_generation_models(operation=regeneration_target)
+    generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts()
     public_generation_settings = {
         key: value for key, value in generation_settings.items()
         if not str(key).startswith("_") or key in {
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
-    public_generation_settings.update(_pipeline_model_settings(settings))
+    public_generation_settings.update(_pipeline_model_settings())
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
 

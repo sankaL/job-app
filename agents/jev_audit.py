@@ -231,7 +231,10 @@ async def decide(claims: list[Claim], level: str, *, api_key: str, model: str = 
         raise JevUnavailable("Jev deadline reached.")
 
     try:
-        results = await asyncio.gather(*(run_batch(batch) for batch in batches(claims, level, model)))
+        results = await asyncio.gather(*(run_batch(batch) for batch in batches(claims, level, model)), return_exceptions=True)
+        failed = next((item for item in results if isinstance(item, BaseException)), None)
+        if failed is not None:
+            raise failed
     finally:
         if owns_client:
             await http.aclose()

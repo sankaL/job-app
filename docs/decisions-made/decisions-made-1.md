@@ -1,3 +1,22 @@
+## 2026-10-04 19:00:00 EDT - Code review fixes for generation speed work
+
+- Context: Two review passes over the generation-speed branch. Fixes were made only where behaviour departed from the spec or the earlier decisions; intended choices were kept.
+- Fixed:
+  - Jev requests now receive privacy-masked claim text, evidence and role labels, as LLM payloads already did.
+  - Waiting for a browser slot no longer counts against the 30s capture timeout; the wait has its own 40s bound.
+  - A verified rewrite or keyword patch clears a kept-original notice.
+  - An unfinished over-length reduction fails as a length error instead of keeping the longer original.
+  - The eased progress bar no longer drops to 0 when the placeholder becomes the real job.
+  - Preview callback failures are logged.
+  - Concurrent writer groups and Jev batches finish before an error is raised.
+  - Model config enforcement: decisions roles use decisions models without fallbacks, chat roles use chat models, and only `claim_audit` may be disabled. The loader modules are byte-identical, and tests compare every copy and cover fail-closed startup.
+  - Tier-era signatures removed; tier wording removed from docs.
+- Kept as intended:
+  - Sonnet for legacy validation repairs (recorded in the 17:00 entry).
+  - No environment kill switch for Jev; the user chose file-based model config.
+  - The new modules stay out of `py-modules`; a site-packages copy would lack its JSON file.
+  - Internal `_routine_*`/`_repair_*` key names stay for queued-job compatibility.
+
 ## 2026-10-04 17:00:00 EDT - Role-based model configuration file replaces tier environment variables
 
 - Context: Models were chosen through TIER1/TIER2 environment variables in two services, with hard-coded provider routing, reasoning limits and native-output allowlists. Pointing a tier at an unlisted model silently changed the request format.

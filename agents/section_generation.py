@@ -5,7 +5,9 @@ import asyncio
 from copy import deepcopy
 from hashlib import sha256
 import json
+import logging
 import re
+from dataclasses import replace
 from time import perf_counter
 from typing import Any, Literal, Optional
 
@@ -16,6 +18,7 @@ from langsmith_tracing import end_trace_safely, trace_scope
 from llm_runtime import AIBudgetExhausted, AIDeadlineReached, AIRequestError, CallBudget, structured_call
 
 # One write plus one grounding audit; a round that cannot afford both is not started.
+logger = logging.getLogger(__name__)
 ROUND_REQUESTS = 2
 # Two parallel writer groups and LLM audit escalations across three rounds, with
 # room for provider fallbacks. Unused allowance costs nothing.
@@ -323,6 +326,7 @@ def apply_section_rewrite(
         if "source_ids" in type(rendered).model_fields:
             rendered.source_ids = references
     rendered.review_state = "reviewed"
+    rendered.generation_notice = None  # A verified rewrite replaces any kept-original text.
     rendered.confidence = None
     return rendered
 
@@ -619,7 +623,12 @@ async def audit_section_grounding(
         if time_left <= 0:
             raise AIDeadlineReached("The AI workflow deadline was reached.")
         try:
-            answers = await jev_audit.decide(claims, level, api_key=api_key, model=str(jev_model),
+            # Jev is an external provider: send privacy-masked copies, route with the originals.
+            privacy_values = generation_settings.get("_privacy_values") or []
+            outbound = [replace(claim, text=_outbound_private_copy(claim.text, privacy_values),
+                                evidence=_outbound_private_copy(claim.evidence, privacy_values),
+                                role=_outbound_private_copy(claim.role, privacy_values)) for claim in claims]
+            answers = await jev_audit.decide(outbound, level, api_key=api_key, model=str(jev_model),
                                              timeout_seconds=min(JEV_TIMEOUT_SECONDS, time_left))
         except Exception as error:  # Jev is optional; the LLM audit is the fail-closed fallback.
             jev_error = type(error).__name__
@@ -873,8 +882,8 @@ async def generate_document(
         if on_sections_ready and ready and not target_section_id:
             try:
                 await on_sections_ready([section.model_copy(deep=True) for section in ready])
-            except Exception:
-                pass  # Progressive display is best-effort; it never affects generation.
+            except Exception as error:  # Progressive display is best-effort; it never affects generation.
+                logger.warning("Partial section progress update failed. error_type=%s", type(error).__name__)
         return outcome
 
     for round_index in range(3):
@@ -885,7 +894,11 @@ async def generate_document(
             break  # An unaudited repair would be wasted; report the pending sections instead.
         if on_progress:
             await on_progress(35 + round_index * 15, "Writing resume sections" if round_index == 0 else "Repairing sections that need correction")
-        outcomes = await asyncio.gather(*(write_group(group, round_index, errors) for group in groups))
+        # Let every group finish before raising, so no writer call is left running unobserved.
+        outcomes = await asyncio.gather(*(write_group(group, round_index, errors) for group in groups), return_exceptions=True)
+        unexpected = next((item for item in outcomes if isinstance(item, BaseException)), None)
+        if unexpected is not None:
+            raise unexpected
         terminal = next((item["terminal"] for item in outcomes if item["terminal"] is not None), None)
         if terminal is not None:
             raise terminal
@@ -921,7 +934,9 @@ async def generate_document(
                 errors = {largest.id: "draft_above_word_hard_cap_reduce_this_section"}
     fallback_sections: list[dict[str, str]] = []
     writable = [section for section in targets if not _frozen(section, aggressiveness)]
-    if pending and not target_section_id and len(pending) < len(writable):
+    # Keeping the longer original cannot satisfy an unfinished length reduction.
+    length_reduction_pending = any(errors.get(section.id) == "draft_above_word_hard_cap_reduce_this_section" for section in pending)
+    if pending and not target_section_id and len(pending) < len(writable) and not length_reduction_pending:
         # One unverifiable section must not fail the whole resume: keep its original text.
         fallback_sections = [{"section_id": section.id, "codes": errors.get(section.id, "unverified")} for section in pending]
         pending = []
@@ -1142,6 +1157,7 @@ def apply_keyword_patch(*, patch: Any, source: ResumeSection, current: ResumeSec
             audited.bullets.append(original.model_copy(deep=True))
         if audited.bullets:
             audit_view.entries.append(audited)
+    output.generation_notice = None  # A verified keyword patch changes the kept-original text.
     return output, audit_view
 
 

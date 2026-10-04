@@ -278,12 +278,12 @@ def test_normalize_origin_from_url_maps_common_sources():
 ])
 @pytest.mark.parametrize("subscription", ["basic", "pro"])
 def test_operation_routing_ignores_subscription_and_legacy_model_overrides(operation, expected, subscription):
-    settings = worker_settings(tier1_model="tier1-primary", tier1_fallback_model="tier1-fallback",
+    # Legacy subscription and per-job model/effort keys have no influence: routing takes only the operation.
+    del subscription
+    worker_settings(tier1_model="tier1-primary", tier1_fallback_model="tier1-fallback",
         tier2_model="tier2-primary", tier2_fallback_model="tier2-fallback")
-    legacy = {"subscription_tier": subscription, "_generation_model": "legacy", "_generation_fallback_model": "legacy",
-        "_generation_reasoning_effort": "none", "_generation_fallback_reasoning_effort": "high"}
-    assert worker._resolve_generation_models(legacy, settings, operation=operation) == expected
-    assert worker._resolve_generation_reasoning_efforts(legacy, settings) == ("auto", "auto")
+    assert worker._resolve_generation_models(operation=operation) == expected
+    assert worker._resolve_generation_reasoning_efforts() == ("auto", "auto")
 
 
 def test_build_generation_failure_payload_includes_quota_period_start():
@@ -2651,17 +2651,35 @@ async def test_progress_carries_partial_sections_until_completion_and_publishes_
 
 
 @pytest.mark.asyncio
-async def test_worker_runs_twenty_jobs_but_caps_simultaneous_browsers(monkeypatch):
+async def test_browser_queue_wait_does_not_count_against_capture_timeout(monkeypatch):
     import worker
     assert worker.WorkerSettings.max_jobs == 20
     active, peak = 0, 0
-    async def fake_capture(job_url):
+    async def slow_capture(job_url):
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)
         active -= 1
         return job_url
-    monkeypatch.setattr(worker, "_capture_page_context_unbounded", fake_capture)
-    await asyncio.gather(*(worker._capture_page_context(f"https://example.test/{i}") for i in range(12)))
+    monkeypatch.setattr(worker, "_capture_page_context", slow_capture)
+    # Each capture alone fits its timeout, but queued captures wait longer than it in total.
+    monkeypatch.setattr(worker, "EXTRACTION_CAPTURE_TIMEOUT_SECONDS", 0.08)
+    results = await asyncio.gather(*(worker.scrape_page_context(f"https://example.test/{i}") for i in range(12)))
+    assert len(results) == 12
     assert peak == worker.MAX_CONCURRENT_BROWSERS
+
+
+@pytest.mark.asyncio
+async def test_browser_queue_wait_has_its_own_bound(monkeypatch):
+    import worker
+    monkeypatch.setattr(worker, "_browser_slots", asyncio.Semaphore(1))
+    monkeypatch.setattr(worker, "EXTRACTION_BROWSER_QUEUE_SECONDS", 0.02)
+    async def stuck_capture(job_url):
+        await asyncio.sleep(0.2)
+    monkeypatch.setattr(worker, "_capture_page_context", stuck_capture)
+    first = asyncio.create_task(worker.scrape_page_context("https://example.test/a"))
+    await asyncio.sleep(0)
+    with pytest.raises(asyncio.TimeoutError):
+        await worker.scrape_page_context("https://example.test/b")
+    first.cancel()

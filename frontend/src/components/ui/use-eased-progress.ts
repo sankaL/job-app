@@ -26,11 +26,13 @@ const CATCH_UP = 0.2;
  * and the bar only reaches 100 once the job reports 100. Inactive jobs return undefined; callers
  * show the reported value instead.
  */
-export function useEasedProgress({ enabled, sessionKey, startedAt, reported }: {
+export function useEasedProgress({ enabled, sessionKey, startedAt, reported, provisional = false }: {
   enabled: boolean;
   sessionKey: string;
   startedAt?: string | null;
   reported?: number;
+  /** True while the key is a placeholder (before the job exists); its progress carries into the real job. */
+  provisional?: boolean;
 }) {
   const [value, setValue] = useState(0);
   const shown = useRef(0);
@@ -41,7 +43,13 @@ export function useEasedProgress({ enabled, sessionKey, startedAt, reported }: {
     reportedRef.current = reported;
   });
 
+  const previous = useRef({ sessionKey, provisional, enabled });
+
   useEffect(() => {
+    const prior = previous.current;
+    previous.current = { sessionKey, provisional, enabled };
+    // A placeholder session becoming the real job is the same run: keep the bar where it is.
+    if (enabled && prior.enabled && prior.provisional && prior.sessionKey !== sessionKey) return;
     shown.current = 0;
     sessionStart.current = Date.now();
     setValue(0);

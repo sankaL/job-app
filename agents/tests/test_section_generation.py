@@ -1078,3 +1078,44 @@ def test_sentence_ending_in_portfolio_is_not_a_profile_url(text, flagged):
             pipeline._check_privacy(text)
     else:
         pipeline._check_privacy(text)
+
+
+@pytest.mark.asyncio
+async def test_jev_requests_never_contain_profile_values(monkeypatch):
+    sent = []
+    async def capture(claims, level, **_kwargs):
+        sent.extend(claims)
+        return await _jev_answers({})(claims, level)
+    monkeypatch.setattr(pipeline.jev_audit, 'decide', capture)
+    source = source_document()
+    source['sections'][0]['content_md'] = 'Alex Example built Python APIs.'
+    doc = validate_resume_document(source)
+    section = doc.sections[0].model_copy(deep=True)
+    section.content_md = 'Alex Example built Python APIs.'
+    section.source_ids = ['summary-id']
+    await pipeline.audit_section_grounding(sections=[section], source=doc,
+        generation_settings={'aggressiveness': 'medium', '_jev_audit_model': 'typesafe/jev-1.13', '_privacy_values': ['Alex Example']},
+        model='tier1', fallback_model='tier2', api_key='test', base_url='https://provider.invalid/v1',
+        budget=pipeline.CallBudget.for_seconds(10))
+    assert sent and all('Alex Example' not in f'{c.text} {c.evidence} {c.role}' for c in sent)
+
+
+def test_applied_rewrite_clears_a_kept_original_notice():
+    doc = validate_resume_document(source_document())
+    current = doc.sections[1].model_copy(deep=True)
+    current.generation_notice = 'kept_original_unverified'
+    rendered = pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=experience_output(target_entry=True),
+        document=doc, aggressiveness='medium', target_entry_id='role-one', current=current)
+    assert rendered.generation_notice is None
+
+
+@pytest.mark.asyncio
+async def test_unfinished_length_reduction_fails_instead_of_keeping_longer_original(monkeypatch):
+    oversized = summary_output()
+    oversized['paragraph'] = 'Python ' * 860
+    with pytest.raises(pipeline.SectionGenerationError, match='draft_above_word_hard_cap'):
+        await run_pipeline(monkeypatch, [
+            {'sections': [deepcopy(oversized), experience_output(), custom_output()]},
+            {'sections': [deepcopy(oversized)]},
+            {'sections': [deepcopy(oversized)]},
+        ])

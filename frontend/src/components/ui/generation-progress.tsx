@@ -24,6 +24,6 @@ export function GenerationProgress({ progress, isOptimistic, isActive, isCancell
     startedAt={reported?.created_at} updatedAt={reported?.updated_at}
     stalledHint={isActive && !isCancelling ? "You can stop and try again." : undefined}
     messages={isCancelling ? ["Your current draft stays available while cancellation is confirmed."] : undefined}
-    active={(isActive || isOptimistic) && !terminal} sessionKey={sessionKey}
+    active={(isActive || isOptimistic) && !terminal} sessionKey={sessionKey} provisional={!reported}
     actions={isActive && !terminal ? <Button type="button" variant="secondary" size="sm" disabled={isCancelling} onClick={onCancel}>{isCancelling ? "Cancelling..." : "Cancel"}</Button> : undefined} />;
 }

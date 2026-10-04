@@ -18,6 +18,10 @@ ROLES = (
     "resume_writer", "section_writer", "repair_writer", "claim_audit", "audit_escalation",
     "job_extraction", "keyword_extraction", "resume_judge", "resume_import", "import_section_classification",
 )
+# Roles answered by the OpenRouter Decisions API; every other role uses chat completions.
+DECISIONS_ROLES = frozenset({"claim_audit", "import_section_classification"})
+# Only the claim audit can be switched off (the LLM audit then checks every section).
+OPTIONAL_ROLES = frozenset({"claim_audit"})
 BUNDLED_PATH = Path(__file__).resolve().with_name("model-config.json")
 _override: Optional["ModelConfig"] = None
 
@@ -57,16 +61,33 @@ class ModelConfig(BaseModel):
                     raise ValueError(f"Role {name} uses {model}, which has no model profile.")
             if route.fallback and route.fallback == route.model:
                 raise ValueError(f"Role {name} fallback must differ from its model.")
+            expected_api = "decisions" if name in DECISIONS_ROLES else "chat"
+            if any(self.models[model].api != expected_api for model in filter(None, (route.model, route.fallback))):
+                raise ValueError(f"Role {name} needs {expected_api} models.")
+            if name in DECISIONS_ROLES and route.fallback:
+                raise ValueError(f"Role {name} falls back to built-in behaviour; remove its fallback model.")
+            if not route.enabled and name not in OPTIONAL_ROLES:
+                raise ValueError(f"Role {name} cannot be disabled.")
         return self
+
+
+def load_file(path: Path) -> ModelConfig:
+    """Parse and validate one config file; any problem fails closed with a clear error."""
+    try:
+        raw = json.loads(path.read_text())
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Model config not found at {path}.") from None
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Model config at {path} is not valid JSON (line {error.lineno}).") from None
+    return ModelConfig.model_validate(raw)
 
 
 @lru_cache(maxsize=1)
 def _load() -> ModelConfig:
-    candidates = (BUNDLED_PATH, Path(__file__).resolve().parents[1] / "shared" / "model-config.json")
-    path = next((candidate for candidate in candidates if candidate.exists()), None)
-    if path is None:
-        raise FileNotFoundError("model-config.json was not found next to the service or in shared/.")
-    return ModelConfig.model_validate(json.loads(path.read_text()))
+    # The bundled copy wins; a repository checkout can also fall back to shared/.
+    candidates = (BUNDLED_PATH, *(parent / "shared" / "model-config.json" for parent in Path(__file__).resolve().parents))
+    path = next((candidate for candidate in candidates if candidate.exists()), BUNDLED_PATH)
+    return load_file(path)
 
 
 def get_model_config() -> ModelConfig:

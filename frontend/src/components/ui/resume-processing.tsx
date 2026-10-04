@@ -19,7 +19,7 @@ const DEFAULT_MESSAGES = [
 
 export const STALLED_MESSAGE = "This is taking longer than usual.";
 
-export function ResumeProcessing({ title, message, percent, easeProgress = false, startedAt, updatedAt, stalledHint, active = true, sessionKey = "import", actions, preview, messages = DEFAULT_MESSAGES, statusLabel = "Resume processing status", progressLabel = "Resume processing progress" }: {
+export function ResumeProcessing({ title, message, percent, easeProgress = false, startedAt, updatedAt, stalledHint, active = true, sessionKey = "import", provisional = false, actions, preview, messages = DEFAULT_MESSAGES, statusLabel = "Resume processing status", progressLabel = "Resume processing progress" }: {
   title: string;
   message: string;
   percent?: number;
@@ -33,6 +33,8 @@ export function ResumeProcessing({ title, message, percent, easeProgress = false
   stalledHint?: string;
   active?: boolean;
   sessionKey?: string;
+  /** The session key is a placeholder until the server reports the job. */
+  provisional?: boolean;
   actions?: ReactNode;
   preview?: ReactNode;
   messages?: readonly string[];
@@ -42,7 +44,7 @@ export function ResumeProcessing({ title, message, percent, easeProgress = false
   const { elapsed, stalled } = useProcessingClock({ active, sessionKey, startedAt, updatedAt, updateKey: `${message}|${percent ?? ""}` });
   const measuredPercent = typeof percent === "number" && Number.isFinite(percent)
     ? Math.max(0, Math.min(100, percent)) : undefined;
-  const eased = useEasedProgress({ enabled: easeProgress && active, sessionKey, startedAt, reported: measuredPercent });
+  const eased = useEasedProgress({ enabled: easeProgress && active, sessionKey, startedAt, reported: measuredPercent, provisional });
   const shownPercent = eased ?? measuredPercent;
   const elapsedText = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
   const supportingMessage = messages.length ? messages[Math.floor(elapsed / 8) % messages.length] : undefined;
@@ -88,7 +90,7 @@ export function JobExtractionProgress({ progress, isCancelling, onCancel }: {
   isCancelling: boolean;
   onCancel?: () => void;
 }) {
-  return <ResumeProcessing title="Reading the job posting" sessionKey={progress?.job_id ?? "extraction"}
+  return <ResumeProcessing title="Reading the job posting" sessionKey={progress?.job_id ?? "extraction"} provisional={!progress}
     message={isCancelling ? "Stopping extraction. Waiting for confirmation." : progress?.message || "Opening the job posting. Waiting for the first update."}
     percent={progress?.percent_complete} easeProgress startedAt={progress?.created_at} updatedAt={progress?.updated_at}
     stalledHint={onCancel && !isCancelling ? "You can stop extraction and enter the details yourself." : undefined}
