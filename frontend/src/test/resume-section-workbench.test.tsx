@@ -39,6 +39,19 @@ function editSection(heading = "Experience") {
 }
 
 describe("section workbench", () => {
+  it("shows the kept-original notice only on sections generation could not verify", () => {
+    const kept: ResumeDocument = { ...source, sections: [
+      { ...source.sections[0], generation_notice: "kept_original_unverified" },
+      { ...source.sections[0], id: "summary-1", kind: "summary", heading: "Summary", entries: [], content_md: "Engineer." },
+    ] };
+    render(<ResumeSectionWorkbench document={kept} onChange={vi.fn()} />);
+    fireEvent.click(screen.getByRole("tab", { name: /Experience/ }));
+    const notice = screen.getByText(/Kept your original wording\./).closest('[role="status"]');
+    expect(notice).toHaveTextContent(/Review it before applying\./);
+    fireEvent.click(screen.getByRole("tab", { name: /Summary/ }));
+    expect(screen.queryByText(/Kept your original wording/)).not.toBeInTheDocument();
+  });
+
   it.each([
     ["professional_experience", ["title", "company", "location", "date_range"]],
     ["education", ["qualification", "institution", "location", "date_range"]],

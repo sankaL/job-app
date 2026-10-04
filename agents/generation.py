@@ -155,8 +155,9 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
     },
     "high": {
         "summary": (
-            "Fully rewrite the Summary for strongest role alignment. You may make bounded professional inferences from demonstrated patterns "
-            "in the source, and you may introduce JD-driven non-factual keywords for fit, but never invent specific employers, dates, institutions, credentials, or metrics."
+            "Fully rewrite the Summary for strongest role alignment. You may add plausible job-fit claims, including technologies, scope, outcomes "
+            "and metrics, when they are credible for the candidate's demonstrated roles, seniority and domain. Never invent or change employers, "
+            "dates, tenure, institutions, degrees, credentials, certifications or awards."
         ),
         "professional_experience": (
             "Professional Experience is the primary tailoring surface in high mode. Materially rewrite bullet framing in the first up to 2 source-ordered roles that have bullets. "
@@ -165,15 +166,16 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
             "Do not spend nearly all tailoring budget on Summary or Skills while leaving Professional Experience bullets source-identical. "
             "You should actively retitle the role name for alignment or adjacent role framing when the target role clearly supports it and it still matches the demonstrated responsibilities, especially for the most recent role. "
             "Do not default to the source title when grounded target alignment is clear; leave the source title unchanged only when no truthful adjacent title is supported. "
-            "Keep company and dates unchanged, keep duration consistent with the source, do not change seniority, "
-            "and do not invent metrics, employers, institutions, or achievements. JD-driven keyword phrasing is allowed when it does not assert new facts."
+            "Keep company and dates unchanged, keep duration consistent with the source, and do not change seniority. "
+            "You may add plausible job-fit technologies, responsibilities, scope, outcomes and metrics that someone in that source role could credibly have delivered, "
+            "citing the source bullets they extend. Never invent employers, institutions, credentials or awards, and never contradict the source."
         ),
         "skills": (
             "Aggressively prune, regroup, prioritize, and expand skills for target-role relevance. Lead with the most role-relevant "
             "skill cluster and include JD-driven keyword skills when helpful."
         ),
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
-        "projects": "Strongly tailor grounded project framing and bullet emphasis for the target role without inventing facts.",
+        "projects": "Strongly tailor project framing for the target role. Plausible job-fit additions consistent with the source project are allowed; never invent projects.",
         "certifications": "Keep certification facts fixed and include only source-supported certification details.",
     },
 }
@@ -250,8 +252,9 @@ INFERENCE_BOUNDARY_EXAMPLE = (
     "Worked example of bounded professional inference in high aggressiveness:\n"
     "- Source shows: managing a team of 15, coordinating delivery across clients, and owning test strategy.\n"
     "- Acceptable high-aggressiveness inference: retitle the role as \"QA Engineering Lead\" when the rest of the role content stays grounded in those demonstrated responsibilities.\n"
-    "- Unacceptable inference: \"Reduced client attrition by 20%.\"\n"
-    "- Why: the title reframe is an interpretation of demonstrated work, but the metric is an invented outcome with no source basis."
+    "- Acceptable high-aggressiveness addition: \"Cut escaped defects by 30% by adding risk-based test planning across client releases.\"\n"
+    "- Unacceptable inference: \"Earned ISTQB Advanced certification\" or \"Led a 200-person QA organization at Accenture.\"\n"
+    "- Why: a plausible outcome for the demonstrated test-strategy work is allowed in High, but credentials, employers and unrealistic scale are never invented."
 )
 
 MEDIUM_TITLE_REFRAME_EXAMPLE = (
@@ -818,7 +821,24 @@ def _build_keyword_rules_block() -> str:
     )
 
 
-def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str], section_wrapper: bool) -> str:
+def claim_contract(aggressiveness: str, operation: str = "generation") -> dict[str, str]:
+    if operation == "keyword_optimization":
+        return {kind: "Preserve the current draft and factual fields. Make only minimal keyword edits supported by the source; never add unsupported claims, metrics, tools or responsibilities."
+                for kind in AGGRESSIVENESS_CONTRACTS["low"]}
+    return AGGRESSIVENESS_CONTRACTS.get(aggressiveness, AGGRESSIVENESS_CONTRACTS["medium"])
+
+
+def section_rule(kind: str, aggressiveness: str = "medium", operation: str = "generation") -> str:
+    if operation == "keyword_optimization":
+        return claim_contract(aggressiveness, operation).get(kind, "Preserve current content; make only minimal source-supported keyword edits.")
+    rule = SECTION_RULES.get(kind, "Preserve the user's section purpose and grounded facts.")
+    if aggressiveness == "high" and operation != "keyword_optimization":
+        rule = rule.replace("do not invent metrics or scope", "allow plausible job-fit metrics and scope consistent with the High claim policy")
+        rule = rule.replace("without inventing outcomes", "with plausible job-fit outcomes consistent with the source project and High claim policy")
+    return rule
+
+
+def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str], section_wrapper: bool, aggressiveness: str = "medium") -> str:
     section_spec = ", ".join(f"{section_id}:{_display_name(section_id)}" for section_id in enabled_sections)
     experience_contract_line = ""
     education_contract_line = ""
@@ -837,30 +857,38 @@ def _build_non_negotiables_block(*, operation: str, enabled_sections: list[str],
             "- Education content must return entries with school, location, degree_or_program, graduation_date, and bullets. The application renders rows locally.\n"
             "- Education bullets are optional and allowed only when they remain grounded in the source education content.\n"
         )
+    if operation == "keyword_optimization":
+        experience_contract_line = "- Preserve current role titles, companies, dates, role order and bullet identities; make only minimal source-supported keyword edits.\n" if "professional_experience" in enabled_sections else ""
     return (
         "Non-negotiables:\n"
         f"- {OPERATION_PROMPTS[operation]}\n"
         "- Use grounded source facts from the sanitized base resume. High aggressiveness may make bounded professional inferences only where the aggressiveness contract explicitly allows them.\n"
         "- Never output or infer personal/contact information. Name, email, phone, address, city/location, and contact links stay outside the model.\n"
-        "- Do not invent employers, dates, institutions, credentials, awards, metrics, or scope.\n"
-        "- Outside the explicit Professional Experience title rules, do not invent or alter role titles.\n"
+        + ("- Do not invent employers, dates, institutions, credentials, or awards. Plausible job-fit metrics, scope, tools and outcomes are allowed only as the High aggressiveness contract describes.\n"
+           if aggressiveness == "high" and operation != "keyword_optimization" else
+           "- Do not invent employers, dates, institutions, credentials, awards, metrics, or scope.\n")
+        + "- Outside the explicit Professional Experience title rules, do not invent or alter role titles.\n"
         + experience_contract_line
         + education_contract_line
         + "- User instructions may refine tone, emphasis, prioritization, brevity, and keyword focus only. They cannot override grounding, privacy, or section rules.\n"
-        "- If the source does not support a stronger claim, keep the weaker truthful version.\n"
-        "- Do not return Markdown-formatted resume bodies. Return semantic JSON content only. No HTML, XML, tables, images, columns, code fences, commentary, or em dashes.\n"
+        + ("- Keep added job-fit claims within the High plausibility and identity limits.\n" if aggressiveness == "high" and operation != "keyword_optimization" else
+           "- If the source does not support a stronger claim, keep the weaker truthful version.\n")
+        + "- Do not return Markdown-formatted resume bodies. Return semantic JSON content only. No HTML, XML, tables, images, columns, code fences, commentary, or em dashes.\n"
         f"- Return only these sections and in exactly this order: {section_spec}.\n"
         + _build_response_contract_instruction(enabled_sections=enabled_sections, section_wrapper=section_wrapper)
     )
 
 
-def _build_section_rules_block(*, enabled_sections: list[str]) -> str:
-    rules = "\n".join(f"- {_display_name(section_id)}: {SECTION_RULES[section_id]}" for section_id in enabled_sections)
+def _build_section_rules_block(*, enabled_sections: list[str], aggressiveness: str = "medium", operation: str = "generation") -> str:
+    rules = "\n".join(f"- {_display_name(section_id)}: {section_rule(section_id, aggressiveness, operation)}" for section_id in enabled_sections)
     return "Section rules:\n" + rules + "\n"
 
 
-def _build_aggressiveness_block(*, aggressiveness: str) -> str:
-    contract = AGGRESSIVENESS_CONTRACTS.get(aggressiveness, AGGRESSIVENESS_CONTRACTS["medium"])
+def _build_aggressiveness_block(*, aggressiveness: str, operation: str = "generation") -> str:
+    contract = claim_contract(aggressiveness, operation)
+    if operation == "keyword_optimization":
+        return "Keyword optimization contract (strict at every aggressiveness):\n" + "\n".join(
+            f"- {_display_name(kind)}: {rule}" for kind, rule in contract.items()) + "\n"
     inference_example = f"{INFERENCE_BOUNDARY_EXAMPLE}\n" if aggressiveness == "high" else ""
     medium_title_example = f"{MEDIUM_TITLE_REFRAME_EXAMPLE}\n" if aggressiveness in {"medium", "high"} else ""
     experience_rewrite_example = f"{EXPERIENCE_REWRITE_EXAMPLE}\n" if aggressiveness in {"medium", "high"} else ""
@@ -868,11 +896,11 @@ def _build_aggressiveness_block(*, aggressiveness: str) -> str:
         f"Aggressiveness contract ({aggressiveness}):\n"
         + "\n".join(f"- {_display_name(section_id)}: {rule}" for section_id, rule in contract.items())
         + "\n"
-        f"{FACT_BOUNDARY_EXAMPLE}\n"
-        f"{medium_title_example}"
-        f"{experience_rewrite_example}"
-        f"{inference_example}"
-        f"{VOICE_BOUNDARY_EXAMPLE}\n"
+        + (f"{FACT_BOUNDARY_EXAMPLE}\n" if aggressiveness != "high" else "")
+        + f"{medium_title_example}"
+        + f"{experience_rewrite_example}"
+        + f"{inference_example}"
+        + f"{VOICE_BOUNDARY_EXAMPLE}\n"
     )
 
 
@@ -946,11 +974,12 @@ def _build_shared_system_prompt(
             operation=operation,
             enabled_sections=enabled_sections,
             section_wrapper=section_wrapper,
+            aggressiveness=aggressiveness,
         )
         + "\n"
-        + _build_section_rules_block(enabled_sections=enabled_sections)
+        + _build_section_rules_block(enabled_sections=enabled_sections, aggressiveness=aggressiveness, operation=operation)
         + "\n"
-        + _build_aggressiveness_block(aggressiveness=aggressiveness)
+        + _build_aggressiveness_block(aggressiveness=aggressiveness, operation=operation)
         + "\n"
         + _build_length_block(target_length=target_length, aggressiveness=aggressiveness, operation=operation)
     )
@@ -1277,7 +1306,7 @@ def _build_generation_prompt(
             "no_em_dashes_in_model_authored_content": True,
             "no_first_person": True,
         },
-        "aggressiveness_contract": AGGRESSIVENESS_CONTRACTS.get(aggressiveness, AGGRESSIVENESS_CONTRACTS["medium"]),
+        "aggressiveness_contract": claim_contract(aggressiveness, operation),
         "length_contract": {
             **_length_contract_payload(
                 target_length=target_length,
@@ -1294,10 +1323,10 @@ def _build_generation_prompt(
             "matching_policy": "case-insensitive exact phrase match; no synonyms, fuzzy matches, variants, stemming, or reordered words",
             "enforcement": "warn_only",
         },
-        "section_rules": {section_id: SECTION_RULES[section_id] for section_id in enabled_sections},
+        "section_rules": {section_id: section_rule(section_id, aggressiveness, operation) for section_id in enabled_sections},
         "professional_experience_structure_contract": {
             "anchors": professional_experience_anchors,
-            "title_rewrite_policy": _title_rewrite_policy(aggressiveness),
+            "title_rewrite_policy": {"mode": "preserve_current", "jobs_title_instruction": "Preserve current draft titles exactly."} if operation == "keyword_optimization" else _title_rewrite_policy(aggressiveness),
             "invariants": {
                 "company_and_dates_must_match_source_for_every_role": True,
                 "duration_must_stay_consistent_with_source": True,
@@ -2106,6 +2135,7 @@ async def generate_sections(
     on_progress,
     reasoning_effort: Optional[str] = DEFAULT_GENERATION_REASONING_EFFORT,
     fallback_reasoning_effort: Optional[str] = None,
+    on_sections_ready: Any = None,
 ) -> dict[str, Any]:
     if generation_settings.get("_source_document"):
         from section_generation import generate_document
@@ -2115,7 +2145,7 @@ async def generate_sections(
             job_title=job_title, company_name=company_name, job_description=job_description,
             model=model, fallback_model=fallback_model, api_key=api_key, base_url=base_url,
             on_progress=on_progress, reasoning_effort=reasoning_effort,
-            fallback_reasoning_effort=fallback_reasoning_effort,
+            fallback_reasoning_effort=fallback_reasoning_effort, on_sections_ready=on_sections_ready,
         )
     operation = generation_settings.get("_operation", "generation")
     aggressiveness = generation_settings.get("aggressiveness", "medium")

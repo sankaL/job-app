@@ -51,14 +51,14 @@ export const AGGRESSIVENESS_OPTIONS = [
   {
     value: "high",
     label: "High",
-    description: "Strongest rewrite. Can materially change phrasing, emphasis, role titles, and keyword coverage.",
+    description: "Strongest rewrite for job fit. Can add plausible claims, metrics, and tools that are not in your resume.",
     details: [
-      "Summary: strongest rewrite for role alignment, including bounded professional inference and job-description keyword emphasis.",
-      "Professional Experience: aggressively reframe, reprioritize, consolidate, and condense grounded bullets; role titles may be rewritten when the new title still matches the demonstrated work. Company and dates remain fixed.",
+      "Summary: strongest rewrite for role alignment, including plausible job-fit claims and job-description keyword emphasis.",
+      "Professional Experience: aggressively reframe and reprioritize bullets, and add plausible tools, scope, outcomes, and metrics that fit each role; role titles may be rewritten when the new title still matches the demonstrated work. Company, dates, credentials, and education remain fixed.",
       "Skills: aggressively regroup, prioritize, prune, and expand with job-description keyword skills for fit.",
       "Education: no factual rewrites beyond minimal formatting cleanup.",
     ],
     warning:
-      "High aggressiveness can make substantial changes to wording, emphasis, Professional Experience role framing, and keyword/skills coverage, while company and dates stay fixed. Review all generated additions carefully.",
+      "High aggressiveness can add plausible claims, metrics, and tools that are not in your resume, along with substantial changes to wording, role framing, and skills. Company, dates, credentials, and education stay fixed. Check every addition and keep only what you can speak to in an interview.",
   },
 ] as const;

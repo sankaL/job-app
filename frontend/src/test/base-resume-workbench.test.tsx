@@ -175,7 +175,8 @@ it("fills the upload workspace and explains a pending import before opening the 
   await user.upload(screen.getByLabelText("PDF File"), new File(["synthetic"], "resume.pdf", { type: "application/pdf" }));
   await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
   expect(screen.getByRole("region", { name: "Reading and structuring your resume" })).toBeInTheDocument();
-  expect(screen.getByText("Separate roles and their details")).toBeInTheDocument();
+  expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  expect(screen.getByTestId("resume-generation-skeleton")).toBeInTheDocument();
   expect(screen.getByRole("progressbar")).not.toHaveAttribute("value");
   expect(screen.getByRole("button", { name: "Import in progress" })).toBeDisabled();
   expect(screen.getByRole("textbox", { name: "Resume Name" })).toBeDisabled();
@@ -196,7 +197,7 @@ it("keeps upload inputs for retry after failure and explains local-only import a
   await user.click(screen.getByRole("checkbox", { name: /Use AI to extract/ }));
   await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
   expect(screen.getByRole("status", { name: "Resume processing status" })).toHaveTextContent("without AI entry extraction");
-  expect(screen.getByText("Parse recognizable role headers")).toBeInTheDocument();
+  expect(screen.queryByText("What this includes")).not.toBeInTheDocument();
   await act(async () => { failUpload(new Error("Import unavailable. Retry your PDF.")); });
   expect(await screen.findByText("Import unavailable. Retry your PDF.")).toBeInTheDocument();
   expect(name).toHaveValue("Retry me");

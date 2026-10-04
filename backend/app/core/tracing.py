@@ -33,6 +33,12 @@ class TraceConfig:
     api_key: Optional[str] = field(default=None, repr=False)
     project_name: Optional[str] = None
     workspace_id: Optional[str] = None
+    # Redacted prompt/output bodies are an explicit opt-in on top of tracing.
+    content_enabled: bool = False
+
+    @property
+    def include_content(self) -> bool:
+        return self.enabled and self.content_enabled
 
 
 @lru_cache(maxsize=4)

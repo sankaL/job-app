@@ -264,17 +264,74 @@ async def test_model_trace_records_counts_without_raw_prompt_or_output(monkeypat
         captures.append({'name':name, **kwargs})
         yield Trace()
     monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    monkeypatch.setattr(llm_runtime, 'trace_content_enabled', lambda: False)
     mock_provider(monkeypatch, [{'count':7}])
     await structured_call(prompt=[('system','Private instructions'),('human','Sensitive resume text alex@example.com')],
         output_type=ExampleOutput,model_name='test/provider',api_key='secret-key',base_url='https://provider.invalid/v1',
         budget=CallBudget.for_seconds(3),operation='section_grounding_audit')
     assert captures[0]['run_type']=='llm'
     assert captures[0]['metadata']['operation']=='section_grounding_audit'
+    assert captures[0]['metadata']['content_traced'] is False
     assert captures[1]['outputs']['request_count']==1
     assert captures[1]['outputs']['output_tokens']==8
+    assert 'output' not in captures[1]['outputs']
     assert 'Sensitive resume text' not in str(captures)
     assert 'alex@example.com' not in str(captures)
     assert 'secret-key' not in str(captures)
+
+
+@pytest.mark.asyncio
+async def test_model_trace_includes_redacted_prompt_and_output_when_content_opted_in(monkeypatch):
+    from contextlib import contextmanager
+    import llm_runtime
+    captures = []
+    class Trace:
+        def end(self, **kwargs):
+            captures.append(kwargs)
+    @contextmanager
+    def scoped(name, **kwargs):
+        captures.append({'name':name, **kwargs})
+        yield Trace()
+    monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    monkeypatch.setattr(llm_runtime, 'trace_content_enabled', lambda: True)
+    mock_provider(monkeypatch, [{'count':7}])
+    await structured_call(prompt=[('system','Grounding instructions'),('human','Resume text alex@example.com')],
+        output_type=ExampleOutput,model_name='test/provider',api_key='secret-key',base_url='https://provider.invalid/v1',
+        budget=CallBudget.for_seconds(3),operation='section_grounding_audit')
+    assert captures[0]['inputs']['messages'] == [
+        {'role': 'system', 'content': 'Grounding instructions'},
+        {'role': 'user', 'content': 'Resume text alex@example.com'},
+    ]
+    assert captures[0]['metadata']['content_traced'] is True
+    assert captures[1]['outputs']['output'] == {'count': 7}
+    assert 'secret-key' not in str(captures)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_name,expected', [
+    ('google/gemini-3.8-flash', {'output_mode': 'native', 'temperature': 'provider_default',
+        'reasoning_effort': 'medium', 'reasoning_text_excluded': True}),
+    ('anthropic/claude-sonnet-5.5', {'output_mode': 'native', 'reasoning_effort': 'capped',
+        'reasoning_max_tokens': 2000, 'reasoning_text_excluded': True}),
+    ('test/provider', {'output_mode': 'tool', 'temperature': 0.35,
+        'reasoning_effort': 'high', 'reasoning_text_excluded': False}),
+])
+async def test_model_trace_metadata_describes_settings_actually_sent(monkeypatch, model_name, expected):
+    from contextlib import contextmanager
+    import llm_runtime
+    captures = []
+    @contextmanager
+    def scoped(name, **kwargs):
+        captures.append(kwargs)
+        yield None
+    monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    mock_provider(monkeypatch, [{'count':7}])
+    await structured_call(prompt=[('human','Count.')],output_type=ExampleOutput,model_name=model_name,api_key='test',
+        base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3),temperature=0.35,reasoning={'effort':'high'})
+    metadata = captures[0]['metadata']
+    assert {key: metadata[key] for key in expected} == expected
+    assert metadata['output_type'] == 'ExampleOutput'
+    assert metadata['max_tokens'] == 16000
 
 
 @pytest.mark.asyncio
@@ -292,6 +349,7 @@ async def test_optional_trace_setup_failure_does_not_fail_provider_call(monkeypa
 @pytest.mark.asyncio
 @pytest.mark.parametrize('model_name', ['anthropic/claude-sonnet-5.5','openai/gpt-6.1-sol','google/gemini-3.8-flash','openai/gpt-6-luna'])
 async def test_current_models_use_native_json_default_reasoning_and_bounded_correction(monkeypatch, model_name):
+    import llm_runtime
     requests = mock_provider(monkeypatch, [{'count':'invalid'}, {'count':2}])
     budget = CallBudget.for_seconds(3,max_requests=2)
     output = await structured_call(prompt=[('human','Return count 2.')],output_type=ExampleOutput,
@@ -303,7 +361,8 @@ async def test_current_models_use_native_json_default_reasoning_and_bounded_corr
         assert request['response_format']['type'] == 'json_schema'
         assert 'tools' not in request and 'tool_choice' not in request
         assert 'temperature' not in request
-        assert 'effort' not in request.get('reasoning',{})
+        # Native models use bounded per-family reasoning; the caller's effort is ignored.
+        assert request['reasoning'] == llm_runtime.reasoning_settings_for(model_name)
 
 
 @pytest.mark.asyncio
@@ -333,3 +392,101 @@ async def test_adapter_preserves_fallback_trace_metadata(monkeypatch):
         config={"metadata": {"operation": "resume_judge", "is_fallback": True}})
     assert captures[0]["metadata"]["is_fallback"] is True
     assert captures[0]["metadata"]["operation"] == "resume_judge"
+
+
+@pytest.mark.asyncio
+async def test_trace_output_failure_keeps_result_and_closes_client(monkeypatch):
+    from contextlib import contextmanager
+    import openai
+    import llm_runtime
+    captures = []
+    closed = []
+    class Trace:
+        def end(self, **kwargs):
+            captures.append(kwargs)
+    @contextmanager
+    def scoped(name, **kwargs):
+        yield Trace()
+    def broken(_value):
+        raise RuntimeError('serialization failed')
+    monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    monkeypatch.setattr(llm_runtime, 'trace_content_enabled', lambda: True)
+    monkeypatch.setattr(llm_runtime, 'sanitize_trace_data', broken)
+    original_close = openai.AsyncOpenAI.close
+    async def close(self):
+        closed.append(True)
+        await original_close(self)
+    monkeypatch.setattr(openai.AsyncOpenAI, 'close', close)
+    mock_provider(monkeypatch, [{'count':7}])
+    result = await structured_call(prompt=[('human','Count.')],output_type=ExampleOutput,model_name='test/provider',
+        api_key='test',base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3))
+    assert result.count == 7
+    assert closed == [True]
+    assert captures[0]['outputs']['output'] == '<unavailable>'
+
+
+def test_budget_errors_keep_compatible_base_types_and_affordability():
+    from llm_runtime import AIBudgetExhausted, AIDeadlineReached
+    budget = CallBudget.for_seconds(5, max_requests=3)
+    budget.requests = 2
+    assert budget.can_afford(1) is True
+    assert budget.can_afford(2) is False
+    budget.requests = 3
+    with pytest.raises(AIBudgetExhausted) as raised:
+        budget.remaining_seconds()
+    assert isinstance(raised.value, RuntimeError)
+    expired = CallBudget(deadline=0)
+    assert expired.can_afford(1) is False
+    with pytest.raises(asyncio.TimeoutError):
+        expired.remaining_seconds()
+    assert issubclass(AIDeadlineReached, asyncio.TimeoutError)
+
+
+@pytest.mark.asyncio
+async def test_failed_model_run_is_marked_as_error_with_fixed_label(monkeypatch):
+    from contextlib import contextmanager
+    import llm_runtime
+    from llm_runtime import AIRequestError
+    captures = []
+    class Trace:
+        def end(self, **kwargs):
+            captures.append(kwargs)
+    @contextmanager
+    def scoped(name, **kwargs):
+        yield Trace()
+    monkeypatch.setattr(llm_runtime, 'trace_scope', scoped)
+    mock_provider(monkeypatch, [httpx.Response(503, json={'error': {'message': 'Private upstream body'}})])
+    with pytest.raises(AIRequestError):
+        await structured_call(prompt=[('human','Count.')],output_type=ExampleOutput,model_name='test/provider',
+            api_key='test',base_url='https://provider.invalid/v1',budget=CallBudget.for_seconds(3))
+    assert captures[0]['error'] == 'ModelHTTPError: provider_unavailable'
+    assert captures[0]['outputs']['outcome'] == 'failed'
+    assert 'Private upstream' not in str(captures)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_name,pinned', [('google/gemini-3.8-flash', ['google-ai-studio']), ('anthropic/claude-sonnet-5.5', None), ('openai/gpt-6-luna', None)])
+async def test_requests_deny_data_retention_route_by_latency_and_record_served_provider(monkeypatch, model_name, pinned):
+    requests = mock_provider(monkeypatch, [{'count': 3}])
+    budget = CallBudget.for_seconds(3)
+    await structured_call(prompt=[('human', 'Count.')], output_type=ExampleOutput, model_name=model_name, api_key='test',
+        base_url='https://provider.invalid/v1', budget=budget)
+    provider = requests[0]['provider']
+    assert provider['data_collection'] == 'deny' and provider['require_parameters'] is True and provider['sort'] == 'latency'
+    assert provider.get('only') == pinned
+    assert budget.attempts[-1]['served_provider'] == 'Synthetic'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_name,cached', [('anthropic/claude-sonnet-5.5', True), ('openai/gpt-6-luna', False)])
+async def test_cache_split_marks_stable_prefix_only_for_cache_capable_providers(monkeypatch, model_name, cached):
+    requests = mock_provider(monkeypatch, [{'count': 1}])
+    payload = {'operation': 'generation', 'reviewed_source': {'sections': []}, 'requested_sections': [{'id': 'a'}]}
+    await structured_call(prompt=[('system', 'Rules.'), ('human', json.dumps(payload))], output_type=ExampleOutput,
+        model_name=model_name, api_key='test', base_url='https://provider.invalid/v1', budget=CallBudget.for_seconds(3),
+        cache_stable_keys=('operation', 'reviewed_source'))
+    user = next(message for message in requests[0]['messages'] if message['role'] == 'user')
+    parts = user['content']
+    assert json.loads(parts[0]['text']) == {'operation': 'generation', 'reviewed_source': {'sections': []}}
+    assert json.loads(parts[1]['text']) == {'requested_sections': [{'id': 'a'}]}
+    assert ('cache_control' in parts[0]) is cached

@@ -2,8 +2,19 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
-import portrait from "@/assets/remote-work-portrait.png";
+import portraitRiso from "@/assets/remote-work-portrait.png";
+import portraitWater from "@/assets/remote-work-portrait-water.png";
+import portraitDots from "@/assets/remote-work-portrait-dots.png";
 import { cn } from "@/lib/utils";
+
+// Options: "dots" | "watercolor" | "riso"
+const AUTH_ART_STYLE: "dots" | "watercolor" | "riso" = "dots";
+const portrait =
+  AUTH_ART_STYLE === "dots"
+    ? portraitDots
+    : AUTH_ART_STYLE === "watercolor"
+      ? portraitWater
+      : portraitRiso;
 
 type AuthNoticeProps = {
   tone?: "error" | "success";
@@ -43,14 +54,14 @@ export function AuthPageShell({ title, description, notice, footer, width = "def
     <div className="public-design">
       <Theme theme={neutralTheme} mode="light">
         <div className="animate-fadeInUp min-h-screen bg-[#f9f8f6] lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <aside className="relative z-10 m-3 hidden rounded-[28px] bg-[linear-gradient(180deg,#eef2ef_0%,#e2eae6_100%)] lg:block">
+          <aside className="auth-aside relative z-10 m-3 hidden overflow-hidden rounded-[28px] bg-[#f4ede1] lg:block">
             <Link to="/" aria-label="Applix home" className="absolute left-8 top-8 z-10 inline-flex">
               <img src="/applix-logo.svg" alt="Applix logo" className="h-10 w-10" />
             </Link>
             <img
               src={portrait}
               alt="Illustration of a person working on a laptop in an armchair"
-              className="absolute -right-16 bottom-0 h-[84%] max-h-[860px] w-auto max-w-[calc(100%+2rem)] object-contain object-right-bottom xl:-right-24"
+              className="auth-aside-portrait absolute bottom-2 right-4 h-[76%] max-h-[760px] w-auto max-w-[88%] object-contain object-right-bottom xl:bottom-4 xl:right-6"
             />
           </aside>
 

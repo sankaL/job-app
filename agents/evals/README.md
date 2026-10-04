@@ -32,12 +32,12 @@ make test-resume-evals EVAL_ARGS='--output /app/evals/results/offline.json'
 The offline target replaces provider credentials with a test placeholder. Its credential availability check will therefore show false. For the bounded initial live sample, the separate target retains the local configured key and adds `--live`:
 
 ```sh
-make eval-resumes EVAL_ARGS='--case full_low --case entry_preservation --case keyword_preservation --max-requests 8 --max-output-tokens 64000 --max-seconds 360 --max-cost-usd 0.50 --save-documents --output /app/evals/results/live-initial.json'
+make eval-resumes EVAL_ARGS='--case full_low --case entry_preservation --case keyword_preservation --max-requests 8 --max-output-tokens 128000 --max-seconds 360 --max-cost-usd 0.50 --save-documents --output /app/evals/results/live-initial.json'
 ```
 
 Use `--env-file` only when running outside the agents service. It loads local settings without printing their values. Do not pass credentials through CLI arguments.
 
-The live runner has an overall maximum of eight HTTP requests, including schema corrections. It reserves each request's full output allowance before dispatch, capped at 64,000 output tokens across the run. Shared production deadlines and per-workflow limits still apply. A global deadline also stops remaining cases. `--max-requests`, `--max-output-tokens`, and `--max-seconds` may reduce these allowances.
+The live runner has an overall maximum of eight HTTP requests, including schema corrections. It reserves each request's full output allowance before dispatch, capped at 128,000 output tokens across the run (16,000 per call). Shared production deadlines and per-workflow limits still apply. A global deadline also stops remaining cases. `--max-requests`, `--max-output-tokens`, and `--max-seconds` may reduce these allowances.
 
 The dollar threshold stops subsequent requests after OpenRouter reports a charged cost. It cannot prevent the last in-flight request from crossing the threshold. Missing cost metadata stops subsequent live requests. The request count and reserved token limits provide the pre-dispatch bounds; cost totals remain provider-reported rather than pricing estimates.
 

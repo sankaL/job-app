@@ -1,11 +1,29 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-04
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
+
+## 2026-10-04 generation speed and keep-original sections
+
+- No SQL migration or backfill. Section document v1 gains optional `generation_notice` (`"kept_original_unverified"` or null) inside `resume_drafts.document` JSONB. Existing documents remain valid; older readers that ignore unknown keys are unaffected, but the agents and backend `ResumeSection` models both forbid extra keys, so **deploy backend and frontend before the worker**. The backend must accept the field before any worker sends it. The main deploy workflow enforces this: `deploy-agents` waits for backend and frontend in the same push, allowing unchanged services to be skipped. Each changed service must finish `scripts/wait-railway-deployment.py`, which verifies the expected main commit, successful deployment and active running instances within ten minutes. Three consecutive CLI/API errors, a superseded release, terminal deployment failure or timeout fail the job; a failed API/UI job blocks the worker upload. Build completion alone does not satisfy the gate.
+- Models are now chosen by role in `shared/model-config.json` (bundled as `agents/model-config.json` and `backend/app/core/model-config.json`). `TIER1_MODEL`, `TIER1_FALLBACK_MODEL`, `TIER2_MODEL`, `TIER2_FALLBACK_MODEL`, `OPENROUTER_CLASSIFICATION_MODEL` and the interim `JEV_AUDIT_*` variables are no longer read. Remove them from Railway after deploy; leaving them set has no effect. To change a model, edit the shared file, copy it into both services (tests enforce this) and deploy both. Writing actions share ten model requests; Jev calls do not count. OpenRouter requests deny provider data collection, sort by latency and pin Gemini to Google AI Studio.
+- Verify after deploy: a generation trace in LangSmith shows `applix.section_grounding_audit` with a Jev decisions child, `served_provider` on model runs, and two concurrent `section_generation` runs. A generation whose Summary cannot be verified completes, keeps the source Summary text and shows "Kept your original wording." Editing that section and saving clears the notice. Usage events record `kept_original_sections`.
+- Progress records (Redis, not SQL) gain optional `partial_sections` (`[{id, kind, heading, content_md}]`, at most 20 sections of 12,000 characters). The backend drops malformed or oversized values instead of failing progress reads. The worker now also publishes each progress update on `phase1:applications:{id}:events`, so the live stream relays worker progress directly. Verify that a full generation shows Summary/Skills or Experience in the preview before completion, and that the preview clears on completion or failure.
+- The worker runs up to 20 concurrent jobs (arq `max_jobs`, was the default 10), but at most 4 extraction browsers at once. Watch worker memory on Railway after deploy. Twenty concurrent generations can reserve roughly $7-8 of OpenRouter in-flight credit, so keep a comfortable balance.
+- Rollback: redeploy the previous worker first, then backend/frontend. Stored notices stay harmless (a null-safe optional field); no schema rollback is needed.
+
+## 2026-10-04 extraction recovery and claim-policy compatibility
+
+- No SQL migration or backfill. New extraction diagnostics use the existing JSONB field: `timed_out`, `posting_unavailable` and `no_job_posting`. Older rows and their existing kinds remain readable. Deploy backend, worker and frontend together so persisted outcomes keep their specific recovery messages after navigation.
+- Restart the worker to load its 120-second extraction boundary and arq abort support. Backend stop, stalled recovery and stalled deletion request cancellation. Stale recovery replaces progress only if the checked snapshot still matches; a fresh update or retry wins. Deleted stalled applications retain an ID-only terminal progress fence, with fixed status/timestamps and no source text, for at most 24 hours. Result caches are cleared. This retention fences queued work when abort delivery fails; it does not retain the deleted application row.
+- Keep started delivery concurrent with capture/model work, but finish it before terminal progress or cache becomes visible. Cache the extracted payload before announcing success. Late started callbacks cannot move a terminal job back to extracting.
+- Writing actions now share eight model requests and a 45-second audit timeout within their existing wall-clock deadline. High generation/regeneration permits the documented plausible job-fit additions; keyword optimization remains source-supported at every level. This changes acceptance policy, not quota or stored document shape.
+- Verify a stopped running job frees its slot; a stopped queued job never opens a page; stalled recovery happens once and cannot replace fresh progress; stale deletion sends no failure notification and blocks late work even if abort fails; delayed started delivery cannot undo cached success; declined outcomes keep their explanation after reload. Verify a High keyword patch cannot use the permissive High audit.
+- Rollback application code together and drain queued work before returning to older workers. Keep existing documents and JSON diagnostics; no schema rollback is needed. Older code may show generic recovery text for the new kinds and lacks the new extraction timeout/abort guarantees.
 
 ## 2026-10-03 resume library summary excerpts
 
@@ -15,6 +33,7 @@ This runbook applies whenever backend or database work changes schema, compatibi
 
 ## 2026-10-03 dashboard creation-activity index
 
+- Production verification on 2026-10-03 22:29 EDT confirmed merged main `bfa54bc` running on all three application services. Applied migration 023 and its ledger insertion in one transaction with a five-second lock timeout and sixty-second statement timeout; independently verified the index definition afterward. Historical subscription migrations 013–015 had existing schema effects but missing ledger entries. Verified their columns/defaults, validated constraints, foreign keys, indexes and update triggers before recording their completed schema state without replaying obsolete seed/model updates. Final ledger contains all 24 repository migrations; Basic/Pro limits remain 10/60 and all 11 protected tables retain forced RLS. See [release verification](task-output/2026-10-03-main-production-verification.md).
 - Apply `20261003_000023_applications_user_created_at_index.sql` before or with the API that serves `GET /api/applications/creation-activity`. It is additive: one `(user_id, created_at DESC)` index on `applications`, no backfill, no data change. Lock acquisition is bounded at five seconds and SQL at sixty seconds; a failure rolls back cleanly and is safe to retry because the index uses `if not exists`.
 - The plain index build blocks application writes while it runs. That is brief at current volume; a large table needs a planned window or a manual `create index concurrently` outside the transaction, followed by the ledger insert.
 - The API still works without the index (same results, slower scans), so deploy order is flexible. Deploy the API before the frontend: an older API treats `creation-activity` as an application ID and returns an error, which leaves only the Activity panel in its retry state.

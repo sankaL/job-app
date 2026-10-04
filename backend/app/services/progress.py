@@ -5,12 +5,32 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from redis.asyncio import Redis
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+class PartialSection(BaseModel):
+    """A verified section shown while generation continues."""
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(min_length=1, max_length=128)
+    kind: str = Field(min_length=1, max_length=40)
+    heading: str = Field(max_length=120)
+    content_md: str = Field(max_length=12_000)
+
+
+def coerce_partial_sections(value: Any) -> Optional[list[PartialSection]]:
+    """Progressive display is optional: drop malformed or oversized data instead of failing progress reads."""
+    if value is None:
+        return None
+    try:
+        sections = [PartialSection.model_validate(item) for item in value]
+    except (TypeError, ValidationError):
+        return None
+    return sections[:20] or None
 
 
 class ProgressRecord(BaseModel):
@@ -24,6 +44,9 @@ class ProgressRecord(BaseModel):
     completed_at: Optional[str] = None
     terminal_error_code: Optional[str] = None
     quota_period_start: Optional[str] = None
+    partial_sections: Optional[list[PartialSection]] = None
+
+    _coerce_partial_sections = field_validator("partial_sections", mode="before")(coerce_partial_sections)
 
 
 class ApplicationEvent(BaseModel):
@@ -108,6 +131,32 @@ class RedisProgressStore:
 
     async def delete(self, application_id: str) -> None:
         await self._redis.delete(self._key(application_id))
+
+    async def replace_if_unchanged(
+        self, application_id: str, *, expected: Optional[ProgressRecord],
+        replacement: ProgressRecord, ttl_seconds: int = 86400,
+    ) -> bool:
+        """Atomically fence the observed job; the caller publishes after updating its row."""
+        script = """
+        local raw = redis.call('GET', KEYS[1])
+        if ARGV[1] == 'null' then
+            if raw then return 0 end
+        else
+            if not raw then return 0 end
+            local current = cjson.decode(raw)
+            local expected = cjson.decode(ARGV[1])
+            for _, key in ipairs({'job_id','workflow_kind','state','updated_at','completed_at','terminal_error_code'}) do
+                if (current[key] or cjson.null) ~= (expected[key] or cjson.null) then return 0 end
+            end
+        end
+        redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+        return 1
+        """
+        return bool(await self._redis.eval(
+            script, 1, self._key(application_id),
+            expected.model_dump_json() if expected is not None else "null",
+            replacement.model_dump_json(), ttl_seconds,
+        ))
 
     async def get_extraction_result(self, application_id: str) -> Optional[dict[str, object]]:
         payload = await self._redis.get(self._extraction_result_key(application_id))

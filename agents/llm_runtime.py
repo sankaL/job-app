@@ -16,7 +16,8 @@ from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel
-from langsmith_tracing import trace_scope, end_trace_safely
+import model_config
+from langsmith_tracing import trace_scope, end_trace_safely, sanitize_trace_data, trace_content_enabled
 
 
 SAFE_AI_OPERATIONS = {"generation", "regeneration_full", "regeneration_section", "keyword_optimization", "section_generation", "section_repair", "section_grounding_audit", "keyword_patch", "job_extraction", "keyword_extraction", "resume_judge", "structured_call"}
@@ -130,11 +131,72 @@ class AIRequestError(RuntimeError):
         super().__init__("AI provider rejected unsupported reasoning." if reasoning_rejected else "AI provider request failed.")
 
 
+class AIBudgetExhausted(RuntimeError):
+    """The shared per-workflow request or output-token allowance is spent."""
+    safe_trace_reason = "usage_budget_exhausted"
+
+
+class AIDeadlineReached(asyncio.TimeoutError):
+    """The shared per-workflow deadline passed before another provider call."""
+    safe_trace_reason = "deadline_reached"
+
+
+# Hidden reasoning shares the output allowance; per-model reasoning bounds live in
+# shared/model-config.json so it cannot consume the whole answer budget.
+MAX_CALL_OUTPUT_TOKENS = 16_000
+
+
+def reasoning_settings_for(model_name: str) -> dict[str, Any]:
+    """Bounded hidden reasoning from the model's profile in shared/model-config.json."""
+    return dict(model_config.profile(model_name).reasoning or {"exclude": True})
+
+
+def _cacheable_user_prompt(prompt: list[tuple[str, str]], stable_keys: Optional[tuple[str, ...]]) -> Any:
+    """Split a JSON payload into a stable prefix and the per-request rest, behind a cache breakpoint.
+
+    Anthropic and Google honour the breakpoint; other providers receive plain text parts.
+    Returns the joined string when there is nothing to cache.
+    """
+    from pydantic_ai.messages import CachePoint
+
+    human = [content for role, content in prompt if role != "system"]
+    joined = "\n\n".join(human)
+    if not stable_keys or not human:
+        return joined
+    try:
+        payload = json.loads(human[0])
+    except ValueError:
+        return joined
+    if not isinstance(payload, dict):
+        return joined
+    stable = {key: payload[key] for key in stable_keys if key in payload}
+    rest = {key: value for key, value in payload.items() if key not in stable}
+    if not stable or not rest:
+        return joined
+    tail = "\n\n".join([json.dumps(rest, ensure_ascii=True), *human[1:]])
+    return [json.dumps(stable, ensure_ascii=True), CachePoint(), tail]
+
+
+def provider_settings_for(model_name: str) -> dict[str, Any]:
+    """OpenRouter routing from shared/model-config.json: provider defaults plus the model's overrides."""
+    return model_config.provider_settings(model_name)
+
+
+def _served_details(result: Any) -> dict[str, Any]:
+    details = getattr(getattr(result, "response", None), "provider_details", None) or {}
+    served: dict[str, Any] = {}
+    if isinstance(details.get("downstream_provider"), str):
+        served["served_provider"] = details["downstream_provider"][:64]
+    if isinstance(details.get("cost"), (int, float)) and not isinstance(details.get("cost"), bool):
+        served["cost_usd"] = round(float(details["cost"]), 6)
+    return served
+
+
 @dataclass
 class CallBudget:
     deadline: float
     max_requests: int = 6
-    max_output_tokens: int = 24_000
+    max_output_tokens: int = 64_000
     requests: int = 0
     output_tokens: int = 0
     attempts: list[dict[str, Any]] = field(default_factory=list)
@@ -146,10 +208,15 @@ class CallBudget:
     def remaining_seconds(self) -> float:
         remaining = self.deadline - perf_counter()
         if remaining <= 0:
-            raise asyncio.TimeoutError("The AI workflow deadline was reached.")
+            raise AIDeadlineReached("The AI workflow deadline was reached.")
         if self.requests >= self.max_requests or self.output_tokens >= self.max_output_tokens:
-            raise RuntimeError("The AI workflow usage budget was reached.")
+            raise AIBudgetExhausted("The AI workflow usage budget was reached.")
         return remaining
+
+    def can_afford(self, requests: int) -> bool:
+        """Whether `requests` more provider calls fit before starting dependent work."""
+        return (self.deadline - perf_counter() > 0 and self.requests + requests <= self.max_requests
+            and self.output_tokens < self.max_output_tokens)
 
 _workflow_budget: ContextVar[Optional[CallBudget]] = ContextVar("resume_ai_budget", default=None)
 
@@ -175,6 +242,23 @@ def bounded_ai_workflow(seconds: Any, *, max_requests: int = 6):
 
 
 
+def _request_trace_metadata(settings: dict[str, Any], *, output_type: Any, native_output: bool, retries: int) -> dict[str, Any]:
+    """Describe the request settings actually sent, without prompt content."""
+    reasoning = settings.get("openrouter_reasoning")
+    reasoning = reasoning if isinstance(reasoning, dict) else {}
+    return {
+        "output_mode": "native" if native_output else "tool",
+        "output_type": getattr(output_type, "__name__", type(output_type).__name__),
+        "temperature": "provider_default" if settings.get("temperature") is None else settings["temperature"],
+        "max_tokens": settings.get("max_tokens"),
+        "reasoning_effort": str(reasoning.get("effort") or ("capped" if reasoning.get("max_tokens") else "provider_default")),
+        "reasoning_max_tokens": reasoning.get("max_tokens"),
+        "reasoning_text_excluded": reasoning.get("exclude") is True,
+        "output_retries": retries,
+        "provider_routing": ",".join(f"{key}={value}" for key, value in sorted((settings.get("openrouter_provider") or {}).items())),
+    }
+
+
 async def structured_call(
     *,
     prompt: list[tuple[str, str]],
@@ -189,6 +273,7 @@ async def structured_call(
     output_validator: Optional[Callable[[Any], Any]] = None,
     operation: str = "structured_call",
     is_fallback: bool = False,
+    cache_stable_keys: Optional[tuple[str, ...]] = None,
 ) -> Any:
     # Lazy imports allow the deterministic document/validation code to run on its
     # own. A missing runtime dependency still fails closed at the call boundary.
@@ -206,24 +291,38 @@ async def structured_call(
     usage = RunUsage()
     system = "\n\n".join(content for role, content in prompt if role == "system")
     user = "\n\n".join(content for role, content in prompt if role != "system")
+    user_prompt = _cacheable_user_prompt(prompt, cache_stable_keys)
     started = perf_counter()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url, max_retries=0, timeout=call_timeout)
-    native_output = model_name.removeprefix("~") in {"anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "google/gemini-3.8-flash", "openai/gpt-6-luna"}
-    settings: dict[str, Any] = { "max_tokens": min(8000, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": {"require_parameters": True}}
+    native_output = model_config.profile(model_name).output == "native_json"
+    settings: dict[str, Any] = { "max_tokens": min(MAX_CALL_OUTPUT_TOKENS, budget.max_output_tokens - budget.output_tokens), "openrouter_provider": provider_settings_for(model_name)}
     if not native_output:
         settings["temperature"] = temperature
-    settings["openrouter_reasoning"] = {"exclude": True} if native_output else reasoning
+    settings["openrouter_reasoning"] = reasoning_settings_for(model_name) if native_output else reasoning
+    if model_name.removeprefix("~").split("/", 1)[0] in {"anthropic", "google"}:
+        # Cache the shared system prompt; repairs and regenerations resend it unchanged.
+        settings["openrouter_cache_instructions"] = True
     if settings["openrouter_reasoning"] is None:
         settings.pop("openrouter_reasoning")
     safe_operation = operation if operation in SAFE_AI_OPERATIONS else "structured_call"
     trace_manager = None
     run_trace = None
+    include_content = False
+    output_value: Any = None
+    trace_error: Optional[str] = None
+    served: dict[str, Any] = {}
     outcome = "failed"
     try:
+        include_content = trace_content_enabled()
+        trace_inputs: dict[str, Any] = {"message_count": len(prompt), "prompt_chars": sum(len(content) for _, content in prompt)}
+        if include_content:
+            trace_inputs["messages"] = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         trace_manager = trace_scope(
             "applix." + safe_operation + ".pydantic_ai", run_type="llm",
-            inputs={"message_count": len(prompt), "prompt_chars": sum(len(content) for _, content in prompt)},
-            metadata={"operation": safe_operation, "model": model_name, "is_fallback": is_fallback, "request_limit": remaining_requests, "timeout_seconds": call_timeout},
+            inputs=trace_inputs,
+            metadata={"operation": safe_operation, "model": model_name, "is_fallback": is_fallback, "request_limit": remaining_requests, "timeout_seconds": call_timeout,
+                **_request_trace_metadata(settings, output_type=output_type, native_output=native_output, retries=1 if remaining_requests > 1 else 0),
+                "content_traced": include_content},
             tags=["applix", safe_operation, "pydantic_ai"],
         )
         run_trace = trace_manager.__enter__()
@@ -253,7 +352,7 @@ async def structured_call(
 
         result = await asyncio.wait_for(
             agent.run(
-                user,
+                user_prompt,
                 model_settings=settings,
                 usage=usage,
                 usage_limits=UsageLimits(
@@ -264,12 +363,15 @@ async def structured_call(
             timeout=call_timeout,
         )
         outcome = "success"
+        output_value = result.output
+        served = _served_details(result)
         budget.attempts.append({
             "model": model_name,
             "transport_mode": "pydantic_ai",
             "outcome": "success",
             "elapsed_ms": round((perf_counter() - started) * 1000),
             "operation": operation,
+            **served,
         })
         return result.output
     except Exception as error:
@@ -282,6 +384,10 @@ async def structured_call(
             "operation": operation,
             **safe_provider_error_details(getattr(error, "status_code", None), getattr(error, "body", None)),
         })
+        # Fixed labels only: provider bodies and exception text never reach telemetry.
+        category = budget.attempts[-1].get("provider_error_category")
+        trace_error = "TimeoutError: provider_timeout" if isinstance(error, (TimeoutError, asyncio.TimeoutError)) else (
+            type(error).__name__ + (": " + category if category else ""))
         if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
             raise asyncio.TimeoutError("AI provider request timed out.") from None
         message = str(error).lower()
@@ -293,7 +399,23 @@ async def structured_call(
         # a workflow request, preventing retries from multiplying invisibly.
         budget.requests += max(1, usage.requests)
         budget.output_tokens += usage.output_tokens
-        end_trace_safely(run_trace, outputs={"outcome": outcome, "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens})
+        trace_outputs: dict[str, Any] = {"outcome": outcome, "request_count": max(1, usage.requests), "input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens}
+        trace_outputs.update(served)
+        if type(getattr(usage, "cache_read_tokens", None)) is int and usage.cache_read_tokens:
+            trace_outputs["cache_read_tokens"] = usage.cache_read_tokens
+        reasoning_tokens = (getattr(usage, "details", None) or {}).get("reasoning_tokens")
+        if type(reasoning_tokens) is int:
+            trace_outputs["reasoning_tokens"] = reasoning_tokens
+        if include_content and outcome == "success":
+            try:
+                trace_outputs["output"] = sanitize_trace_data(
+                    output_value.model_dump(mode="json") if isinstance(output_value, BaseModel) else output_value)
+            except Exception:
+                trace_outputs["output"] = "<unavailable>"  # Telemetry never replaces the AI result or skips cleanup.
+        if trace_error is not None:
+            end_trace_safely(run_trace, outputs=trace_outputs, error=trace_error)
+        else:
+            end_trace_safely(run_trace, outputs=trace_outputs)
         if trace_manager is not None:
             try:
                 trace_manager.__exit__(None, None, None)

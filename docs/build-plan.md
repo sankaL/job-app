@@ -1,12 +1,175 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-04
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## Branch consolidation and ordered Railway release
+
+**Status:** Preflight complete; PR #19 merge and production rollout in progress (2026-10-04 18:58 EDT).
+
+`generation-speed-robustness` contains all 21 unmerged current commits, including the two `langsmith-content-tracing` commits. Twelve older local branches are already ancestors of main; the lone `codex/kewords` commit has a patch-equivalent main commit. The owner chose to leave the old `ui-changes-qoder` prototype unmerged. Extended the release workflow to require active running instances of the requested main commit for backend and frontend before uploading the worker, with bounded retries/timeouts and sanitized CLI errors. Six deployment-gate tests pass. Makefile validation passed 525 backend, 352 agents and 16 environment tests, plus 298 frontend tests with two previously documented baseline shell failures. The TypeScript/Vite production build passes. No new SQL migration or Railway variable is required; retain production credentials and LangSmith content tracing. See [branch and rollout evidence](task-output/2026-10-04-branch-consolidation-railway-release.md).
+
+
+## Generation speed and robustness (Jev audit, parallel writing, keep-original)
+
+**Status:** Complete on branch `generation-speed-robustness`; local verification passed (2026-10-04 15:00 EDT). Awaiting merge and rollout.
+
+- **Changes:**
+  - Bounded per-family reasoning with a 16k per-call output limit.
+  - Provider routing that denies data retention and sorts by latency, with Gemini pinned to AI Studio.
+  - A Jev first-pass claim audit that escalates uncertain claims to Sonnet.
+  - Two parallel writer groups, Sonnet repairs and prompt caching.
+  - Keep-original sections with a review notice instead of failed generations.
+  - Verified sections streaming into the generation preview.
+  - A contact-URL false-positive fix.
+- **Live result on one real resume:** Medium median 77.6s -> 15.3s; High 33.1s -> 22.9s; cost about $0.12-0.16 -> about $0.06 per generation. All new runs were clean on the first try.
+- **Tests:** agents 331, backend 522, local guards OK, frontend build OK. 3 frontend failures are unrelated (2 pre-existing shell tests, 1 timing flake).
+- **Rollout:** backend and frontend before the worker.
+- **Details:** `docs/task-output/2026-10-04-generation-speed-robustness.md`.
+- **Model config (2026-10-04 17:00 EDT):** role-based `shared/model-config.json` (bundled in the backend and agents) replaces the TIER*/JEV_AUDIT_*/classification model environment variables. Copies are enforced by tests.
+- **Concurrency (2026-10-04 16:30 EDT):** the worker runs up to 20 jobs at once (was 10), with at most 4 Chromium extraction browsers at a time.
+- **Follow-up (2026-10-04 16:00 EDT):** Jev now judges retitled roles, so High no longer always pays a Sonnet audit. Live High runs took 12-17s, down from about 23s; agents tests 335 passed.
+
+## Landing feature card review
+
+**Status:** Complete; reviewed and verified on `generation-speed-robustness` (2026-10-04 12:20 EDT).
+
+Eight CE reviewers reviewed the uncommitted landing card changes. Fixed the arrow color transition so reduced-motion users get an immediate change alongside the image and glow. Nineteen focused auth and card tests, the TypeScript/Vite build and diff checks passed through the Makefile-managed local stack. Browser CSS inspection confirms the reduced-motion rule includes all three elements. Preserved the earlier artwork and 3D component for reversion.
+
+## Unified feature card hover glow
+
+**Status:** Complete; browser verification passed (2026-10-04 12:09 EDT).
+
+Hovering anywhere on a feature card now reveals its full-color image, activates the orange circle/white arrow and adds a soft warm glow behind the whole card. Keyboard focus receives the same state, with immediate changes for reduced motion. Browser inspection confirms only the active card glows and its image and arrow switch together. Updated the PRD; no asset or navigation changes.
+
+## Feature arrow hover contrast
+
+**Status:** Complete; browser verification passed (2026-10-04 12:04 EDT).
+
+Circular feature links now pair the shared brand-orange background with a white arrow on hover and keyboard focus. Browser inspection confirms orange `rgb(255, 89, 65)` and white `rgb(255, 255, 255)` in the active state. No asset or navigation changes.
+
+## Serious tailoring illustration and image hover reveal
+
+**Status:** Complete; local verification passed (2026-10-04 12:01 EDT).
+
+Created a separate ImageGen tailoring illustration without cartoon faces or limbs, preserving the prior assets and saving its prompt. All editorial card images are dark monochrome at rest and return to full color on card hover or keyboard focus; reduced motion disables the filter transition. Production build passes. Browser checks confirm the new asset loads, the resting filter applies to all four images and hovering a card reveals only its image. Updated the PRD.
+
+## Editorial cutout feature cards
+
+**Status:** Complete; local verification passed (2026-10-04 11:55 EDT).
+
+Matched the supplied reference with rounded risograph image frames, curved lower-right cutouts, circular arrow links, category pills and titles/descriptions/tags beneath the images. Removed the landing grid's tilt and overlay treatment while retaining the previous component and both artwork sets for reversion. Preserved the two-column desktop and single-column mobile grid. Arrows open the invite-only access-request route. Updated the PRD. Eighteen focused auth/landing/navigation tests and the production build pass through the Makefile-managed stack. Desktop and mobile checks confirm loaded artwork and no horizontal overflow.
+
+## Feature card header alignment
+
+**Status:** Complete; local verification passed (2026-10-04 11:28 EDT).
+
+Moved the feature icons into the right-hand circular links and raised titles into the same header row. Removed the separate left icon tiles. Preserved both illustration variants and card actions. Production build passes; desktop and 375px mobile checks confirm readable headers without overlap or overflow.
+
+## Light risograph card variant
+
+**Status:** Complete; local verification passed (2026-10-04 11:16 EDT).
+
+Added separate off-white paper variants of all four illustrations with built-in ImageGen and switched the feature cards to dark ink text, pale overlays and subtle control borders. Preserved every original blue WebP asset and its prompts. `FEATURE_CARD_THEME` in LandingPage restores the dark images and treatment with one setting. Production build and the existing card interaction test pass through the local Makefile stack; desktop and mobile checks confirm loaded images, dark headings and no overflow. Updated the PRD. No product behavior changed.
+
+## Risograph 3D feature cards
+
+**Status:** Complete; local verification passed (2026-10-04 11:09 EDT).
+
+Replaced the clay treatment with the supplied layered 3D card component, using the existing Motion dependency. Four locally generated risograph illustrations match the login artwork's texture and palette; WebP encoding reduces their combined size from 12.4 MB to 1.7 MB. Kept feature copy, chip icon, responsive grid and invite-only access actions. Mouse tilt resets on exit; touch and reduced-motion users receive stable cards. Updated the PRD and saved the generation prompts beside the assets. Eighteen focused auth/landing/card tests and the production build pass through the Makefile-managed local stack. Desktop and 375px mobile checks confirm readable cards, loaded local images and no overflow. No schema or AI behavior changed.
+
+## Shared orange CTA accent
+
+**Status:** Complete; local verification passed (2026-10-04 10:12 EDT).
+
+Orange app-shell actions and marketing primary buttons now share the rotating headline's `#ff5941` background and one hover colour through shared brand tokens. Updated the PRD and frontend guidance. Thirty-six focused frontend tests and the TypeScript/Vite production build pass through the Makefile-managed local stack. Browser inspection confirms New Application renders as `rgb(255, 89, 65)`. No schema or AI behavior changed.
+
+## Rotating landing-page headline
+
+**Status:** Complete; local verification passed (2026-10-04 09:59 EDT).
+
+Replaced the hero with "Make it" and the sequence "short", "long", "polished", "work", resting on the final word with the shared animated paper character. Kept the existing hero typography and responsive sizes; the orange marketing Login CTA matches the word background. Added Motion and the reusable `src/components/ui/text-rotate.tsx` component, with timer cleanup, ref navigation, empty-list handling and reduced-motion support. Updated the public-page PRD. Thirty focused frontend tests and the TypeScript/Vite production build pass through the Makefile-managed local stack; desktop and 375px mobile browser checks pass. No schema or AI behavior changed.
+
+Follow-up (2026-10-04 10:01 EDT): the sequence now loops continuously, with two seconds on each word and five seconds on "work". The animated paper character appears inside the orange highlight during "work". A regression test checks two full cycles, the longer pause and character placement. Twenty-two focused frontend tests and the production build pass through the Makefile-managed local stack.
+
+Follow-up (2026-10-04 10:04 EDT): restored the darker orange on marketing primary buttons. The paper character now drops from above into the bright orange highlight when "work" appears, with reduced-motion behavior preserved. Twenty-two focused frontend tests, the production build and local browser verification pass.
+
+Follow-up (2026-10-04 10:07 EDT): changed the hero prefix and accessible heading to "Make my resume". Updated the PRD and landing-page regression assertion. Twenty-two focused frontend tests and the production build pass; desktop and 375px mobile checks confirm the longer text fits.
+
+## Review and commit the full uncommitted snapshot
+
+**Status:** Complete; review fixes and local verification passed (2026-10-04 03:43:51 EDT).
+
+Reviewed all staged work against `HEAD`, preserving intentional spec changes. Confirmed strict keyword-policy gaps, extraction callback/cache ordering, stale recovery overwriting fresh progress, stale deletion leaving queued work alive, and persisted extraction-outcome copy. Clarified smooth catch-up wording and added the missing migration/compatibility note. Final verification: backend 518 passed, agents 296 passed, frontend 287 passed with two failures reproduced on pristine `HEAD`; TypeScript/Vite production build and whitespace checks passed. Actual local Redis CAS coverage passed. All uncommitted changes are included in the requested branch commit. Evidence and exact documentation updates are tracked in [review output](task-output/2026-10-04-uncommitted-code-review.md).
+
+## Extraction fallback window, job abort and prompt hardening
+
+**Status:** Complete; local verification passed (2026-10-04 00:22 EDT): agents (285) and backend (507) suites passed through the Makefile-managed local stack, and the rebuilt local backend venv runs the full backend suite (500 passed, 7 database tests skipped by design). An isolated end-to-end check against real Redis and arq (DB 15, private queue) confirmed that `ExtractionJobQueue.abort` skips a queued job and cancels a running one, freeing its slot in 0.42s.
+
+The extraction model budget is now 45s, with the primary capped at 30s so the fallback always gets at least 15s. Stopping or recovering an extraction cancels the worker job (`allow_abort_jobs`). The `started` callback no longer delays capture. The local backend venv was rebuilt on Python 3.12. The extraction prompt now lets the model decline sign-in walls, closed postings and non-posting pages instead of inventing fields. It also requires a verbatim description, defines `company` as the hiring employer, ignores instructions embedded in page text and no longer exposes `job_keywords`. A known board host overrides the model's origin, and model reference IDs must appear in the source. A test keeps `docs/prompts.md` identical to the code prompt, and `make test-agents` now mounts `docs/prompts.md` for it. The running local agents worker must be restarted to load `allow_abort_jobs`. Updated the PRD, `docs/database_schema.md`, `docs/prompts.md` and `backend/AGENTS.md`. No migration. See the decisions log entry of the same date.
+
+## Bounded job extraction and stalled-extraction recovery
+
+**Status:** Complete; local verification passed (2026-10-04 00:10 EDT): agents (274) and backend (503) suites passed through the Makefile-managed local stack. A real headless-Chromium capture in the agents container finished in 6.1s on a page that never reaches network idle; before the change that page failed as a timeout.
+
+Playwright capture now has one 30s boundary (URL check, 20s navigation, best-effort 5s network-idle settle, single-snapshot text read), and pages that never go idle continue with the loaded DOM. Each extraction job has a 120s arq timeout. The backend fails a started extraction with no progress for 150s, or a queued one not picked up in 300s, as `timed_out`. It checks on detail and progress reads and on every event-stream heartbeat, with one notification per stalled job, and allows deleting stalled rows. Also fixed: Cloudflare and "access denied" false positives in blocked-page detection, reference IDs matched inside words (worker and duplicate detector), superseded jobs clearing newer cached results and paying for model calls after a stop, and unbounded JSON-LD and meta in the prompt. Updated the PRD, `docs/database_schema.md`, `docs/prompts.md` (the job extraction prompt text now matches the code) and `backend/AGENTS.md`. No migration. See the decisions log entry of the same date.
+
+## Processing clock, extraction stop and slow-job notice
+
+**Status:** Complete; local verification passed (2026-10-03 22:57 EDT).
+
+Elapsed time now counts from the job's reported `created_at`, so reloading or navigating mid-job no longer restarts it at 0s. Job extraction gains a Stop extraction button on the processing card that opens the existing confirmation. Full generation, job extraction and inline section regeneration show "This is taking longer than usual" after 90 seconds without a progress update; idle time is the smaller of the server and local readings so a fast client clock cannot raise a false notice. The processing card is now compact (smaller avatar, narrower card, tighter spacing) so more of the resume skeleton shows around it; the paper avatar and its animation are unchanged. Frontend-only; no backend or AI behavior changed. Twelve focused loading tests passed, the application suite passed 128 of 130 with the two known comparison-shell and breakpoint failures, and `tsc --noEmit -p tsconfig.app.json` is clean.
+
+## Eased processing progress bar
+
+**Status:** Complete; local verification passed (2026-10-04 00:25 EDT). 15 focused progress tests pass. The full frontend suite passes 285 of 287; two shell-mode tests in `applications.test.tsx` fail identically without this change, and the production build succeeds.
+
+Job extraction and full generation now show a bar that moves quickly to about 70% in 15 seconds and then slows toward a 94% ceiling, counted from the job's reported start. It never moves backwards, raises its target to higher reported progress and catches up smoothly and reaches 100% only on reported completion. Resume import and section regeneration are unchanged. Added `use-eased-progress.ts` with unit tests and amended the PRD and frontend guidance, which had forbidden simulated progress. See the decisions log entry of the same date.
+
+## Copy-only and decision-only prompts drop the Unslop block
+
+**Status:** Complete; local verification passed (2026-10-04 00:10 EDT): 253 agents and 495 backend tests through the Makefile stack.
+
+Job posting extraction, ATS keyword extraction, resume cleanup, nested entry extraction and the grounding claim audit no longer carry the shared Unslop policy, because they copy source wording or return decisions only. Prose-authoring prompts keep it. Removed the unused backend policy mirror. Updated `agents/worker.py`, `agents/section_generation.py`, `backend/app/services/resume_parser.py`, regression tests, `agents/AGENTS.md`, the PRD and `docs/prompts.md`. See the decisions log entry of the same date.
+
+## High aggressiveness job-fit claim policy
+
+**Status:** Complete; local verification passed (2026-10-04 02:00 EDT).
+
+High now allows plausible job-fit additions (tools, scope, outcomes, metrics) while never inventing employers, dates, tenure, credentials, education or seniority. Updated the writer prompt, aggressiveness-aware grounding audit and repair guidance, the High local numeric check, the legacy High contract and worked example, the UI copy, the PRD, all three AGENTS.md files and `docs/prompts.md`. Low, Medium and keyword optimization are unchanged. Agents (291) and the aggressiveness UI tests passed.
+
+## Generation request budget and failure reporting
+
+**Status:** Complete; local verification passed (2026-10-04 00:30 EDT).
+
+A production generation (`applix-prod`, 2026-10-03 23:33) failed with `RuntimeError` after using all six requests: the first Gemini audit hit its 30s timeout and the Luna fallback took a request, which left no room to audit the final repair. The UI reported "worker_start, LLM attempts: 0" and LangSmith showed the timed-out audit as successful. Changes: writing budgets are now 8 requests (generation, regeneration and keyword optimization), audits time out at 45s, a repair round starts only when its write and audit both fit, and budget exhaustion becomes a section-verification failure that keeps attempt diagnostics and shows a retry message. Failed model runs now get a LangSmith error status with fixed labels, and failed roots record allowlisted reason codes. Agents (260) and backend (495) suites passed through the Makefile-managed local stack.
+
+## LangSmith request settings and opt-in content tracing
+
+**Status:** Complete; local verification passed (2026-10-03 23:20 EDT). Production deployment and content-tracing verification passed (2026-10-03 23:30 EDT).
+
+Model runs now record the request settings actually sent: output mode, output type, temperature, token cap, reasoning mode, reasoning-text exclusion and correction retries. A new `LANGSMITH_TRACE_CONTENT` flag (default off, effective only with tracing on) adds redacted prompt messages and parsed outputs to worker model runs, backend import model runs and Jev attempt runs. Workflow and chain roots, including the cleanup root, stay counts-only. Compose forwards the flag; Makefile test/eval targets force it off. No provider requests, prompts or reasoning defaults changed. Agents (250), backend (492) and local-guard (16) suites passed through the Makefile-managed local stack. Set `LANGSMITH_TRACE_CONTENT=true` on the Railway backend and worker, and in the ignored local env, to enable it.
+
+Code-review follow-up (2026-10-03 23:45 EDT): the cleanup root went back to its placeholder (the child model run carries the body). Building trace output can no longer skip client cleanup or replace a result. The worker now rejects an invalid flag value at startup. Classifier, cleanup-root and parser-wiring tests were added. Stray `tsc -b` output (`frontend/{vite,tailwind}.config.{js,d.ts}`) was removed and gitignored. Agents (252), backend (496), local guards and the frontend build passed.
+
+Production follow-up (2026-10-03 23:30 EDT): deployed committed snapshot `d8bf7fb` through Railway CLI to frontend, backend and agents. GitHub main still pointed to `bfa54bc`, so this release used an archive of the committed snapshot with private env files excluded. Set `LANGSMITH_TRACE_CONTENT=true` on backend and agents; both running configurations confirm effective content capture. Synthetic model-run readback in `applix-prod` confirms prompt/output bodies, contact redaction and credential exclusion. All three deployments, public health and unauthenticated API rejection passed. No new migration is required. See [deployment evidence](task-output/2026-10-03-main-production-verification.md).
+
+## Activity Log outside-click dismissal
+
+**Status:** Complete; local verification passed (2026-10-03 22:43 EDT).
+
+Replaced the fixed-size backdrop button with dismissal on the full-viewport overlay. Clicking outside the Activity Log closes it; inside clicks keep it open. Escape, the close button and focus restoration remain available. Added regression coverage and updated the PRD. All 11 activity-related tests and the TypeScript/Vite build passed through the Makefile-managed local stack. Browser verification confirmed full-page hit coverage, dismissal from the bottom-left corner and focus returning to Activity.
+
+## Merged UI and LangSmith production verification
+
+**Status:** Deployment and migration verification complete (2026-10-03 22:29 EDT). Optional production key replacement awaits a user-supplied private file.
+
+Confirmed frontend, backend and agents successfully deployed merged main `bfa54bc` through the existing GitHub workflow. Applied activity index migration 023 with bounded database timeouts and an atomic ledger insertion. Verified the existing subscription schema effects before reconciling missing historical ledger entries 013–015 without replaying their data updates. All 24 repository migrations are recorded, Basic/Pro allowances remain 10/60 and all 11 protected tables retain forced RLS. Public frontend/backend health and unauthenticated API rejection passed; deployed backend/worker tracing files match main. Both services delivered and read back metadata-only verification traces in `applix-prod` with existing credentials. See [production verification evidence](task-output/2026-10-03-main-production-verification.md).
 
 ## Notification inbox layout fix
 
@@ -53,6 +216,8 @@ The user rejected the full Mainline-template redesign, so the landing and login 
 Logo and beige follow-up complete (2026-10-03 19:18:02 EDT). Added a new mark (`public/applix-mark.svg`) for the landing page and the shared login/signup brand pill. From four options, the user chose a rounded peak A with no check mark. It is drawn as one uniform 12-unit stroke, so the base matches the sides. The sides use a dark-teal gradient and the base is orange, separated by a hairline gap. The app top bar, favicon and Chrome extension keep the previous logo. Lightened the public canvas from `#f5f3ee` to `#f9f8f6`. The login/signup gradient now uses a soft warm off-white instead of sand, and the ember/amber glows were reduced. TypeScript passed, as did 23 auth and signup tests. Before/after screenshots were compared at 1440px.
 
 ## Application workspace controls and generation loading
+
+Centered loading feedback complete (2026-10-03 22:46 EDT). Replaced the full-generation step list with one centered ProgressBar, reported status, rotating explanations and a small SVG paper avatar over a resume skeleton. Job extraction and resume import share the treatment; extraction no longer simulates advancing percentages, and import stays indeterminate. The application details and app shell are unchanged. Nineteen focused loading/import/section regressions and the Makefile TypeScript/Vite build passed; the broader application run passed 144 of 146 tests, with failures in comparison-shell and breakpoint edit-preservation checks. Browser previews verified generation and extraction at desktop and narrow widths with no horizontal overflow. AI orchestration is unchanged.
 
 Resume rename placement complete (2026-10-03 21:19 EDT). Moved the standalone ghost pencil from the app-shell action group to beside the resume title, preserving keyboard rename/save/cancel behavior. Updated regression coverage and product guidance. All 26 focused tests and TypeScript/Vite build passed.
 

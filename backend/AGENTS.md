@@ -36,19 +36,20 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - PDF export must generate from the latest draft content at request time and must not persist generated PDFs for MVP.
 
 ## Async and Timeout Contract
-- Extraction must enforce a `30s` timeout.
+- Extraction must enforce a `30s` boundary on the whole Playwright capture and a separate `45s` model budget in which the primary is capped at `30s`, with a hard per-job worker timeout, cancellation of stopped or stalled worker jobs, and backend recovery of stalled or never-started extraction jobs.
 - Full resume generation and full regeneration must enforce a `240s` idle timeout with a `240s` maximum wall-clock window.
 - Single-section regeneration must enforce a `120s` idle timeout with a `120s` maximum wall-clock window.
 - PDF export must enforce a `20s` timeout.
 - Background work must use bounded retries, explicit cancellation behavior, and clear terminal failure handling.
-- OpenRouter integration uses configurable primary and fallback models, with bounded output correction and targeted section repairs sharing a request, token and deadline budget.
+- OpenRouter models are chosen by role in `shared/model-config.json` (bundled as `app/core/model-config.json`; keep the copies identical). There are no model environment variables. Per-model output mode, reasoning bounds and provider routing (no data retention, latency sort, Gemini pinned to AI Studio) come from the same file. Bounded output correction, targeted section repairs and LLM audit escalations share a request, token and deadline budget.
 
 ## Generation and Validation Boundaries
-- Initial generation and full regeneration batch writable sections in one structured request, copy fixed facts locally, and repair only failed sections within the shared budget.
+- Initial generation and full regeneration write Professional Experience and the other writable sections in two concurrent structured requests, copy fixed facts locally, audit each group (Jev first, LLM escalation for uncertain claims), and repair only failed sections within the shared budget.
 - Respect saved document inclusion/order, reviewed source-supported eligibility, target length, aggressiveness setting, and additional instructions where applicable.
 - Strip personal and contact information from resume content before any external LLM call and reattach it locally after validation or formatting.
-- Never generate personal information or invent credentials, employers, dates, or educational institutions. Low aggressiveness keeps Professional Experience role titles source-exact. Medium may lightly reframe them only when the title stays grounded in the same core role family and seniority. High may retitle more freely only when the new title still matches the demonstrated work and keeps employer and dates unchanged.
+- Never generate personal information or invent credentials, employers, dates, or educational institutions. Only High aggressiveness may add plausible job-fit claims (technologies, scope, outcomes, metrics) beyond the source. Low aggressiveness keeps Professional Experience role titles source-exact. Medium may lightly reframe them only when the title stays grounded in the same core role family and seniority. High may retitle more freely only when the new title still matches the demonstrated work and keeps employer and dates unchanged.
 - Initial generation, full regeneration, and section regeneration must consume the user's subscription quota. The legacy `full_regeneration_count` field is retained for compatibility only.
 - Require reviewed source sections before generation. Preserve the exact source snapshot for comparison and section/keyword regeneration. Run deterministic schema and rule validation over generated content before assembly.
 - Validator outcomes are limited to approve or fail.
-- Validation failure must block assembly and follow the generation failure path defined by the PRD.
+- Validation failure must block assembly and follow the generation failure path defined by the PRD. The exception is initial generation and full regeneration: an individually unverifiable section keeps its original text with `generation_notice: kept_original_unverified`, the generation completes, and the backend clears the notice when the user edits that section. Usage events record `kept_original_sections`.
+- Worker progress may carry bounded `partial_sections` (verified sections shown while generation continues). Progress reads must drop malformed or oversized values rather than fail. The worker publishes progress on the application event channel.

@@ -59,7 +59,8 @@ from app.services.progress import (
 from app.services.resume_render import normalize_resume_markdown
 from app.services.resume_length import assess_resume_length
 from app.services.resume_privacy import sanitize_resume_markdown
-from app.services.resume_document import document_ready, parse_resume_document, render_resume_document, validate_resume_document
+from app.services.resume_document import (ResumeSection, document_ready, parse_resume_document, render_resume_document,
+    render_section_content, validate_resume_document)
 from app.services.url_security import validate_public_http_url
 from app.services.workflow import derive_visible_status
 
@@ -97,6 +98,17 @@ REGENERATION_CALLBACK_SYNC_FAILURE_MESSAGE = (
     "Regeneration finished, but the updated draft could not be synchronized. Please retry regeneration."
 )
 KEYWORD_EXTRACTION_STALE_TIMEOUT_SECONDS = 180
+# Queued extraction that no worker picked up (worker down or saturated).
+EXTRACTION_QUEUE_STALE_TIMEOUT_SECONDS = 300
+# Started extraction with no progress update. Exceeds the worker's 120s arq
+# job timeout, so a live job is never failed before its own boundary.
+EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS = 150
+EXTRACTION_STALLED_MESSAGE = (
+    "Extraction stopped responding. Retry extraction, paste the job text, or complete manual entry."
+)
+EXTRACTION_NOT_STARTED_MESSAGE = (
+    "Extraction did not start in time. Retry extraction, paste the job text, or complete manual entry."
+)
 KEYWORD_MANUAL_MAX_COUNT = 30
 KEYWORD_TEXT_MAX_CHARS = 80
 BLOCKED_PLACEHOLDER_TITLE_PREFIXES = ("blocked - ",)
@@ -223,6 +235,28 @@ class WorkerCallbackPayload(BaseModel):
     event: str
     extracted: Optional[WorkerSuccessPayload] = None
     failure: Optional[WorkerFailurePayload] = None
+
+
+def _kept_original_section_count(document: Optional[dict[str, Any]]) -> int:
+    """Sections the worker kept as original text because a tailored version was unverifiable."""
+    if not isinstance(document, dict):
+        return 0
+    return sum(1 for section in document.get("sections") or []
+               if isinstance(section, dict) and section.get("generation_notice") == "kept_original_unverified")
+
+
+def _clear_edited_generation_notices(document: Any, previous: Optional[dict[str, Any]]) -> None:
+    """A user edit to a kept-original section resolves its notice."""
+    previous_sections = {section.get("id"): section for section in (previous or {}).get("sections") or [] if isinstance(section, dict)}
+    for section in document.sections:
+        if section.generation_notice is None:
+            continue
+        before = previous_sections.get(section.id)
+        if before is None:
+            continue
+        prior = ResumeSection.model_validate({**before, "generation_notice": None})
+        if render_section_content(section) != render_section_content(prior):
+            section.generation_notice = None
 
 
 class GenerationSuccessPayload(BaseModel):
@@ -564,6 +598,7 @@ class ApplicationService:
         record = await self._recover_stuck_generation_if_needed(record)
         progress = await self.progress_store.get(record.id)
         record = await self._reconcile_terminal_extraction_progress(record, progress)
+        record = await self._recover_stale_extraction_if_needed(record, progress)
         record = await self._reconcile_terminal_generation_progress(record, progress)
         record = await self._recover_stale_keyword_extraction_if_needed(record)
 
@@ -734,8 +769,28 @@ class ApplicationService:
                     application_id,
                     exc_info=True,
                 )
-        if record.internal_state in ACTIVE_DELETE_BLOCKING_STATES:
+        # A stuck extraction must not block deleting the row forever.
+        stale_extraction = self._stale_extraction_state(record=record, progress=progress) is not None
+        if record.internal_state in ACTIVE_DELETE_BLOCKING_STATES and not stale_extraction:
             raise PermissionError("Application cannot be deleted while background work is still running.")
+
+        if stale_extraction:
+            terminal = self._terminal_extraction_progress(
+                record=record, previous_progress=progress,
+                message="Extraction was stopped because this application was deleted.",
+                terminal_error_code="extraction_failed",
+            )
+            if not await self.progress_store.replace_if_unchanged(
+                application_id, expected=progress, replacement=terminal,
+            ):
+                raise PermissionError("Extraction changed while deleting. Refresh and try again.")
+            self.repository.delete_application(application_id=application_id, user_id=user_id)
+            try:
+                await self.progress_store.clear_extraction_result(application_id)
+                await self.progress_store.clear_generation_result(application_id)
+            finally:
+                await self._abort_extraction_job(application_id=application_id, progress=progress)
+            return
 
         try:
             await self.progress_store.delete(application_id)
@@ -1008,6 +1063,7 @@ class ApplicationService:
             message="Extraction was stopped. Retry or delete this application.",
             terminal_error_code="extraction_failed",
         )
+        await self._abort_extraction_job(application_id=application_id, progress=current_progress)
         self._record_activity_event(
             user_id=user_id,
             application_id=application_id,
@@ -1513,6 +1569,9 @@ class ApplicationService:
                 length_diagnostics = self._length_diagnostics_for_activity(generated.length_diagnostics)
                 if length_diagnostics:
                     details["length_diagnostics"] = length_diagnostics
+                kept_original = _kept_original_section_count(generated.document)
+                if kept_original:
+                    details["kept_original_sections"] = kept_original
                 self._record_usage_event(
                     user_id=record.user_id,
                     application_id=record.id,
@@ -1553,6 +1612,9 @@ class ApplicationService:
                 length_diagnostics = self._length_diagnostics_for_activity(generated.length_diagnostics)
                 if length_diagnostics:
                     details["length_diagnostics"] = length_diagnostics
+                kept_original = _kept_original_section_count(generated.document)
+                if kept_original:
+                    details["kept_original_sections"] = kept_original
                 self._record_usage_event(
                     user_id=record.user_id,
                     application_id=record.id,
@@ -1594,6 +1656,7 @@ class ApplicationService:
         record = await self._recover_stuck_generation_if_needed(record)
         progress = await self.progress_store.get(application_id)
         record = await self._reconcile_terminal_extraction_progress(record, progress)
+        record = await self._recover_stale_extraction_if_needed(record, progress)
         progress = await self.progress_store.get(application_id)
         if progress is not None:
             if (
@@ -1637,6 +1700,10 @@ class ApplicationService:
             return record
 
         if payload.event == "started":
+            if current_progress is not None and (
+                current_progress.completed_at is not None or current_progress.terminal_error_code is not None
+            ):
+                return record
             updated = await self._update_application_and_publish_detail(
                 application_id=record.id,
                 user_id=record.user_id,
@@ -2055,6 +2122,9 @@ class ApplicationService:
             length_diagnostics = self._length_diagnostics_for_activity(payload.generated.length_diagnostics)
             if length_diagnostics:
                 details["length_diagnostics"] = length_diagnostics
+            kept_original = _kept_original_section_count(payload.generated.document)
+            if kept_original:
+                details["kept_original_sections"] = kept_original
             attempts = payload.generated.attempts
             self._record_usage_event(
                 user_id=record.user_id,
@@ -2828,6 +2898,9 @@ class ApplicationService:
             length_diagnostics = self._length_diagnostics_for_activity(payload.generated.length_diagnostics)
             if length_diagnostics:
                 details["length_diagnostics"] = length_diagnostics
+            kept_original = _kept_original_section_count(payload.generated.document)
+            if kept_original:
+                details["kept_original_sections"] = kept_original
 
             if is_section:
                 details["section_name"] = payload.regeneration_target
@@ -3247,11 +3320,13 @@ class ApplicationService:
             parsed = validate_resume_document(document)
             if not render_resume_document(parsed).strip():
                 raise ValueError("A draft must contain at least one enabled section.")
+            _clear_edited_generation_notices(parsed, getattr(draft, "document", None))
             parsed.revision = draft.revision + 1
             content = self._document_content(document=parsed, user_id=user_id)
             structured_updates = {"document": parsed.model_dump(mode="json"), "expected_revision": expected_revision}
         elif getattr(draft, "document", None) is not None:
             parsed = parse_resume_document(content or "", reviewed=True, previous=draft.document)
+            _clear_edited_generation_notices(parsed, draft.document)
             parsed.revision = draft.revision + 1
             content = self._document_content(document=parsed, user_id=user_id)
             structured_updates = {"document": parsed.model_dump(mode="json"), "expected_revision": draft.revision}
@@ -4945,6 +5020,10 @@ class ApplicationService:
                 return "Extraction was stopped. Retry or delete this application."
             if record.extraction_failure_details and record.extraction_failure_details.get("kind") == "blocked_source":
                 return "This source blocked automated retrieval. Paste the job text or complete manual entry."
+            if record.extraction_failure_details and record.extraction_failure_details.get("kind") == "posting_unavailable":
+                return "This posting appears to be closed or removed. Paste the job text or complete manual entry."
+            if record.extraction_failure_details and record.extraction_failure_details.get("kind") == "no_job_posting":
+                return "No job posting was found on this page. Paste the job text or complete manual entry."
             return "Extraction failed. Manual entry is required."
         if record.internal_state == "duplicate_review_required":
             return "Duplicate review is required before generation."
@@ -5166,6 +5245,111 @@ class ApplicationService:
             },
         )
 
+    async def recover_stale_extraction(self, *, user_id: str, application_id: str) -> None:
+        """Cheap periodic check for live event streams, which only relay events."""
+        progress = await self.progress_store.get(application_id)
+        if (
+            progress is None
+            or progress.workflow_kind != "extraction"
+            or progress.completed_at is not None
+            or progress.terminal_error_code is not None
+        ):
+            return
+        record = self._require_application(user_id=user_id, application_id=application_id)
+        await self._recover_stale_extraction_if_needed(record, progress)
+
+    async def _abort_extraction_job(self, *, application_id: str, progress: Optional[ProgressRecord]) -> None:
+        """Free the worker slot of a stopped or stalled extraction. Best-effort: the
+        terminal progress already makes any late worker output a no-op."""
+        if (
+            progress is None
+            or progress.workflow_kind != "extraction"
+            or progress.completed_at is not None
+            or progress.terminal_error_code is not None
+        ):
+            return
+        try:
+            await self.extraction_job_queue.abort(progress.job_id)
+        except Exception:
+            logger.warning("Failed to abort extraction job for application %s", application_id, exc_info=True)
+
+    def _stale_extraction_state(
+        self,
+        *,
+        record: ApplicationRecord,
+        progress: Optional[ProgressRecord],
+    ) -> Optional[tuple[bool, float]]:
+        """Return (started, idle_seconds) when an active extraction is past its stale boundary."""
+        if progress is not None and progress.workflow_kind != "extraction":
+            return None
+        extraction_progress = progress if progress is not None and progress.workflow_kind == "extraction" else None
+        if not self._is_extraction_active(record=record, progress=extraction_progress):
+            return None
+
+        started = record.internal_state == "extracting" or (
+            extraction_progress is not None and extraction_progress.state == "extracting"
+        )
+        last_activity = self._parse_timestamp(
+            extraction_progress.updated_at if extraction_progress is not None else record.updated_at
+        )
+        if last_activity is None:
+            return None
+
+        idle_seconds = (datetime.now(timezone.utc) - last_activity).total_seconds()
+        timeout_seconds = (
+            EXTRACTION_ACTIVE_STALE_TIMEOUT_SECONDS if started else EXTRACTION_QUEUE_STALE_TIMEOUT_SECONDS
+        )
+        if idle_seconds < timeout_seconds:
+            return None
+        return started, idle_seconds
+
+    async def _recover_stale_extraction_if_needed(
+        self,
+        record: ApplicationRecord,
+        progress: Optional[ProgressRecord],
+    ) -> ApplicationRecord:
+        """Fail an extraction whose worker died, hung, or never picked it up."""
+        stale = self._stale_extraction_state(record=record, progress=progress)
+        if stale is None:
+            return record
+        started, idle_seconds = stale
+        extraction_progress = progress if progress is not None and progress.workflow_kind == "extraction" else None
+        now = datetime.now(timezone.utc)
+
+        message = EXTRACTION_STALLED_MESSAGE if started else EXTRACTION_NOT_STARTED_MESSAGE
+        terminal = self._terminal_extraction_progress(
+            record=record, previous_progress=extraction_progress,
+            message=message, terminal_error_code="extraction_failed",
+        )
+        if not await self.progress_store.replace_if_unchanged(
+            record.id, expected=progress, replacement=terminal,
+        ):
+            return self._refresh(user_id=record.user_id, application_id=record.id)
+
+        logger.warning(
+            "Recovering stale extraction for application %s (state=%s, started=%s, idle=%.0fs)",
+            record.id,
+            record.internal_state,
+            started,
+            idle_seconds,
+        )
+        try:
+            updated = await self._mark_extraction_failure(
+                record=record,
+                message=message,
+                failure_details=ExtractionFailureDetailsPayload(
+                    kind="timed_out",
+                    blocked_url=record.job_url,
+                    detected_at=now.isoformat(),
+                ),
+            )
+            await self.progress_store.publish_event(
+                record.id, ApplicationEvent(event="progress", payload=terminal.model_dump(mode="json")),
+            )
+        finally:
+            await self._abort_extraction_job(application_id=record.id, progress=extraction_progress)
+        return updated
+
     def _is_generation_active(
         self,
         *,
@@ -5237,6 +5421,16 @@ class ApplicationService:
         message: str,
         terminal_error_code: str,
     ) -> None:
+        await self.progress_store.set(record.id, self._terminal_extraction_progress(
+            record=record, previous_progress=previous_progress,
+            message=message, terminal_error_code=terminal_error_code,
+        ))
+
+    @staticmethod
+    def _terminal_extraction_progress(
+        *, record: ApplicationRecord, previous_progress: Optional[ProgressRecord],
+        message: str, terminal_error_code: str,
+    ) -> ProgressRecord:
         completed_progress = build_progress(
             job_id=f"extraction-stopped-{record.id}-{int(datetime.now(timezone.utc).timestamp())}",
             workflow_kind="extraction",
@@ -5247,7 +5441,7 @@ class ApplicationService:
             created_at=previous_progress.created_at if previous_progress is not None else record.created_at,
         )
         completed_progress.completed_at = completed_progress.updated_at
-        await self.progress_store.set(record.id, completed_progress)
+        return completed_progress
 
     def _to_activity_payload(self, event: UsageEventRecord) -> ApplicationActivityPayload:
         metadata = event.metadata if isinstance(event.metadata, dict) else {}

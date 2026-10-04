@@ -10,9 +10,11 @@ from app.db.applications import ApplicationRecord, DuplicateCandidateRecord
 
 
 REFERENCE_QUERY_KEYS = ("jobid", "job_id", "jobid", "currentjobid", "gh_jid", "jk", "reqid", "requisitionid")
+# Keep in sync with agents/worker.py. Word boundaries stop matches inside
+# ordinary words such as "Dijkstra", which would create false duplicates.
 REFERENCE_PATTERNS = (
     re.compile(
-        r"(?:job(?:_|-|\s)?id|req(?:uisition)?(?:_|-|\s)?id|gh_jid|jk)[=: /-]*([A-Za-z0-9_-]{4,})",
+        r"\b(?:job(?:_|-|\s)?id|req(?:uisition)?(?:_|-|\s)?id|gh_jid|jk)\b[=: /-]*([A-Za-z0-9_-]{4,})",
         re.I,
     ),
     re.compile(r"/jobs/(?:view/)?([0-9]{4,})", re.I),

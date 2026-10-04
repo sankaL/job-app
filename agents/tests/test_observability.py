@@ -51,7 +51,7 @@ def test_generation_and_judge_prompts_include_exact_unslop_policy():
 
 
 @pytest.mark.asyncio
-async def test_extraction_and_keyword_prompts_include_unslop_and_trace_metadata(monkeypatch):
+async def test_copy_only_extraction_prompts_omit_unslop_and_keep_trace_metadata(monkeypatch):
     captured: list[tuple[list[tuple[str, str]], dict[str, Any]]] = []
 
     class FakeRunnable:
@@ -60,7 +60,7 @@ async def test_extraction_and_keyword_prompts_include_unslop_and_trace_metadata(
 
         async def ainvoke(self, prompt, config=None):
             captured.append((prompt, config or {}))
-            if self.response_model is worker.ExtractedJobPosting:
+            if self.response_model is worker.JobPostingExtraction:
                 return self.response_model.model_validate(
                     {
                         "job_title": "Backend Engineer",
@@ -89,13 +89,15 @@ async def test_extraction_and_keyword_prompts_include_unslop_and_trace_metadata(
         visible_text="Build APIs.",
         detected_origin=None,
         extracted_reference_id=None,
-    ))
+    ), timeout_seconds=worker.EXTRACTION_PRIMARY_TIMEOUT_SECONDS)
     await worker.OpenRouterKeywordExtractionAgent(settings)._extract_with_model("primary", "Build APIs")
 
     assert len(captured) == 2
-    assert all(UNSLOP_PRECEDENCE in prompt[0][1] for prompt, _config in captured)
-    assert all(UNSLOP_INSTRUCTION in prompt[0][1] for prompt, _config in captured)
+    assert all("Unslop" not in prompt[0][1] for prompt, _config in captured)
+    assert all(UNSLOP_PRECEDENCE not in prompt[0][1] for prompt, _config in captured)
+    assert all(UNSLOP_INSTRUCTION not in prompt[0][1] for prompt, _config in captured)
     assert captured[0][1]["run_name"] == "applix.job_extraction.structured"
+    assert captured[0][1]["metadata"]["timeout_seconds"] == worker.EXTRACTION_PRIMARY_TIMEOUT_SECONDS
     assert captured[1][1]["run_name"] == "applix.keyword_extraction.structured"
 
 
@@ -255,9 +257,9 @@ def test_local_environment_defaults_disable_and_forward_langsmith():
     assert compose.count("LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-}") == 2
     assert compose.count("LANGSMITH_WORKSPACE_ID: ${LANGSMITH_WORKSPACE_ID:-}") == 2
     assert compose.count("LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}") == 2
-    assert "TIER1_MODEL: ${TIER1_MODEL:-anthropic/claude-sonnet-5.5}" in compose
-    assert "TIER1_FALLBACK_MODEL: ${TIER1_FALLBACK_MODEL:-openai/gpt-6.1-sol}" in compose
-    assert "TIER2_MODEL: ${TIER2_MODEL:-google/gemini-3.8-flash}" in compose
+    assert compose.count("LANGSMITH_TRACE_CONTENT: ${LANGSMITH_TRACE_CONTENT:-false}") == 2
+    assert "LANGSMITH_TRACE_CONTENT=false" in root_env
+    assert "TIER1_MODEL" not in compose and "TIER2_MODEL" not in compose  # Models live in shared/model-config.json.
     assert "LANGSMITH_TRACING=false" in root_env
 
 
@@ -362,3 +364,30 @@ def test_worker_native_usage_preserves_unknown_counts(counts, expected):
     tracing.end_trace_safely(run, outputs=original)
     assert run.outputs.get("usage_metadata") == expected
     assert "usage_metadata" not in original
+
+
+@pytest.mark.parametrize("tracing_flag,content_flag,expected", [
+    ("false", "true", False), ("true", "false", False), ("true", "true", True),
+])
+def test_trace_content_requires_tracing_and_explicit_opt_in(monkeypatch, tracing_flag, content_flag, expected):
+    monkeypatch.setenv("LANGSMITH_TRACING", tracing_flag)
+    monkeypatch.setenv("LANGSMITH_TRACE_CONTENT", content_flag)
+    assert tracing.trace_content_enabled() is expected
+
+
+def test_worker_settings_reject_invalid_trace_content_value():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        worker.WorkerSettingsEnv(_env_file=None, langsmith_trace_content="sometimes")
+
+
+def test_safe_error_label_appends_only_fixed_reason_codes():
+    from llm_runtime import AIBudgetExhausted
+
+    class Unsafe(RuntimeError):
+        safe_trace_reason = "Private resume text"
+
+    assert tracing.safe_error_label(AIBudgetExhausted("x")) == "AIBudgetExhausted: usage_budget_exhausted"
+    assert tracing.safe_error_label(ValueError("Private payload")) == "ValueError"
+    assert tracing.safe_error_label(Unsafe("x")) == "Unsafe"

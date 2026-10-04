@@ -57,6 +57,7 @@ import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
 import { getResumeRegenerationBlocker } from "@/lib/resume-document";
 import { GenerationProgress } from "@/components/ui/generation-progress";
+import { JobExtractionProgress } from "@/components/ui/resume-processing";
 import { SkeletonSection } from "@/components/ui/skeleton";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import {
@@ -222,7 +223,6 @@ const ACTIVE_GENERATION_PROGRESS_STATES = [
   "regenerating_full",
   "regenerating_section",
 ];
-const EXTRACTION_FAKE_PROGRESS_CAP = 88;
 const EXTRACTION_DETAIL_REFRESH_FALLBACK_MESSAGE =
   "Extraction finished, but results could not be synchronized. Retry extraction or complete manual entry.";
 const RESUME_JUDGE_DIMENSION_LABELS: Record<string, string> = {
@@ -233,13 +233,6 @@ const RESUME_JUDGE_DIMENSION_LABELS: Record<string, string> = {
   ats_safety_and_formatting: "ATS Safety",
   length_and_density: "Length",
 };
-
-function extractionFakeStep(percent: number) {
-  if (percent < 30) return 2.0;
-  if (percent < 55) return 1.2;
-  if (percent < 75) return 0.7;
-  return 0.3;
-}
 
 function getResumeJudgeDimensionEntries(
   result: ApplicationDetail["resume_judge_result"],
@@ -2040,7 +2033,6 @@ export function ApplicationDetailPage() {
   const { applicationId } = useParams<{ applicationId: string }>();
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
-  const [extractionDisplayPercent, setExtractionDisplayPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState("");
   const [notesState, setNotesState] = useState<"idle" | "saving" | "saved">(
@@ -2491,49 +2483,6 @@ export function ApplicationDetailPage() {
         }
       });
   }, [applicationId, detail, detailQuery, progressQuery.data]);
-
-  useEffect(() => {
-    if (!progress || !EXTRACTION_POLL_STATES.includes(progress.state)) {
-      setExtractionDisplayPercent(0);
-      return;
-    }
-    setExtractionDisplayPercent(progress.percent_complete);
-  }, [progress?.job_id, progress?.state, progress?.workflow_kind]);
-
-  useEffect(() => {
-    if (!progress || !EXTRACTION_POLL_STATES.includes(progress.state)) {
-      return;
-    }
-    if (
-      progress.completed_at ||
-      progress.terminal_error_code ||
-      progress.percent_complete >= 100
-    ) {
-      setExtractionDisplayPercent(progress.percent_complete);
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      setExtractionDisplayPercent((current) => {
-        const floor = Math.max(current, progress.percent_complete);
-        if (floor >= EXTRACTION_FAKE_PROGRESS_CAP) {
-          return floor;
-        }
-        return Math.min(
-          EXTRACTION_FAKE_PROGRESS_CAP,
-          Number((floor + extractionFakeStep(floor)).toFixed(1)),
-        );
-      });
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, [
-    progress?.completed_at,
-    progress?.job_id,
-    progress?.percent_complete,
-    progress?.state,
-    progress?.terminal_error_code,
-  ]);
 
   useEffect(() => {
     if (!applicationId || !detail || !progressQuery.data) return;
@@ -3383,12 +3332,6 @@ export function ApplicationDetailPage() {
   const extractionActive = detail
     ? EXTRACTION_POLL_STATES.includes(detail.internal_state)
     : false;
-  const extractionPercent = progress
-    ? Math.min(
-        100,
-        Math.max(progress.percent_complete, extractionDisplayPercent),
-      )
-    : 0;
   const deleteBlocked = detail
     ? ACTIVE_GENERATION_STATES.includes(detail.internal_state)
     : false;
@@ -3757,41 +3700,10 @@ export function ApplicationDetailPage() {
 
           {/* ── Alert Banners (full width, above two-column layout) ── */}
 
-          {/* Extraction Progress */}
-          {progress &&
-            ["extraction_pending", "extracting"].includes(
-              detail.internal_state,
-            ) && (
-              <Section variant="success" density="compact" className="p-4">
-                <Heading
-                  level={3}
-                  style={{ color: "var(--color-accent)" }}
-                >
-                  Extraction Progress
-                </Heading>
-                <div
-                  className="mt-3 h-2 overflow-hidden rounded-full"
-                  style={{ background: "var(--color-accent-muted)" }}
-                >
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{
-                      width: `${extractionPercent}%`,
-                      background: "var(--color-accent)",
-                    }}
-                  />
-                </div>
-                <Text
-                  as="p"
-                  display="block"
-                  type="body"
-                  className="mt-2"
-                  style={{ color: "var(--color-text-primary)" }}
-                >
-                  {progress.message}
-                </Text>
-              </Section>
-            )}
+          {/* Extraction uses the same loading treatment as the resume workspace. */}
+          {extractionActive && (
+            <JobExtractionProgress progress={progress} isCancelling={isCancellingExtraction} onCancel={() => setShowCancelExtractionConfirm(true)} />
+          )}
 
           {/* Blocked Source */}
           {detail.extraction_failure_details?.kind === "blocked_source" && (
@@ -4149,7 +4061,11 @@ export function ApplicationDetailPage() {
                       : detail.extraction_failure_details?.kind ===
                           "user_cancelled"
                         ? "Extraction was stopped. Retry with text, retry the URL, or delete this application."
-                        : "Extraction incomplete. Paste text or fill in details."}
+                        : detail.extraction_failure_details?.kind === "posting_unavailable"
+                          ? "This posting appears to be closed or removed. Paste the job text or complete manual entry."
+                          : detail.extraction_failure_details?.kind === "no_job_posting"
+                            ? "No job posting was found on this page. Paste the job text or complete manual entry."
+                            : "Extraction incomplete. Paste text or fill in details."}
                   </Text>
                   <form
                     className="mt-3 space-y-3"

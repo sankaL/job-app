@@ -234,6 +234,8 @@ export type ResumeSection = {
   id: string; kind: ResumeSectionKind; heading: string; enabled: boolean;
   review_state: "reviewed" | "needs_review"; confidence: number | null;
   content_md: string; source_ids?: string[]; entries: ResumeSectionEntry[];
+  /** Set when generation kept the original text because a tailored version could not be verified. */
+  generation_notice?: "kept_original_unverified" | null;
 };
 export type ResumeDocument = { schema_version: 1; revision: number; sections: ResumeSection[] };
 export type ResumeSourceSnapshot = {
@@ -310,7 +312,11 @@ export type ExtractionProgress = {
   updated_at: string;
   completed_at: string | null;
   terminal_error_code: string | null;
+  /** Verified sections shown while generation continues. */
+  partial_sections?: PartialSection[] | null;
 };
+
+export type PartialSection = { id: string; kind: string; heading: string; content_md: string };
 
 export type ExtensionConnectionStatus = {
   connected: boolean;

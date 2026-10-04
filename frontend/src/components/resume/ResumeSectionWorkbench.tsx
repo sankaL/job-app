@@ -26,6 +26,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Section } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -728,6 +729,14 @@ export function ResumeSectionWorkbench({
                       )}
                       {!section.enabled && <span className="resume-excluded-label">Excluded from resume</span>}
                     </div>
+                    {section.generation_notice === "kept_original_unverified" && (
+                      <Section variant="warning" className="mt-2" role="status">
+                        <Text as="p" display="block" type="supporting">
+                          <strong>Kept your original wording.</strong> We couldn&apos;t verify the tailored
+                          version of this section. Review it before applying.
+                        </Text>
+                      </Section>
+                    )}
                   </div>
                   <ActionButtons label={`${section.heading} controls`} size="sm" primaryIndex={0}>
                     <Button

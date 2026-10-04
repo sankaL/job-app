@@ -1,44 +1,81 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Check, ChevronRight, Sparkles, Workflow, Link2, Gauge } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, Cpu, Workflow, Link2, Gauge } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { Preview as RotatingHeadline } from "@/components/ui/demo";
+import { FeatureCard } from "@/components/ui/feature-card";
+
+import captureIllustration from "@/assets/feature-capture-riso-v1.webp";
+import tailoringIllustration from "@/assets/feature-tailoring-riso-v1.webp";
+import judgeIllustration from "@/assets/feature-judge-riso-v1.webp";
+import workspaceIllustration from "@/assets/feature-workspace-riso-v1.webp";
+
+import captureLightIllustration from "@/assets/feature-capture-riso-light-v1.webp";
+import tailoringLightIllustration from "@/assets/feature-tailoring-riso-light-v2.webp";
+import judgeLightIllustration from "@/assets/feature-judge-riso-light-v1.webp";
+import workspaceLightIllustration from "@/assets/feature-workspace-riso-light-v1.webp";
+
+import captureWaterIllustration from "@/assets/feature-capture-water.png";
+import tailoringWaterIllustration from "@/assets/feature-tailoring-water.png";
+import judgeWaterIllustration from "@/assets/feature-judge-water.png";
+import workspaceWaterIllustration from "@/assets/feature-workspace-water.png";
+
+import captureDotsIllustration from "@/assets/feature-capture-dots.png";
+import tailoringDotsIllustration from "@/assets/feature-tailoring-dots.png";
+import judgeDotsIllustration from "@/assets/feature-judge-dots.png";
+import workspaceDotsIllustration from "@/assets/feature-workspace-dots.png";
+
+// Set to "dots", "watercolor", "riso-light", or "riso-dark"
+const FEATURE_CARD_THEME: "dots" | "watercolor" | "riso-light" | "riso-dark" = "dots";
 
 const featureCards = [
   {
     title: "Instant job capture",
+    category: "Capture",
+    tags: ["Job links", "Auto extraction"],
     description:
       "Paste any job link to automatically extract role requirements, responsibilities, and key attributes. Skip the tedious manual copy-paste work.",
     icon: Link2,
-    iconColor: "text-spruce bg-[var(--color-spruce-05)] group-hover:bg-amber group-hover:text-white",
-    hoverGlow: "from-[var(--color-amber-10)]",
-    iconAnimation: "group-hover:rotate-12",
+    imageUrl: captureIllustration,
+    lightImageUrl: captureLightIllustration,
+    waterImageUrl: captureWaterIllustration,
+    dotsImageUrl: captureDotsIllustration,
   },
   {
     title: "Grounded AI agent tailoring",
+    category: "Tailor",
+    tags: ["Grounded AI", "Your experience"],
     description:
       "Generate custom drafts that match the job description while staying grounded in your real work history. Refine specific sections using precise instructions.",
-    icon: Sparkles,
-    iconColor: "text-spruce bg-[var(--color-spruce-05)] group-hover:bg-spruce group-hover:text-white",
-    hoverGlow: "from-[var(--color-spruce-10)]",
-    iconAnimation: "group-hover:rotate-45 group-hover:scale-110",
+    icon: Cpu,
+    imageUrl: tailoringIllustration,
+    lightImageUrl: tailoringLightIllustration,
+    waterImageUrl: tailoringWaterIllustration,
+    dotsImageUrl: tailoringDotsIllustration,
   },
   {
     title: "AI resume judge",
+    category: "Review",
+    tags: ["Resume score", "Actionable feedback"],
     description:
       "Critique and score your resume against target roles. Receive actionable recommendations based on industry best practices to maximize impact.",
     icon: Gauge,
-    iconColor: "text-spruce bg-[var(--color-spruce-05)] group-hover:bg-ember group-hover:text-white",
-    hoverGlow: "from-[var(--color-ember-10)]",
-    iconAnimation: "group-hover:-rotate-12",
+    imageUrl: judgeIllustration,
+    lightImageUrl: judgeLightIllustration,
+    waterImageUrl: judgeWaterIllustration,
+    dotsImageUrl: judgeDotsIllustration,
   },
   {
     title: "Centralized workspace",
+    category: "Organize",
+    tags: ["Applications", "Private workspace"],
     description:
       "Organize applications and tailored drafts in one private system. Track your pipeline status to reduce job hunt fatigue and land offers sooner.",
     icon: Workflow,
-    iconColor: "text-spruce bg-[var(--color-spruce-05)] group-hover:bg-ink group-hover:text-white",
-    hoverGlow: "from-[var(--color-ink-10)]",
-    iconAnimation: "group-hover:translate-x-0.5 group-hover:-translate-y-0.5",
+    imageUrl: workspaceIllustration,
+    lightImageUrl: workspaceLightIllustration,
+    waterImageUrl: workspaceWaterIllustration,
+    dotsImageUrl: workspaceDotsIllustration,
   },
 ];
 
@@ -85,7 +122,7 @@ function MarketingButton({
 }) {
   const className =
     variant === "primary"
-      ? "inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-ember px-5 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(159,58,22,0.18)] ring-1 ring-white/40 transition hover:bg-[var(--color-ember-light)]"
+      ? "inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-hero-orange px-5 text-sm font-semibold text-white shadow-sm ring-1 ring-white/40 transition hover:bg-[var(--brand-orange-hover)]"
       : variant === "secondary"
         ? "inline-flex h-11 items-center justify-center rounded-lg border border-[var(--color-border)] bg-white px-5 text-sm font-semibold text-ink shadow-xs transition hover:border-[var(--color-border-hover)] hover:text-spruce"
         : "inline-flex h-11 items-center justify-center gap-2 px-4 text-sm font-semibold text-ink transition hover:text-spruce";
@@ -364,8 +401,8 @@ export function LandingPage() {
               </span>
             </Link>
 
-            <h1 className="mx-auto mt-10 max-w-5xl text-balance text-4xl sm:text-6xl md:text-7xl xl:text-[5rem] font-semibold leading-[1.04] tracking-tight text-ink">
-              Tailor Your Resume for Your Dream Role in Seconds
+            <h1 aria-label="Make my resume work" className="mx-auto mt-10 max-w-5xl text-balance text-4xl sm:text-6xl md:text-7xl xl:text-[5rem] font-semibold leading-[1.04] tracking-tight text-ink">
+              <RotatingHeadline />
             </h1>
             <p className="mx-auto mt-8 max-w-2xl text-balance text-lg leading-8 text-[var(--color-ink-65)]">
               Applix instantly aligns your experience with any job posting to generate grounded, interview-ready drafts while keeping your work history private.
@@ -396,27 +433,24 @@ export function LandingPage() {
               Everything you need to capture roles, tailor drafts, evaluate fit, and manage your pipeline in one private space.
             </p>
           </div>
-          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:gap-8">
+          <div className="mt-10 grid gap-x-6 gap-y-12 sm:grid-cols-2 lg:gap-x-8 lg:gap-y-14">
             {featureCards.map((feature) => {
               const Icon = feature.icon;
               return (
-                <article
-                  key={feature.title}
-                  className="group relative overflow-hidden rounded-2xl border border-[var(--color-border)] bg-white/82 p-8 shadow-xs backdrop-blur-sm transition-all duration-500 ease-out hover:-translate-y-1.5 hover:border-spruce/20 hover:bg-white hover:shadow-md"
-                >
-                  <div
-                    className={`absolute -right-20 -top-20 -z-10 h-40 w-40 rounded-full bg-gradient-to-br ${feature.hoverGlow} to-transparent opacity-0 blur-2xl transition-all duration-500 group-hover:opacity-100 group-hover:scale-150`}
-                  />
-                  <div className={`flex h-12 w-12 items-center justify-center rounded-xl transition-all duration-300 ${feature.iconColor}`}>
-                    <Icon size={24} className={`transition-transform duration-500 ${feature.iconAnimation}`} />
-                  </div>
-                  <h3 className="mt-6 text-lg font-semibold tracking-tight text-ink transition-colors duration-300 group-hover:text-spruce">
-                    {feature.title}
-                  </h3>
-                  <p className="mt-3 text-sm leading-6 text-[var(--color-ink-65)]">
-                    {feature.description}
-                  </p>
-                </article>
+                <FeatureCard key={feature.title} title={feature.title}
+                  description={feature.description}
+                  category={feature.category} tags={feature.tags}
+                  imageUrl={
+                    FEATURE_CARD_THEME === "dots"
+                      ? feature.dotsImageUrl
+                      : FEATURE_CARD_THEME === "watercolor"
+                        ? feature.waterImageUrl
+                        : FEATURE_CARD_THEME === "riso-light"
+                          ? feature.lightImageUrl
+                          : feature.imageUrl
+                  }
+                  icon={<Icon aria-hidden="true" size={22} />}
+                  href="/signup" />
               );
             })}
           </div>

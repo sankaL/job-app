@@ -25,7 +25,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
 - All application data is private to the authenticated user. Treat user isolation as a hard requirement across UI, API, background work, and notifications.
 - Resume content remains Markdown inside versioned section documents. Stable section, entry and bullet IDs support editing, regeneration and comparison; deterministic Markdown projections support export.
 - Personal information such as name, email, phone, and address comes from the user profile and must not be invented by the LLM.
-- Resume tailoring must stay grounded in the user's source resume and the job posting. Do not invent employers, dates, credentials, or education history. High aggressiveness may retitle Professional Experience role names only when the new title remains a truthful reframing of the same source role and keeps employer and dates unchanged.
+- Resume tailoring is grounded in the user's source resume and the job posting. Never invent employers, dates, tenure, credentials, or education history at any level. Low and Medium add no unsupported claims. High is an explicit user opt-in for job fit: it may add plausible technologies, scope, outcomes and metrics that fit the source role, seniority and domain, and may retitle Professional Experience roles when the new title stays a credible reframing of the same role with employer and dates unchanged. See the PRD aggressiveness definitions.
 - The `applied` flag is separate from the primary application status and must remain independently user-controlled.
 - Exported PDFs are generated on demand from the latest draft. Do not add persistent PDF storage for MVP.
 
@@ -34,6 +34,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
 - Do not expose unauthenticated application APIs beyond the login surface.
 - Do not store auth tokens in browser `localStorage`.
 - Keep secrets and sensitive user content out of logs. Do not log tokens, raw provider payloads, full resume content, or full job descriptions unless strictly required and sanitized.
+- The only approved exception is the explicit, redacted LangSmith model-run content opt-in described in the PRD and `docs/prompts.md`. Keep it off by default and never extend it to application logs, workflow roots, profile records or credentials.
 - Do not swallow failures. Return sanitized errors, record enough context for diagnosis, and surface recoverable next steps to the user.
 - All async work must have explicit timeout boundaries, bounded retries, and clear stop conditions.
 
@@ -46,6 +47,7 @@ When behavior conflicts with assumptions or older guidance, follow the PRD and u
 ## Sources of Truth (consult before changing behavior)
 - Product contract: `docs/resume_builder_PRD_v3.md`
 - Database schema source of truth: `docs/database_schema.md`
+- Model roles, per-model reasoning and provider routing: `shared/model-config.json` (copies bundled in `agents/` and `backend/app/core/`; tests enforce they match)
 - Backend/database migration runbook: `docs/backend-database-migration-runbook.md`
 - Task tracking: `docs/build-plan.md`
 - Decisions log: `docs/decisions-made/`

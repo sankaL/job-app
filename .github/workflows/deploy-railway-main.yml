@@ -29,17 +29,20 @@ jobs:
         with:
           filters: |
             backend:
+              - "scripts/wait-railway-deployment.py"
               - "backend/**"
               - "shared/**"
               - "supabase/**"
               - "docker-compose.yml"
               - ".github/workflows/deploy-railway-main.yml"
             frontend:
+              - "scripts/wait-railway-deployment.py"
               - "frontend/**"
               - "shared/**"
               - "docker-compose.yml"
               - ".github/workflows/deploy-railway-main.yml"
             agents:
+              - "scripts/wait-railway-deployment.py"
               - "agents/**"
               - "shared/**"
               - "docker-compose.yml"
@@ -72,6 +75,10 @@ jobs:
             --environment production \
             --service "${{ secrets.RAILWAY_BACKEND_SERVICE_ID }}" \
             --message "deploy backend from main @ ${GITHUB_SHA}"
+          python3 scripts/wait-railway-deployment.py \
+            --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
+            --service "${{ secrets.RAILWAY_BACKEND_SERVICE_ID }}" \
+            --commit "${GITHUB_SHA}"
 
   deploy-frontend:
     name: Deploy frontend
@@ -100,11 +107,20 @@ jobs:
             --environment production \
             --service "${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }}" \
             --message "deploy frontend from main @ ${GITHUB_SHA}"
+          python3 scripts/wait-railway-deployment.py \
+            --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
+            --service "${{ secrets.RAILWAY_FRONTEND_SERVICE_ID }}" \
+            --commit "${GITHUB_SHA}"
 
   deploy-agents:
     name: Deploy agents
-    needs: detect-changes
-    if: needs.detect-changes.outputs.deploy_agents == 'true'
+    # API and UI must be live before the worker starts publishing new payloads.
+    needs: [detect-changes, deploy-backend, deploy-frontend]
+    if: >-
+      !cancelled()
+      && needs.detect-changes.outputs.deploy_agents == 'true'
+      && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
+      && (needs.deploy-frontend.result == 'success' || needs.deploy-frontend.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -128,3 +144,7 @@ jobs:
             --environment production \
             --service "${{ secrets.RAILWAY_AGENTS_SERVICE_ID }}" \
             --message "deploy agents from main @ ${GITHUB_SHA}"
+          python3 scripts/wait-railway-deployment.py \
+            --project "${{ secrets.RAILWAY_PROJECT_ID }}" \
+            --service "${{ secrets.RAILWAY_AGENTS_SERVICE_ID }}" \
+            --commit "${GITHUB_SHA}"

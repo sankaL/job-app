@@ -16,7 +16,7 @@ from section_generation import SectionGenerationError
 
 
 def arguments(**overrides):
-    values = dict(live=False, max_requests=32, max_output_tokens=256000,
+    values = dict(live=False, max_requests=64, max_output_tokens=1024000,
         max_seconds=30, max_cost_usd=Decimal("1"), save_documents=False)
     return argparse.Namespace(**{**values, **overrides})
 
@@ -73,7 +73,8 @@ async def test_all_synthetic_cases_use_real_runtime_without_network(monkeypatch)
     assert len(report["results"]) == len(CASES)
     for case in report["results"]:
         assert case["status"] == "passed", case
-    assert report["totals"]["requests"] == 19
+    # Parallel writer groups are written and audited separately (Experience vs other sections).
+    assert report["totals"]["requests"] == 28
     assert report["totals"]["schema_correction_requests"] == 1
     assert report["totals"]["section_repair_calls"] == 2
     assert report["totals"]["cost_kind"] == "synthetic_fixture"
@@ -103,8 +104,6 @@ async def test_live_requires_dev_mode_credentials_models_and_explicit_endpoint()
     with pytest.raises(EvaluationLimit):
         await run_cases(CASES[:1], {}, args)
     status = configuration_status({"OPENROUTER_API_KEY": "private-secret-value", "APP_DEV_MODE": "true",
-        "TIER1_MODEL": "private-primary-value", "TIER1_FALLBACK_MODEL": "private-fallback-value",
-        "TIER2_MODEL": "private-routine-value", "TIER2_FALLBACK_MODEL": "private-routine-fallback-value",
         "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"})
     assert all(status.values())
     assert all(isinstance(value, bool) for value in status.values())
@@ -165,8 +164,7 @@ async def test_live_evaluation_honors_env_file_project_and_tags_case(monkeypatch
     env_file = tmp_path / "eval.env"
     env_file.write_text("LANGSMITH_TRACING=true\nLANGSMITH_PROJECT=eval-project\nLANGSMITH_API_KEY=eval-key\nLANGSMITH_WORKSPACE_ID=eval-workspace\n")
     values = {**evaluator.configuration(env_file), "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key",
-        "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1", "TIER1_MODEL": "test/primary",
-        "TIER1_FALLBACK_MODEL": "test/fallback", "TIER2_MODEL": "test/routine", "TIER2_FALLBACK_MODEL": "test/routine-fallback"}
+        "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"}
     captured = []
     @contextmanager
     def scope(name, **kwargs):
@@ -195,9 +193,7 @@ async def test_live_evaluation_honors_env_file_project_and_tags_case(monkeypatch
 async def test_live_tracing_missing_config_blocks_provider_work(monkeypatch, missing):
     from evals import run_sections as evaluator
     values = {"LANGSMITH_TRACING": "true", "LANGSMITH_PROJECT": "project", "LANGSMITH_API_KEY": "key",
-        "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key", "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
-        "TIER1_MODEL": "test/primary", "TIER1_FALLBACK_MODEL": "test/fallback",
-        "TIER2_MODEL": "test/routine", "TIER2_FALLBACK_MODEL": "test/routine-fallback"}
+        "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key", "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"}
     del values[missing]
     async def unexpected(**_kwargs):
         pytest.fail("Invalid tracing configuration reached provider work")

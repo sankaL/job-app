@@ -31,20 +31,22 @@ MAX_RESUME_MARKDOWN_LENGTH = 200_000
 
 def get_resume_parser() -> ResumeParserService:
     from app.core.config import get_settings
+    from app.core.model_config import route
 
     settings = get_settings()
     return ResumeParserService(
         openrouter_api_key=settings.openrouter_api_key,
-        openrouter_model=settings.tier2_model,
-        openrouter_fallback_model=settings.tier2_fallback_model,
+        openrouter_model=route("resume_import").model,
+        openrouter_fallback_model=route("resume_import").fallback or route("resume_import").model,
         openrouter_base_url=settings.openrouter_base_url,
         classifier=settings.resume_import_classifier,
-        classification_model=settings.openrouter_classification_model,
+        classification_model=route("import_section_classification").model,
         confidence_threshold=settings.resume_import_confidence_threshold,
         langsmith_tracing=settings.langsmith_tracing,
         langsmith_project=settings.langsmith_project,
         langsmith_workspace_id=settings.langsmith_workspace_id,
         langsmith_api_key=settings.langsmith_api_key,
+        langsmith_trace_content=settings.langsmith_trace_content,
     )
 
 

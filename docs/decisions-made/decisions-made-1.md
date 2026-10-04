@@ -1,8 +1,129 @@
+## 2026-10-04 19:00:00 EDT - Code review fixes for generation speed work
+
+- Context: Two review passes over the generation-speed branch. Fixes were made only where behaviour departed from the spec or the earlier decisions; intended choices were kept.
+- Fixed:
+  - Jev requests now receive privacy-masked claim text, evidence and role labels, as LLM payloads already did.
+  - Waiting for a browser slot no longer counts against the 30s capture timeout; the wait has its own 40s bound.
+  - A verified rewrite or keyword patch clears a kept-original notice.
+  - An unfinished over-length reduction fails as a length error instead of keeping the longer original.
+  - The eased progress bar no longer drops to 0 when the placeholder becomes the real job.
+  - Preview callback failures are logged.
+  - Concurrent writer groups and Jev batches finish before an error is raised.
+  - Model config enforcement: decisions roles use decisions models without fallbacks, chat roles use chat models, and only `claim_audit` may be disabled. The loader modules are byte-identical, and tests compare every copy and cover fail-closed startup.
+  - Tier-era signatures removed; tier wording removed from docs.
+- Kept as intended:
+  - Sonnet for legacy validation repairs (recorded in the 17:00 entry).
+  - No environment kill switch for Jev; the user chose file-based model config.
+  - The new modules stay out of `py-modules`; a site-packages copy would lack its JSON file.
+  - Internal `_routine_*`/`_repair_*` key names stay for queued-job compatibility.
+
+## 2026-10-04 17:00:00 EDT - Role-based model configuration file replaces tier environment variables
+
+- Context: Models were chosen through TIER1/TIER2 environment variables in two services, with hard-coded provider routing, reasoning limits and native-output allowlists. Pointing a tier at an unlisted model silently changed the request format.
+- Decision (user-approved): One checked-in `shared/model-config.json` selects models by role (`resume_writer`, `section_writer`, `repair_writer`, `claim_audit`, `audit_escalation`, `job_extraction`, `keyword_extraction`, `resume_judge`, `resume_import`, `import_section_classification`). It also holds per-model profiles (API, output mode, reasoning, provider overrides) and shared provider defaults. The backend and worker bundle exact copies, because Railway builds each service from its own directory; tests enforce that the copies match. No environment variables select models; secrets stay in the environment. Startup fails if a role names a model without a profile, or if a fallback equals its primary.
+- Consequences: Changing a model is a reviewed code change and a deploy rather than a Railway variable. The old TIER*, JEV_AUDIT_* and OPENROUTER_CLASSIFICATION_MODEL variables are ignored and can be removed from Railway. Legacy validation repairs now use `repair_writer` (Sonnet), consistent with the earlier Sonnet-repairs decision.
+
+## 2026-10-04 16:00:00 EDT - Jev judges retitled roles
+
+- Context: High generations took about 23s against about 15s for Medium, because every retitled role sent the whole Experience section to a Sonnet audit (about 5s) after the slowest write.
+- Decision: A retitled role becomes a Jev `title` claim (evidence: source title plus the whole reviewed role) with title-specific thresholds (accept >= 0.25, reject <= 0.15). Uncertain titles still escalate the whole section. The deterministic title rule remains first.
+- Evidence: 16 labelled retitles (QA and engineering roles). High 16/16 correct. Medium 14/16; the two accepted cases match the existing Medium worked example (Backend -> Platform). No bad retitle was accepted; seniority bumps and field changes scored <= 0.09. Live High runs fell from about 23s to 12-17s with two LLM calls.
+
+## 2026-10-04 15:00:00 EDT - Parallel writing, keep-original sections and progressive display
+
+- Context: After bounding reasoning, routing providers and adding the Jev audit, writing was the remaining latency, and one unverifiable section still failed whole generations. The user approved splitting writing into two calls (about +$0.03-0.05), Sonnet repairs, a 10-request allowance, keeping original text instead of failing, prompt caching and progressive display.
+- Decision: Experience and other sections are written concurrently and audited per group. Repairs and LLM audits use Tier 1. Unverifiable sections in initial or full regeneration keep their original text, flagged `kept_original_unverified`, unless every writable section failed. Targeted and keyword operations still fail. Verified sections stream to the preview as `partial_sections`, and the worker publishes progress events. Live verification also found and fixed a contact-URL false positive (`portfolio.` at the end of a sentence) that forced two repair rounds per run.
+- Evidence: same resume and job description, sequential live runs. Medium median 77.6s -> 15.3s; High 33.1s -> 22.9s. Cost about $0.12-0.16 -> about $0.06. 6/6 new runs clean on the first try. See `docs/task-output/2026-10-04-generation-speed-robustness.md`.
+- Consequences: Shared contracts gained optional fields (document `generation_notice`, progress `partial_sections`); deploy backend and frontend before the worker. Users see real sections at about 12-14s and rarely see a failed generation; kept-original sections are clearly flagged for review.
+
+## 2026-10-04 04:30:00 EDT - Jev decision model as first-pass grounding auditor
+
+- Context: The Gemini auditor took 18-32s at Medium; fast LLM auditors missed invented claims. The user prioritised speed, then robustness, then cost, and chose speed-favouring thresholds.
+- Decision: Audit claims (bullets, Summary sentences, Skills groups) with `typesafe/jev-1.13` in batches of at most 6, evidence = cited text plus the whole reviewed role. Accept P(pass) >= 0.80, reject <= 0.20 with the most likely issue code, escalate the middle band to the Sonnet LLM audit (Gemini fallback). Full LLM audit when Jev is unavailable or answers are invalid; retitled roles always use the LLM audit. Jev judges High plausibility as well (eval gate passed).
+- Evidence: 684 labelled claims: Medium 99.2% caught / 0% false rejects / 1.2% escalated; High 96.6% / 9.5% / 7.6%. Real drafts escalate ~10% of claims and still catch the known invented phrase (reject) and overclaim (escalate). See `docs/task-output/2026-10-04-jev-audit-evaluation.md`.
+- Consequences: Audits drop from 10-32s to ~0.3-1s plus occasional small Sonnet checks; cost per audit falls to ~$0.0001 plus escalations. Jev's Decisions API is alpha, so the LLM audit remains the fallback.
+
+## 2026-10-04 03:32:57 EDT - Review the full uncommitted snapshot and fence extraction recovery
+
+The owner requested review, repair and a commit of all uncommitted changes. Intentional High job-fit claims, eased visual progress and copy-only prompt exemptions remain in place. Higher server percentages raise the eased target; the display catches up smoothly and can briefly lag. This corrects the previous instantaneous-floor wording without changing the curve.
+
+Keep keyword optimization strict in both structured audits and legacy prompts. Finish concurrent started delivery before terminal extraction output, and ignore delayed started callbacks once progress is terminal. Use an atomic comparison of the checked progress snapshot for stale recovery and stale deletion. A fresh update wins; the recovery owner alone writes failure and notifies. Stale deletion retains an expiring terminal fence and requests abort even when the queue is unavailable. The stored fence contains no resume or job text.
+
+Local validation passed (2026-10-04 03:43:51 EDT): backend 518, agents 296, frontend 287 with the same two baseline shell failures, plus the production build and Redis CAS check.
+
+The expanded extraction failure kinds need no SQL migration. The migration runbook now records compatibility, the 24-hour deletion fence, rollout/restart requirements, rollback limits and verification. This is a major cross-stack review; evidence and remaining limits belong in `docs/task-output/2026-10-04-uncommitted-code-review.md`.
+
+## 2026-10-04 02:00:00 EDT - High aggressiveness allows plausible job-fit claims
+
+- Context: The owner stated that the PRD, AGENTS.md and grounding audit were out of date. For High job-fit requests they want the model to add claims that are not in the resume, as long as they make sense for it. Every layer (writer prompt, audit prompt, local numeric check, docs) forbade unsupported claims at all levels.
+- Decision: High may add plausible technologies, tools, responsibilities, scope, outcomes and metrics consistent with the cited role's seniority, domain and demonstrated work, citing the bullets they extend. At every level it never invents or changes employers, dates, tenure, institutions, degrees, credentials, certifications, licences, awards or personal information, never raises seniority and never contradicts the source. The High audit checks those limits and plausibility (new codes `unsupported_date_or_tenure`, `implausible_claim`); the High local check skips only new non-year numbers. Low, Medium and keyword optimization keep the strict rule. The identity limits are my default reading of "makes sense with the resume"; the owner can widen or narrow them.
+- Consequences: High drafts can contain claims a user cannot back up, so the UI copy now says so plainly and asks users to keep only what they can speak to. Existing employer/credential/title checks still apply. Rationale for the earlier strict policy is superseded for High only.
+
+## 2026-10-04 00:22:00 EDT - Extraction fallback window, job abort, concurrent started callback and a sturdier extraction prompt
+
+- Status: Accepted (owner asked for these fixes and prompt hardening)
+- Context: Follow-ups from the 00:10 entry. (1) Primary and fallback models shared a 30s budget with a 30s primary timeout, so a hung primary left the fallback no time. (2) Stopping or recovering an extraction left a hung worker job holding its queue slot until the 120s backstop. (3) The best-effort `started` callback ran before capture, so an unreachable backend added up to about 31s. (4) The local backend venv was Python 3.9, below the project's `>=3.10`, so dependencies such as `pydantic_ai` never installed. (5) The extraction prompt had no way to decline a page (required title and description push the model to invent them on sign-in walls or closed postings), did not say to copy the description verbatim, did not define `company` (job board names leaked in), did not guard against instructions embedded in page text, and the model schema exposed `job_keywords`, which belongs to the separate keyword flow.
+- Decision:
+  1. Raise the model budget to 45s and cap the primary invocation at 30s, so the fallback keeps at least 15s. Shortening the primary to 20s inside a 30s budget was rejected because it would fail slow primary responses that succeed today. Worst-case model time grows by 15s only when the primary times out.
+  2. Run the worker with `allow_abort_jobs`. Cancel and stalled-job recovery write the job id to arq's abort set directly, because `Job.abort()` blocks until the job result exists. Best-effort: a failed abort is logged and the stop still succeeds.
+  3. Send `started` concurrently with capture. Terminal callbacks wait for it to keep backend event order, and a superseded job cancels it.
+  4. Rebuild `backend/.venv` with uv on Python 3.12 to match the Docker image. No repo change was needed (the venv is gitignored).
+  5. New model-facing schema `JobPostingExtraction` with `page_outcome` (`job_posting`, `sign_in_required`, `posting_unavailable`, `no_job_posting`). Title and description are required only for postings, and declined outcomes clear every field. A rewritten prompt adds an untrusted-content rule, verbatim copy rules, an employer-only `company` definition and exact-copy rules for location, pay and IDs. A sign-in wall reuses the blocked-source path; the other declines go to manual entry with their own kinds and messages. Local post-processing trusts a known board host over the model's origin and keeps a model reference ID only when it appears in the source. The prompt is a module constant, and a test fails if `docs/prompts.md` drifts from it.
+- Consequences: Fewer invented postings and fewer job-board names stored as companies, at the cost of one new failure path. If the model wrongly declines a real posting, the user lands in manual entry with paste recovery, a failure that is visible rather than silent corruption. Not measured: no live model run compared old and new prompt outputs, because tests force a test-only key. A small eval over saved postings would quantify the change. Generation cancel still does not abort its worker job; the same mechanism would apply.
+
+## 2026-10-04 00:10:00 EDT - Bound job extraction end to end and recover stalled extraction jobs
+
+- Status: Accepted
+- Context: A review of job extraction found three reliability gaps. (1) `wait_for_load_state("networkidle", 10s)` was not guarded, so pages that never go idle (long polling, beacons, websockets) failed as "Extraction timed out" after the DOM had loaded. (2) Only the model call had the 30s limit; navigation (30s), the idle wait (10s) and up to four 5s selector waits could add about 60s, and the arq job used the 300s default. (3) Nothing recovered an extraction whose worker died (`max_tries = 1`): the row stayed in progress until the user pressed Stop. The review also found that any page mentioning "Cloudflare" was flagged blocked, reference-ID regexes matched inside words ("Dijkstra" became `jkstra`, which feeds duplicate detection), a superseded job could clear a newer job's cached result, and JSON-LD reached the prompt unbounded.
+- Decision:
+  1. Treat the network-idle wait as a best-effort 5s settle and continue with the loaded DOM.
+  2. Read the PRD's "Playwright extraction 30 seconds" as one boundary around the whole capture (URL check, 20s navigation, settle, read), enforced with `asyncio.wait_for`. The model call keeps its separate 30s, four-request budget. Holding the whole job to 30s was rejected because a 40,000-character posting copied into `job_description` often needs most of the model's 30s. Add a 120s arq timeout per extraction job as a hard backstop.
+  3. In the backend, fail an extraction as `timed_out` when a started job has no progress for 150s (past the 120s backstop, so a live job is never preempted) or a queued job is not picked up within 300s. Run the check on detail and progress reads and on each event-stream heartbeat. A Redis `SET NX` claim ensures one notification and email per stalled job. Writing new terminal progress first changes the job id, so late worker writes and callbacks are ignored. Delete is allowed for a stalled extraction without notifying.
+  4. Smaller fixes: read page text in one DOM snapshot; require block wording in the title, URL or meta, or in a short page body (provider names only label); add word boundaries to reference-ID patterns in the worker and the duplicate detector; stop the worker without writes when its job is superseded, including before the paid model call; keep only JobPosting JSON-LD when present and cap JSON-LD and meta sizes.
+- Consequences: Worst-case time to a terminal state is about 60s of internal work for a live job and about 150s after the last progress update for a dead worker, instead of hanging until a manual stop. `extraction_failure_details.kind` gains `timed_out` (JSON value only, no migration); the frontend shows the generic recovery copy for it. Not changed: primary and fallback models still share the 30s model budget, so a primary that hangs for the full 30s leaves no time for the fallback. Fixing that needs either a shorter primary timeout or a larger budget, which is a product call.
+
+## 2026-10-04 00:25:00 EDT - Ease the processing progress bar for job extraction and generation
+
+- Status: Accepted
+- Context: The PRD and frontend guidance said percentages come only from reported progress and forbade simulated advancement. Reported progress arrives in coarse jumps, so the bar sat at 0% or an old value for long stretches and felt stalled. The owner asked for a bar that moves quickly to about 70% and then lags, so the job looks like it is progressing.
+- Decision:
+  1. Job extraction and full generation use a time-eased value, `70 * (1 - e^(-t/5)) + 24 * (1 - e^(-t/90))`, which passes 70% by 15 seconds, reaches about 82% at one minute and 88% at two, and never exceeds 94%.
+  2. The bar counts from the job's reported start, never moves backwards, raises its target to the reported percentage whenever it is higher and catches up in small steps, and reaches 100% only when the job reports 100.
+  3. Resume import stays indeterminate and section regeneration keeps its reported-only bar. The 90 second slow-job notice still follows real progress updates, not the eased value.
+- Consequences: The bar is visual feedback and no longer a measurement, so it can read 94% while the job has barely started real work. That trade is deliberate and capped. If users read it as a promise, the ceiling can drop or the curve can slow. The PRD and `frontend/AGENTS.md` rules were amended to match.
+
+## 2026-10-04 00:30:00 EDT - Eight-request writing budget, 45s audits and truthful failure reporting
+
+- Context: A production generation failed when the six-request budget ran out. Three write/audit rounds need exactly six requests, so any provider fallback (here a 30.01s Gemini audit timeout) made the final audit impossible. The sixth request was a repair that could never be verified. The error escaped without attempt diagnostics (UI: "worker_start, 0 attempts"), and LangSmith showed the failed audit as successful.
+- Decision (user-approved): raise the writing budget from 6 to 8 requests for generation, section/full regeneration and keyword optimization, and raise the grounding-audit timeout from 30s to 45s. Only start a repair round when two requests remain. Convert request-budget exhaustion into `SectionGenerationError` (audit unavailable when it cannot run) so attempts and a specific retry message reach the user. Mark failed model runs as LangSmith errors with fixed labels, and record allowlisted reason codes on failed roots.
+- Consequences: Worst case is two extra provider calls per writing action; user quota is unchanged because it counts actions, not calls. Deadlines (240s/120s) are unchanged and still end as timeouts. Trace error labels stay free of exception text and provider bodies.
+
+## 2026-10-03 23:55:00 EDT - Exempt copy-only and decision-only prompts from the shared Unslop policy
+
+- Status: Accepted
+- Context: The 2026-08-22 decision appended the shared Unslop instruction to every model system prompt. A job-extraction trace showed it adding about 1,500 tokens to a prompt whose rules take about 600. Job extraction and ATS keyword extraction copy source text (`job_description`, location and compensation snippets, exact keyword phrases). A follow-up audit of the other prompts found the same fit problem in resume cleanup (told to preserve wording and, through Unslop, to rewrite it), nested entry extraction (returns line spans and exact excerpts) and the grounding claim audit (returns a boolean and issue codes; the block was about 87% of its system text). Unslop tells the model to cut puffery, swap words and drop em dashes, and the precedence clause only exists to cancel that.
+- Decision:
+  1. Remove the Unslop precedence rule and instruction from the job posting extraction, ATS keyword extraction, resume cleanup, nested entry extraction and claim audit system prompts. Delete the backend mirror `backend/app/services/unslop_prompt.py` and its sync test, since nothing in the backend uses it.
+  2. Keep it on prompts that author prose: section and legacy generation, regeneration, keyword patches, validation repair and Resume Judge. Resume Judge stays because it scores voice quality, though that is a judgment call.
+  3. Amend the "every prompt" rule in `agents/AGENTS.md`, the PRD and `docs/prompts.md` to name the exemption. The earlier one-call, no-second-rewrite rule stands.
+- Consequences: Five prompts shed about 1,700 tokens each, and there is no chance that a model normalizes wording inside the stored job description. No schema, payload, model or post-filter changes. The regression test now asserts these two prompts omit the block. Not measured: whether extraction output changed in practice, since no before/after diff of `job_description` was run.
+
+## 2026-10-03 23:20:00 EDT - Opt-in redacted LLM content tracing and request-settings metadata
+
+- Context: LangSmith model runs showed only counts and outcome, so the owner could not inspect prompts, outputs or the reasoning mode. The counts-only policy (17:55 entry below) was intentional. The owner was told that enabling content in production sends real users' resume and job text to LangSmith, and chose to enable it in both local and production anyway.
+- Decision: Add `LANGSMITH_TRACE_CONTENT` (default `false`, effective only with `LANGSMITH_TRACING=true`). When on, model runs include the system/user prompt exactly as sent to the provider and the parsed successful output; backend import model runs and Jev attempt runs include their sanitized bodies. Every body still passes through the trace redactor (emails, phones, profile URLs, secrets, URL queries, user ids, personal info keys). Workflow roots, assembly runs, failed outputs, profile records, credentials and exception payloads remain excluded. Independently, every model run records the request settings actually sent (output mode/type, temperature, token cap, reasoning effort, reasoning-text exclusion, correction retries).
+- Correction recorded: reasoning effort is not dropped by accident. Provider-default reasoning for current models is the earlier routing decision; the new metadata reports it as `provider_default`.
+- Consequences: Debugging generation, grounding audits and imports becomes possible from LangSmith. Real user content (pseudonymized for generation prompts, redacted for contacts) now sits in a third-party service for the LangSmith retention period whenever the flag is on. AGENTS.md lists this as the only approved exception to keeping resume/job bodies out of telemetry. The flag can be turned off without a deploy by changing the environment and restarting services.
+
 ## 2026-10-03 — Verify and commit the uncommitted branch snapshot
 
 Completed the CE review and five regression fixes (2026-10-03 22:06:31 EDT). Keep the shared shell’s route mounted across immersive comparison and responsive navigation changes; Astryx 0.6.5’s `section` variant supplies a stable content tree. This supersedes the earlier elevated-shell choice. Honor grouped-column custom sorting and direction, retain cached activity with visible refresh errors and Retry, record available classifier token counts before answer validation, and leave example tracing disabled until explicitly configured.
 
 Verified 1,021 tests and the TypeScript/Vite production build using the local stack. The user explicitly requested committing only the verified snapshot while another chat continues editing; later working-tree changes remain outside that commit. See `docs/task-output/2026-10-03-uncommitted-code-review.md`.
+
+## 2026-10-03 — Center loading feedback over the resume skeleton
+
+The user requested one centered progress bar, changing messages and a small SVG avatar, with the step list removed. Full resume generation, job posting extraction and resume import now share that presentation. Reported job messages remain the accessible status; rotating explanations describe source grounding and review without claiming a current stage. Extraction no longer advances its percentage on a timer, so both job workflows show only server-reported progress. The supporting details, app shell, cancellation, recovery and AI orchestration are unchanged.
 
 ## 2026-10-03 — Read-only application details with per-field editing
 
@@ -725,3 +846,8 @@ The reported source contains three roles at one employer plus an internship at a
 - Decision: Add a nullable normalized `job_posting_origin` field to applications, with fixed MVP values for common sources and a conditional free-text companion field when the user selects `Other`. Automatic extraction should classify the origin when confidence is sufficient; otherwise the user can provide or edit it later from manual entry or the application detail page.
 - Duplicate-review rule: Consider `job_posting_origin` during duplicate evaluation when both compared applications have it populated, but do not require it. If origin is missing on either side, fall back to the existing title-and-company duplicate check.
 - Consequences: The PRD, schema contract, migration runbook, and roadmap now treat posting origin as a first-class application field. Existing rows do not require a backfill and may remain `NULL` until a user or later tooling supplies the value.
+## 2026-10-04 18:58 EDT - Gate worker rollout on live API and UI releases
+
+The owner authorized consolidating current branches into main and deploying to Railway. `generation-speed-robustness` already contains `langsmith-content-tracing`; historical ancestor branches and a patch-equivalent keyword commit require no replay. The owner explicitly chose to preserve the old `ui-changes-qoder` prototype without merging its obsolete UI and pre-RLS analytics repository.
+
+The new worker can send `generation_notice`, which the old backend's strict section schema rejects. Require both backend and frontend release jobs before the worker. Railway CLI `--ci` streams build logs, so workflow job completion must also verify the requested commit's deployment is successful, active and has running instances. The verification script has a ten-minute deadline, bounded CLI calls, a three-error stop condition and sanitized errors. Failed or superseded releases block worker upload; unchanged services may be skipped. Six regression tests cover readiness, wrong-release fencing, failures, timeout, supersession and bounded private-error handling.
