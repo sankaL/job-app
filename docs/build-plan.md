@@ -1,12 +1,18 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-04
+**Last updated:** 2026-10-05
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## LangSmith generation cost and progress strip
+
+**Status:** Complete (2026-10-05).
+
+LangSmith showed $0 for generation traces because its price catalog lacks Sonnet 5.5 and the Jev Decisions calls. Both services now send OpenRouter's reported per-call cost as `usage_metadata.total_cost`, and the backend import classifier records Jev's cost; a traced probe confirmed LangSmith stores it. During full generation, the progress card now animates into a full-width strip above the paper preview once the first verified sections arrive, so it no longer covers them. In strip mode the panel grows with the finished sections, the strip stays pinned to the top of the scrolling workspace, and one status live region stays mounted across the card-to-strip switch. Tests: agents 356, backend 526, frontend 300 (the 2 known shell failures remain), build and local guards pass.
 
 ## Old branch cleanup
 

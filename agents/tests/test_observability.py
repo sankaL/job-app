@@ -391,3 +391,17 @@ def test_safe_error_label_appends_only_fixed_reason_codes():
     assert tracing.safe_error_label(AIBudgetExhausted("x")) == "AIBudgetExhausted: usage_budget_exhausted"
     assert tracing.safe_error_label(ValueError("Private payload")) == "ValueError"
     assert tracing.safe_error_label(Unsafe("x")) == "Unsafe"
+
+
+@pytest.mark.parametrize("outputs,expected", [
+    ({"input_tokens": 100, "output_tokens": 20, "cost_usd": 0.0421},
+     {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120, "total_cost": 0.0421}),
+    ({"cost_usd": 0.000158}, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "total_cost": 0.000158}),
+    ({"input_tokens": 40, "cost_usd": 0.00003}, {"input_tokens": 40, "output_tokens": 0, "total_tokens": 40, "total_cost": 0.00003}),
+    ({"input_tokens": 5, "output_tokens": 1, "cost_usd": True}, {"input_tokens": 5, "output_tokens": 1, "total_tokens": 6}),
+])
+def test_provider_reported_cost_is_sent_as_langsmith_total_cost(outputs, expected):
+    from langsmith.run_trees import RunTree
+    run = RunTree(name="test", run_type="llm", inputs={})
+    tracing.end_trace_safely(run, outputs={"outcome": "success", **outputs})
+    assert run.outputs["usage_metadata"] == expected

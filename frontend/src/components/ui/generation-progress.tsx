@@ -18,8 +18,11 @@ export function GenerationProgress({ progress, isOptimistic, isActive, isCancell
   const terminal = Boolean(reported?.completed_at || reported?.terminal_error_code);
   const message = isCancelling ? "Stopping this generation. Waiting for confirmation." : reported?.message || "Sending your generation request. Waiting for the first processing update.";
   const sessionKey = isActive || isOptimistic ? `${reported?.workflow_kind ?? "optimistic"}:${reported?.job_id ?? "optimistic"}` : "inactive";
+  const ready = terminal ? [] : reported?.partial_sections ?? [];
+  // Once verified sections arrive, the progress card moves into a strip above them so it stops covering them.
   return <ResumeProcessing title={section ? "Updating your resume section" : "Preparing your tailored resume"}
-    preview={<ResumeGenerationSkeleton section={section} backdrop sections={terminal ? [] : reported?.partial_sections ?? []} />}
+    layout={ready.length ? "strip" : "card"}
+    preview={<ResumeGenerationSkeleton section={section} backdrop sections={ready} />}
     message={message} percent={reported?.percent_complete} easeProgress
     startedAt={reported?.created_at} updatedAt={reported?.updated_at}
     stalledHint={isActive && !isCancelling ? "You can stop and try again." : undefined}

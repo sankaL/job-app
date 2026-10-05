@@ -358,3 +358,12 @@ def test_import_provider_settings_deny_retention_and_pin_gemini():
     assert _provider_settings_for("google/gemini-3.8-flash") == {"require_parameters": True, "data_collection": "deny",
         "sort": "latency", "only": ["google-ai-studio"]}
     assert "only" not in _provider_settings_for("openai/gpt-6-luna")
+
+
+def test_backend_provider_reported_cost_is_sent_as_langsmith_total_cost():
+    from langsmith.run_trees import RunTree
+    from app.core.tracing import end_trace_safely as end
+
+    run = RunTree(name="test", run_type="llm", inputs={})
+    end(run, outputs={"outcome": "success", "input_tokens": 40, "cost_usd": 0.00003})
+    assert run.outputs["usage_metadata"] == {"input_tokens": 40, "output_tokens": 0, "total_tokens": 40, "total_cost": 0.00003}

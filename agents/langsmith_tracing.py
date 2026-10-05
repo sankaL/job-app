@@ -251,11 +251,17 @@ def end_trace_safely(run_tree: Any, **kwargs: Any) -> None:
     try:
         outputs = kwargs.get("outputs")
         if isinstance(outputs, dict):
-            usage = {key: outputs[key] for key in ("input_tokens", "output_tokens")
+            usage: dict[str, Any] = {key: outputs[key] for key in ("input_tokens", "output_tokens")
                 if type(outputs.get(key)) is int and outputs[key] >= 0}
+            if len(usage) == 2:
+                usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+            cost = outputs.get("cost_usd")
+            if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
+                # Provider-reported cost: LangSmith's own price catalog lacks some
+                # OpenRouter models (for example Sonnet 5.5) and Decisions calls.
+                usage = {"input_tokens": 0, "output_tokens": 0, **usage}
+                usage.update(total_tokens=usage["input_tokens"] + usage["output_tokens"], total_cost=float(cost))
             if usage:
-                if len(usage) == 2:
-                    usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
                 kwargs["outputs"] = {**outputs, "usage_metadata": usage}
         run_tree.end(**kwargs)
     except Exception as error:

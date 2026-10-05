@@ -19,7 +19,7 @@ const DEFAULT_MESSAGES = [
 
 export const STALLED_MESSAGE = "This is taking longer than usual.";
 
-export function ResumeProcessing({ title, message, percent, easeProgress = false, startedAt, updatedAt, stalledHint, active = true, sessionKey = "import", provisional = false, actions, preview, messages = DEFAULT_MESSAGES, statusLabel = "Resume processing status", progressLabel = "Resume processing progress" }: {
+export function ResumeProcessing({ title, message, percent, easeProgress = false, startedAt, updatedAt, stalledHint, active = true, sessionKey = "import", provisional = false, layout = "card", actions, preview, messages = DEFAULT_MESSAGES, statusLabel = "Resume processing status", progressLabel = "Resume processing progress" }: {
   title: string;
   message: string;
   percent?: number;
@@ -35,6 +35,8 @@ export function ResumeProcessing({ title, message, percent, easeProgress = false
   sessionKey?: string;
   /** The session key is a placeholder until the server reports the job. */
   provisional?: boolean;
+  /** card: centred over the preview. strip: a full-width bar above it, so finished content stays readable. */
+  layout?: "card" | "strip";
   actions?: ReactNode;
   preview?: ReactNode;
   messages?: readonly string[];
@@ -48,28 +50,54 @@ export function ResumeProcessing({ title, message, percent, easeProgress = false
   const shownPercent = eased ?? measuredPercent;
   const elapsedText = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
   const supportingMessage = messages.length ? messages[Math.floor(elapsed / 8) % messages.length] : undefined;
+  // The live region stays mounted across layouts so a card-to-strip switch never drops or repeats an announcement.
+  const status = <Text as="p" type={layout === "strip" ? "supporting" : "body"} aria-hidden="true">{message}</Text>;
+  const bar = <ProgressBar label={progressLabel} isLabelHidden value={shownPercent} isIndeterminate={shownPercent === undefined && active} hasValueLabel={shownPercent !== undefined} variant="neutral" isDisabled={!active} />;
+  const stalledNotice = stalled && <Text as="p" type="supporting" role="status" aria-label="Slow progress notice" aria-live="polite">{stalledHint ? `${STALLED_MESSAGE} ${stalledHint}` : STALLED_MESSAGE}</Text>;
+  const elapsedLabel = <Text type="supporting" color="secondary" aria-label="Elapsed time" className="tabular-nums">{elapsedText}</Text>;
 
   return (
-    <VStack as="section" aria-label={title} data-active={active} className={`resume-processing relative isolate min-h-96 h-full w-full flex-1 overflow-hidden rounded-lg bg-processing-surface motion-reduce:[&_.astryx-skeleton]:animate-none ${!active ? "[&_.astryx-skeleton]:animate-none" : ""}`}>
+    // Strip: the panel grows with finished sections so the page scrolls them, and the strip stays pinned
+    // to the top of that scroll area (overflow-clip keeps rounded corners without becoming a scroll container).
+    <VStack as="section" aria-label={title} data-active={active} data-layout={layout} className={`resume-processing relative isolate min-h-96 w-full flex-1 rounded-lg bg-processing-surface motion-reduce:[&_.astryx-skeleton]:animate-none ${layout === "strip" ? "min-h-full overflow-clip" : "h-full overflow-hidden"} ${!active ? "[&_.astryx-skeleton]:animate-none" : ""}`}>
+      <Text as="p" role="status" aria-label={statusLabel} aria-live="polite" aria-atomic="true" className="sr-only">{message}</Text>
+      {layout === "strip" && (
+        <VStack gap={2} data-testid="processing-strip" className="processing-strip-in sticky top-0 z-10 w-full border-b bg-processing-surface px-4 py-3 sm:px-8">
+          <HStack gap={3} vAlign="center">
+            <ProcessingAvatar active={active} className="h-10 w-10" />
+            <VStack className="min-w-0 flex-1">
+              <Heading level={2} className="text-sm font-semibold">{title}</Heading>
+              {status}
+            </VStack>
+            <HStack gap={3} vAlign="center" className="shrink-0">
+              {elapsedLabel}
+              {actions}
+            </HStack>
+          </HStack>
+          {bar}
+          <Text as="p" type="supporting" color="secondary" className="hidden sm:block" aria-live="off">{supportingMessage}</Text>
+          {stalledNotice}
+        </VStack>
+      )}
       <VStack aria-hidden="true" className="pointer-events-none select-none" padding={8}>
         {preview ?? <ResumeGenerationSkeleton backdrop />}
       </VStack>
-      <VStack className="absolute inset-0 p-4 sm:p-8" hAlign="center" vAlign="center">
+      {layout === "card" && <VStack className="absolute inset-0 p-4 sm:p-8" hAlign="center" vAlign="center">
         <VStack gap={3} hAlign="center" className="w-full max-w-xs rounded-lg bg-processing-surface p-4 text-center sm:p-5">
           <ProcessingAvatar active={active} />
           <Heading level={2} className="text-base font-semibold">{title}</Heading>
           <VStack gap={3} className="w-full">
-            <Text as="p" type="body" role="status" aria-label={statusLabel} aria-live="polite" aria-atomic="true">{message}</Text>
-            <ProgressBar label={progressLabel} isLabelHidden value={shownPercent} isIndeterminate={shownPercent === undefined && active} hasValueLabel={shownPercent !== undefined} variant="neutral" isDisabled={!active} />
+            {status}
+            {bar}
             <Text as="p" type="supporting" color="secondary" className="min-h-10" aria-live="off">{supportingMessage}</Text>
-            {stalled && <Text as="p" type="supporting" role="status" aria-label="Slow progress notice" aria-live="polite">{stalledHint ? `${STALLED_MESSAGE} ${stalledHint}` : STALLED_MESSAGE}</Text>}
+            {stalledNotice}
           </VStack>
           <HStack gap={3} hAlign="center" vAlign="center">
-            <Text type="supporting" color="secondary" aria-label="Elapsed time" className="tabular-nums">{elapsedText}</Text>
+            {elapsedLabel}
             {actions}
           </HStack>
         </VStack>
-      </VStack>
+      </VStack>}
     </VStack>
   );
 }

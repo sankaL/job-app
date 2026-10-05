@@ -5239,11 +5239,13 @@ describe("phase 1 applications UI", () => {
     await waitFor(() =>
       expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1),
     );
-    expect(
-      await screen.findByText(
+    await waitFor(() =>
+      expect(
+        screen.getByRole("status", { name: "Resume processing status" }),
+      ).toHaveTextContent(
         /applying deterministic professional experience structure checks/i,
       ),
-    ).toBeInTheDocument();
+    );
   });
 
   it("updates generation progress from live stream events without waiting for the next watchdog poll", async () => {
@@ -5290,11 +5292,13 @@ describe("phase 1 applications UI", () => {
       );
     });
 
-    expect(
-      await screen.findByText(
+    await waitFor(() =>
+      expect(
+        screen.getByRole("status", { name: "Resume processing status" }),
+      ).toHaveTextContent(
         /applying deterministic professional experience structure checks/i,
       ),
-    ).toBeInTheDocument();
+    );
   });
 
   it("disables repeated watchdog polling while live stream heartbeats are flowing", async () => {
@@ -5403,7 +5407,11 @@ describe("phase 1 applications UI", () => {
     await waitFor(() =>
       expect(api.openApplicationEventStream).toHaveBeenCalledTimes(1),
     );
-    await screen.findByText(/resume generation is running/i);
+    await waitFor(() =>
+      expect(
+        screen.getByRole("status", { name: "Resume processing status" }),
+      ).toHaveTextContent(/resume generation is running/i),
+    );
 
     await act(async () => {
       latestStreamHandlers().onDetail(
@@ -5615,8 +5623,8 @@ describe("phase 1 applications UI", () => {
       ).toBeDisabled();
     });
     expect(
-      screen.getByText(/refreshing experience bullets/i),
-    ).toBeInTheDocument();
+      screen.getByRole("status", { name: "Resume processing status" }),
+    ).toHaveTextContent(/refreshing experience bullets/i);
     expect(
       screen.queryByText(/no resume generated yet/i),
     ).not.toBeInTheDocument();

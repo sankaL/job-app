@@ -193,3 +193,40 @@ it("keeps the eased bar where it is when the placeholder becomes the real job", 
   act(() => vi.advanceTimersByTime(400));
   expect(Number(screen.getByRole("progressbar").getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(before);
 });
+
+it("moves the progress card into a strip above the sections once the first one is ready", () => {
+  const props = { isOptimistic: false, isActive: true, isCancelling: false, onCancel: vi.fn() };
+  const { rerender } = render(<GenerationProgress progress={SERVER_PROGRESS} {...props} />);
+  expect(screen.queryByTestId("processing-strip")).not.toBeInTheDocument();
+  rerender(
+    <GenerationProgress
+      progress={{ ...SERVER_PROGRESS, partial_sections: [
+        { id: "summary", kind: "summary", heading: "Summary", content_md: "Quality engineering leader." },
+      ] }}
+      {...props}
+    />,
+  );
+  const strip = screen.getByTestId("processing-strip");
+  expect(strip).toHaveClass("sticky");
+  expect(strip).toHaveTextContent(SERVER_PROGRESS.message);
+  expect(strip).toContainElement(screen.getByRole("progressbar"));
+  expect(strip).toContainElement(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("heading", { name: "Preparing your tailored resume" })).toBeInTheDocument();
+  expect(screen.getByTestId("ready-section")).toHaveTextContent("Quality engineering leader.");
+});
+
+it("keeps one status live region mounted when the card becomes a strip", () => {
+  const props = { isOptimistic: false, isActive: true, isCancelling: false, onCancel: vi.fn() };
+  const { rerender } = render(<GenerationProgress progress={SERVER_PROGRESS} {...props} />);
+  const status = screen.getByRole("status", { name: "Resume processing status" });
+  rerender(
+    <GenerationProgress
+      progress={{ ...SERVER_PROGRESS, message: "Checking claims", partial_sections: [
+        { id: "summary", kind: "summary", heading: "Summary", content_md: "Quality engineering leader." },
+      ] }}
+      {...props}
+    />,
+  );
+  expect(screen.getByRole("status", { name: "Resume processing status" })).toBe(status);
+  expect(status).toHaveTextContent("Checking claims");
+});

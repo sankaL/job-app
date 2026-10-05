@@ -119,6 +119,9 @@ async def _classification_attempt(
                     value = usage.get(provider_key)
                     if type(value) is int and value >= 0:
                         outputs[trace_key] = value
+                cost = usage.get("cost")
+                if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
+                    outputs["cost_usd"] = round(float(cost), 6)
             answers = payload.get("answers") if isinstance(payload, dict) else None
             if not isinstance(answers, dict) or set(answers) != set(blocks):
                 raise ValueError("Classification did not return every source block.")
