@@ -8,6 +8,12 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Smooth progress strip transition and completion flash
+
+**Status:** Complete (2026-10-05).
+
+The card-to-strip change now uses GSAP Flip (already a dependency): the panel, avatar, bar and preview morph from their card positions with a brief lift shadow, then the text fades in; reduced motion skips it. The centred card no longer flashes back just before the finished resume appears: the worker's final update carries no partial sections, so the view now keeps the last verified sections, the strip and the final elapsed time after a successful completion, and clears them only on failure or cancellation. The morph explicitly clears every property it sets when it finishes or is interrupted. Tests cover the morph running, no leftover inline styles (including rapid layout toggles) and reduced motion; verified frame by frame and with rapid toggles in headless Chromium using a temporary harness (removed).
+
 ## LangSmith generation cost and progress strip
 
 **Status:** Complete (2026-10-05).

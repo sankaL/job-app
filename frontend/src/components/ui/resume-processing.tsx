@@ -3,7 +3,9 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
-import type { ReactNode } from "react";
+import { gsap } from "gsap";
+import { Flip } from "gsap/Flip";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "./button";
 import { ResumeGenerationSkeleton } from "./resume-generation-skeleton";
 import { useEasedProgress } from "./use-eased-progress";
@@ -18,6 +20,65 @@ const DEFAULT_MESSAGES = [
 ];
 
 export const STALLED_MESSAGE = "This is taking longer than usual.";
+
+gsap.registerPlugin(Flip);
+
+/** Every inline property the morph may set; cleared when it ends or is interrupted. */
+const MORPH_PROPS = "transform,translate,width,height,minWidth,minHeight,maxWidth,maxHeight,boxShadow,opacity,visibility";
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+}
+
+/**
+ * Renders `layout` one commit late so the old layout can be measured first, then morphs the
+ * panel, avatar, bar and preview from their old positions (GSAP Flip) and fades the text in.
+ */
+function useLayoutMorph(layout: "card" | "strip") {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [shownLayout, setShownLayout] = useState(layout);
+  const pending = useRef<Flip.FlipState | null>(null);
+
+  useLayoutEffect(() => {
+    if (layout === shownLayout) return;
+    const root = rootRef.current;
+    pending.current = root && !prefersReducedMotion() ? Flip.getState(root.querySelectorAll("[data-flip-id]")) : null;
+    setShownLayout(layout);
+  }, [layout, shownLayout]);
+
+  useLayoutEffect(() => {
+    const state = pending.current;
+    const root = rootRef.current;
+    pending.current = null;
+    if (!state || !root) return;
+    const animated = [...root.querySelectorAll("[data-flip-id],[data-processing-fade]")];
+    const settle = () => gsap.set(animated, { clearProps: MORPH_PROPS });
+    const timeline = gsap.timeline({ onComplete: settle });
+    timeline.add(Flip.from(state, {
+      targets: root.querySelectorAll("[data-flip-id]"),
+      duration: 0.65,
+      ease: "power3.inOut",
+      scale: false,
+      nested: true,
+    }));
+    // A shadow lifts the moving panel off the page (it shares the page colour), then settles.
+    const panel = root.querySelector("[data-flip-id='processing-panel']");
+    if (panel) {
+      timeline.to(panel, { boxShadow: "0 14px 36px -8px rgb(15 23 42 / 0.22)", duration: 0.3, ease: "power2.out" }, 0)
+        .to(panel, { boxShadow: "0 0 0 0 rgb(15 23 42 / 0)", duration: 0.35, ease: "power2.in", clearProps: "boxShadow" }, 0.3);
+    }
+    timeline.from(root.querySelectorAll("[data-processing-fade]"), {
+      opacity: 0, y: 6, duration: 0.35, stagger: 0.05, ease: "power2.out", clearProps: "opacity,transform",
+    }, 0.4);
+    // An interrupted morph jumps to its end and is cleared, so no inline styles are left behind.
+    return () => {
+      timeline.progress(1).kill();
+      settle();
+    };
+  }, [shownLayout]);
+
+  return { rootRef, shownLayout };
+}
 
 export function ResumeProcessing({ title, message, percent, easeProgress = false, startedAt, updatedAt, stalledHint, active = true, sessionKey = "import", provisional = false, layout = "card", actions, preview, messages = DEFAULT_MESSAGES, statusLabel = "Resume processing status", progressLabel = "Resume processing progress" }: {
   title: string;
@@ -43,6 +104,7 @@ export function ResumeProcessing({ title, message, percent, easeProgress = false
   statusLabel?: string;
   progressLabel?: string;
 }) {
+  const { rootRef, shownLayout } = useLayoutMorph(layout);
   const { elapsed, stalled } = useProcessingClock({ active, sessionKey, startedAt, updatedAt, updateKey: `${message}|${percent ?? ""}` });
   const measuredPercent = typeof percent === "number" && Number.isFinite(percent)
     ? Math.max(0, Math.min(100, percent)) : undefined;
@@ -51,54 +113,57 @@ export function ResumeProcessing({ title, message, percent, easeProgress = false
   const elapsedText = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
   const supportingMessage = messages.length ? messages[Math.floor(elapsed / 8) % messages.length] : undefined;
   // The live region stays mounted across layouts so a card-to-strip switch never drops or repeats an announcement.
-  const status = <Text as="p" type={layout === "strip" ? "supporting" : "body"} aria-hidden="true">{message}</Text>;
-  const bar = <ProgressBar label={progressLabel} isLabelHidden value={shownPercent} isIndeterminate={shownPercent === undefined && active} hasValueLabel={shownPercent !== undefined} variant="neutral" isDisabled={!active} />;
+  const status = <Text as="p" type={shownLayout === "strip" ? "supporting" : "body"} aria-hidden="true" data-processing-fade>{message}</Text>;
+  const bar = <div data-flip-id="processing-bar" className="w-full"><ProgressBar label={progressLabel} isLabelHidden value={shownPercent} isIndeterminate={shownPercent === undefined && active} hasValueLabel={shownPercent !== undefined} variant="neutral" isDisabled={!active} /></div>;
   const stalledNotice = stalled && <Text as="p" type="supporting" role="status" aria-label="Slow progress notice" aria-live="polite">{stalledHint ? `${STALLED_MESSAGE} ${stalledHint}` : STALLED_MESSAGE}</Text>;
   const elapsedLabel = <Text type="supporting" color="secondary" aria-label="Elapsed time" className="tabular-nums">{elapsedText}</Text>;
+  const avatar = (size: string) => <span data-flip-id="processing-avatar" className={`inline-flex shrink-0 ${size}`}><ProcessingAvatar active={active} className="h-full w-full" /></span>;
 
   return (
     // Strip: the panel grows with finished sections so the page scrolls them, and the strip stays pinned
     // to the top of that scroll area (overflow-clip keeps rounded corners without becoming a scroll container).
-    <VStack as="section" aria-label={title} data-active={active} data-layout={layout} className={`resume-processing relative isolate min-h-96 w-full flex-1 rounded-lg bg-processing-surface motion-reduce:[&_.astryx-skeleton]:animate-none ${layout === "strip" ? "min-h-full overflow-clip" : "h-full overflow-hidden"} ${!active ? "[&_.astryx-skeleton]:animate-none" : ""}`}>
+    <section ref={rootRef} aria-label={title} data-active={active} data-layout={shownLayout} className={`resume-processing relative isolate flex min-h-96 w-full flex-1 flex-col rounded-lg bg-processing-surface motion-reduce:[&_.astryx-skeleton]:animate-none ${shownLayout === "strip" ? "min-h-full overflow-clip" : "h-full overflow-hidden"} ${!active ? "[&_.astryx-skeleton]:animate-none" : ""}`}>
       <Text as="p" role="status" aria-label={statusLabel} aria-live="polite" aria-atomic="true" className="sr-only">{message}</Text>
-      {layout === "strip" && (
-        <VStack gap={2} data-testid="processing-strip" className="processing-strip-in sticky top-0 z-10 w-full border-b bg-processing-surface px-4 py-3 sm:px-8">
+      {shownLayout === "strip" && (
+        <VStack gap={2} data-testid="processing-strip" data-flip-id="processing-panel" className="sticky top-0 z-10 w-full overflow-hidden border-b bg-processing-surface px-4 py-3 sm:px-8">
           <HStack gap={3} vAlign="center">
-            <ProcessingAvatar active={active} className="h-10 w-10" />
+            {avatar("h-10 w-10")}
             <VStack className="min-w-0 flex-1">
-              <Heading level={2} className="text-sm font-semibold">{title}</Heading>
+              <Heading level={2} className="text-sm font-semibold" data-processing-fade>{title}</Heading>
               {status}
             </VStack>
-            <HStack gap={3} vAlign="center" className="shrink-0">
+            <HStack gap={3} vAlign="center" className="shrink-0" data-processing-fade>
               {elapsedLabel}
               {actions}
             </HStack>
           </HStack>
           {bar}
-          <Text as="p" type="supporting" color="secondary" className="hidden sm:block" aria-live="off">{supportingMessage}</Text>
+          <Text as="p" type="supporting" color="secondary" className="hidden sm:block" aria-live="off" data-processing-fade>{supportingMessage}</Text>
           {stalledNotice}
         </VStack>
       )}
-      <VStack aria-hidden="true" className="pointer-events-none select-none" padding={8}>
-        {preview ?? <ResumeGenerationSkeleton backdrop />}
-      </VStack>
-      {layout === "card" && <VStack className="absolute inset-0 p-4 sm:p-8" hAlign="center" vAlign="center">
-        <VStack gap={3} hAlign="center" className="w-full max-w-xs rounded-lg bg-processing-surface p-4 text-center sm:p-5">
-          <ProcessingAvatar active={active} />
-          <Heading level={2} className="text-base font-semibold">{title}</Heading>
+      <div data-flip-id="processing-preview">
+        <VStack aria-hidden="true" className="pointer-events-none select-none" padding={8}>
+          {preview ?? <ResumeGenerationSkeleton backdrop />}
+        </VStack>
+      </div>
+      {shownLayout === "card" && <VStack className="absolute inset-0 p-4 sm:p-8" hAlign="center" vAlign="center">
+        <VStack gap={3} hAlign="center" data-flip-id="processing-panel" className="w-full max-w-xs overflow-hidden rounded-lg bg-processing-surface p-4 text-center sm:p-5">
+          {avatar("h-14 w-14")}
+          <Heading level={2} className="text-base font-semibold" data-processing-fade>{title}</Heading>
           <VStack gap={3} className="w-full">
             {status}
             {bar}
-            <Text as="p" type="supporting" color="secondary" className="min-h-10" aria-live="off">{supportingMessage}</Text>
+            <Text as="p" type="supporting" color="secondary" className="min-h-10" aria-live="off" data-processing-fade>{supportingMessage}</Text>
             {stalledNotice}
           </VStack>
-          <HStack gap={3} hAlign="center" vAlign="center">
+          <HStack gap={3} hAlign="center" vAlign="center" data-processing-fade>
             {elapsedLabel}
             {actions}
           </HStack>
         </VStack>
       </VStack>}
-    </VStack>
+    </section>
   );
 }
 

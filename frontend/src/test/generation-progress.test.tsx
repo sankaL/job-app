@@ -159,10 +159,10 @@ it("shows verified sections in place of skeleton blocks while generation continu
   expect(ready[0]).toHaveTextContent("Quality engineering leader.");
 });
 
-it("drops partial sections once the job reaches a terminal state", () => {
+it("drops partial sections when the job fails", () => {
   render(
     <GenerationProgress
-      progress={{ ...SERVER_PROGRESS, completed_at: "2026-07-14T00:01:00Z", partial_sections: [
+      progress={{ ...SERVER_PROGRESS, completed_at: "2026-07-14T00:01:00Z", terminal_error_code: "generation_failed", partial_sections: [
         { id: "summary", kind: "summary", heading: "Summary", content_md: "Quality engineering leader." },
       ] }}
       isOptimistic={false}
@@ -229,4 +229,19 @@ it("keeps one status live region mounted when the card becomes a strip", () => {
   );
   expect(screen.getByRole("status", { name: "Resume processing status" })).toBe(status);
   expect(status).toHaveTextContent("Checking claims");
+});
+
+it("keeps the strip and finished sections through completion instead of flashing the centred card", () => {
+  const props = { isOptimistic: false, isCancelling: false, onCancel: vi.fn() };
+  const sections = [{ id: "summary", kind: "summary", heading: "Summary", content_md: "Quality engineering leader." }];
+  const { rerender } = render(<GenerationProgress progress={{ ...SERVER_PROGRESS, partial_sections: sections }} isActive {...props} />);
+  expect(screen.getByTestId("processing-strip")).toBeInTheDocument();
+  // The worker's final update has no partial sections.
+  rerender(<GenerationProgress progress={{ ...SERVER_PROGRESS, percent_complete: 100, completed_at: "2026-07-14T00:01:00Z", partial_sections: null }} isActive={false} {...props} />);
+  expect(screen.getByTestId("processing-strip")).toBeInTheDocument();
+  expect(screen.getByTestId("ready-section")).toHaveTextContent("Quality engineering leader.");
+  expect(screen.getByLabelText("Elapsed time")).not.toHaveTextContent(/^0s$/);
+  // Sections never carry over to a different job.
+  rerender(<GenerationProgress progress={{ ...SERVER_PROGRESS, job_id: "another-job", partial_sections: null }} isActive {...props} />);
+  expect(screen.queryByTestId("ready-section")).not.toBeInTheDocument();
 });

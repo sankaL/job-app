@@ -272,28 +272,6 @@ body {
   animation: spin 0.7s linear infinite;
 }
 
-/* The generation progress card settling into its strip above the first finished sections. */
-@keyframes processingStripIn {
-  from {
-    opacity: 0;
-    transform: translateY(24px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.processing-strip-in {
-  animation: processingStripIn var(--duration-slow) var(--ease-out) both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .processing-strip-in {
-    animation: none;
-  }
-}
-
 /* Stagger children using CSS custom property */
 .stagger-children > * {
   animation: fadeInUp var(--duration-slow) var(--ease-out) both;

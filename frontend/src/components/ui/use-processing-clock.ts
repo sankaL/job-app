@@ -26,15 +26,19 @@ export function useProcessingClock({ active, sessionKey, startedAt, updatedAt, u
 }) {
   const [clock, setClock] = useState({ elapsed: 0, idle: 0 });
   const sessionStart = useRef(Date.now());
+  const lastActiveSession = useRef<string | null>(null);
   useEffect(() => {
     sessionStart.current = Date.now();
   }, [active, sessionKey]);
 
   useEffect(() => {
     if (!active) {
-      setClock({ elapsed: 0, idle: 0 });
+      // A job that just finished keeps its final time until the result replaces this view.
+      const same = lastActiveSession.current === sessionKey;
+      setClock((current) => ({ elapsed: same ? current.elapsed : 0, idle: 0 }));
       return;
     }
+    lastActiveSession.current = sessionKey;
     const changedAt = Date.now();
     const serverStart = parseTime(startedAt);
     const serverUpdate = parseTime(updatedAt);

@@ -1,7 +1,8 @@
 import { ResumeGenerationSkeleton } from "./resume-generation-skeleton";
 import { Button } from "@/components/ui/button";
 import { ResumeProcessing } from "@/components/ui/resume-processing";
-import type { ExtractionProgress } from "@/lib/api";
+import { useState } from "react";
+import type { ExtractionProgress, PartialSection } from "@/lib/api";
 
 type GenerationProgressProps = {
   progress: ExtractionProgress | null;
@@ -17,8 +18,17 @@ export function GenerationProgress({ progress, isOptimistic, isActive, isCancell
   const section = reported ? reported.workflow_kind === "regeneration_section" : scope === "section";
   const terminal = Boolean(reported?.completed_at || reported?.terminal_error_code);
   const message = isCancelling ? "Stopping this generation. Waiting for confirmation." : reported?.message || "Sending your generation request. Waiting for the first processing update.";
-  const sessionKey = isActive || isOptimistic ? `${reported?.workflow_kind ?? "optimistic"}:${reported?.job_id ?? "optimistic"}` : "inactive";
-  const ready = terminal ? [] : reported?.partial_sections ?? [];
+  // Keyed by job, so the clock and bar don't reset in the moment between completion and the draft appearing.
+  const sessionKey = reported ? `${reported.workflow_kind}:${reported.job_id}` : isOptimistic ? "optimistic:optimistic" : "inactive";
+  const live = reported?.partial_sections ?? [];
+  // The final "completed" update carries no sections; keep the last verified ones (and the strip)
+  // until the finished draft replaces this view, instead of flashing back to the centred card.
+  const [kept, setKept] = useState<{ jobId: string; sections: readonly PartialSection[] } | null>(null);
+  if (reported && live.length && (kept?.jobId !== reported.job_id || kept.sections !== live)) {
+    setKept({ jobId: reported.job_id, sections: live });
+  }
+  const failed = Boolean(reported?.terminal_error_code);
+  const ready = failed ? [] : live.length ? live : kept && kept.jobId === reported?.job_id ? kept.sections : [];
   // Once verified sections arrive, the progress card moves into a strip above them so it stops covering them.
   return <ResumeProcessing title={section ? "Updating your resume section" : "Preparing your tailored resume"}
     layout={ready.length ? "strip" : "card"}
