@@ -57,6 +57,7 @@ import { CompareWorkspace } from "@/components/diff/CompareWorkspace";
 import { formatJudgeInstructions } from "@/lib/judge-helpers";
 import { getResumeRegenerationBlocker } from "@/lib/resume-document";
 import { GenerationProgress } from "@/components/ui/generation-progress";
+import { GenerationHandoff, type HandoffMode } from "@/components/applications/GenerationHandoff";
 import { JobExtractionProgress } from "@/components/ui/resume-processing";
 import { SkeletonSection } from "@/components/ui/skeleton";
 import { ErrorBanner } from "@/components/ui/ErrorBanner";
@@ -419,6 +420,10 @@ function isGenerationWorkflowActive(detail: ApplicationDetail | null) {
     !detail.failure_reason &&
     ACTIVE_GENERATION_STATES.includes(detail.internal_state),
   );
+}
+
+function draftKeyOf(draft: ResumeDraft | null) {
+  return draft ? `${draft.id}:${draft.last_generated_at}` : null;
 }
 
 function isGenerationProgressActive(progress: ExtractionProgress | null) {
@@ -2062,6 +2067,13 @@ export function ApplicationDetailPage() {
   const [draftDirty, setDraftDirty] = useState(false);
   const [generationProgress, setGenerationProgress] =
     useState<ExtractionProgress | null>(null);
+  // A finished full generation keeps its view until the new draft replaces it, so the
+  // workspace never flashes the empty state or the previous draft in between.
+  const [generationHandoff, setGenerationHandoff] = useState<{
+    applicationId: string;
+    progress: ExtractionProgress;
+    draftKey: string | null;
+  } | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -2115,6 +2127,8 @@ export function ApplicationDetailPage() {
   >(null);
   const lastHandledExtractionProgressRef = useRef<string | null>(null);
   const lastHandledGenerationProgressRef = useRef<string | null>(null);
+  const draftKeyRef = useRef<string | null>(null);
+  const resumeColumnRef = useRef<HTMLDivElement>(null);
   const lastDraftSyncDetailRef = useRef<string | null>(null);
   const lastKeywordSignatureRef = useRef<string | null>(null);
   const previousDetailRef = useRef<ApplicationDetail | null>(null);
@@ -2501,11 +2515,21 @@ export function ApplicationDetailPage() {
     if (isGenerationProgressActive(nextProgress)) {
       return;
     }
+    const succeeded =
+      nextProgress.state === "resume_ready" && !nextProgress.terminal_error_code;
+    if (succeeded && nextProgress.workflow_kind !== "regeneration_section") {
+      setGenerationHandoff({
+        applicationId,
+        progress: nextProgress,
+        draftKey: draftKeyRef.current,
+      });
+    }
     detailQuery
       .refetch()
       .then(async (result) => {
         const response = result.data;
         if (!response) {
+          setGenerationHandoff(null);
           applyTerminalGenerationFallback(nextProgress);
           setError(
             "Generation finished, but the application could not be refreshed.",
@@ -2514,15 +2538,20 @@ export function ApplicationDetailPage() {
         }
         applyDetailState(response, { refreshShell: true });
         refreshActivityTimeline();
-        if (
-          nextProgress.state === "resume_ready" &&
-          !nextProgress.terminal_error_code
-        ) {
+        if (succeeded) {
           await invalidateApplicationDraftQueries(queryClient, applicationId);
+          // No new draft arrived (the refetch failed or returned the same one): stop holding.
+          const fetched = queryClient.getQueryData<ResumeDraft | null>(
+            queryKeys.applicationDraft(applicationId),
+          );
+          if (draftKeyOf(fetched ?? null) === draftKeyRef.current) {
+            setGenerationHandoff(null);
+          }
         }
         setError(null);
       })
       .catch((requestError) => {
+        setGenerationHandoff(null);
         applyTerminalGenerationFallback(nextProgress);
         setError(
           requestError instanceof Error
@@ -2538,6 +2567,23 @@ export function ApplicationDetailPage() {
     }
     applyDraftState(draftQuery.data ?? null);
   }, [draftQuery.data, shouldLoadDraft]);
+
+  const draftKey = draftKeyOf(draft);
+  draftKeyRef.current = draftKey;
+  const holdingGeneration =
+    generationHandoff !== null &&
+    generationHandoff.applicationId === applicationId &&
+    generationHandoff.draftKey === draftKey;
+  useEffect(() => {
+    if (!generationHandoff) return;
+    if (!holdingGeneration) {
+      setGenerationHandoff(null);
+      return;
+    }
+    // Bounded: never hold the finished view longer than this if the draft never arrives.
+    const timer = window.setTimeout(() => setGenerationHandoff(null), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [generationHandoff, holdingGeneration]);
 
   useEffect(() => {
     if (!applicationId || !draft || !detail?.job_keywords) {
@@ -3329,6 +3375,17 @@ export function ApplicationDetailPage() {
   const sectionGenerationActive = showOptimisticProgress
     ? generationScope === "section"
     : detail?.internal_state === "regenerating_section" || generationProgress?.workflow_kind === "regeneration_section";
+  const showSectionProgress =
+    (generationActive || showOptimisticProgress) && Boolean(draft) && sectionGenerationActive;
+  const showGenerationView =
+    generationActive || showOptimisticProgress || holdingGeneration;
+  const resumeHandoffMode: HandoffMode = showSectionProgress
+    ? "other"
+    : showGenerationView
+      ? "generation"
+      : draft && !compareMode
+        ? "draft"
+        : "other";
   const extractionActive = detail
     ? EXTRACTION_POLL_STATES.includes(detail.internal_state)
     : false;
@@ -4165,6 +4222,7 @@ export function ApplicationDetailPage() {
               >
                 {/* Resume tabs and content occupy the left side of the workspace. */}
                 <div
+                  ref={resumeColumnRef}
                   className={
                     compareMode
                       ? "min-w-0"
@@ -4173,8 +4231,8 @@ export function ApplicationDetailPage() {
                 >
                   {!compareMode && pageHeader}
                   {/* Resume Content Area */}
-                  {(generationActive || showOptimisticProgress) && draft &&
-                    sectionGenerationActive ? (
+                  <GenerationHandoff mode={resumeHandoffMode} scope={resumeColumnRef}>
+                  {showSectionProgress ? (
                     renderGeneratedWorkspacePane({
                       lockInteractions: true,
                       processing: {
@@ -4188,14 +4246,17 @@ export function ApplicationDetailPage() {
                         />,
                       },
                     })
-                  ) : generationActive || showOptimisticProgress ? (
+                  ) : showGenerationView ? (
                     <div
                       className="application-resume-placeholder min-h-0 overflow-y-auto"
                       aria-label="Resume generation workspace"
                     >
                       <GenerationProgress
                         scope={generationScope}
-                        progress={generationProgress}
+                        progress={
+                          generationProgress ??
+                          (holdingGeneration ? generationHandoff.progress : null)
+                        }
                         isOptimistic={showOptimisticProgress}
                         isActive={generationActive}
                         isCancelling={isCancelling}
@@ -4277,6 +4338,7 @@ export function ApplicationDetailPage() {
                       ) : null}
                     </Section>
                   )}
+                  </GenerationHandoff>
                 </div>
                 {/* Supporting panels follow the resume and sit on its right on desktop. */}
                 <ApplicationDetailsPanel

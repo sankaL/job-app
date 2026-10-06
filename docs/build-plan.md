@@ -8,6 +8,12 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Generation-to-workbench handoff
+
+**Status:** Complete (2026-10-05).
+
+When full generation or full regeneration succeeds, the finished progress view now hands off to the draft workbench with a GSAP timeline instead of an abrupt swap. Just before React removes the generation view, the view is cloned into a fixed, inert, aria-hidden overlay. The clone's strip lifts away, and the clone travels with the real resume sheet and crossfades into it as the sheet moves from the partial paper's position and width. The section index and the workbench footer then slide in. The application details panel was already visible and stays put. Reduced motion skips the animation, and an interruption or unmount jumps to the end and removes the clone and every inline style. Also fixes a gap: the page used to leave the generation view as soon as the application reached `resume_ready`, before the new draft loaded, which briefly showed the "No Resume Generated Yet" empty state (or the previous draft on a regeneration). The finished view is now held until the new draft is in state. The hold is released early when the refetch returns no new draft, on refresh failure, or after 15 seconds. Section regeneration is unchanged. Tests cover the hold and each of its release paths: new draft, no new draft, failed draft refresh and the 15-second limit. Each test fails if its path is removed. They also cover the overlay's lifecycle, that the animation runs only from generation to draft, unmount mid-handoff and reduced motion. Checked frame by frame in headless Chromium with a temporary harness (removed) using the real progress strip, workbench and layout CSS; the first pass showed the moving clone sliding over the details panel, so only its paper moves now. Not yet checked against a real generation run.
+
 ## Smooth progress strip transition and completion flash
 
 **Status:** Complete (2026-10-05).

@@ -4801,6 +4801,117 @@ describe("phase 1 applications UI", () => {
     expect(api.fetchApplicationProgress).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the finished generation view until the new draft replaces it", async () => {
+    api.fetchApplicationDetail
+      .mockResolvedValueOnce(
+        buildApplicationDetail({ visible_status: "draft", internal_state: "generating", failure_reason: null }),
+      )
+      .mockResolvedValue(
+        buildApplicationDetail({ visible_status: "in_progress", internal_state: "resume_ready", failure_reason: null }),
+      );
+    api.fetchApplicationProgress.mockResolvedValue({
+      job_id: "job-1",
+      workflow_kind: "generation",
+      state: "resume_ready",
+      message: "Resume ready.",
+      percent_complete: 100,
+      created_at: "2026-04-07T12:00:00Z",
+      updated_at: "2026-04-07T12:05:00Z",
+      completed_at: "2026-04-07T12:05:00Z",
+      terminal_error_code: null,
+    });
+    let resolveDraft: (draft: unknown) => void = () => {};
+    const pendingDraft = new Promise((resolve) => { resolveDraft = resolve; });
+    api.fetchDraft.mockResolvedValueOnce(null).mockImplementation(() => pendingDraft);
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    await waitFor(() => expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.fetchDraft.mock.calls.length).toBeGreaterThan(1));
+    expect(screen.getByLabelText("Resume generation workspace")).toBeInTheDocument();
+    expect(screen.queryByText("No Resume Generated Yet")).not.toBeInTheDocument();
+
+    await act(async () => resolveDraft({
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: { page_length: "1_page", aggressiveness: "medium", additional_instructions: "" },
+      last_generated_at: "2026-04-07T12:05:00Z",
+      last_exported_at: null,
+    }));
+
+    expect(await screen.findByTestId("draft-section-workbench")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Resume generation workspace")).not.toBeInTheDocument();
+  });
+
+  describe("finished generation hold release", () => {
+    function finishGeneration(refreshed: () => Promise<unknown>) {
+      api.fetchApplicationDetail
+        .mockResolvedValueOnce(
+          buildApplicationDetail({ visible_status: "draft", internal_state: "generating", failure_reason: null }),
+        )
+        .mockImplementation(refreshed);
+      api.fetchApplicationProgress.mockResolvedValue({
+        job_id: "job-1",
+        workflow_kind: "generation",
+        state: "resume_ready",
+        message: "Resume ready.",
+        percent_complete: 100,
+        created_at: "2026-04-07T12:00:00Z",
+        updated_at: "2026-04-07T12:05:00Z",
+        completed_at: "2026-04-07T12:05:00Z",
+        terminal_error_code: null,
+      });
+      renderWithAppProvider(
+        <Routes>
+          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        </Routes>,
+        { initialEntries: ["/app/applications/app-1"] },
+      );
+    }
+    const ready = () => Promise.resolve(
+      buildApplicationDetail({ visible_status: "in_progress", internal_state: "resume_ready", failure_reason: null }),
+    );
+
+    it("stops holding when the refetch brings no new draft", async () => {
+      api.fetchDraft.mockResolvedValue(null);
+      finishGeneration(ready);
+
+      expect(await screen.findByText("No Resume Generated Yet")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Resume generation workspace")).not.toBeInTheDocument();
+    });
+
+    it("stops holding when the draft refresh fails", async () => {
+      api.fetchDraft.mockResolvedValueOnce(null).mockRejectedValue(new Error("Draft request failed."));
+      finishGeneration(ready);
+
+      await waitFor(() => expect(api.fetchDraft.mock.calls.length).toBeGreaterThan(1));
+      await waitFor(() =>
+        expect(screen.queryByLabelText("Resume generation workspace")).not.toBeInTheDocument(),
+      );
+    });
+
+    it("stops holding after 15 seconds if the new draft never arrives", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        api.fetchDraft.mockResolvedValueOnce(null).mockImplementation(() => new Promise(() => {}));
+        finishGeneration(ready);
+
+        await waitFor(() => expect(api.fetchDraft.mock.calls.length).toBeGreaterThan(1));
+        await act(() => vi.advanceTimersByTimeAsync(14_000));
+        expect(screen.getByLabelText("Resume generation workspace")).toBeInTheDocument();
+        await act(() => vi.advanceTimersByTimeAsync(1_500));
+        expect(screen.queryByLabelText("Resume generation workspace")).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it("stops extraction polling and shows manual-entry fallback when terminal extraction progress cannot sync detail state", async () => {
     api.fetchApplicationDetail
       .mockResolvedValueOnce(
