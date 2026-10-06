@@ -9,7 +9,7 @@ from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from app.core.access import get_current_active_user
 from app.core.auth import AuthenticatedUser
@@ -116,6 +116,34 @@ class CreateApplicationRequest(BaseModel):
         return self
 
 
+class GenerationPreferencesRequest(BaseModel):
+    """Saved generation settings; only the fields sent are changed."""
+    model_config = ConfigDict(extra="forbid")
+
+    page_length: Optional[str] = None
+    aggressiveness: Optional[str] = None
+    additional_instructions: Optional[str] = None
+
+    @field_validator("page_length")
+    @classmethod
+    def validate_page_length(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in {"1_page", "2_page", "3_page"}:
+            raise ValueError("Target length must be 1_page, 2_page, or 3_page.")
+        return value
+
+    @field_validator("aggressiveness")
+    @classmethod
+    def validate_aggressiveness(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value not in {"low", "medium", "high"}:
+            raise ValueError("Aggressiveness must be low, medium, or high.")
+        return value
+
+    @field_validator("additional_instructions")
+    @classmethod
+    def normalize_instructions(cls, value: Optional[str]) -> Optional[str]:
+        return _validate_generation_instruction_text(value, required=False, field_label="Additional instructions")
+
+
 class UpdateApplicationRequest(BaseModel):
     applied: Optional[bool] = None
     notes: Optional[str] = None
@@ -127,6 +155,7 @@ class UpdateApplicationRequest(BaseModel):
     job_posting_origin: Optional[str] = None
     job_posting_origin_other_text: Optional[str] = None
     base_resume_id: Optional[str] = None
+    generation_preferences: Optional[GenerationPreferencesRequest] = None
 
     @field_validator("notes", "job_title", "company", "job_description", "job_location_text", "compensation_text", "job_posting_origin_other_text")
     @classmethod
@@ -251,6 +280,7 @@ class ApplicationDetail(BaseModel):
     generation_failure_details: Optional[dict[str, Any]]
     resume_judge_result: Optional[ResumeJudgeResultPayload]
     job_keywords: Optional[dict[str, Any]]
+    generation_preferences: Optional[dict[str, Any]] = None
     applied: bool
     duplicate_similarity_score: Optional[float]
     duplicate_resolution_status: Optional[str]

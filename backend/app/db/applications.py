@@ -53,6 +53,7 @@ class ApplicationRecord(BaseModel):
     generation_failure_details: Optional[dict[str, Any]] = None
     resume_judge_result: Optional[dict[str, Any]] = None
     job_keywords: Optional[dict[str, Any]] = None
+    generation_preferences: Optional[dict[str, Any]] = None
     applied: bool
     duplicate_similarity_score: Optional[float]
     duplicate_match_fields: Optional[dict[str, Any]]
@@ -119,6 +120,7 @@ select
   a.generation_failure_details,
   a.resume_judge_result,
   a.job_keywords,
+  a.generation_preferences,
   a.applied,
   a.duplicate_similarity_score::float8,
   a.duplicate_match_fields,
@@ -149,6 +151,7 @@ class ApplicationRepository:
         "generation_failure_details",
         "resume_judge_result",
         "job_keywords",
+        "generation_preferences",
         "duplicate_match_fields",
     }
     NUL_BYTE = "\x00"

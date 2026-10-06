@@ -19,6 +19,7 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  Cpu,
   Plus,
   RefreshCw,
   Trash2,
@@ -26,6 +27,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InfoPopover } from "@/components/ui/info-popover";
 import { Section } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,18 +68,16 @@ export function ResumeContactSection({
     <div>
       <div className="resume-section-header">
         <div className="min-w-0 flex-1">
-          <Heading level={3} className="resume-section-heading break-words">
-            Contact information
-          </Heading>
-          <Text
-            as="p"
-            display="block"
-            type="supporting"
-            className="mt-2"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            Copied from your profile. Never sent for tailoring.
-          </Text>
+          <div className="flex items-center gap-2">
+            <Heading level={3} className="resume-section-heading break-words">
+              Contact information
+            </Heading>
+            <InfoPopover label="About contact information">
+              <Text as="p" display="block" type="supporting">
+                Copied from your profile. Never sent for tailoring.
+              </Text>
+            </InfoPopover>
+          </div>
         </div>
         <div className="resume-section-controls">
           <Link to="/app/profile" className="resume-profile-edit">
@@ -254,6 +254,7 @@ function EntryEditor({
                 size="sm"
                 variant="secondary"
                 type="button"
+                className="app-button-orange-outline"
                 disabled={disabled || regenerationDisabled}
                 title={regenerationReason ?? undefined}
                 onClick={onRegenerate}
@@ -287,10 +288,10 @@ function EntryEditor({
             {regenerationReason}
           </Text>
         )}
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="resume-entry-fields">
           {fieldKeys.map((key) => (
-            <label key={key} className="min-w-0 space-y-1 text-xs">
-              <span style={{ color: "var(--color-text-secondary)" }}>
+            <label key={key} className="resume-entry-field">
+              <span className="resume-entry-field-label">
                 {FIELD_LABELS[key] ?? key.replaceAll("_", " ")}
               </span>
               <Input
@@ -306,14 +307,10 @@ function EntryEditor({
             </label>
           ))}
         </div>
-        <div className="mt-3 space-y-2">
+        <div className="resume-bullets">
           {entry.bullets.map((bullet, bulletIndex) => (
-            <div key={bullet.id} className="flex items-start gap-2">
-              <span
-                aria-hidden="true"
-                className="mt-2 text-xs"
-                style={{ color: "var(--color-text-secondary)" }}
-              >
+            <div key={bullet.id} className="resume-bullet-row">
+              <span aria-hidden="true" className="resume-bullet-marker">
                 •
               </span>
               <div className="min-w-0 flex-1">
@@ -700,23 +697,37 @@ export function ResumeSectionWorkbench({
                         />
                       </>
                     ) : (
-                      <Heading
-                        level={3}
-                        className="resume-section-heading break-words"
-                      >
-                        {section.heading || "Untitled section"}
-                      </Heading>
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <Heading
+                          level={3}
+                          className="resume-section-heading break-words"
+                        >
+                          {section.heading || "Untitled section"}
+                        </Heading>
+                        {section.entries.length > 0 &&
+                          (section.kind === "professional_experience" ||
+                            section.kind === "education") && (
+                            <span
+                              className="text-xs"
+                              style={{ color: "var(--color-text-secondary)" }}
+                            >
+                              {section.entries.length}{" "}
+                              {section.kind === "professional_experience"
+                                ? section.entries.length === 1
+                                  ? "role"
+                                  : "roles"
+                                : section.entries.length === 1
+                                  ? "entry"
+                                  : "entries"}
+                            </span>
+                          )}
+                      </div>
                     )}
+                    {(source || !section.enabled) && (
                     <div
                       className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs"
                       style={{ color: "var(--color-text-secondary)" }}
                     >
-                      <span>
-                        {SECTION_LABELS[section.kind]}
-                        {section.entries.length > 0
-                          ? ` · ${section.entries.length} ${section.kind === "professional_experience" ? (section.entries.length === 1 ? "role" : "roles") : section.entries.length === 1 ? "entry" : "entries"}`
-                          : ""}
-                      </span>
                       {source && (
                         <span
                           className="resume-review-state"
@@ -729,6 +740,7 @@ export function ResumeSectionWorkbench({
                       )}
                       {!section.enabled && <span className="resume-excluded-label">Excluded from resume</span>}
                     </div>
+                    )}
                     {section.generation_notice === "kept_original_unverified" && (
                       <Section variant="warning" className="mt-2" role="status">
                         <Text as="p" display="block" type="supporting">
@@ -771,6 +783,24 @@ export function ResumeSectionWorkbench({
                       {section.enabled && <Check size={14} aria-hidden="true" />}
                       Include
                     </Button>
+                    {onRegenerate && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        type="button"
+                        className="app-button-orange"
+                        aria-label="Regenerate section"
+                        disabled={
+                          disabled ||
+                          !section.enabled ||
+                          (canRegenerate ? !canRegenerate(section) : false)
+                        }
+                        title={regenerationReason?.(section) ?? undefined}
+                        onClick={() => onRegenerate(section)}
+                      >
+                        <Cpu size={14} aria-hidden="true" /> Regenerate
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1028,22 +1058,6 @@ export function ResumeSectionWorkbench({
 
                     </ActionButtons>
 </div>
-                  {onRegenerate && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      type="button"
-                      disabled={
-                        disabled ||
-                        !section.enabled ||
-                        (canRegenerate ? !canRegenerate(section) : false)
-                      }
-                      title={regenerationReason?.(section) ?? undefined}
-                      onClick={() => onRegenerate(section)}
-                    >
-                      <RefreshCw size={13} /> Regenerate section
-                    </Button>
-                  )}
                 </div>
                 {onRegenerate && regenerationReason?.(section) && (
                   <Text

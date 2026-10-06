@@ -1,5 +1,4 @@
 import { PopoverSurface } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Info } from "lucide-react";
 
@@ -37,25 +36,25 @@ export function InfoPopover({ label, children }: InfoPopoverProps) {
 
   return (
     <div ref={containerRef} className="relative inline-flex">
-      <Button
-        variant="ghost"
+      <button
         type="button"
         aria-label={label}
         aria-expanded={open}
-        className="inline-flex h-5 w-5 items-center justify-center border transition-colors"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-background-muted)]"
+        style={{ color: "var(--color-text-secondary)" }}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
           setOpen((current) => !current);
         }}
       >
-        <Info size={12} aria-hidden="true" />
-      </Button>
+        <Info size={16} aria-hidden="true" />
+      </button>
       {open ? (
         <PopoverSurface
           role="dialog"
           aria-label={label}
-          className="absolute right-0 top-full z-20 mt-2 w-72 rounded-xl border p-3 shadow-[var(--shadow-high)]"
+          className="absolute left-0 top-full z-20 mt-2 w-72 rounded-xl border p-3 shadow-[var(--shadow-high)]"
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();

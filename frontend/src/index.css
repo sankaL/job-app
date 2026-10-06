@@ -776,3 +776,40 @@ body,
   .app-topbar:has(.app-topbar-page-actions:not(:empty)) .app-brand { display: none; }
   .app-topbar-page-actions { flex-shrink: 1; }
 }
+
+.app-button-orange,
+:is(.astryx-button, .astryx-icon-button).app-button-orange {
+  background-color: var(--brand-orange) !important;
+  color: #ffffff !important;
+  border-color: var(--brand-orange) !important;
+}
+.app-button-orange:hover:not(:disabled):not([aria-disabled="true"]),
+:is(.astryx-button, .astryx-icon-button).app-button-orange:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--brand-orange-hover) !important;
+  border-color: var(--brand-orange-hover) !important;
+}
+.app-button-orange:disabled,
+.app-button-orange[aria-disabled="true"],
+:is(.astryx-button, .astryx-icon-button).app-button-orange:disabled,
+:is(.astryx-button, .astryx-icon-button).app-button-orange[aria-disabled="true"] {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+.app-button-orange-outline,
+:is(.astryx-button, .astryx-icon-button).app-button-orange-outline {
+  background-color: transparent !important;
+  color: var(--brand-orange) !important;
+  border: 1px solid var(--brand-orange) !important;
+}
+.app-button-orange-outline:hover:not(:disabled):not([aria-disabled="true"]),
+:is(.astryx-button, .astryx-icon-button).app-button-orange-outline:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: color-mix(in srgb, var(--brand-orange) 10%, transparent) !important;
+}
+.app-button-orange-outline:disabled,
+.app-button-orange-outline[aria-disabled="true"],
+:is(.astryx-button, .astryx-icon-button).app-button-orange-outline:disabled,
+:is(.astryx-button, .astryx-icon-button).app-button-orange-outline[aria-disabled="true"] {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}

@@ -8,6 +8,23 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Resume Judge & ATS Keywords traffic light indicators, keyword UI cleanup, and optimization confirmation modal
+
+**Status:** Complete (2026-10-06).
+
+- Removed the "Pass" pill from the Resume Judge section; score counts now indicate pass/warning/fail status using traffic light tokens (`0–49` error/red, `50–79` warning/yellow, `80–100` success/green).
+- Updated ATS Keywords coverage badges to use identical traffic light coloring (`0–49%` red, `50–79%` yellow, `80–100%` green) with target threshold `>= 80%` aligned across backend service (`application_manager.py`), tests, and PRD v3.
+- Removed "no manual keywords" empty state text from the ATS Keywords section when no manual keywords exist, and removed the redundant top-right external link icon from the ATS Keywords card.
+- Implemented a confirmation dialog for ATS keyword optimization (`ConfirmModal`) featuring the paper companion mascot (`ProcessingAvatar`), orange generate button (`app-button-orange`), and explicit notice that a full resume regeneration tailored to optimize missing keywords will be triggered. Added mascot to the keywords optimization breakdown section as well.
+- Resolved pre-existing shell remount issue during compare mode: retained `variant="section"` on `AstryxAppShell` to prevent route unmounting when hiding navigation in immersive mode, and memoized `clearMode` / context values in `ShellLayoutProvider`.
+- Regression coverage: 30 frontend test suites (321 tests) and 188 backend tests passing.
+
+## Job description "View more" button right alignment and styling
+
+**Status:** Complete (2026-10-06).
+
+Aligned the "View more" / "View less" expander in multiline application detail fields (`InlineDetailField`) to the right (`hAlign="end"` full width). Styled the button to match the "Details" action in the Resume Judge strip (`text-xs font-semibold` with `var(--color-error)` text color and hover underline), removing the bulky ghost button appearance. Tests in `inline-detail-field.test.tsx` verify the right alignment and styling attributes.
+
 ## Summary/Skills audit evidence, local Skills matching and resume voice
 
 **Status:** Complete locally, not deployed (2026-10-06).
@@ -21,6 +38,48 @@ Production traces showed every Medium generation from Oct 4–6 needing a repair
 - The High reject threshold stays 0.20.
 - Agents tests: 389 passed (after the code-review fixes).
 - Docs updated: `docs/prompts.md`, the pipeline reference page, the Jev evaluation follow-up, and the decisions log.
+
+## Code review fixes for saved preferences and the aggressiveness strip
+
+**Status:** Complete (2026-10-06).
+
+Fixed from the review:
+- An autosave response no longer resets unsaved job fields, base resume or notes; only `generation_preferences` is applied.
+- An in-flight save is dropped when the user switches application.
+- The slider saves only when a drag or key press ends.
+- Confirmation modals sit above the keyword dialog.
+- Generate and Full Regenerate save the settings they ran with.
+- A null length or aggressiveness never overwrites a saved value.
+- `frontend/AGENTS.md` now describes the strip.
+- New page test (it fails on the old code): an unsaved edit survives an autosave, and a failed save reverts the slider.
+- The decision log records the High 80% target and the rules for saved settings.
+
+Left as intended or open:
+- The 80% High target and autosave (user decisions).
+- Keyword optimization and section regeneration still use the draft's aggressiveness (open product question).
+- Absolute traffic-light cutoffs.
+- Orange on non-shell buttons.
+- The raw-button styling in `InlineDetailField` and `InfoPopover`.
+
+Tests: backend 521, agents 376 and frontend 310 passed (`base-resume-workbench` passes with `VITE_API_URL` set); `tsc` is clean.
+
+## Saved generation preferences and autosaving aggressiveness
+
+**Status:** Complete (2026-10-06).
+
+Aggressiveness, target length and additional instructions were never saved on their own. The Generation Settings Save only persisted the base resume, and a reload reset the other settings to the draft's last generation params. Migration 024 adds `applications.generation_preferences`. PATCH validates and merges it, and the detail response returns it. The aggressiveness strip saves the level as soon as it changes (a failed save reverts it), and the Generation Settings Save now also writes length and instructions. Saved preferences take priority over the draft's params when the page loads. The strip is a full-width band without per-level labels or a Save button; the level badge's tooltip holds the details. The runbook covers deploy order: migrate before the API. Tests: backend 520 passed; frontend 309 passed, with `base-resume-workbench` unable to load without `VITE_API_URL` locally.
+
+## Local worker ran image-baked agent code
+
+**Status:** Fixed (2026-10-06).
+
+The agents image installs the agent modules into `site-packages`. `arq` appends the working directory to `sys.path` after it, so the local worker imported the copy baked in at build time (Oct 4), not the mounted `./agents` code. A restart did not help. The 2026-10-06 High regeneration of the Cribl application therefore ran the old two-group, keyword-blind pipeline: 18.2% keyword match, Judge 79 with grounding 7. `docker-compose.yml` now sets `PYTHONPATH=/app` for the agents service, so `make dev-runtime` picks up agent code changes. Production images are built fresh and are unaffected.
+
+## Aggressiveness strip and High acceptance dialog
+
+**Status:** Complete (2026-10-06).
+
+Aggressiveness moved out of Generation Settings into a gradient strip at the top of application details (`AggressivenessStrip`). Its tint and slider follow the level: muted grey for Low, default for Medium, brand orange for High. Choosing High opens a confirmation dialog with the paper mascot (`ConfirmModal` gained an `illustration` slot). High applies only on "I accept the risk", and the inline warning is gone. Also found: the local stack was running Oct 4 code, because the worker (`arq`) and backend (uvicorn) don't reload on file changes. `make dev-runtime` restarts them. Tests: the new strip tests and updated settings/page tests pass, and `tsc` is clean. Two pre-existing `applications.test.tsx` failures (immersive compare shell, navigation breakpoint) and the `base-resume-workbench` env failure also occur on HEAD.
 
 ## High aggressiveness: fit the job, staged writing
 

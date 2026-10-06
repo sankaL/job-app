@@ -753,7 +753,7 @@ def test_keyword_match_uses_case_insensitive_exact_phrases_without_variants():
     assert match is not None
     assert match["matched_count"] == 3
     assert match["total_count"] == 6
-    assert match["target_percentage"] == 95
+    assert match["target_percentage"] == 80
     assert match["matched_keywords"] == ["React Native", "CI/CD", "GraphQL"]
     assert match["missing_keywords"] == ["Kubernetes", "C++", "C#"]
 
@@ -4514,6 +4514,9 @@ async def test_full_regeneration_appends_structured_judge_feedback_server_side()
     )
 
     settings = service.generation_job_queue.regenerations[-1]["generation_settings"]
+    # The settings the run used are saved, but judge feedback is not saved as instructions.
+    saved = repository.fetch_application("user-1", created.id).generation_preferences
+    assert saved == {"page_length": "2_page", "aggressiveness": "high", "additional_instructions": "Keep metrics prominent."}
     assert settings["use_judge_feedback"] is True
     assert settings["additional_instructions"] == (
         "Keep metrics prominent.\n\n"
@@ -4595,6 +4598,10 @@ async def test_trigger_generation_consumes_subscription_quota_and_passes_tier_mo
     )
 
     queued_settings = service.generation_job_queue.enqueued[0]["generation_settings"]
+    # Generate saves the settings it ran with, so a reload shows them rather than older saved ones.
+    assert repository.fetch_application("user-1", created.id).generation_preferences == {
+        "page_length": "1_page", "aggressiveness": "medium", "additional_instructions": None,
+    }
     assert service.subscription_repository.count_by_user["user-1"] == 1
     assert queued_settings["subscription_tier"] == "basic"
     assert queued_settings["quota_period_start"] == "2026-04-01"
@@ -7078,3 +7085,63 @@ async def test_extraction_job_queue_abort_writes_arq_abort_set(monkeypatch):
     assert key == abort_jobs_ss
     assert list(mapping) == ["job-42"]
     assert pool.closed is True
+
+
+@pytest.mark.asyncio
+async def test_patching_generation_preferences_merges_saved_settings():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/prefs",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    first = await service.patch_application(
+        user_id="user-1",
+        application_id=created.id,
+        updates={"generation_preferences": {"page_length": "2_page", "additional_instructions": "Lead with testing."}},
+    )
+    assert first.application.generation_preferences == {"page_length": "2_page", "additional_instructions": "Lead with testing."}
+    # The aggressiveness strip autosaves one field; the others are kept.
+    second = await service.patch_application(
+        user_id="user-1",
+        application_id=created.id,
+        updates={"generation_preferences": {"aggressiveness": "high"}},
+    )
+    assert second.application.generation_preferences == {
+        "page_length": "2_page", "additional_instructions": "Lead with testing.", "aggressiveness": "high",
+    }
+
+
+def test_generation_preferences_request_validates_values_and_sends_only_set_fields():
+    from pydantic import ValidationError
+    from app.api.applications import UpdateApplicationRequest
+
+    request = UpdateApplicationRequest.model_validate({"generation_preferences": {"aggressiveness": "high"}})
+    assert request.model_dump(exclude_unset=True) == {"generation_preferences": {"aggressiveness": "high"}}
+    for invalid in ({"aggressiveness": "max"}, {"page_length": "4_page"}, {"unknown": "x"}):
+        with pytest.raises(ValidationError):
+            UpdateApplicationRequest.model_validate({"generation_preferences": invalid})
+    cleared = UpdateApplicationRequest.model_validate({"generation_preferences": {"additional_instructions": "  "}})
+    assert cleared.model_dump(exclude_unset=True) == {"generation_preferences": {"additional_instructions": None}}
+
+
+@pytest.mark.asyncio
+async def test_null_preference_choices_never_overwrite_saved_values():
+    service, repository, _, _, _, _, _ = build_service()
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/prefs-null",
+        visible_status="draft",
+        internal_state="generation_pending",
+    )
+    await service.patch_application(
+        user_id="user-1", application_id=created.id,
+        updates={"generation_preferences": {"aggressiveness": "high", "additional_instructions": "Lead with testing."}},
+    )
+    updated = await service.patch_application(
+        user_id="user-1", application_id=created.id,
+        updates={"generation_preferences": {"aggressiveness": None, "page_length": None, "additional_instructions": None}},
+    )
+    # Null length/aggressiveness carry no choice; null instructions clear them.
+    assert updated.application.generation_preferences == {"aggressiveness": "high", "additional_instructions": None}

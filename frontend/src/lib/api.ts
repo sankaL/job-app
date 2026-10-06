@@ -271,6 +271,13 @@ export type DownloadResponse = {
   filename: string | null;
 };
 
+/** Generation settings saved on the application; a missing key falls back to the draft's last params. */
+export type GenerationPreferences = {
+  page_length?: string | null;
+  aggressiveness?: string | null;
+  additional_instructions?: string | null;
+};
+
 export type ApplicationDetail = {
   id: string;
   job_url: string | null;
@@ -291,6 +298,7 @@ export type ApplicationDetail = {
   generation_failure_details: GenerationFailureDetails | null;
   resume_judge_result: ResumeJudgeResult | null;
   job_keywords: JobKeywordsPayload | null;
+  generation_preferences?: GenerationPreferences | null;
   applied: boolean;
   duplicate_similarity_score: number | null;
   duplicate_resolution_status: string | null;

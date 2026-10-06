@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 type ConfirmModalProps = {
   open: boolean;
   title: string;
+  /** Optional decorative art shown above the title. */
+  illustration?: ReactNode;
   message?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  variant?: "primary" | "danger";
+  variant?: "primary" | "danger" | "orange";
   loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -43,6 +45,7 @@ function useConfirmModalLifecycle(
 
 function ConfirmDialog({
   title,
+  illustration,
   message,
   confirmLabel,
   cancelLabel,
@@ -54,8 +57,9 @@ function ConfirmDialog({
   Required<
     Pick<ConfirmModalProps, "confirmLabel" | "cancelLabel" | "variant">
   >) {
+  // Above every dialog (the keyword dialog portals at 100000) so a confirmation opened from one is visible.
   return (
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center">
+    <div className="fixed inset-0 z-[100001] flex items-center justify-center">
       <button
         type="button"
         aria-label="Close confirmation"
@@ -69,6 +73,11 @@ function ConfirmDialog({
         aria-label={title}
         className="animate-scaleIn relative z-[1] w-[calc(100%-32px)] max-w-[420px] rounded-[var(--radius-container)] bg-[var(--color-background-surface)] px-7 pb-6 pt-7 shadow-[var(--shadow-high)]"
       >
+        {illustration ? (
+          <div className="mb-3 flex justify-center" aria-hidden="true">
+            {illustration}
+          </div>
+        ) : null}
         <Heading
           level={3}
           className="m-0 leading-[1.3] text-[var(--color-text-primary)]"
@@ -93,6 +102,7 @@ function ConfirmDialog({
             <Button
               type="button"
               variant={variant === "danger" ? "danger" : "primary"}
+              className={variant === "orange" ? "app-button-orange" : undefined}
               loading={loading}
               onClick={onConfirm}
             >
@@ -109,6 +119,7 @@ function ConfirmDialog({
 export function ConfirmModal({
   open,
   title,
+  illustration,
   message,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
@@ -122,6 +133,7 @@ export function ConfirmModal({
   return createPortal(
     <ConfirmDialog
       title={title}
+      illustration={illustration}
       message={message}
       confirmLabel={confirmLabel}
       cancelLabel={cancelLabel}

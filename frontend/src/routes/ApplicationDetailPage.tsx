@@ -38,6 +38,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { ApplicationActivityPanel } from "@/components/applications/ApplicationActivityPanel";
 import { InlineDetailField } from "@/components/applications/InlineDetailField";
 import { GenerationSettingsFields } from "@/components/applications/GenerationSettingsFields";
+import { AggressivenessStrip } from "@/components/applications/AggressivenessStrip";
 import { ApplicationDetailsPanel } from "@/components/applications/ApplicationDetailsPanel";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
@@ -48,6 +49,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { ProcessingAvatar } from "@/components/ui/processing-avatar";
 import { useToast } from "@/components/ui/toast";
 import { StatusBadge } from "@/components/StatusBadge";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
@@ -81,6 +83,7 @@ import {
   triggerGeneration,
   cancelGeneration,
   type ApplicationDetail,
+  type GenerationPreferences,
   type BaseResumeDetail,
   type BaseResumeSummary,
   type ExtractionProgress,
@@ -285,12 +288,51 @@ function isResumeJudgeStale(detail: ApplicationDetail | null) {
   return Boolean(judge.is_stale);
 }
 
-function resumeJudgeTone(verdict: string | null | undefined) {
+function getTrafficLightTone(score: number | null | undefined) {
+  if (typeof score !== "number" || Number.isNaN(score)) {
+    return {
+      accent: "var(--color-text-secondary)",
+      bg: "var(--color-background-muted)",
+      border: "var(--color-border)",
+      muted: "var(--color-text-secondary)",
+    };
+  }
+  if (score < 50) {
+    return {
+      accent: "var(--color-error)",
+      bg: "var(--color-error-muted)",
+      border: "var(--color-error-muted)",
+      muted: "var(--color-text-secondary)",
+    };
+  }
+  if (score < 80) {
+    return {
+      accent: "var(--color-warning)",
+      bg: "var(--color-warning-muted)",
+      border: "var(--color-warning-muted)",
+      muted: "var(--color-text-secondary)",
+    };
+  }
+  return {
+    accent: "var(--color-success)",
+    bg: "var(--color-success-muted)",
+    border: "var(--color-success-muted)",
+    muted: "var(--color-text-secondary)",
+  };
+}
+
+function resumeJudgeTone(
+  verdict: string | null | undefined,
+  score?: number | null,
+) {
+  if (typeof score === "number" && !Number.isNaN(score)) {
+    return getTrafficLightTone(score);
+  }
   if (verdict === "pass") {
     return {
-      accent: "var(--color-accent)",
-      bg: "var(--color-accent-muted)",
-      border: "var(--color-accent-muted)",
+      accent: "var(--color-success)",
+      bg: "var(--color-success-muted)",
+      border: "var(--color-success-muted)",
       muted: "var(--color-text-secondary)",
     };
   }
@@ -302,10 +344,18 @@ function resumeJudgeTone(verdict: string | null | undefined) {
       muted: "var(--color-text-secondary)",
     };
   }
+  if (verdict === "fail") {
+    return {
+      accent: "var(--color-error)",
+      bg: "var(--color-error-muted)",
+      border: "var(--color-error-muted)",
+      muted: "var(--color-text-secondary)",
+    };
+  }
   return {
-    accent: "var(--color-error)",
-    bg: "var(--color-error-muted)",
-    border: "var(--color-error-muted)",
+    accent: "var(--color-text-secondary)",
+    bg: "var(--color-background-muted)",
+    border: "var(--color-border)",
     muted: "var(--color-text-secondary)",
   };
 }
@@ -400,18 +450,7 @@ function keywordTone(
       border: "var(--color-border)",
     };
   }
-  if (match.target_met) {
-    return {
-      accent: "var(--color-accent)",
-      bg: "var(--color-accent-muted)",
-      border: "var(--color-accent-muted)",
-    };
-  }
-  return {
-    accent: "var(--color-warning)",
-    bg: "var(--color-warning-muted)",
-    border: "var(--color-warning-muted)",
-  };
+  return getTrafficLightTone(match.percentage);
 }
 
 function isGenerationWorkflowActive(detail: ApplicationDetail | null) {
@@ -642,6 +681,25 @@ function isAllowedAggressiveness(value: unknown): value is string {
   );
 }
 
+/** Saved application preferences win; otherwise the draft's last generation params apply. */
+function resolveGenerationSettings(
+  preferences: GenerationPreferences | null | undefined,
+  params: Record<string, unknown> | null | undefined,
+): { page_length?: string; aggressiveness?: string; additional_instructions?: string } {
+  const saved = preferences ?? {};
+  const fromDraft = params ?? {};
+  const pick = (key: "page_length" | "aggressiveness", allowed: (value: unknown) => value is string) =>
+    allowed(saved[key]) ? saved[key] : allowed(fromDraft[key]) ? fromDraft[key] : undefined;
+  let instructions: string | undefined;
+  if ("additional_instructions" in saved) instructions = saved.additional_instructions ?? "";
+  else if (typeof fromDraft.additional_instructions === "string") instructions = fromDraft.additional_instructions;
+  return {
+    page_length: pick("page_length", isAllowedPageLength),
+    aggressiveness: pick("aggressiveness", isAllowedAggressiveness),
+    additional_instructions: instructions,
+  };
+}
+
 function getGenerationStartBlocker(
   detail: ApplicationDetail | null,
   selectedResumeId: string | null,
@@ -748,19 +806,17 @@ function KeywordCoverageBody({
   tone: ReturnType<typeof keywordTone>;
 }) {
   if (!match) return null;
-  const manualLabel =
-    manualCount === 0
-      ? "No manual keywords"
-      : `${manualCount} manual keyword${manualCount === 1 ? "" : "s"}`;
+  const targetPercentage = match.target_percentage ?? 80;
+  const isTargetMet = percentage >= targetPercentage;
   return (
     <div className="mt-3">
       <div
         className="flex items-center justify-between gap-3 text-xs"
         style={{ color: "var(--color-text-secondary)" }}
       >
-        <span>Target {match.target_percentage}%</span>
+        <span>Target {targetPercentage}%</span>
         <span style={{ color: tone.accent }}>
-          {match.target_met ? "Target met" : "Below target"}
+          {isTargetMet ? "Target met" : "Below target"}
         </span>
       </div>
       <div
@@ -775,15 +831,17 @@ function KeywordCoverageBody({
           }}
         />
       </div>
-      <Text
-        as="p"
-        display="block"
-        type="supporting"
-        className="mt-2"
-        style={{ color: "var(--color-text-secondary)" }}
-      >
-        {manualLabel}
-      </Text>
+      {manualCount > 0 ? (
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-2"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          {`${manualCount} manual keyword${manualCount === 1 ? "" : "s"}`}
+        </Text>
+      ) : null}
     </div>
   );
 }
@@ -846,17 +904,12 @@ function KeywordMatchSection({
             <span
               className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{
-                background: "var(--color-background-surface)",
+                background: tone.bg,
                 color: tone.accent,
               }}
             >
               {updating ? keywordStatusLabel(status) : coverage}
             </span>
-            <ExternalLink
-              size={14}
-              aria-hidden="true"
-              style={{ color: "var(--color-text-secondary)" }}
-            />
           </div>
         </div>
         {match ? (
@@ -1148,23 +1201,29 @@ function KeywordOptimization({
       className="border-t pt-5"
       style={{ borderColor: "var(--color-border)" }}
     >
-      <Text
-        as="p"
-        display="block"
-        type="supporting"
-        style={{ color: "var(--color-text-secondary)" }}
-      >
-        Optimization
-      </Text>
+      <div className="flex items-center justify-between">
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          Optimization
+        </Text>
+        <ProcessingAvatar
+          active={optimizing}
+          className="h-9 w-9 text-[var(--color-text-primary)]"
+        />
+      </div>
       <div className="mt-3 flex items-center justify-between gap-3 text-sm">
         <span>Missing keywords</span>
         <span className="font-semibold">{missingCount}</span>
       </div>
       <Button
-        variant="ghost"
+        variant="primary"
         type="button"
         disabled={Boolean(blocker) || optimizing}
-        className="mt-4 inline-flex w-full items-center justify-center gap-1.5 px-4 py-2 text-sm disabled:opacity-50"
+        className="app-button-orange mt-4 inline-flex w-full items-center justify-center gap-1.5 px-4 py-2 text-sm disabled:opacity-50"
         onClick={onOptimize}
       >
         <Sparkles size={14} />
@@ -1615,21 +1674,21 @@ function CompletedResumeJudgeSection({
             </Text>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {stale ? (
+              <span
+                className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                style={{
+                  background: "var(--color-warning-muted)",
+                  color: "var(--color-warning)",
+                }}
+              >
+                Stale
+              </span>
+            ) : null}
             <span
               className="rounded-full px-2.5 py-1 text-xs font-semibold"
               style={{
-                background: stale
-                  ? "var(--color-warning-muted)"
-                  : "var(--color-background-surface)",
-                color: stale ? "var(--color-warning)" : tone.accent,
-              }}
-            >
-              {stale ? "Stale" : resumeJudgeVerdictLabel(result.verdict)}
-            </span>
-            <span
-              className="rounded-full px-2.5 py-1 text-xs font-semibold"
-              style={{
-                background: "var(--color-background-surface)",
+                background: stale ? "var(--color-warning-muted)" : tone.bg,
                 color: stale ? "var(--color-warning)" : tone.accent,
               }}
             >
@@ -2137,6 +2196,8 @@ export function ApplicationDetailPage() {
   const [manualKeywordInput, setManualKeywordInput] = useState("");
   const [isSavingManualKeywords, setIsSavingManualKeywords] = useState(false);
   const [isOptimizingKeywords, setIsOptimizingKeywords] = useState(false);
+  const [confirmingKeywordOptimization, setConfirmingKeywordOptimization] =
+    useState(false);
   const [hasUserModifiedSettings, setHasUserModifiedSettings] = useState(false);
   const resumeJudgePending = isResumeJudgePending(detail);
   const keywordExtractionPending =
@@ -2184,17 +2245,17 @@ export function ApplicationDetailPage() {
   // Track last saved values for dirty state detection
   const savedJobForm = useMemo(() => getSavedJobForm(detail), [detail]);
 
-  const savedSettings = useMemo(
-    () => ({
+  const aggressivenessSaveRef = useRef(0);
+  const [isSavingAggressiveness, setIsSavingAggressiveness] = useState(false);
+  const savedSettings = useMemo(() => {
+    const resolved = resolveGenerationSettings(detail?.generation_preferences, draft?.generation_params);
+    return {
       base_resume_id: detail?.base_resume_id ?? null,
-      page_length: draft?.generation_params?.page_length ?? pageLength,
-      aggressiveness:
-        draft?.generation_params?.aggressiveness ?? aggressiveness,
-      additional_instructions:
-        draft?.generation_params?.additional_instructions ?? "",
-    }),
-    [detail, draft, pageLength, aggressiveness, additionalInstructions],
-  );
+      page_length: resolved.page_length ?? pageLength,
+      aggressiveness: resolved.aggressiveness ?? aggressiveness,
+      additional_instructions: resolved.additional_instructions ?? "",
+    };
+  }, [detail, draft, pageLength, aggressiveness]);
 
   // Compute dirty states
   const jobFormDirty = useMemo(() => {
@@ -2215,7 +2276,6 @@ export function ApplicationDetailPage() {
     return (
       selectedResumeId !== savedSettings.base_resume_id ||
       pageLength !== savedSettings.page_length ||
-      aggressiveness !== savedSettings.aggressiveness ||
       additionalInstructions !== (savedSettings.additional_instructions || "")
     );
   }, [
@@ -2309,6 +2369,10 @@ export function ApplicationDetailPage() {
     setNotesDraft(response.notes ?? "");
     setJobForm(getSavedJobForm(response));
     setSelectedResumeId(response.base_resume_id);
+    // The detail can arrive after the draft; saved preferences still win over draft params.
+    if (response.generation_preferences && !hasUserModifiedSettings && !generationActive) {
+      applyGenerationSettings(resolveGenerationSettings(response.generation_preferences, draft?.generation_params));
+    }
     setIsGenerating(
       response.internal_state === "generating" &&
         response.failure_reason === null,
@@ -2350,6 +2414,12 @@ export function ApplicationDetailPage() {
     setIsCancellingExtraction(false);
   }
 
+  function applyGenerationSettings(settings: ReturnType<typeof resolveGenerationSettings>) {
+    if (settings.page_length) setPageLength(settings.page_length);
+    if (settings.aggressiveness) setAggressiveness(settings.aggressiveness);
+    setAdditionalInstructions(settings.additional_instructions ?? "");
+  }
+
   function applyDraftState(response: ResumeDraft | null) {
     if (applicationId) {
       queryClient.setQueryData(
@@ -2364,22 +2434,20 @@ export function ApplicationDetailPage() {
     // 2. Generation is not currently active (to prevent overwriting user settings during regeneration)
     const isGenerationActive = isGenerating || isRegenerating;
     if (!hasUserModifiedSettings && !isGenerationActive) {
-      const generationParams = response.generation_params ?? {};
-      if (isAllowedPageLength(generationParams.page_length))
-        setPageLength(generationParams.page_length);
-      if (isAllowedAggressiveness(generationParams.aggressiveness))
-        setAggressiveness(generationParams.aggressiveness);
-      setAdditionalInstructions(
-        typeof generationParams.additional_instructions === "string"
-          ? generationParams.additional_instructions
-          : "",
-      );
+      const preferences = applicationId
+        ? queryClient.getQueryData<ApplicationDetail>(queryKeys.application(applicationId))?.generation_preferences
+        : null;
+      applyGenerationSettings(resolveGenerationSettings(preferences, response.generation_params));
     }
   }
 
   useEffect(() => {
     setActivityPanelOpen(false);
     setDetailsCollapsed(false);
+    // The route instance is reused across applications: drop any in-flight aggressiveness save
+    // so its response or rollback cannot land on the next application.
+    aggressivenessSaveRef.current += 1;
+    setIsSavingAggressiveness(false);
   }, [applicationId]);
 
   useEffect(() => {
@@ -2942,6 +3010,11 @@ export function ApplicationDetailPage() {
     try {
       const response = await patchApplication(activeApplicationId, {
         base_resume_id: selectedResumeId,
+        // Before 2026-10-06 only the base resume was saved; length and instructions now persist too.
+        generation_preferences: {
+          page_length: pageLength,
+          additional_instructions: additionalInstructions.trim() || null,
+        },
       });
       applyDetailState(response, { refreshShell: true });
       refreshActivityTimeline();
@@ -2951,6 +3024,35 @@ export function ApplicationDetailPage() {
       toast("Failed to save settings", "error");
     } finally {
       setIsSavingSettings(false);
+    }
+  }
+
+  // Aggressiveness saves as soon as it changes; only the latest change applies its response.
+  async function handleAggressivenessChange(value: string) {
+    if (!activeApplicationId) return;
+    const previous = aggressiveness;
+    const request = ++aggressivenessSaveRef.current;
+    setAggressiveness(value);
+    setHasUserModifiedSettings(true);
+    setIsSavingAggressiveness(true);
+    try {
+      const response = await patchApplication(activeApplicationId, {
+        generation_preferences: { aggressiveness: value },
+      });
+      if (request !== aggressivenessSaveRef.current) return;
+      // Apply only the saved preferences. Writing the whole response (or the query cache, whose
+      // effect runs applyDetailState) would reset unsaved job fields, base resume and notes.
+      setDetail((current) =>
+        current && current.id === response.id
+          ? { ...current, generation_preferences: response.generation_preferences }
+          : current,
+      );
+    } catch (err) {
+      if (request !== aggressivenessSaveRef.current) return;
+      setAggressiveness(previous);
+      toast(err instanceof Error ? err.message : "Unable to save aggressiveness.", "error");
+    } finally {
+      if (request === aggressivenessSaveRef.current) setIsSavingAggressiveness(false);
     }
   }
 
@@ -3399,7 +3501,15 @@ export function ApplicationDetailPage() {
   const exportedTimestampLabel = draft?.last_exported_at
     ? `Exported ${new Date(draft.last_exported_at).toLocaleString()}`
     : null;
-  const resumeJudgeToneStyle = resumeJudgeTone(resumeJudge?.verdict);
+  const resumeJudgeScore =
+    resumeJudge?.display_score ??
+    (typeof resumeJudge?.final_score === "number"
+      ? Math.round(resumeJudge.final_score)
+      : null);
+  const resumeJudgeToneStyle = resumeJudgeTone(
+    resumeJudge?.verdict,
+    resumeJudgeScore,
+  );
   const resumeJudgeHasCompletedScore = Boolean(
     resumeJudge &&
     resumeJudge.status === "succeeded" &&
@@ -3456,7 +3566,7 @@ export function ApplicationDetailPage() {
         onClose={() => setShowKeywordDialog(false)}
         onAdd={handleAddManualKeyword}
         onRemove={(text) => void handleRemoveManualKeyword(text)}
-        onOptimize={() => void handleKeywordOptimization()}
+        onOptimize={() => setConfirmingKeywordOptimization(true)}
       />
     );
   }
@@ -4347,6 +4457,13 @@ export function ApplicationDetailPage() {
                   collapsed={detailsCollapsed}
                   onToggle={() => setDetailsCollapsed((value) => !value)}
                 >
+                  {detail.internal_state !== "duplicate_review_required" && (
+                    <AggressivenessStrip
+                      aggressiveness={aggressiveness}
+                      onAggressivenessChange={(value) => void handleAggressivenessChange(value)}
+                      isSaving={isSavingAggressiveness}
+                    />
+                  )}
                   {renderResumeJudgeSection()}
                   {renderKeywordSection()}
 
@@ -4460,8 +4577,6 @@ export function ApplicationDetailPage() {
                           setSelectedResumeId={setSelectedResumeId}
                           pageLength={pageLength}
                           onPageLengthChange={(value) => { setPageLength(value); setHasUserModifiedSettings(true); }}
-                          aggressiveness={aggressiveness}
-                          onAggressivenessChange={(value) => { setAggressiveness(value); setHasUserModifiedSettings(true); }}
                           additionalInstructions={additionalInstructions}
                           onAdditionalInstructionsChange={(value) => { setAdditionalInstructions(value); setHasUserModifiedSettings(true); }}
                           disabled={isSavingSettings}
@@ -4602,6 +4717,31 @@ export function ApplicationDetailPage() {
                 setShowFullRegenConfirm(false);
                 setFullRegenInstructions("");
                 setFullRegenUseLatestBase(false);
+              }
+            }}
+          />
+
+          <ConfirmModal
+            open={confirmingKeywordOptimization}
+            title="Optimize for missing keywords?"
+            illustration={
+              <ProcessingAvatar
+                active
+                className="h-20 w-20 text-[var(--color-text-primary)]"
+              />
+            }
+            message="This will trigger a full resume regeneration specifically tailored to optimize keywords. Are you sure you want to proceed?"
+            confirmLabel="Generate"
+            cancelLabel="Cancel"
+            variant="orange"
+            loading={isOptimizingKeywords}
+            onConfirm={async () => {
+              setConfirmingKeywordOptimization(false);
+              await handleKeywordOptimization();
+            }}
+            onCancel={() => {
+              if (!isOptimizingKeywords) {
+                setConfirmingKeywordOptimization(false);
               }
             }}
           />
@@ -4942,7 +5082,11 @@ export function ApplicationDetailPage() {
                       display="block"
                       type="supporting"
                       className="mt-3 leading-5"
-                      style={{ color: "var(--color-text-secondary)" }}
+                      style={{
+                        color: resumeJudgeStale
+                          ? "var(--color-warning)"
+                          : "var(--color-text-secondary)",
+                      }}
                     >
                       {resumeJudgeStale
                         ? "This score was calculated for an older draft. Re-evaluate after reviewing the breakdown."
@@ -4967,8 +5111,9 @@ export function ApplicationDetailPage() {
                           >
                             <Button
                               variant="ghost"
+                              contentLayout="block"
                               type="button"
-                              className="flex w-full items-start justify-between gap-4 px-4 py-4 text-left"
+                              className="w-full px-4 py-4 text-left"
                               aria-expanded={expanded}
                               aria-controls={`resume-judge-dimension-${key}`}
                               onClick={() =>
@@ -4977,6 +5122,7 @@ export function ApplicationDetailPage() {
                                 )
                               }
                             >
+                              <div className="flex w-full items-start justify-between gap-4">
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <Text
@@ -5069,6 +5215,7 @@ export function ApplicationDetailPage() {
                                     : "rotate(0deg)",
                                 }}
                               />
+                              </div>
                             </Button>
                             {expanded ? (
                               <div

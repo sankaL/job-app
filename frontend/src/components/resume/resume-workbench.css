@@ -193,10 +193,62 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  justify-content: flex-start;
   text-align: left;
   flex: 1;
   min-width: 0;
-  font-size: 0.875rem;
+  height: auto;
+  padding: 0.25rem 0.5rem 0.25rem 0;
+  font-size: 0.9375rem;
+}
+.resume-entry-toggle > svg {
+  margin-left: auto;
+}
+.resume-entry-fields {
+  display: grid;
+  gap: 0.875rem 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 640px) {
+  .resume-entry-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.resume-entry-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.resume-entry-field-label {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.resume-entry-field input {
+  font-size: 0.9375rem;
+}
+.resume-bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  margin-top: 1.25rem;
+  align-items: flex-start;
+}
+.resume-bullet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  width: 100%;
+}
+.resume-bullet-marker {
+  flex-shrink: 0;
+  width: 0.75rem;
+  padding-top: 0.625rem;
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1.65;
+  color: var(--color-text-secondary);
 }
 .resume-entry-number {
   align-self: start;
@@ -208,6 +260,7 @@
 .resume-entry-actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.375rem;
 }
 .resume-prose {
@@ -710,9 +763,47 @@
 .application-detail-field {
   padding-bottom: var(--spacing-2);
 }
-.generation-settings-warning {
-  color: var(--color-warning);
-  padding-top: var(--spacing-2);
+/* Aggressiveness strip: the first block in application details. The level tints the
+   strip and recolors the slider through --color-accent (Low muted, Medium default, High orange). */
+.aggressiveness-strip {
+  --strip-tint: var(--color-accent);
+  /* A full-width band, not a card: no side margins, radius or side borders. */
+  padding: var(--spacing-4);
+  border-block: 1px solid color-mix(in srgb, var(--strip-tint) 30%, transparent);
+  background: linear-gradient(100deg,
+    color-mix(in srgb, var(--strip-tint) 16%, var(--color-background-surface)) 0%,
+    color-mix(in srgb, var(--strip-tint) 5%, var(--color-background-surface)) 100%);
+  transition: background 200ms ease, border-color 200ms ease;
+}
+.aggressiveness-strip--low {
+  --strip-tint: color-mix(in srgb, var(--color-text-secondary) 55%, var(--color-background-surface));
+  --color-accent: color-mix(in srgb, var(--color-text-secondary) 45%, var(--color-background-surface));
+}
+.aggressiveness-strip--high {
+  --strip-tint: var(--brand-orange);
+  --color-accent: var(--brand-orange);
+}
+.aggressiveness-strip-badge {
+  border: 0;
+  cursor: help;
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-background-surface);
+  background: var(--strip-tint);
+}
+.aggressiveness-strip--low .aggressiveness-strip-badge {
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-text-secondary) 14%, var(--color-background-surface));
+}
+.aggressiveness-strip-badge:focus-visible {
+  outline: 2px solid var(--strip-tint);
+  outline-offset: 2px;
+}
+.aggressiveness-strip-description { min-height: 2.5em; }
+@media (prefers-reduced-motion: reduce) {
+  .aggressiveness-strip { transition: none; }
 }
 
 .application-resume-column > .draft-workbench-region { padding-top: 0; }

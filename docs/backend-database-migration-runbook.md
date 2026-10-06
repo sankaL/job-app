@@ -1,11 +1,19 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-10-04
+**Last updated:** 2026-10-06
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
+
+## 2026-10-06 application generation preferences
+
+- Apply `20261006_000024_application_generation_preferences.sql` **before** deploying the API. It adds one nullable `jsonb` column, `applications.generation_preferences`, with no default, no backfill and no data change. Lock acquisition is bounded at five seconds and SQL at sixty seconds, and `add column if not exists` makes a retry safe.
+- Deploy order matters: the new API selects `a.generation_preferences` in every application read, so running it before the migration fails all application reads and writes. The old API ignores the column, so migrating first is safe. Deploy the frontend after the API; an older API rejects the new PATCH field with HTTP 422, which shows as a failed autosave and reverts the toggle.
+- Existing applications keep `null` and fall back to the draft's last generation params, as before.
+- Verify migration 024 in the ledger and that the column exists as nullable `jsonb`. PATCH `{"generation_preferences": {"aggressiveness": "high"}}`, then `{"generation_preferences": {"page_length": "2_page"}}`, and confirm the detail returns both keys. Confirm that invalid values (`"max"`, `"4_page"`, unknown keys) return 422 and another user's application returns 404.
+- Rollback: revert the API and frontend code first. The column can stay; drop it only through a separate reviewed migration.
 
 ## 2026-10-04 generation speed and keep-original sections
 

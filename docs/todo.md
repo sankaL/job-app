@@ -40,8 +40,6 @@ Opus
     - [x] Or show a toggle to do a split screen between the base resume and the generated resume so the user can see the differences. 
 - [x] New updates are decent but seem only the summary and the skills are being changed now. I don't see the experience bullet points and the role title being changed at all in medium or high. 
 - [x] When configs are changed after generation in the UI, it resets back to the original but I think the actual request is sent in the backend. Just on the frontend it looks like it's the same config. 
-
-
 - [x] Ask Claude to come up with some rules to validate the human readable aspect and the ATS score essentially. Um come up with a prompt to score it and then I want it to run this validator after each generation and display it. Uh if it's low we can regenerate with reasons.
 - [x] Check why on almost all the pages there are multiple calls of the same endpoint. For example base resume application there has to be a more efficient way to do this, to get for example list of applications, etc. A lot of optimization needs to be done. Can this be why I'm getting a lot of unexpected costs on Railway for minimal users? 
 - [?] Create a test suite integration in pytest with reporting request library - i make the scenarios sanity test suite
@@ -51,12 +49,12 @@ Opus
 - [] [2026-10-04] Clarify and improve base resume "Add Section" logic: currently allows selecting sections already present in the resume; determine if purpose is custom sections vs. duplicates, and make dropdown choices smarter/clearer.
 - [] [2026-10-04] Fix button icon alignment: on buttons like "Add Section", icons are not center-aligned on the Y-axis with text (appearing slightly higher). - Comprehensive UI audit of all buttons and icons across the app for vertical alignment and consistency.
 - [] [2026-10-04] Appslication activity sidebar timeline alignment: fix the activity dot so it aligns with the action header rather than sitting above it, and indent the date all the way to the left so it aligns with the vertical timeline line.
-- [] [2026-10-04] Fix Resume Judge UI: fix broken dropdowns and layout issues across judge sections.
-- [] [2026-10-04] Investigate low ATS keyword match on first generation (e.g. 1/24 matched): find out how/when matching is checked (post-first-generation timing, impact of aggressiveness setting like medium, keyword extraction accuracy). Likely cause found 2026-10-06: the section writer never received the job keywords on first generation (fixed); re-check the match rate on a new generation.
+- [x] [2026-10-04] Fix Resume Judge UI: fix broken dropdowns and layout issues across judge sections.
+- [x] [2026-10-04] Investigate low ATS keyword match on first generation (e.g. 1/24 matched): find out how/when matching is checked (post-first-generation timing, impact of aggressiveness setting like medium, keyword extraction accuracy). Likely cause found 2026-10-06: the section writer never received the job keywords on first generation (fixed); re-check the match rate on a new generation.
 - [x] [2026-10-06] Make High aggressiveness fit the job closely: rewrite titles (same seniority) and bullets per role, add job skills, keep Education fixed, write Experience → Projects/other → Skills → Summary so the result is consistent, and warn that the user accepts untrue content. Done 2026-10-06 (see the decision log).
-- [] [2026-10-04] Application details sidebar ATS match pill traffic light colors: display match percentage pill with traffic light colors (< 50% = Red, 51%–79% = Orange, 80%–100% = Green) for at-a-glance status.
-- [] [2026-10-04] Application details sidebar auto-save: auto-save application detail edits on the sidebar instead of requiring manual save button clicks.
-- [] [2026-10-04] Align "View More" button on job description: right-align the button to match the details section alignment in Resume Judge.
+- [x] [2026-10-04] Application details sidebar ATS match pill traffic light colors: display match percentage pill with traffic light colors (< 50% = Red, 51%–79% = Orange, 80%–100% = Green) for at-a-glance status.
+- [x] [2026-10-04] Application details sidebar auto-save: auto-save application detail edits on the sidebar instead of requiring manual save button clicks.
+- [x] [2026-10-04] Align "View More" button on job description: right-align the button to match the details section alignment in Resume Judge.
 - [x] [2026-10-04] Review feedback from Gemini and OpenAI on the resume generation pipeline to identify and incorporate viable improvements.
-- [] [2026-10-05] Dashboard metrics: add subtitle/detail text to the "Total applications" metric card.
+- [x] [2026-10-05] Dashboard metrics: add subtitle/detail text to the "Total applications" metric card.
 - [] [2026-10-05] Fix table saved views: investigate and fix issues where "Save View" and "Use View" on tables are not working.

@@ -3,7 +3,6 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Text } from "@astryxdesign/core/Text";
 import { Check, Pencil } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 
 type InlineDetailFieldProps = {
@@ -89,17 +88,18 @@ export function InlineDetailField({
             {hasValue ? value : "Not specified"}
           </Text>
           {multiline && hasValue && (
-            <HStack>
-              <Button
+            <HStack hAlign="end" className="w-full mt-1">
+              <button
                 type="button"
-                variant="ghost"
-                      aria-label={`${expanded ? "View less" : "View more"} ${label}`}
+                className="cursor-pointer text-xs font-semibold hover:underline focus-visible:outline-none"
+                style={{ color: "var(--color-error)" }}
+                aria-label={`${expanded ? "View less" : "View more"} ${label}`}
                 aria-expanded={expanded}
                 aria-controls={valueId}
                 onClick={() => setExpanded((current) => !current)}
               >
                 {expanded ? "View less" : "View more"}
-              </Button>
+              </button>
             </HStack>
           )}
         </>

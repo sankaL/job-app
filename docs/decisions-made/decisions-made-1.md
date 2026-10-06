@@ -1,3 +1,11 @@
+## 2026-10-06 EDT - High keyword target back to 80%, saved generation preferences
+
+- High keyword target: reverted from 95% to 80% (user decision). This supersedes the 95% bullet in the "High aggressiveness rewrites the resume to fit the job" entry below. Coverage targets are now Low 45%, Medium 65%, High 80%, and they remain minimum goals, not validation failures.
+- Saved generation preferences: aggressiveness, target length and additional instructions are stored on the application (`applications.generation_preferences`). The aggressiveness strip autosaves when a slider drag or key press ends (user decision); the other settings save with the Generation Settings Save.
+- Saved values vs the draft: Generate and Full Regenerate save the settings they ran with, so the settings on screen always match the latest draft. The user's own instructions are saved; Resume Judge feedback added to them is not. Saved values win over the draft's `generation_params` on load, and a draft with no saved values falls back to its params.
+- Left as is (open product question): keyword optimization and section/role regeneration still use the draft's aggressiveness, not the strip's saved level.
+- Autosave safety: an autosave applies only `generation_preferences` from the response, never the whole application, so unsaved job fields, base resume and notes survive. A pending save is dropped when the user opens another application. Confirmation modals sit above every dialog, so the keyword-optimize confirmation is visible.
+
 ## 2026-10-06 EDT - High aggressiveness rewrites the resume to fit the job, written in stages
 
 - Context: The user found High too cautious. It rewrote mainly the first two roles, kept titles within the "demonstrated work", and audited every addition against the source role. The user wants High to fit the job closely and accepts that the result may describe work they have not done, as long as each claim makes sense within its role.

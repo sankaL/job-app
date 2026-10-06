@@ -229,6 +229,12 @@ function buildDashboardModel(applications: ApplicationSummary[]) {
   return {
     total: applications.length,
     appliedCount: applications.filter((app) => app.applied).length,
+    inProgressCount: applications.filter(
+      (app) => app.visible_status === "in_progress",
+    ).length,
+    completeCount: applications.filter(
+      (app) => app.visible_status === "complete",
+    ).length,
     needsActionCount: applications.filter(
       (app) => app.visible_status === "needs_action",
     ).length,
@@ -355,6 +361,13 @@ export function DashboardPage() {
           value={model.total}
           accent="var(--color-text-primary)"
           icon={Briefcase}
+          detail={
+            <Text type="supporting" color="secondary">
+              {model.total > 0
+                ? `${model.inProgressCount} in progress · ${model.completeCount} complete`
+                : "Add a job posting to start"}
+            </Text>
+          }
         />
         <Metric
           label="Applied"

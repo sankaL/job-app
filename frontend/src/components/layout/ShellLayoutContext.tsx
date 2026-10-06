@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type PropsWithChildren } from "react";
+import { createContext, useContext, useCallback, useMemo, useState, type PropsWithChildren } from "react";
 
 type ShellLayoutMode = "default" | "immersive";
 
@@ -16,16 +16,23 @@ export function ShellLayoutProvider({ children }: PropsWithChildren) {
   const [actionHost, setActionHost] = useState<HTMLElement | null>(null);
   const [mode, setMode] = useState<ShellLayoutMode>("default");
 
+  const clearMode = useCallback(() => {
+    setMode("default");
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      actionHost,
+      setActionHost,
+      mode,
+      setMode,
+      clearMode,
+    }),
+    [actionHost, mode, clearMode],
+  );
+
   return (
-    <ShellLayoutContext.Provider
-      value={{
-        actionHost,
-        setActionHost,
-        mode,
-        setMode,
-        clearMode: () => setMode("default"),
-      }}
-    >
+    <ShellLayoutContext.Provider value={value}>
       {children}
     </ShellLayoutContext.Provider>
   );

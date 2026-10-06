@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { AGGRESSIVENESS_OPTIONS } from "@/lib/application-options";
 import {
   act,
   fireEvent,
@@ -2325,6 +2326,15 @@ describe("phase 1 applications UI", () => {
       }),
     );
 
+    const confirmModal = await screen.findByRole("dialog", {
+      name: /optimize for missing keywords\?/i,
+    });
+    expect(confirmModal).toBeInTheDocument();
+    expect(confirmModal.querySelector("svg")).not.toBeNull();
+    await user.click(
+      within(confirmModal).getByRole("button", { name: /^generate$/i }),
+    );
+
     await waitFor(() =>
       expect(api.triggerKeywordOptimization).toHaveBeenCalledWith("app-1"),
     );
@@ -3550,7 +3560,64 @@ describe("phase 1 applications UI", () => {
     await waitFor(() => expect(api.listApplications).toHaveBeenCalledTimes(0));
   });
 
-  it("shows aggressiveness details on hover and preserves the High warning", async () => {
+  it("autosaves aggressiveness without clobbering unsaved edits and reverts a failed save", async () => {
+    api.listBaseResumes.mockResolvedValue([
+      { id: "resume-1", name: "Default Resume", is_default: true, created_at: "2026-04-07T12:00:00Z", updated_at: "2026-04-07T12:00:00Z" },
+    ]);
+    const detail = buildApplicationDetail({
+      id: "app-1", internal_state: "resume_ready", visible_status: "in_progress",
+      base_resume_id: "resume-1", job_description: "Build APIs and backend systems.",
+    });
+    api.fetchApplicationDetail.mockResolvedValue(detail);
+    api.fetchDraft.mockResolvedValue({
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nGrounded summary",
+      generation_params: { page_length: "1_page", aggressiveness: "medium", additional_instructions: "" },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+    });
+    // The server copy still has the old job description; applying it whole would discard the edit.
+    api.patchApplication.mockImplementation(async (_id: string, updates: Record<string, unknown>) => ({
+      ...detail,
+      generation_preferences: updates.generation_preferences,
+    }));
+
+    renderWithAppProvider(
+      <Routes>
+        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+    await screen.findByRole("heading", { name: /generation settings/i });
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit Job Description" }));
+    const editor = screen.getByRole("textbox", { name: "Job Description" });
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "Unsaved description edit");
+
+    const slider = screen.getByRole("slider", { name: "Aggressiveness" });
+    act(() => slider.focus());
+    await userEvent.keyboard("{ArrowLeft}");
+    await waitFor(() =>
+      expect(api.patchApplication).toHaveBeenCalledWith("app-1", { generation_preferences: { aggressiveness: "low" } }),
+    );
+    await waitFor(() => expect(screen.getByRole("region", { name: "Aggressiveness" })).toHaveAttribute("aria-busy", "false"));
+    expect(screen.getByRole("textbox", { name: "Job Description" })).toHaveValue("Unsaved description edit");
+    expect(slider).toHaveAttribute("aria-valuetext", "Low");
+
+    api.patchApplication.mockRejectedValueOnce(new Error("Network down"));
+    act(() => slider.focus());
+    await userEvent.keyboard("{ArrowRight}");
+    await waitFor(() => expect(slider).toHaveAttribute("aria-valuetext", "Low"));
+    expect(api.patchApplication).toHaveBeenLastCalledWith("app-1", { generation_preferences: { aggressiveness: "medium" } });
+    expect(screen.getByRole("textbox", { name: "Job Description" })).toHaveValue("Unsaved description edit");
+  });
+
+  it("shows aggressiveness details on hover and confirms High in a dialog", async () => {
+    api.patchApplication.mockImplementation(async (_id: string, updates: Record<string, unknown>) => ({
+      ...(await api.fetchApplicationDetail()),
+      generation_preferences: updates.generation_preferences,
+    }));
     api.listBaseResumes.mockResolvedValue([
       {
         id: "resume-1",
@@ -3613,32 +3680,30 @@ describe("phase 1 applications UI", () => {
       await screen.findByRole("heading", { name: /generation settings/i }),
     ).toBeInTheDocument();
 
-    expect(screen.getByText(/professional experience: each role keeps its company and dates/i)).not.toBeVisible();
-    await userEvent.hover(screen.getByRole("button", { name: "High aggressiveness" }));
-
-    const experienceHelp = screen.getByText(/professional experience: each role keeps its company and dates\. the title can change to fit the job at the same seniority/i);
-    await waitFor(() => expect(experienceHelp).toBeVisible());
-    const tooltip = experienceHelp.closest('[role="tooltip"]') as HTMLElement;
-    expect(
-      within(tooltip).getByText(
-        /skills: rebuilt around the job's keywords and the new experience/i,
-      ),
-    ).toBeVisible();
-    expect(
-      within(tooltip).getByText(
-        /education and certifications: unchanged\./i,
-      ),
-    ).toBeVisible();
-    await userEvent.unhover(screen.getByRole("button", { name: "High aggressiveness" }));
+    // The level badge carries the current level's details; there are no level buttons.
+    expect(screen.queryByRole("button", { name: "High aggressiveness" })).not.toBeInTheDocument();
+    const mediumDetail = AGGRESSIVENESS_OPTIONS[1].details[0];
+    expect(screen.getByText(mediumDetail)).not.toBeVisible();
+    await userEvent.hover(screen.getByRole("button", { name: "Medium aggressiveness details" }));
+    await waitFor(() => expect(screen.getByText(mediumDetail)).toBeVisible());
+    await userEvent.unhover(screen.getByRole("button", { name: "Medium aggressiveness details" }));
     const slider = screen.getByRole("slider", { name: "Aggressiveness" });
     act(() => slider.focus());
     await userEvent.keyboard("{ArrowRight}");
+    // High waits for the user to accept the disclaimer in a dialog; it is never shown inline.
+    const dialog = await screen.findByRole("dialog", { name: "Use High aggressiveness?" });
+    expect(within(dialog).getByText(/high rewrites your resume to fit this job/i)).toBeInTheDocument();
+    expect(slider).toHaveAttribute("aria-valuenow", "1");
+    await userEvent.click(within(dialog).getByRole("button", { name: "I accept the risk" }));
     expect(slider).toHaveAttribute("aria-valuenow", "2");
-    expect(
-      await screen.findByText(
-        /high rewrites your resume to fit this job/i,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Aggressiveness" })).toHaveAttribute("data-level", "high");
+    // The level saves as soon as it changes; there is no Save button in the strip.
+    await waitFor(() =>
+      expect(api.patchApplication).toHaveBeenCalledWith("app-1", {
+        generation_preferences: { aggressiveness: "high" },
+      }),
+    );
+    expect(within(screen.getByRole("region", { name: "Aggressiveness" })).queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 
   it("removes the review-flags panel, shows the regenerate menu, and renders the generated preview without diff highlighting", async () => {

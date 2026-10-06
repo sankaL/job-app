@@ -158,7 +158,7 @@ JD_STOPWORDS = {
     "you",
     "your",
 }
-KEYWORD_COVERAGE_TARGETS = {"low": 45, "medium": 65, "high": 95}
+KEYWORD_COVERAGE_TARGETS = {"low": 45, "medium": 65, "high": 80}
 KEYWORD_STATUS_EMPTY = "unavailable"
 KEYWORD_OPTIMIZATION_TARGET = "keyword_optimization"
 
@@ -670,6 +670,16 @@ class ApplicationService:
         }
         job_context_fields = {"job_title", "company", "job_description"}
         merged_updates = dict(updates)
+        if "generation_preferences" in updates:
+            # Merge so saving one setting (the aggressiveness strip autosaves) keeps the others.
+            # A null length or aggressiveness carries no choice, so it never overwrites a saved one;
+            # null instructions do clear them. An empty or null object changes nothing.
+            incoming = {
+                key: value
+                for key, value in (updates["generation_preferences"] or {}).items()
+                if value is not None or key == "additional_instructions"
+            }
+            merged_updates["generation_preferences"] = {**(current.generation_preferences or {}), **incoming}
         if (
             current.resume_judge_result is not None
             and job_context_fields.intersection(updates.keys())
@@ -1886,6 +1896,12 @@ class ApplicationService:
                 user_id=user_id,
                 updates={
                     "base_resume_id": base_resume_id,
+                    "generation_preferences": self._used_generation_preferences(
+                        record=record,
+                        page_length=target_length,
+                        aggressiveness=aggressiveness,
+                        additional_instructions=additional_instructions,
+                    ),
                     **self._workflow_updates(
                         internal_state="generating",
                         failure_reason=None,
@@ -2217,11 +2233,19 @@ class ApplicationService:
             updated = self.repository.update_application(
                 application_id=application_id,
                 user_id=user_id,
-                updates=self._workflow_updates(
-                    internal_state="regenerating_full",
-                    failure_reason=None,
-                    generation_failure_details=None,
-                ),
+                updates={
+                    "generation_preferences": self._used_generation_preferences(
+                        record=record,
+                        page_length=target_length,
+                        aggressiveness=aggressiveness,
+                        additional_instructions=additional_instructions,
+                    ),
+                    **self._workflow_updates(
+                        internal_state="regenerating_full",
+                        failure_reason=None,
+                        generation_failure_details=None,
+                    ),
+                },
             )
             self.notification_repository.clear_action_required(
                 user_id=user_id, application_id=application_id,
@@ -3164,6 +3188,23 @@ class ApplicationService:
             content_md=draft.content_md,
             aggressiveness=str(draft.generation_params.get("aggressiveness") or "medium"),
         )
+
+    @staticmethod
+    def _used_generation_preferences(
+        *,
+        record: ApplicationRecord,
+        page_length: str,
+        aggressiveness: str,
+        additional_instructions: Optional[str],
+    ) -> dict[str, Any]:
+        """The settings a generation ran with become the saved preferences, so the next page load
+        shows them instead of older saved values. Judge feedback is not saved as instructions."""
+        return {
+            **(record.generation_preferences or {}),
+            "page_length": page_length,
+            "aggressiveness": aggressiveness,
+            "additional_instructions": additional_instructions or None,
+        }
 
     def _keyword_generation_settings(
         self,

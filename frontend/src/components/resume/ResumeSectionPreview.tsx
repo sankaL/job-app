@@ -103,11 +103,12 @@ export function ResumeSectionPreview({
               />
             )}
             {onRegenerate && (
-              <div className="mt-3">
+              <div className="mt-3 flex flex-col items-end">
                 <Button
                   size="sm"
                   variant="secondary"
                   type="button"
+                  className="app-button-orange-outline"
                   disabled={
                     disabled ||
                     (canRegenerate ? !canRegenerate(entry.id) : false)
