@@ -155,27 +155,26 @@ AGGRESSIVENESS_CONTRACTS: dict[str, dict[str, str]] = {
     },
     "high": {
         "summary": (
-            "Fully rewrite the Summary for strongest role alignment. You may add plausible job-fit claims, including technologies, scope, outcomes "
-            "and metrics, when they are credible for the candidate's demonstrated roles, seniority and domain. Never invent or change employers, "
-            "dates, tenure, institutions, degrees, credentials, certifications or awards."
+            "Write the Summary last, from the tailored draft: describe the candidate the rewritten Experience, Projects and Skills present, "
+            "aligned to the target role and using its keyword phrases. Years of experience must follow the source dates. Never invent or "
+            "change employers, dates, tenure, institutions, degrees, credentials, certifications or awards."
         ),
         "professional_experience": (
-            "Professional Experience is the primary tailoring surface in high mode. Materially rewrite bullet framing in the first up to 2 source-ordered roles that have bullets. "
-            "Keep the anchored role order fixed, but reprioritize by changing bullet emphasis within each role. "
-            "Aggressively reframe, consolidate, condense, or expand grounded bullets for fit and impact. "
-            "Do not spend nearly all tailoring budget on Summary or Skills while leaving Professional Experience bullets source-identical. "
-            "You should actively retitle the role name for alignment or adjacent role framing when the target role clearly supports it and it still matches the demonstrated responsibilities, especially for the most recent role. "
-            "Do not default to the source title when grounded target alignment is clear; leave the source title unchanged only when no truthful adjacent title is supported. "
-            "Keep company and dates unchanged, keep duration consistent with the source, and do not change seniority. "
-            "You may add plausible job-fit technologies, responsibilities, scope, outcomes and metrics that someone in that source role could credibly have delivered, "
-            "citing the source bullets they extend. Never invent employers, institutions, credentials or awards, and never contradict the source."
+            "Professional Experience is the primary tailoring surface in high mode. Rewrite every role for the target job. "
+            "Keep the anchored role order, employer and dates fixed. Retitle each role to the closest fit for the target job at the same "
+            "seniority as the source title; the role family may change. Replace or rewrite any bullet: new bullets may describe "
+            "technologies, tools, responsibilities, projects, scope, outcomes and metrics that someone in that role, at that employer and in "
+            "that period, could credibly have delivered, chosen to match the job description and its exact keyword phrases. "
+            "Cite the source bullets a claim replaces or extends, or the role's entry ID for new work. Never invent employers, "
+            "institutions, credentials or awards, and never claim a technology that did not exist in that role's period."
         ),
         "skills": (
-            "Aggressively prune, regroup, prioritize, and expand skills for target-role relevance. Lead with the most role-relevant "
-            "skill cluster and include JD-driven keyword skills when helpful."
+            "List the skills the target job asks for that fit the tailored experience, leading with the strongest match, using the job's "
+            "exact keyword phrases. Skills not in the source are allowed; certifications, licences and degrees are not skills and stay fixed."
         ),
         "education": "Do not change Education facts or wording beyond minimal formatting cleanup.",
-        "projects": "Strongly tailor project framing for the target role. Plausible job-fit additions consistent with the source project are allowed; never invent projects.",
+        "projects": ("Rewrite each project for the target role, consistent with the tailored experience. Plausible technologies, scope "
+                     "and outcomes are allowed; keep each project's identity and never invent new projects."),
         "certifications": "Keep certification facts fixed and include only source-supported certification details.",
     },
 }
@@ -198,13 +197,12 @@ TITLE_REWRITE_POLICIES: dict[str, dict[str, str]] = {
         "fallback": "Use the source title when the reframe would change role family, seniority, or factual scope.",
     },
     "high": {
-        "mode": "active_grounded_retitle",
+        "mode": "job_fit_retitle",
         "jobs_title_instruction": (
-            "Set jobs[].title to a target-aligned truthful rewrite when the source responsibilities support adjacent "
-            "role framing, especially for the most recent eligible role. Do not default to the source title when "
-            "grounded target alignment is clear."
+            "Set every jobs[].title to the closest fit for the target job at the same seniority as the source title. "
+            "The role family may change; the employer and dates may not."
         ),
-        "fallback": "Use the source title when no truthful adjacent title is supported by the demonstrated work.",
+        "fallback": "Use the source title only when no title at the same seniority fits the target job.",
     },
 }
 
@@ -221,7 +219,7 @@ SECTION_RULES: dict[str, str] = {
         "Bullet openings may vary; do not make every bullet follow the same verb-first pattern. "
         "When Professional Experience is enabled, medium and high must visibly tailor it instead of leaving the key bullets source-identical. "
         "Low aggressiveness must preserve role titles exactly. Medium may lightly reframe titles only when the core role family and seniority remain grounded in the source. "
-        "High may retitle more freely only when the rewrite still matches demonstrated work and does not change employer, dates, duration, or seniority."
+        "High may retitle to any role family that fits the target job, keeping employer, dates, duration and seniority unchanged."
     ),
     "education": (
         "Keep Education concise and factual. Never add or infer schools, degrees, honors, dates, coursework, or credentials. "
@@ -835,6 +833,7 @@ def section_rule(kind: str, aggressiveness: str = "medium", operation: str = "ge
     if aggressiveness == "high" and operation != "keyword_optimization":
         rule = rule.replace("do not invent metrics or scope", "allow plausible job-fit metrics and scope consistent with the High claim policy")
         rule = rule.replace("without inventing outcomes", "with plausible job-fit outcomes consistent with the source project and High claim policy")
+        rule = rule.replace("Lead with the strongest grounded fit", "Lead with the strongest fit the tailored draft shows")
     return rule
 
 

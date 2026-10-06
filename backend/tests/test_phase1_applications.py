@@ -753,7 +753,7 @@ def test_keyword_match_uses_case_insensitive_exact_phrases_without_variants():
     assert match is not None
     assert match["matched_count"] == 3
     assert match["total_count"] == 6
-    assert match["target_percentage"] == 80
+    assert match["target_percentage"] == 95
     assert match["matched_keywords"] == ["React Native", "CI/CD", "GraphQL"]
     assert match["missing_keywords"] == ["Kubernetes", "C++", "C#"]
 

@@ -1,12 +1,38 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-05
+**Last updated:** 2026-10-06
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## Summary/Skills audit evidence, local Skills matching and resume voice
+
+**Status:** Complete locally, not deployed (2026-10-06).
+
+Production traces showed every Medium generation from Oct 4–6 needing a repair. All four Jev rejections were true Summary/Skills claims, and a High draft wrote Experience bullets in first person.
+- Summary and Skills claims are now judged against the whole rendered reviewed resume. The Jev evidence cap is now 12,000 characters, and the Sonnet escalation audit gets every included reviewed section for these kinds.
+- Skills labels and items that equal one in the reviewed Skills section are accepted locally (narrowed after code review from words anywhere in the resume).
+- The writer prompt adds a resume voice rule after the Unslop block, and a local `first_person_narration` check sends offending sections to repair.
+- The Jev evaluation (dataset v2) adds 153 Summary/Skills claims and scores them before and after the change. Medium Summary false rejects fell from 90.5% to 0%, with no invented Summary or Skills claim accepted.
+- Re-scoring the 40 production Summary/Skills claims against the real reviewed resume turned all 4 rejections into accepts.
+- The High reject threshold stays 0.20.
+- Agents tests: 389 passed (after the code-review fixes).
+- Docs updated: `docs/prompts.md`, the pipeline reference page, the Jev evaluation follow-up, and the decisions log.
+
+## High aggressiveness: fit the job, staged writing
+
+**Status:** Complete (2026-10-06). Not yet verified on a live generation.
+
+High now rewrites every role for the target job. Employer, dates and seniority are kept; titles may change role family; bullets may describe new work that fits the role; Skills may add job skills; Education and certifications stay fixed. High writes in three stages (Experience → Projects/other → Skills then Summary), with later stages reading the tailored draft. Its audit is a light fit check, its keyword target is 95%, and High keyword optimization follows High rules. Also fixed for every level: first generation and full regeneration never passed the job's ATS keywords to the section writer. The UI warning and the High details were rewritten, and the PRD, AGENTS files, `docs/prompts.md` and the decision log updated. Tests: agents 370 passed, backend 518 passed, frontend aggressiveness test and type check pass.
+
+## Jev High reject-threshold check and citation wording
+
+**Status:** Complete (2026-10-06); threshold kept at 0.20 (see the entry above).
+
+An outside review suggested that High's 9.5% false-rejection rate needed a wider escalation band. The Jev evaluation now reports fixed comparison rows (accept 0.80; reject 0.20, 0.16, 0.14, 0.12 and 0.10) with false rejects broken down by variant. A fresh fictional-only run (61 bullets, 549 claims, no private resume) cost about $0.20 ($0.18 Sonnet dataset, $0.02 Jev). Medium stays clean at (0.80, 0.20): 99.8% caught, no false rejects, 0.9% escalated. High at 0.20 gives 9.8% false rejects, all of them the "overstated ownership" variant. A 0.12 reject threshold lowers that to 4.5% and raises escalation from 8.4% to 11.7%. Jev accepts no invented claims at any candidate threshold; the extra negatives escalate to Sonnet instead of being rejected. Sonnet's accuracy on the escalated claims is not measured. Production thresholds are unchanged. The pipeline reference and `docs/prompts.md` now say that Summary and Skills cite the frozen reviewed source, not the Experience draft written concurrently. Jev audit tests (15) pass.
 
 ## Generation-to-workbench handoff
 

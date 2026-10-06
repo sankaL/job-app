@@ -51,14 +51,15 @@ export const AGGRESSIVENESS_OPTIONS = [
   {
     value: "high",
     label: "High",
-    description: "Strongest rewrite for job fit. Can add plausible claims, metrics, and tools that are not in your resume.",
+    description: "Rewrites your resume to fit the job. Experience, skills, and summary can include things that aren't true.",
     details: [
-      "Summary: strongest rewrite for role alignment, including plausible job-fit claims and job-description keyword emphasis.",
-      "Professional Experience: aggressively reframe and reprioritize bullets, and add plausible tools, scope, outcomes, and metrics that fit each role; role titles may be rewritten when the new title still matches the demonstrated work. Company, dates, credentials, and education remain fixed.",
-      "Skills: aggressively regroup, prioritize, prune, and expand with job-description keyword skills for fit.",
-      "Education: no factual rewrites beyond minimal formatting cleanup.",
+      "Professional Experience: each role keeps its company and dates. The title can change to fit the job at the same seniority, and any bullet can be replaced with new work that fits the role, matching the job's keywords.",
+      "Projects and other optional sections: rewritten to match the new experience.",
+      "Skills: rebuilt around the job's keywords and the new experience; may include skills you haven't listed.",
+      "Summary: written last, to describe the rewritten resume.",
+      "Education and certifications: unchanged.",
     ],
     warning:
-      "High aggressiveness can add plausible claims, metrics, and tools that are not in your resume, along with substantial changes to wording, role framing, and skills. Company, dates, credentials, and education stay fixed. Check every addition and keep only what you can speak to in an interview.",
+      "High rewrites your resume to fit this job. Titles, bullets, skills, and summary may describe work you haven't done. Only company, dates, seniority, education, and certifications stay true to your resume. You accept that risk: review every line, and remove anything you can't speak to in an interview.",
   },
 ] as const;

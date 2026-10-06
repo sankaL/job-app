@@ -158,7 +158,7 @@ JD_STOPWORDS = {
     "you",
     "your",
 }
-KEYWORD_COVERAGE_TARGETS = {"low": 45, "medium": 65, "high": 80}
+KEYWORD_COVERAGE_TARGETS = {"low": 45, "medium": 65, "high": 95}
 KEYWORD_STATUS_EMPTY = "unavailable"
 KEYWORD_OPTIMIZATION_TARGET = "keyword_optimization"
 

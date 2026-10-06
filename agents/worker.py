@@ -2038,7 +2038,8 @@ async def _validate_generated_sections_with_repair(
             output.sections = [type(section).model_validate(by_id.get(section.id, section.model_dump())) for section in current.sections]
             checked = validate_keyword_document(output=output, current=current,
                 source=validate_resume_document(generation_settings["_source_document"]),
-                privacy_values=generation_settings.get("_privacy_values") or [])
+                privacy_values=generation_settings.get("_privacy_values") or [],
+                aggressiveness=str(generation_settings.get("aggressiveness") or "medium").lower())
         else:
             checked = validate_document_sections(
                 generated_sections=generated_sections, source_payload=generation_settings["_source_document"],

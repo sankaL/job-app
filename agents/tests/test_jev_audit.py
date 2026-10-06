@@ -102,6 +102,73 @@ def test_section_claims_split_bullets_and_sentences_with_role_evidence_and_flag_
     assert set(request["questions"][claims[3].id]["criteria"]) == set(jev_audit.HIGH_OPTIONS)
 
 
+SKILLS_SOURCE = ("- Testing & Automation: Playwright, Selenium, PyTest, JMeter, CI/CD, Agile, Scrum\n"
+                 "- Languages and platforms: Python, JavaScript, SQL, Jira, Azure DevOps, Page Object Model")
+
+
+@pytest.mark.parametrize("group,expected", [
+    # Verbatim source items, reordered under a source label or none: accepted locally.
+    ("Testing & Automation: PyTest, Playwright, CI/CD, Agile, and Scrum", None),
+    ("Python, SQL, Page Object Model, Azure DevOps.", None),
+    # A new label or new item is all Jev judges.
+    ("Test automation and delivery: Playwright, Selenium, PyTest", "Test automation and delivery"),
+    ("Testing & Automation: Playwright, Kubernetes, Selenium", "Kubernetes"),
+    ("Cloud delivery: Python, Terraform", "Cloud delivery: Terraform"),
+    # Whole items only: Java is not JavaScript, and DevOps is not Azure DevOps.
+    ("Python, Java", "Java"),
+    ("Python, DevOps", "DevOps"),
+    ("Strong stakeholder communication", "Strong stakeholder communication"),
+    # Markdown emphasis and parenthesised sub-items are parsed like plain items.
+    ("**Testing & Automation:** Playwright, Selenium", None),
+    ("Python (PyTest, Selenium)", None),
+])
+def test_skills_claim_text_sends_only_non_source_parts_to_jev(group, expected):
+    assert jev_audit.skills_claim_text(group, SKILLS_SOURCE) == expected
+
+
+def test_skills_named_only_outside_the_reviewed_skills_section_still_reach_jev():
+    """Words elsewhere in the resume (an employer, "go-to-market", "R&D", "C++", a replaced tool) are not reviewed skills."""
+    document = validate_resume_document({"schema_version": 1, "revision": 1, "sections": [
+        {"id": "skills", "kind": "skills", "heading": "Skills", "review_state": "reviewed",
+         "content_md": "- Python, Oracle, Go, R, C, Jenkins, Excel, SQL"},
+    ]})
+    experience = ("QA Lead | Oracle | 2020 - Present\n- Led go-to-market testing with the R&D team in C++.\n"
+                  "- Migrated CI off Jenkins; excel at test planning.")
+    texts = {"b1": experience, "skills": SKILLS_SOURCE}
+    resume = "## Experience\n" + experience + "\n\n## Skills\n" + SKILLS_SOURCE
+    claims, _ = jev_audit.section_claims(document.sections, texts, resume=resume, skills_source=SKILLS_SOURCE)
+    assert [c.text for c in claims] == ["Oracle, Go, R, C, Jenkins, Excel"]
+    # Without a reviewed Skills section, nothing is accepted locally.
+    claims, _ = jev_audit.section_claims(document.sections, texts, resume=resume)
+    assert [c.text for c in claims] == ["Python, Oracle, Go, R, C, Jenkins, Excel, SQL"]
+
+
+def test_summary_and_skills_evidence_is_the_whole_resume_and_verbatim_skills_add_no_claim():
+    document = validate_resume_document({"schema_version": 1, "revision": 1, "sections": [
+        {"id": "summary", "kind": "summary", "heading": "Summary", "review_state": "reviewed",
+         "content_md": "Quality lead at Fictional Cedar Labs. Began in verification testing at Fictional Harbor Systems.",
+         "source_ids": ["summary", "b1"]},
+        {"id": "skills", "kind": "skills", "heading": "Skills", "review_state": "reviewed",
+         "content_md": "- Test automation and delivery: Playwright, Selenium, PyTest\n- Python, SQL, Jira\n- Python, Kubernetes"},
+    ]})
+    texts = {"summary": "Quality lead at Fictional Cedar Labs.", "b1": "Leads a QA team.", "skills": SKILLS_SOURCE}
+    resume = ("## Experience\nQA Lead | Fictional Cedar Labs | 2020 - Present\n- Leads a QA team.\n"
+              "Verification Tester | Fictional Harbor Systems | 2012 - 2014\n- Ran verification tests.\n\n## Skills\n" + SKILLS_SOURCE)
+    claims, _ = jev_audit.section_claims(document.sections, texts, resume=resume, skills_source=SKILLS_SOURCE)
+    assert [c.text for c in claims] == ["Quality lead at Fictional Cedar Labs.",
+                                        "Began in verification testing at Fictional Harbor Systems.",
+                                        "Test automation and delivery", "Kubernetes"]
+    # The earliest employer reaches Jev even though the Summary did not cite that role.
+    assert all(c.evidence == resume.strip() for c in claims)
+
+
+def test_resume_evidence_falls_back_to_cited_text_first_when_the_resume_is_too_long():
+    assert jev_audit.resume_evidence("cited", "") == "cited"
+    long_resume = "r" * (jev_audit.MAX_EVIDENCE_CHARS + 10)
+    evidence = jev_audit.resume_evidence("cited", long_resume)
+    assert evidence.startswith("cited\nr") and len(evidence) == jev_audit.MAX_EVIDENCE_CHARS
+
+
 def test_title_claims_route_on_acceptable_reframe_probability():
     parsed = jev_audit.JevAnswer.model_validate({"type": "choice", "choice": "unsupported_role_reframe", "confidence": 0.9,
         "probabilities": {"acceptable_reframe": 0.05, "unsupported_role_reframe": 0.95}})

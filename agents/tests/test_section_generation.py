@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import section_generation as pipeline
 from resume_document import validate_resume_document, render_resume_document
+from unslop_prompt import build_unslop_prompt_block
 from worker import build_generation_success_payload, _stored_generation_settings
 
 
@@ -299,6 +300,44 @@ def test_unsupported_credential_is_rejected_even_with_valid_source_refs():
         pipeline.apply_section_rewrite(source=doc.sections[0], rewrite=rewrite, document=doc, aggressiveness='medium')
 
 
+@pytest.mark.parametrize('aggressiveness', ['medium', 'high'])
+@pytest.mark.parametrize('text', [
+    'Improved Python API latency by 35%. I checked FastAPI services weekly.',
+    'Improved Python API latency by 35% and I handle FastAPI services.',
+    "Improved Python API latency by 35%, which I've kept for FastAPI services.",
+    'Improved Python API latency by 35%, which I’ve kept for FastAPI services.',
+    'Improved my Python API latency by 35% in FastAPI services.',
+])
+def test_first_person_bullets_are_rejected_for_repair(text, aggressiveness):
+    doc = validate_resume_document(source_document())
+    output = experience_output()
+    output['entries'][0]['bullets'][0]['text'] = text
+    with pytest.raises(pipeline.SectionValidationError, match='first_person_narration'):
+        pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=output, document=doc, aggressiveness=aggressiveness)
+
+
+def test_first_person_check_ignores_roman_numerals_and_keeps_a_first_person_source():
+    payload = source_document()
+    doc = validate_resume_document(payload)
+    output = experience_output()
+    output['entries'][0]['bullets'][0]['text'] = 'Improved Python API latency by 35% and ran Tier I support for FastAPI services.'
+    pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=output, document=doc, aggressiveness='medium')
+    payload['sections'][0]['content_md'] = 'I built Python APIs.'
+    doc = validate_resume_document(payload)
+    rewrite = summary_output()
+    rewrite['paragraph'] = 'I build and maintain Python APIs.'
+    rendered = pipeline.apply_section_rewrite(source=doc.sections[0], rewrite=rewrite, document=doc, aggressiveness='medium')
+    assert rendered.content_md == 'I build and maintain Python APIs.'
+
+
+def test_writer_prompt_overrides_unslop_first_person_advice_with_resume_voice():
+    doc = validate_resume_document(source_document())
+    system = pipeline.build_section_prompt(source=doc, requested=doc.sections[:1], generation_settings={},
+        job_title='Engineer', company_name='Acme', job_description='Build APIs.',
+        instructions=None, current=None, target_entry_id=None)[0][1]
+    assert system.index(pipeline.RESUME_VOICE_RULE) > system.index(build_unslop_prompt_block())
+
+
 @pytest.mark.asyncio
 async def test_existing_frozen_snapshot_is_preserved_exactly(monkeypatch):
     document = validate_resume_document(source_document()).model_dump(mode='json')
@@ -523,9 +562,10 @@ async def test_repeated_semantic_rejection_supplies_feedback_and_switches_repair
         '_repair_model':'repair-primary','_repair_fallback_model':'repair-fallback'},
         section_preferences=[],job_title='Engineer',company_name='Example',job_description='Build APIs',
         model='tier1-primary',fallback_model='tier1-fallback',api_key='test',base_url='https://provider.invalid/v1',on_progress=None)
-    # Round 0 writes both groups; repeated Summary rejection switches to the repair fallback writer.
-    assert [write['model_name'] for write in writes] == ['tier1-primary','tier1-primary','repair-primary','repair-fallback']
-    for write in writes[2:]:
+    # High writes three stages; repeated Summary rejection switches to the repair fallback writer.
+    assert [write['model_name'] for write in writes] == ['tier1-primary','tier1-primary','tier1-primary','repair-primary','repair-fallback']
+    assert [requested_ids(write) for write in writes][:3] == [['experience-id'], ['custom-id'], ['summary-id']]
+    for write in writes[3:]:
         feedback = json.loads(write['prompt'][-1][1])
         assert feedback['repair_only_section_ids'] == ['summary-id']
         assert feedback['rejected_outputs'][0]['id'] == 'summary-id'
@@ -654,7 +694,8 @@ async def test_grounding_context_keeps_included_cross_section_citations_and_omit
         payload = json.loads(kwargs['prompt'][1][1])
         calls.append(payload)
         if kwargs['output_type'] is pipeline.GroundingAudit:
-            assert [s['id'] for s in payload['reviewed_source']['sections']] == ['summary-id', 'experience-id']
+            # Summary is judged against every included reviewed section, not only its citations.
+            assert [s['id'] for s in payload['reviewed_source']['sections']] == ['summary-id', 'experience-id', 'education-id']
             return pipeline.GroundingAudit(sections=[pipeline.GroundingAssessment(id='summary-id', supported=True, issues=[])])
         assert [s['id'] for s in payload['reviewed_source']['sections']] == ['summary-id', 'experience-id', 'education-id']
         return pipeline.SectionBatch(sections=[{'id': 'summary-id', 'paragraph': 'Built Python APIs with 35% lower latency.', 'source_ids': ['bullet-one'], 'entries': []}])
@@ -816,7 +857,8 @@ def test_high_allows_plausible_new_metrics_but_keeps_years_and_strict_modes_boun
     ('high', 'generation', pipeline.HIGH_FIT_CLAIM_POLICY),
     ('medium', 'generation', pipeline.STRICT_CLAIM_POLICY),
     ('low', 'generation', pipeline.STRICT_CLAIM_POLICY),
-    ('high', 'keyword_optimization', pipeline.STRICT_CLAIM_POLICY),
+    ('high', 'keyword_optimization', pipeline.HIGH_FIT_CLAIM_POLICY),
+    ('medium', 'keyword_optimization', pipeline.STRICT_CLAIM_POLICY),
 ])
 def test_writer_claim_policy_follows_aggressiveness(aggressiveness, operation, expected):
     doc = validate_resume_document(source_document())
@@ -832,36 +874,125 @@ def test_grounding_audit_prompt_is_plausibility_based_only_for_high():
     high = pipeline.grounding_audit_system_prompt('high')
     medium = pipeline.grounding_audit_system_prompt('medium')
     assert 'implausible_claim' in high and 'unsupported_date_or_tenure' in high and 'unsupported_employer' in high
-    assert 'plausible for the cited role' in high
+    assert 'light fit check' in high and 'tailored_draft' in high and 'core role family' not in high
     assert 'supported by its cited source' in medium and 'plausible' not in medium
 
 
 @pytest.mark.asyncio
-async def test_high_keyword_audit_rejects_unsupported_technology_with_strict_policy(monkeypatch):
+@pytest.mark.parametrize('aggressiveness', ['medium', 'high'])
+async def test_keyword_audit_follows_the_selected_level(monkeypatch, aggressiveness):
     doc = validate_resume_document(source_document())
     rewritten, view = pipeline.apply_keyword_patch(
         patch={'id': 'summary-id', 'paragraph': 'Built Python APIs using Kubernetes.', 'source_ids': ['summary-id']},
-        source=doc.sections[0], current=doc.sections[0], document=doc, privacy_values=[],
+        source=doc.sections[0], current=doc.sections[0], document=doc, privacy_values=[], aggressiveness=aggressiveness,
     )
     assert 'Kubernetes' in rewritten.content_md  # Local citation checks cannot decide technology support.
 
-    async def strict_audit(**kwargs):
-        assert 'supported by its cited source' in kwargs['prompt'][0][1]
-        assert 'plausible for the cited role' not in kwargs['prompt'][0][1]
-        assert json.loads(kwargs['prompt'][1][1])['aggressiveness'] == 'medium'
+    async def audit(**kwargs):
+        system = kwargs['prompt'][0][1]
+        assert ('light fit check' in system) == (aggressiveness == 'high')
+        assert json.loads(kwargs['prompt'][1][1])['aggressiveness'] == aggressiveness
         return pipeline.GroundingAudit(sections=[{'id': 'summary-id', 'supported': False, 'issues': ['unsupported_technology']}]), 'audit'
 
-    monkeypatch.setattr(pipeline, 'call_with_fallback', strict_audit)
+    monkeypatch.setattr(pipeline, 'call_with_fallback', audit)
     result = await pipeline.audit_section_grounding(sections=[view], source=doc,
-        generation_settings={'aggressiveness': 'high', '_operation': 'keyword_optimization'},
+        generation_settings={'aggressiveness': aggressiveness, '_operation': 'keyword_optimization'},
         model='audit', api_key='test', base_url='https://provider.invalid', budget=pipeline.CallBudget.for_seconds(5))
     assert result == {'summary-id': 'unsupported_technology'}
     prompt = pipeline.build_section_prompt(source=doc, requested=doc.sections[:2],
-        generation_settings={'aggressiveness': 'high', '_operation': 'keyword_optimization'},
+        generation_settings={'aggressiveness': aggressiveness, '_operation': 'keyword_optimization'},
         job_title='Engineer', company_name='Acme', job_description='Kubernetes', instructions=None, current=doc, target_entry_id=None)
     human = json.loads(prompt[1][1])
-    assert 'plausible' not in json.dumps(human['aggressiveness_contract'])
+    assert ('plausible' in json.dumps(human['aggressiveness_contract'])) == (aggressiveness == 'high')
     assert human['title_policy'] == 'Preserve current titles exactly.'
+
+
+def test_writer_receives_job_keywords_from_generation_settings():
+    doc = validate_resume_document(source_document())
+    prompt = pipeline.build_section_prompt(source=doc, requested=doc.sections[:1],
+        generation_settings={'aggressiveness': 'medium', 'job_keywords': ['Kubernetes', 'Terraform'], 'keyword_coverage_target': 65},
+        job_title='Engineer', company_name='Acme', job_description='Kubernetes and Terraform.', instructions=None, current=None, target_entry_id=None)
+    contract = json.loads(prompt[1][1])['keyword_contract']
+    assert contract['job_keywords'] == ['Kubernetes', 'Terraform'] and contract['coverage_target_percent'] == 65
+
+
+def test_high_stages_write_experience_then_other_sections_then_skills_before_summary():
+    source = source_document()
+    source['sections'].append({'id': 'skills-id', 'kind': 'skills', 'heading': 'Skills', 'enabled': True,
+                               'review_state': 'reviewed', 'content_md': 'Python, FastAPI'})
+    doc = validate_resume_document(source)
+    writable = [section for section in doc.sections if section.kind != 'education']
+    assert [[s.id for s in stage] for stage in pipeline._high_stages(writable)] == [
+        ['experience-id'], ['custom-id'], ['skills-id', 'summary-id']]
+    assert [[s.id for s in stage] for stage in pipeline._high_stages([doc.sections[0]])] == [['summary-id']]
+
+
+@pytest.mark.asyncio
+async def test_high_generation_is_staged_and_later_stages_see_the_tailored_experience(monkeypatch):
+    calls, audits = [], []
+    tailored = experience_output()
+    tailored['entries'][0]['title'] = 'Platform Engineer'
+    tailored['entries'][0]['bullets'] = [
+        {'text': 'Ran Kubernetes deployments for the Python API platform.', 'source_ids': ['role-one']},
+        {'text': 'Built Terraform modules for shared infrastructure.', 'source_ids': ['role-one']},
+    ]
+    async def call(**kwargs):
+        kwargs['budget'].requests += 1
+        payload = json.loads(kwargs['prompt'][1][1])
+        if kwargs['output_type'] is pipeline.GroundingAudit:
+            audits.append(payload)
+            return pipeline.GroundingAudit(sections=[{'id': s['id'], 'supported': True, 'issues': []} for s in payload['sections_to_verify']])
+        calls.append(payload)
+        outputs = {'summary-id': {**summary_output(), 'paragraph': 'Platform engineer running Kubernetes and Terraform for Python APIs.'},
+                   'experience-id': tailored, 'custom-id': custom_output()}
+        return pipeline.SectionBatch.model_validate({'sections': [outputs[s['id']] for s in payload['requested_sections']]})
+    monkeypatch.setattr(pipeline, 'structured_call', call)
+    progress = []
+    async def on_progress(percent, message):
+        progress.append(message)
+    result = await pipeline.generate_document(source_payload=source_document(), generation_settings={
+        'aggressiveness': 'high', 'job_keywords': ['Kubernetes'], 'keyword_coverage_target': 95},
+        section_preferences=[], job_title='Platform Engineer', company_name='Example', job_description='Kubernetes, Terraform',
+        model='primary', fallback_model='fallback', api_key='test', base_url='https://provider.invalid/v1', on_progress=on_progress)
+    assert [[s['id'] for s in call['requested_sections']] for call in calls] == [['experience-id'], ['custom-id'], ['summary-id']]
+    assert 'tailored_draft' not in calls[0]
+    assert [s['id'] for s in calls[2]['tailored_draft']] == ['experience-id', 'custom-id']
+    assert calls[2]['tailored_draft'][0]['entries'][0]['fields']['title'] == 'Platform Engineer'
+    assert calls[2]['keyword_contract']['job_keywords'] == ['Kubernetes']
+    # The Summary audit sees the tailored experience it describes.
+    assert 'Platform Engineer' in json.dumps(audits[-1]['tailored_draft'])
+    assert progress == ['Tailoring experience to the job', 'Tailoring projects and other sections',
+                        'Matching skills and summary to the tailored experience']
+    doc = validate_resume_document(result['document'])
+    role = doc.sections[1].entries[0]
+    assert (role.fields['title'], role.fields['company'], role.fields['date_range']) == ('Platform Engineer', 'Acme', '2020 - 2024')
+    # New work cites the role itself; each bullet still gets a unique stable ID.
+    assert all(bullet.id.startswith('tailored-') for bullet in role.bullets) and len({b.id for b in role.bullets}) == 2
+    checked = pipeline.validate_document_sections(generated_sections=result['sections'], source_payload=source_document(),
+        generation_settings={'aggressiveness': 'high'}, expected_ids=[s['name'] for s in result['sections']])
+    assert checked['valid'], checked
+
+
+def test_only_high_bullets_may_cite_their_role_and_raise_seniority_still_fails():
+    doc = validate_resume_document(source_document())
+    rewrite = experience_output()
+    rewrite['entries'][1]['bullets'] = [{'text': 'Built a React dashboard for internal tools.', 'source_ids': ['role-two']}]
+    rendered = pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=rewrite, document=doc, aggressiveness='high')
+    assert rendered.entries[1].bullets[0].source_ids == ['role-two']
+    with pytest.raises(pipeline.SectionValidationError, match='cross_entry_source_reference'):
+        pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=rewrite, document=doc, aggressiveness='medium')
+    rewrite['entries'][1]['title'] = 'Senior Software Developer'
+    with pytest.raises(pipeline.SectionValidationError, match='unsupported_role_title'):
+        pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=rewrite, document=doc, aggressiveness='high')
+
+
+def test_high_prose_may_name_a_new_title_but_not_a_new_employer_or_credential():
+    texts = {'summary-id': 'Backend engineer at Acme building Python APIs.'}
+    pipeline._check_grounding('Platform Engineer at Acme running Python APIs.', ['summary-id'], texts, aggressiveness='high')
+    with pytest.raises(pipeline.SectionValidationError, match='unsupported_employer_or_credential'):
+        pipeline._check_grounding('Platform Engineer at Globex running Python APIs.', ['summary-id'], texts, aggressiveness='high')
+    with pytest.raises(pipeline.SectionValidationError, match='unsupported_employer_or_credential'):
+        pipeline._check_grounding('Certified Kubernetes Administrator building Python APIs.', ['summary-id'], texts, aggressiveness='high')
 
 
 def test_high_section_rules_allow_plausible_metrics_but_keyword_rules_stay_strict():
@@ -931,6 +1062,34 @@ async def _jev_audit(monkeypatch, decisions, *, llm_supported=True, jev_raises=F
         generation_settings={'aggressiveness': 'medium', '_jev_audit_model': 'typesafe/jev-1.13'},
         model='tier1', fallback_model='tier2', api_key='test', base_url='https://provider.invalid/v1', budget=budget)
     return result, llm_calls, budget
+
+
+@pytest.mark.asyncio
+async def test_jev_summary_evidence_covers_uncited_roles_and_verbatim_skills_skip_jev(monkeypatch):
+    seen = []
+    async def decide(claims, level, **_kwargs):
+        seen.extend(claims)
+        return await _jev_answers({})(claims, level)
+    monkeypatch.setattr(pipeline.jev_audit, 'decide', decide)
+    payload = source_document()
+    payload['sections'].append({'id': 'skills-id', 'kind': 'skills', 'heading': 'Skills', 'enabled': True,
+                                'review_state': 'reviewed', 'content_md': '- Languages: Python, FastAPI, SQL'})
+    doc = validate_resume_document(payload)
+    written = doc.model_copy(deep=True)
+    written.sections[0].content_md = 'Builds Python APIs. Started as a Software Developer at Example.'
+    written.sections[0].source_ids = ['summary-id']
+    # The employer is in the resume but not in its Skills section, so it is not a locally accepted skill.
+    written.sections[-1].content_md = '- Languages: SQL, Python\n- API delivery: FastAPI\n- Example'
+    budget = pipeline.CallBudget.for_seconds(10, max_requests=4)
+    result = await pipeline.audit_section_grounding(sections=[written.sections[0], written.sections[-1]], source=doc,
+        generation_settings={'aggressiveness': 'medium', '_jev_audit_model': 'typesafe/jev-1.13'},
+        model='tier1', fallback_model='tier2', api_key='test', base_url='https://provider.invalid/v1', budget=budget)
+    assert result == {}
+    assert [claim.text for claim in seen] == ['Builds Python APIs.', 'Started as a Software Developer at Example.', 'API delivery', 'Example']
+    # The uncited earlier role and the Skills section are part of the Summary's evidence.
+    assert seen[1].evidence == render_resume_document(doc).strip()
+    assert 'Example' in seen[1].evidence and 'Languages: Python, FastAPI, SQL' in seen[1].evidence
+    assert budget.attempts[-1]['local_skill_groups'] == 1
 
 
 @pytest.mark.asyncio

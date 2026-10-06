@@ -135,7 +135,7 @@ footer { color: var(--muted); font-size: var(--step--1); border-top: 1px solid v
     </div>
     <div class="figures" aria-label="Measured results on one real resume, sequential live runs">
       <div class="figure"><b>~15 s</b><span>Medium generation, median (was 77.6 s)</span></div>
-      <div class="figure"><b>12–17 s</b><span>High generation (was 33.1 s)</span></div>
+      <div class="figure"><b>12–17 s</b><span>High generation on Oct 4 (was 33.1 s); staged High since Oct 6 is expected at 25–35 s</span></div>
       <div class="figure"><b>12–14 s</b><span>First verified sections visible</span></div>
       <div class="figure"><b>~$0.06</b><span>Model cost per generation (was ~$0.12–0.16)</span></div>
     </div>
@@ -163,7 +163,7 @@ footer { color: var(--muted); font-size: var(--step--1); border-top: 1px solid v
         <div class="lane">
           <h3>Group 1 · Professional Experience</h3>
           <div class="step"><strong>Write</strong><span><span class="pill teal">resume_writer</span> Sonnet 5.5, reasoning capped at 2k tokens. About 11–17 s; this group sets the total time.</span></div>
-          <div class="step"><strong>Check locally</strong><span>Schema, same-role citations, numbers, employers and credentials, title rules, contact patterns. No model involved.</span></div>
+          <div class="step"><strong>Check locally</strong><span>Schema, same-role citations, numbers, employers and credentials, title rules, contact patterns, first-person narration. No model involved.</span></div>
           <div class="step"><strong>Jev claim audit</strong><span><span class="pill teal">claim_audit</span> One Decisions question per bullet and per renamed role title, 6 per batch, run in parallel. About 0.2–1 s.</span></div>
           <div class="step side"><strong>Escalate uncertain claims</strong><span><span class="pill orange">audit_escalation</span> Only the uncertain claims go to Sonnet, with Gemini as fallback. About 2–5 s, and often skipped.</span></div>
           <div class="step"><strong>Stream to the preview</strong><span>Verified sections go out as <code>partial_sections</code> on progress events.</span></div>
@@ -171,7 +171,7 @@ footer { color: var(--muted); font-size: var(--step--1); border-top: 1px solid v
         <div class="lane">
           <h3>Group 2 · Summary, Skills and other sections</h3>
           <div class="step"><strong>Write</strong><span><span class="pill teal">resume_writer</span> Sonnet 5.5 · about 10–13 s.</span></div>
-          <div class="step"><strong>Check locally</strong><span>Summary always cites its own source. Summary and Skills may cite Experience bullets.</span></div>
+          <div class="step"><strong>Check locally</strong><span>Summary always cites its own source. Summary and Skills may cite Experience bullets from the reviewed source, not the Experience draft being written alongside them.</span></div>
           <div class="step"><strong>Jev claim audit</strong><span>One question per Summary sentence and per Skills group.</span></div>
           <div class="step side"><strong>Escalate uncertain claims</strong><span>Summary sentences escalate most often (1–2 per resume at Medium). The Sonnet check finishes while Group 1 is still writing, so it adds no time.</span></div>
           <div class="step"><strong>Stream to the preview</strong><span>This group usually appears first, at about 12–14 s.</span></div>
@@ -181,7 +181,7 @@ footer { color: var(--muted); font-size: var(--step--1); border-top: 1px solid v
       <div class="arrow" aria-hidden="true"></div>
       <div class="loop">
         <strong>Repair rounds 1–2 (only for failed sections)</strong>
-        <p><span class="pill orange">repair_writer</span> Sonnet 5.5 rewrites only the failed sections, using the rejected output and the issue codes as feedback. Round 2 switches to GPT 6.1 Sol. A round starts only when its writes plus one audit still fit the 10-request budget. In the latest live runs, no repairs were needed.</p>
+        <p><span class="pill orange">repair_writer</span> Sonnet 5.5 rewrites only the failed sections, using the rejected output and the issue codes as feedback. Round 2 switches to GPT 6.1 Sol. A round starts only when its writes plus one audit still fit the 10-request budget. The Oct 4 benchmark needed none, but 5 of 5 Medium production runs (Oct 4&ndash;6) needed one, 4 of them caused by false Summary/Skills rejections that the Oct 6 evidence change fixes.</p>
       </div>
       <div class="arrow" aria-hidden="true"></div>
       <div class="loop">
@@ -208,8 +208,8 @@ footer { color: var(--muted); font-size: var(--step--1); border-top: 1px solid v
       <table>
         <thead><tr><th>Operation</th><th>First writer</th><th>Writer calls</th><th>Audit level</th><th>When a section can't be verified</th><th>Deadline</th></tr></thead>
         <tbody>
-          <tr><td>Initial generation</td><td><span class="mono">resume_writer</span></td><td>2 in parallel</td><td>Selected aggressiveness</td><td><span class="pill ok">keep original</span></td><td class="num">240 s</td></tr>
-          <tr><td>Full regeneration</td><td><span class="mono">resume_writer</span></td><td>2 in parallel</td><td>Selected aggressiveness</td><td><span class="pill ok">keep current draft text</span></td><td class="num">240 s</td></tr>
+          <tr><td>Initial generation</td><td><span class="mono">resume_writer</span></td><td>2 in parallel (High since Oct 6: 3 in sequence)</td><td>Selected aggressiveness</td><td><span class="pill ok">keep original</span></td><td class="num">240 s</td></tr>
+          <tr><td>Full regeneration</td><td><span class="mono">resume_writer</span></td><td>2 in parallel (High since Oct 6: 3 in sequence)</td><td>Selected aggressiveness</td><td><span class="pill ok">keep current draft text</span></td><td class="num">240 s</td></tr>
           <tr><td>Section regeneration</td><td><span class="mono">section_writer</span></td><td>1</td><td>Selected aggressiveness</td><td><span class="pill stop">fail, previous draft kept</span></td><td class="num">120 s</td></tr>
           <tr><td>Role (entry) regeneration</td><td><span class="mono">section_writer</span></td><td>1, one role only</td><td>Selected aggressiveness</td><td><span class="pill stop">fail, previous draft kept</span></td><td class="num">120 s</td></tr>
           <tr><td>Keyword optimization</td><td><span class="mono">section_writer</span></td><td>1, minimal patches</td><td>Always Medium (strict)</td><td><span class="pill stop">fail, previous draft kept</span></td><td class="num">240 s</td></tr>
@@ -221,7 +221,7 @@ footer { color: var(--muted); font-size: var(--step--1); border-top: 1px solid v
   <section aria-labelledby="audit-title">
     <span class="eyebrow">Grounding audit</span>
     <h2 id="audit-title">How Jev decides, and when Sonnet steps in</h2>
-    <p>Each claim's evidence is the text it cites plus the whole reviewed role it belongs to. Jev returns a probability for each option. Routing uses the probability of the passing option.</p>
+    <p>A bullet's evidence is the text it cites plus the whole reviewed role it belongs to. A Summary sentence or Skills group is judged against the whole reviewed resume, and Skills labels and items that equal one in the reviewed Skills section are accepted without asking Jev. Jev returns a probability for each option. Routing uses the probability of the passing option.</p>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Claim type</th><th>Medium and Low options</th><th>High options</th><th>Accept when</th><th>Reject when</th><th>Otherwise</th></tr></thead>
@@ -238,6 +238,7 @@ footer { color: var(--muted); font-size: var(--step--1); border-top: 1px solid v
           <li>Labelled set of 684 claims. Medium: 99.2% of invented claims caught, 0% of good claims rejected, 1.2% escalated.</li>
           <li>High: 96.6% caught, 9.5% of good claims rejected, 7.6% escalated.</li>
           <li>Renamed titles (16 scenarios): every seniority bump and change of field rejected, all scoring ≤ 0.09.</li>
+          <li>Summary and Skills (Oct 6, 153 claims): Medium Summary good claims rejected fell from 90.5% to 0% with whole-resume evidence; no invented Summary or Skills claim accepted at either level.</li>
         </ul>
       </div>
       <div class="note">

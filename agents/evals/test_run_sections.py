@@ -73,8 +73,9 @@ async def test_all_synthetic_cases_use_real_runtime_without_network(monkeypatch)
     assert len(report["results"]) == len(CASES)
     for case in report["results"]:
         assert case["status"] == "passed", case
-    # Parallel writer groups are written and audited separately (Experience vs other sections).
-    assert report["totals"]["requests"] == 28
+    # Parallel writer groups are written and audited separately (Experience vs other sections);
+    # High writes and audits three stages in order (Experience, other sections, Skills and Summary).
+    assert report["totals"]["requests"] == 30
     assert report["totals"]["schema_correction_requests"] == 1
     assert report["totals"]["section_repair_calls"] == 2
     assert report["totals"]["cost_kind"] == "synthetic_fixture"

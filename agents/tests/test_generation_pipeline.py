@@ -1216,11 +1216,11 @@ def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_expe
     )
 
     system_prompt = prompt[0][1]
-    assert "you may add plausible job-fit claims, including technologies, scope, outcomes" in system_prompt.lower()
-    assert "never invent or change employers" in system_prompt.lower()
-    assert "you should actively retitle the role name for alignment or adjacent role framing" in system_prompt.lower()
-    assert "materially rewrite bullet framing in the first up to 2 source-ordered roles that have bullets" in system_prompt.lower()
-    assert "keep company and dates unchanged" in system_prompt.lower()
+    assert "new bullets may describe technologies, tools, responsibilities, projects, scope, outcomes and metrics" in system_prompt.lower()
+    assert "never invent employers" in system_prompt.lower()
+    assert "retitle each role to the closest fit for the target job at the same seniority" in system_prompt.lower()
+    assert "rewrite every role for the target job" in system_prompt.lower()
+    assert "employer and dates fixed" in system_prompt.lower()
     assert "Worked example of bounded medium title reframing" in system_prompt
     assert "Worked example of material Professional Experience tailoring inside fixed role order" in system_prompt
     assert "Worked example of bounded professional inference in high aggressiveness" in system_prompt
@@ -1229,9 +1229,9 @@ def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_expe
 
     human_payload = json.loads(prompt[1][1])
     title_policy = human_payload["professional_experience_structure_contract"]["title_rewrite_policy"]
-    assert title_policy["mode"] == "active_grounded_retitle"
+    assert title_policy["mode"] == "job_fit_retitle"
     assert "jobs[].title" in title_policy["jobs_title_instruction"]
-    assert "Do not default to the source title when grounded target alignment is clear" in title_policy["jobs_title_instruction"]
+    assert "closest fit for the target job at the same seniority" in title_policy["jobs_title_instruction"]
 
     section_prompt = generation._build_section_regeneration_prompt(
         section_name="professional_experience",
@@ -1262,7 +1262,7 @@ def test_high_generation_prompt_allows_truthful_role_title_rewrites_only_in_expe
     assert "source_limited_allowed" not in section_human_payload["length_contract"]
     assert (
         section_human_payload["professional_experience_structure_contract"]["title_rewrite_policy"]["mode"]
-        == "active_grounded_retitle"
+        == "job_fit_retitle"
     )
 
 

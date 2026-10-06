@@ -68,7 +68,10 @@ DIMENSION_NOTES = {
         "Score 0-10 for natural, human, non-template writing quality and resistance to obvious AI phrasing patterns."
     ),
     "grounding_integrity": (
-        "Score 0-10 for staying within the facts of the sanitized base resume for the selected aggressiveness."
+        "Score 0-10 for staying within the facts of the sanitized base resume for the selected aggressiveness. "
+        "At high aggressiveness the user accepted invented job-fit work: do not penalize new bullets, skills, metrics or a retitle "
+        "at the same seniority that could fit the role; penalize only changed employers, dates, tenure, education or credentials, "
+        "and claims that could not fit the role or its period."
     ),
     "ats_safety_and_formatting": (
         "Score 0-10 for ATS safety, clean Markdown structure, and absence of forbidden formatting/contact leakage in the sanitized draft."

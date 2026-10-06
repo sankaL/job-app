@@ -1,3 +1,33 @@
+## 2026-10-06 EDT - High aggressiveness rewrites the resume to fit the job, written in stages
+
+- Context: The user found High too cautious. It rewrote mainly the first two roles, kept titles within the "demonstrated work", and audited every addition against the source role. The user wants High to fit the job closely and accepts that the result may describe work they have not done, as long as each claim makes sense within its role.
+- Decision (user-approved options):
+  - High keeps each role's employer and dates. Titles may move to any role family at the same seniority; seniority stays fixed because reference checks verify titles. Any bullet may be replaced with new work that could fit the role, employer and period. Skills may add job skills. Education and certifications stay fixed. Employers, dates, tenure, credentials and personal information are never invented.
+  - Generation at High is staged in three steps: Experience; then Projects and other optional sections; then Skills and Summary in one call, with Skills first. Later stages receive the tailored draft as `tailored_draft`. Expected latency rises from about 12–17 s to about 25–35 s, and the request budget from 10 to 14.
+  - The High audit becomes a light fit check (Jev options and the LLM escalation prompt). It fails only identity changes, seniority changes and claims that could not fit the role, such as an anachronistic technology or absurd scale. High Summary/Skills are judged against the tailored draft.
+  - High's ATS keyword target rises from 80% to 95%. Keyword optimization at High follows High rules in the section pipeline; the legacy Markdown keyword path stays strict.
+  - Bug fix (all levels): the section writer read keywords only from `keyword_optimization`/`keyword_coverage`, but the backend sends `job_keywords`/`keyword_coverage_target`. First generation and full regeneration therefore never saw the ATS keywords. The writer now receives them in `keyword_contract`. This likely explains the open "1/24 keywords matched" todo item.
+- Rejected alternatives:
+  - Four separate calls (Skills, then Summary): about 10 s slower for the same consistency.
+  - Allowing seniority changes in titles.
+  - Dropping the High audit entirely: the light check still catches anachronisms and identity changes at about 1 s cost.
+  - Adding a fourth "Max" level: the user asked for High itself to change.
+- Consequences: High drafts can contain fabricated work by design. The UI warning now says so and asks the user to accept the risk and review every line. Bullets that cite only their role get `tailored-` IDs. Low and Medium behaviour is unchanged apart from now receiving the job keywords. Not yet measured on live runs: real High latency, repair rates under the light check, and keyword coverage.
+
+## 2026-10-06 EDT - Whole-resume evidence for Summary/Skills audits, local Skills matching, resume voice rule
+
+- Context: Every Medium production generation from Oct 4–6 (5 of 5) needed a repair, adding 4–13 s and about $0.02 each. Reading the traces showed that all four Jev rejections were true claims. Two were Summary sentences whose facts the writer had not cited (the earliest employer, and languages listed under Skills); two were Skills groups copied word for word from the source. The bullet-only Jev evaluation never covered these claim kinds. Separately, a production High draft wrote Experience bullets in first person: the shared Unslop policy says "Use 'I' when it fits", and the section writer had lost the legacy no-first-person rule.
+- Decision (user-approved):
+  - Summary and Skills claims are judged against the whole rendered reviewed resume, not only their citations. The Jev evidence cap rises from 4,000 to 12,000 characters, and the Sonnet escalation audit receives every included reviewed section for these kinds.
+  - Skills labels and items that equal a label or item of the reviewed Skills section are accepted locally; Jev judges only the rest. A code review found that the first version matched words anywhere in the resume, so an employer name, "Go" from "go-to-market" or "R" from "R&D" could pass as a skill without an audit. Matching against Skills items only kept the same 19 local accepts on the labelled set.
+  - The writer system prompt adds a resume voice rule after the Unslop block. A local check rejects first-person narration for repair, unless the cited source already uses first person.
+- Rejected alternatives:
+  - Appending only role headers and Skills to the cited text. It still rejected 47.6% of faithful Medium Summary sentences, because those sentences drew on earlier roles' bullets.
+  - Lowering the High reject threshold to 0.12. It halves High bullet false rejects, but those are all the debatable "overstated ownership" variant. The production High run had no claim below 0.58, and a lower threshold would not have helped these Summary/Skills cases (P ≤ 0.13). It stays 0.20.
+  - Prompting writers to cite more completely. That is less reliable than giving the auditor the whole resume.
+- Evidence: Labelled dataset v2 adds 153 Summary/Skills claims. Medium Summary false rejects fell from 90.5% to 0%; no invented Summary or Skills claim was accepted at either level. Re-scoring the 40 production Summary/Skills claims against the real reviewed resume turned all 4 rejections into accepts and cut escalations from 8 to 3. Details: `docs/task-output/2026-10-04-jev-audit-evaluation.md`.
+- Consequences: Expected Medium repairs drop from 5 of 5 to about 1 of 5 for this resume; the remaining one was Sonnet correctly catching a new outcome in a bullet. Summary/Skills Jev requests carry more evidence text, which is still a fraction of a cent. Long-resume accuracy (over 12,000 characters, when the cited-first fallback applies) is unmeasured. Watch `local_skill_groups`, rejections and repair counts in LangSmith after deploy.
+
 ## 2026-10-04 19:00:00 EDT - Code review fixes for generation speed work
 
 - Context: Two review passes over the generation-speed branch. Fixes were made only where behaviour departed from the spec or the earlier decisions; intended choices were kept.

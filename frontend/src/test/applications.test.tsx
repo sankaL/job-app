@@ -3613,20 +3613,20 @@ describe("phase 1 applications UI", () => {
       await screen.findByRole("heading", { name: /generation settings/i }),
     ).toBeInTheDocument();
 
-    expect(screen.getByText(/professional experience: aggressively reframe/i)).not.toBeVisible();
+    expect(screen.getByText(/professional experience: each role keeps its company and dates/i)).not.toBeVisible();
     await userEvent.hover(screen.getByRole("button", { name: "High aggressiveness" }));
 
-    const experienceHelp = screen.getByText(/professional experience: aggressively reframe and reprioritize bullets, and add plausible tools, scope, outcomes, and metrics/i);
+    const experienceHelp = screen.getByText(/professional experience: each role keeps its company and dates\. the title can change to fit the job at the same seniority/i);
     await waitFor(() => expect(experienceHelp).toBeVisible());
     const tooltip = experienceHelp.closest('[role="tooltip"]') as HTMLElement;
     expect(
       within(tooltip).getByText(
-        /role titles may be rewritten when the new title still matches the demonstrated work\. company, dates, credentials, and education remain fixed\./i,
+        /skills: rebuilt around the job's keywords and the new experience/i,
       ),
     ).toBeVisible();
     expect(
       within(tooltip).getByText(
-        /education: no factual rewrites beyond minimal formatting cleanup\./i,
+        /education and certifications: unchanged\./i,
       ),
     ).toBeVisible();
     await userEvent.unhover(screen.getByRole("button", { name: "High aggressiveness" }));
@@ -3636,7 +3636,7 @@ describe("phase 1 applications UI", () => {
     expect(slider).toHaveAttribute("aria-valuenow", "2");
     expect(
       await screen.findByText(
-        /high aggressiveness can add plausible claims, metrics, and tools that are not in your resume/i,
+        /high rewrites your resume to fit this job/i,
       ),
     ).toBeInTheDocument();
   });
