@@ -39,6 +39,15 @@ Production traces showed every Medium generation from Oct 4–6 needing a repair
 - Agents tests: 389 passed (after the code-review fixes).
 - Docs updated: `docs/prompts.md`, the pipeline reference page, the Jev evaluation follow-up, and the decisions log.
 
+## Production deployment of saved preferences and staged High
+
+**Status:** Deployed (2026-10-06 13:28 EDT).
+
+- **Migration:** migration 024 went to production before the API, in one transaction with its ledger row (lock timeout 5 s, statement timeout 60 s). Readback: `applications.generation_preferences` is nullable `jsonb`, the ledger holds 25 migrations, and `applications` keeps forced RLS.
+- **Push:** pushing `main` (`ccde703`) deployed the backend. The frontend failed `tsc -p tsconfig.app.json` on outdated test fixtures. `e4dda70` fixed them and the frontend deployed.
+- **Agents:** the workflow skips agents when the frontend fails, and the next push changed only frontend files, so agents were deployed manually with `railway up` from a clean `git archive` of `e4dda70`. That export contained no env files besides the committed example.
+- **Verification:** all app services are online, backend `/healthz` returns ok, `www.applix.ca` returns 200, unauthenticated `/api/applications` returns 401, and the backend logs show no errors after deploy.
+
 ## Code review fixes for saved preferences and the aggressiveness strip
 
 **Status:** Complete (2026-10-06).
