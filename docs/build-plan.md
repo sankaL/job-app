@@ -10,7 +10,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Claude Haiku 5.5 for Low/Medium resume writing
 
-**Status:** Complete locally, not deployed (2026-10-07 17:23 EDT).
+**Status:** Deployed to production (2026-10-07 17:36 EDT). Commit `2883add`; [deploy workflow](https://github.com/sankaL/job-app/actions/runs/37689996756) succeeded. Railway deployments: frontend `8ee7f585`, backend `437548d6`, agents `7a393728` (worker started cleanly, so the model config validated).
 
 - Evaluated Haiku 5.5 against Sonnet 5.5 on the production pipeline: 36 generations and 72 escalated audit claims. Results: `docs/task-output/2026-10-07-haiku-5-5-evaluation.md`.
 - `resume_writer` and `repair_writer` now use Haiku 5.5 for Low and Medium and Sonnet 5.5 for High, through a new optional per-role `by_aggressiveness` override. `audit_escalation` stays Sonnet.
@@ -18,7 +18,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 - The live eval runner picks the first writer per case aggressiveness.
 - Tests: agents 399 passed (new routing, validation and Haiku native-output cases; the Haiku case fails without the runtime fix), backend 529 passed.
 - Live eval after the change (production config, no patches): `full_low`, `full_high`, `entry_preservation` and `keyword_preservation` all passed with no fallbacks. Low cost $0.0036 (Haiku), High $0.068 (Sonnet).
-- Open: Haiku reasoning-cap tuning and the Jev-unavailable audit sample.
+- Open: Haiku reasoning-cap tuning and the Jev-unavailable audit sample. The local agents container uses the production OpenRouter key, so live evals spend production budget; a separate dev key is recommended.
 
 ## Resume Judge & ATS Keywords traffic light indicators, keyword UI cleanup, and optimization confirmation modal
 
