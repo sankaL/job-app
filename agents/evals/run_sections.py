@@ -359,13 +359,20 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
         raise EvaluationLimit("Live evaluation requires configured dev-mode OpenRouter credentials and both models.")
     if live and any(case.fault for case in cases):
         raise EvaluationLimit("Injected recovery fixtures are offline-only.")
-    model = model_config.route("resume_writer").model if live else "eval/primary"
-    fallback = (model_config.route("resume_writer").fallback or model) if live else "eval/fallback"
+    # The first writer is chosen per case aggressiveness, as in the worker.
+    writers = {case.aggressiveness: model_config.route("resume_writer", case.aggressiveness) for case in cases}
+    def writer_models(case: Case) -> tuple[str, str]:
+        if not live:
+            return "eval/primary", "eval/fallback"
+        route = writers[case.aggressiveness]
+        return route.model, route.fallback or route.model
     meter = RunMeter(live=live, max_requests=args.max_requests, max_output_tokens=args.max_output_tokens,
         max_seconds=args.max_seconds, max_cost_usd=Decimal(str(args.max_cost_usd)))
     routine = model_config.route("section_writer").model if live else "eval/routine"
     routine_fallback = (model_config.route("section_writer").fallback or routine) if live else "eval/routine-fallback"
-    meter.model_roles = {model: "primary", fallback: "fallback", routine: "routine", routine_fallback: "routine-fallback"}
+    meter.model_roles = {routine: "routine", routine_fallback: "routine-fallback",
+        **{name: "fallback" for case in cases for name in writer_models(case)[1:]},
+        **{writer_models(case)[0]: "primary" for case in cases}}
     meter.diagnostic_errors = bool(getattr(args, "diagnostic_errors", False))
     meter.diagnostic_redactions = synthetic_redactions(values) if meter.diagnostic_errors else []
     original_client = openai.AsyncOpenAI
@@ -401,6 +408,7 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
         for case in cases:
             meter.current_case = case
             settings = {**case_settings(case), "_routine_model": routine, "_routine_fallback_model": routine_fallback}
+            model, fallback = writer_models(case)
             case_started = perf_counter()
             try:
                 meter.check()

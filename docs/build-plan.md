@@ -1,12 +1,24 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-06
+**Last updated:** 2026-10-07
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## Claude Haiku 5.5 for Low/Medium resume writing
+
+**Status:** Complete locally, not deployed (2026-10-07 17:23 EDT).
+
+- Evaluated Haiku 5.5 against Sonnet 5.5 on the production pipeline: 36 generations and 72 escalated audit claims. Results: `docs/task-output/2026-10-07-haiku-5-5-evaluation.md`.
+- `resume_writer` and `repair_writer` now use Haiku 5.5 for Low and Medium and Sonnet 5.5 for High, through a new optional per-role `by_aggressiveness` override. `audit_escalation` stays Sonnet.
+- `native_json` in a model profile now overrides pydantic-ai's stale JSON-schema allowlist, which would otherwise have sent every Haiku call to the GPT 6.1 Sol fallback.
+- The live eval runner picks the first writer per case aggressiveness.
+- Tests: agents 399 passed (new routing, validation and Haiku native-output cases; the Haiku case fails without the runtime fix), backend 529 passed.
+- Live eval after the change (production config, no patches): `full_low`, `full_high`, `entry_preservation` and `keyword_preservation` all passed with no fallbacks. Low cost $0.0036 (Haiku), High $0.068 (Sonnet).
+- Open: Haiku reasoning-cap tuning and the Jev-unavailable audit sample.
 
 ## Resume Judge & ATS Keywords traffic light indicators, keyword UI cleanup, and optimization confirmation modal
 

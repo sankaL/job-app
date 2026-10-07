@@ -76,7 +76,7 @@ For detailed architecture, schema designs, and setup workflows, consult the foll
 
 Initial generation and full regeneration run in the worker (`agents/section_generation.py`):
 
-1. **Write in parallel.** Professional Experience and the other writable sections are written by two concurrent `resume_writer` calls (Sonnet 5.5). The shared source and job prompt sits behind a cache breakpoint.
+1. **Write in parallel.** Professional Experience and the other writable sections are written by two concurrent `resume_writer` calls (Haiku 5.5 for Low/Medium, Sonnet 5.5 for High). The shared source and job prompt sits behind a cache breakpoint.
 2. **Check locally.** Schema, citations, numbers, employers/credentials, title rules and contact detection, with no model.
 3. **Audit claims with Jev.** Each bullet, Summary sentence, Skills group and retitled role title is a Decisions question, answered in about 0.2-1s. Confident results are final; only uncertain claims go to the `audit_escalation` LLM audit.
 4. **Repair only what failed** with `repair_writer`, within a 10-request, 64k-token, 240s budget.
@@ -87,7 +87,7 @@ Measured on a real resume (2026-10-04): Medium about 15s and High about 12-17s e
 
 ### Model configuration
 
-Models are chosen by **role** in `shared/model-config.json`, not environment variables. Example roles are `resume_writer`, `section_writer`, `repair_writer`, `claim_audit`, `audit_escalation`, `job_extraction` and `resume_import`. Each model has a profile in the same file: output mode, reasoning bound and provider routing. Every request denies provider data collection and sorts by latency. To change a model, edit the shared file, copy it to `agents/model-config.json` and `backend/app/core/model-config.json` (tests fail if they differ), and deploy both services. Services refuse to start if a role names a model without a profile. API keys stay in `.env.compose` / Railway.
+Models are chosen by **role** in `shared/model-config.json`, not environment variables. Example roles are `resume_writer`, `section_writer`, `repair_writer`, `claim_audit`, `audit_escalation`, `job_extraction` and `resume_import`. Each model has a profile in the same file: output mode, reasoning bound and provider routing. Writer and audit roles may override their model per aggressiveness level with `by_aggressiveness`. Every request denies provider data collection and sorts by latency. To change a model, edit the shared file, copy it to `agents/model-config.json` and `backend/app/core/model-config.json` (tests fail if they differ), and deploy both services. Services refuse to start if a role names a model without a profile. API keys stay in `.env.compose` / Railway.
 
 ### LangSmith tracing
 

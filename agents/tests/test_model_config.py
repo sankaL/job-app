@@ -36,6 +36,26 @@ def test_pipeline_routing_keys_come_from_roles():
         model_config.route("resume_writer").model, model_config.route("resume_writer").fallback)
 
 
+HAIKU, SONNET, SOL = "anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol"
+
+
+@pytest.mark.parametrize("aggressiveness,model", [(None, HAIKU), ("low", HAIKU), ("Medium", HAIKU), ("high", SONNET)])
+def test_writers_route_by_aggressiveness(aggressiveness, model):
+    import worker
+    assert worker._resolve_generation_models(operation="generation", aggressiveness=aggressiveness) == (model, SOL)
+    assert worker._resolve_generation_models(operation="regeneration_full", aggressiveness=aggressiveness) == (model, SOL)
+    keys = worker._pipeline_model_settings(aggressiveness)
+    assert (keys["_repair_model"], keys["_repair_fallback_model"]) == (model, SOL)
+    # The LLM audit keeps Sonnet at every level; the section writer has no per-level override.
+    assert keys["_audit_model"] == SONNET
+    assert keys["_routine_model"] == model_config.route("section_writer").model
+
+
+def test_unknown_aggressiveness_fails_closed():
+    with pytest.raises(ValueError, match="Unknown aggressiveness"):
+        model_config.route("resume_writer", "extreme")
+
+
 def _raw():
     return model_config.get_model_config().model_dump()
 
@@ -48,6 +68,10 @@ def _raw():
     (lambda raw: raw["roles"]["resume_writer"].update(model="typesafe/jev-1.13"), "needs chat models"),
     (lambda raw: raw["roles"]["claim_audit"].update(fallback="anthropic/claude-sonnet-5.5"), "needs decisions models"),
     (lambda raw: raw["roles"]["resume_judge"].update(enabled=False), "cannot be disabled"),
+    (lambda raw: raw["roles"]["job_extraction"].update(by_aggressiveness={"high": {"model": SONNET}}), "cannot route by aggressiveness"),
+    (lambda raw: raw["roles"]["resume_writer"]["by_aggressiveness"].update(high={"model": "vendor/unprofiled"}), "has no model profile"),
+    (lambda raw: raw["roles"]["resume_writer"]["by_aggressiveness"].update(high={"model": SOL}), "fallback must differ"),
+    (lambda raw: raw["roles"]["resume_writer"]["by_aggressiveness"].update(extreme={"model": SONNET}), "by_aggressiveness"),
 ])
 def test_invalid_configs_fail_closed(mutate, message):
     raw = _raw()
@@ -71,5 +95,5 @@ def test_removed_model_environment_variables_are_ignored(monkeypatch):
     for name, value in (("TIER1_MODEL", "vendor/a"), ("TIER2_MODEL", "vendor/b"), ("JEV_AUDIT_MODEL", "vendor/c")):
         monkeypatch.setenv(name, value)
     worker.WorkerSettingsEnv()
-    assert worker._role_models("resume_writer")[0] == "anthropic/claude-sonnet-5.5"
+    assert worker._role_models("resume_writer")[0] == "anthropic/claude-haiku-5.5"
     assert worker._pipeline_model_settings()["_jev_audit_model"] == "typesafe/jev-1.13"

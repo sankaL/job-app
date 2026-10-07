@@ -11,6 +11,11 @@
       "output": "native_json",
       "reasoning": {"max_tokens": 2000, "exclude": true}
     },
+    "anthropic/claude-haiku-5.5": {
+      "api": "chat",
+      "output": "native_json",
+      "reasoning": {"max_tokens": 2000, "exclude": true}
+    },
     "openai/gpt-6.1-sol": {
       "api": "chat",
       "output": "native_json",
@@ -33,9 +38,10 @@
   },
   "roles": {
     "resume_writer": {
-      "description": "First draft for initial generation and full regeneration.",
-      "model": "anthropic/claude-sonnet-5.5",
-      "fallback": "openai/gpt-6.1-sol"
+      "description": "First draft for initial generation and full regeneration. High keeps Sonnet for stronger invented-fit writing.",
+      "model": "anthropic/claude-haiku-5.5",
+      "fallback": "openai/gpt-6.1-sol",
+      "by_aggressiveness": {"high": {"model": "anthropic/claude-sonnet-5.5"}}
     },
     "section_writer": {
       "description": "First write for section/entry regeneration and keyword optimization patches.",
@@ -43,9 +49,10 @@
       "fallback": "openai/gpt-6-luna"
     },
     "repair_writer": {
-      "description": "Repairs sections that failed local checks or the grounding audit.",
-      "model": "anthropic/claude-sonnet-5.5",
-      "fallback": "openai/gpt-6.1-sol"
+      "description": "Repairs sections that failed local checks or the grounding audit. High keeps Sonnet.",
+      "model": "anthropic/claude-haiku-5.5",
+      "fallback": "openai/gpt-6.1-sol",
+      "by_aggressiveness": {"high": {"model": "anthropic/claude-sonnet-5.5"}}
     },
     "claim_audit": {
       "description": "First-pass claim and title audit through the OpenRouter Decisions API.",

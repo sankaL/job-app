@@ -41,7 +41,7 @@ Keep this file focused on durable backend rules for the AI Resume Builder. Do no
 - Single-section regeneration must enforce a `120s` idle timeout with a `120s` maximum wall-clock window.
 - PDF export must enforce a `20s` timeout.
 - Background work must use bounded retries, explicit cancellation behavior, and clear terminal failure handling.
-- OpenRouter models are chosen by role in `shared/model-config.json` (bundled as `app/core/model-config.json`; keep the copies identical). There are no model environment variables. Per-model output mode, reasoning bounds and provider routing (no data retention, latency sort, Gemini pinned to AI Studio) come from the same file. Bounded output correction, targeted section repairs and LLM audit escalations share a request, token and deadline budget.
+- OpenRouter models are chosen by role in `shared/model-config.json` (bundled as `app/core/model-config.json`; keep the copies identical). There are no model environment variables. Writer and audit roles may override their model per aggressiveness level (`by_aggressiveness`). Per-model output mode, reasoning bounds and provider routing (no data retention, latency sort, Gemini pinned to AI Studio) come from the same file. Bounded output correction, targeted section repairs and LLM audit escalations share a request, token and deadline budget.
 
 ## Generation and Validation Boundaries
 - Initial generation and full regeneration write Professional Experience and the other writable sections in two concurrent structured requests, copy fixed facts locally, audit each group (Jev first, LLM escalation for uncertain claims), and repair only failed sections within the shared budget.

@@ -347,7 +347,8 @@ async def test_optional_trace_setup_failure_does_not_fail_provider_call(monkeypa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('model_name', ['anthropic/claude-sonnet-5.5','openai/gpt-6.1-sol','google/gemini-3.8-flash','openai/gpt-6-luna'])
+# Claude Haiku 5.5 is newer than the pinned SDK's JSON-schema allowlist; the config's native_json mode must still apply.
+@pytest.mark.parametrize('model_name', ['anthropic/claude-sonnet-5.5','anthropic/claude-haiku-5.5','openai/gpt-6.1-sol','google/gemini-3.8-flash','openai/gpt-6-luna'])
 async def test_current_models_use_native_json_default_reasoning_and_bounded_correction(monkeypatch, model_name):
     import llm_runtime
     requests = mock_provider(monkeypatch, [{'count':'invalid'}, {'count':2}])

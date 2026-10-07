@@ -169,9 +169,9 @@ class WorkerSettingsEnv(BaseSettings):
         return self
 
 
-def _role_models(role: str) -> tuple[str, str]:
-    """Primary and fallback model IDs for a role in model-config.json."""
-    route = model_config.route(role)
+def _role_models(role: str, aggressiveness: Optional[str] = None) -> tuple[str, str]:
+    """Primary and fallback model IDs for a role in model-config.json (level-routed roles take the job's aggressiveness)."""
+    route = model_config.route(role, aggressiveness)
     return route.model, route.fallback or route.model
 
 
@@ -205,14 +205,14 @@ def _keep_original_after_revalidation(gen_result: dict[str, Any], generated_sect
     return kept["sections"], kept["validation"]
 
 
-def _pipeline_model_settings() -> dict[str, Any]:
+def _pipeline_model_settings(aggressiveness: Optional[str] = None) -> dict[str, Any]:
     """Internal routing keys for the section pipeline (from model-config.json roles); stripped before persistence.
 
     Key names predate roles and are kept so already-queued jobs and stored settings stay compatible.
     """
-    routine, routine_fallback = _role_models("section_writer")
-    repair, repair_fallback = _role_models("repair_writer")
-    audit, audit_fallback = _role_models("audit_escalation")
+    routine, routine_fallback = _role_models("section_writer", aggressiveness)
+    repair, repair_fallback = _role_models("repair_writer", aggressiveness)
+    audit, audit_fallback = _role_models("audit_escalation", aggressiveness)
     claim_audit = model_config.route("claim_audit")
     return {
         "_routine_model": routine,
@@ -225,11 +225,11 @@ def _pipeline_model_settings() -> dict[str, Any]:
     }
 
 
-def _resolve_generation_models(operation: str = "generation") -> tuple[str, str]:
+def _resolve_generation_models(operation: str = "generation", aggressiveness: Optional[str] = None) -> tuple[str, str]:
     """First writer by operation; legacy subscription/job model overrides are ignored."""
     if operation in {"generation", "full", "regeneration_full"}:
-        return _role_models("resume_writer")
-    return _role_models("section_writer")
+        return _role_models("resume_writer", aggressiveness)
+    return _role_models("section_writer", aggressiveness)
 
 
 def _resolve_generation_reasoning_efforts() -> tuple[str, str]:
@@ -2069,7 +2069,7 @@ async def _validate_generated_sections_with_repair(
         return generated_sections, validation_result, attempt_diagnostics, None
 
     await on_progress(88, "Validation failed. Attempting one repair pass")
-    model, fallback_model = _role_models("repair_writer")
+    model, fallback_model = _role_models("repair_writer", aggressiveness)
     model_used = model
     reasoning_effort = fallback_reasoning_effort = "auto"
     remaining_timeout_seconds = max(0.0, repair_deadline - perf_counter())
@@ -2196,7 +2196,7 @@ async def _validate_regenerated_section_with_repair(
         return regenerated_section, validation_result, attempt_diagnostics, None
 
     await on_progress(78, f"Validation failed for {section_name}. Attempting one repair pass")
-    model, fallback_model = _role_models("repair_writer")
+    model, fallback_model = _role_models("repair_writer", aggressiveness)
     model_used = model
     reasoning_effort = fallback_reasoning_effort = "auto"
     remaining_timeout_seconds = max(0.0, repair_deadline - perf_counter())
@@ -2292,7 +2292,8 @@ async def run_generation_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    generation_model, generation_fallback_model = _resolve_generation_models()
+    aggressiveness = generation_settings.get("aggressiveness")
+    generation_model, generation_fallback_model = _resolve_generation_models(aggressiveness=aggressiveness)
     generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts()
     public_generation_settings = {
         key: value for key, value in generation_settings.items()
@@ -2300,7 +2301,7 @@ async def run_generation_job(
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
-    public_generation_settings.update(_pipeline_model_settings())
+    public_generation_settings.update(_pipeline_model_settings(aggressiveness))
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
 
@@ -2741,7 +2742,8 @@ async def run_regeneration_job(
     settings = WorkerSettingsEnv()
     writer = RedisProgressWriter(settings.redis_url)
     callback = BackendCallbackClient(settings)
-    generation_model, generation_fallback_model = _resolve_generation_models(operation=regeneration_target)
+    aggressiveness = generation_settings.get("aggressiveness")
+    generation_model, generation_fallback_model = _resolve_generation_models(operation=regeneration_target, aggressiveness=aggressiveness)
     generation_reasoning_effort, generation_fallback_reasoning_effort = _resolve_generation_reasoning_efforts()
     public_generation_settings = {
         key: value for key, value in generation_settings.items()
@@ -2749,7 +2751,7 @@ async def run_regeneration_job(
             "_source_document", "_source_snapshot", "_current_document", "_target_entry_id", "_privacy_values",
         }
     }
-    public_generation_settings.update(_pipeline_model_settings())
+    public_generation_settings.update(_pipeline_model_settings(aggressiveness))
     attempt_diagnostics: list[dict[str, Any]] = []
     length_diagnostics: Optional[dict[str, Any]] = None
 

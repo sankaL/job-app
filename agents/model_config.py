@@ -22,6 +22,9 @@ ROLES = (
 DECISIONS_ROLES = frozenset({"claim_audit", "import_section_classification"})
 # Only the claim audit can be switched off (the LLM audit then checks every section).
 OPTIONAL_ROLES = frozenset({"claim_audit"})
+# Roles the worker resolves with the job's aggressiveness, so only they may route by level.
+LEVEL_ROUTED_ROLES = frozenset({"resume_writer", "section_writer", "repair_writer", "audit_escalation"})
+AGGRESSIVENESS_LEVELS = ("low", "medium", "high")
 BUNDLED_PATH = Path(__file__).resolve().with_name("model-config.json")
 _override: Optional["ModelConfig"] = None
 
@@ -35,12 +38,31 @@ class ModelProfile(BaseModel):
     providers: dict[str, Any] = Field(default_factory=dict)
 
 
+class LevelRoute(BaseModel):
+    """A role's model for one aggressiveness level; an omitted fallback keeps the role's fallback."""
+    model_config = ConfigDict(extra="forbid")
+    model: str = Field(min_length=1)
+    fallback: Optional[str] = None
+
+
 class RoleRoute(BaseModel):
     model_config = ConfigDict(extra="forbid")
     description: str = ""
     model: str = Field(min_length=1)
     fallback: Optional[str] = None
     enabled: bool = True
+    by_aggressiveness: dict[Literal["low", "medium", "high"], LevelRoute] = Field(default_factory=dict)
+
+    def for_level(self, aggressiveness: Optional[str]) -> "RoleRoute":
+        """The route for one aggressiveness level; no level (or no override) is the role's default route."""
+        level = str(aggressiveness or "").strip().lower()
+        if level and level not in AGGRESSIVENESS_LEVELS:
+            raise ValueError("Unknown aggressiveness level for model routing.")
+        override = self.by_aggressiveness.get(level) if level else None
+        if override is None:
+            return self
+        return RoleRoute(description=self.description, model=override.model,
+                         fallback=override.fallback or self.fallback, enabled=self.enabled)
 
 
 class ModelConfig(BaseModel):
@@ -55,18 +77,22 @@ class ModelConfig(BaseModel):
         missing = [role for role in ROLES if role not in self.roles]
         if missing:
             raise ValueError(f"Model config is missing roles: {', '.join(missing)}.")
-        for name, route in self.roles.items():
-            for model in filter(None, (route.model, route.fallback)):
-                if model not in self.models:
-                    raise ValueError(f"Role {name} uses {model}, which has no model profile.")
-            if route.fallback and route.fallback == route.model:
-                raise ValueError(f"Role {name} fallback must differ from its model.")
-            expected_api = "decisions" if name in DECISIONS_ROLES else "chat"
-            if any(self.models[model].api != expected_api for model in filter(None, (route.model, route.fallback))):
-                raise ValueError(f"Role {name} needs {expected_api} models.")
-            if name in DECISIONS_ROLES and route.fallback:
-                raise ValueError(f"Role {name} falls back to built-in behaviour; remove its fallback model.")
-            if not route.enabled and name not in OPTIONAL_ROLES:
+        for name, role in self.roles.items():
+            if role.by_aggressiveness and name not in LEVEL_ROUTED_ROLES:
+                raise ValueError(f"Role {name} cannot route by aggressiveness.")
+            for level in (None, *role.by_aggressiveness):
+                route = role.for_level(level)
+                for model in filter(None, (route.model, route.fallback)):
+                    if model not in self.models:
+                        raise ValueError(f"Role {name} uses {model}, which has no model profile.")
+                if route.fallback and route.fallback == route.model:
+                    raise ValueError(f"Role {name} fallback must differ from its model.")
+                expected_api = "decisions" if name in DECISIONS_ROLES else "chat"
+                if any(self.models[model].api != expected_api for model in filter(None, (route.model, route.fallback))):
+                    raise ValueError(f"Role {name} needs {expected_api} models.")
+                if name in DECISIONS_ROLES and route.fallback:
+                    raise ValueError(f"Role {name} falls back to built-in behaviour; remove its fallback model.")
+            if not role.enabled and name not in OPTIONAL_ROLES:
                 raise ValueError(f"Role {name} cannot be disabled.")
         return self
 
@@ -94,8 +120,9 @@ def get_model_config() -> ModelConfig:
     return _override or _load()
 
 
-def route(role: str) -> RoleRoute:
-    return get_model_config().roles[role]
+def route(role: str, aggressiveness: Optional[str] = None) -> RoleRoute:
+    """A role's route; level-routed roles pass the job's aggressiveness to apply any per-level override."""
+    return get_model_config().roles[role].for_level(aggressiveness)
 
 
 def profile(model: str) -> ModelProfile:

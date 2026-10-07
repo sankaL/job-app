@@ -90,19 +90,32 @@ def safe_provider_error_details(status_code: Any, body: Any) -> dict[str, Any]:
 
 
 def portable_openrouter_profile(model_name: str) -> Any:
-    """Narrow Google tool schemas to its documented OpenAPI transport subset.
+    """Provider-profile adjustments for portable OpenRouter calls.
 
+    The config's ``native_json`` output mode is authoritative: the pinned SDK
+    gates JSON-schema output on a model-name allowlist that lags new releases
+    (Claude Haiku 5.5 is missing from it), so a configured model would otherwise
+    fail locally before any request and silently use its fallback.
+
+    Google tool schemas are narrowed to its documented OpenAPI transport subset.
     Extend the pinned SDK's Google transformer so its definition inlining and
     nullable-union handling stay intact. Constraints omitted from transport
     remain enforced by the original output model and local section validators.
     Other upstream profiles use the SDK's unmodified defaults.
     """
-    if model_name.removeprefix("~").split("/", 1)[0] != "google":
+    is_google = model_name.removeprefix("~").split("/", 1)[0] == "google"
+    native_output = model_config.profile(model_name).output == "native_json"
+    if not is_google and not native_output:
         return None
     from pydantic_ai.providers.openrouter import OpenRouterProvider
 
     profile = OpenRouterProvider.model_profile(model_name)
-    if profile is None or profile.get("json_schema_transformer") is None:
+    if profile is None:
+        raise RuntimeError("Provider model profile is unavailable.")
+    native = {"supports_json_schema_output": True} if native_output else {}
+    if not is_google:
+        return {**profile, **native}
+    if profile.get("json_schema_transformer") is None:
         raise RuntimeError("Google provider schema compatibility is unavailable.")
     parent_transformer = profile["json_schema_transformer"]
 
@@ -119,7 +132,7 @@ def portable_openrouter_profile(model_name: str) -> Any:
                     del schema[key]
             return schema
 
-    return {**profile, "json_schema_transformer": GoogleFunctionSchemaTransformer}
+    return {**profile, **native, "json_schema_transformer": GoogleFunctionSchemaTransformer}
 
 
 class AIRequestError(RuntimeError):

@@ -48,11 +48,11 @@ The product should enable a user to:
 
 All generative calls use **Pydantic AI + OpenRouter**. Model routing is determined by operation, independent of Basic/Pro subscriptions:
 
-Models are chosen by **role** in the checked-in `shared/model-config.json`, not by environment variables. The backend and worker each bundle an exact copy, and tests fail if a copy drifts. Each model also has a profile in the file: output mode, bounded reasoning and provider routing. Startup fails if a role names a model without a profile. Secrets such as `OPENROUTER_API_KEY` stay in the environment. Current roles:
+Models are chosen by **role** in the checked-in `shared/model-config.json`, not by environment variables. The backend and worker each bundle an exact copy, and tests fail if a copy drifts. Each model also has a profile in the file: output mode, bounded reasoning and provider routing. Startup fails if a role names a model without a profile. The writer and audit roles (`resume_writer`, `section_writer`, `repair_writer`, `audit_escalation`) may override their model for one aggressiveness level (`by_aggressiveness`); an override without a fallback keeps the role's fallback, and any other role with an override fails startup. Secrets such as `OPENROUTER_API_KEY` stay in the environment. Current roles:
 
-- `resume_writer`: `anthropic/claude-sonnet-5.5`, fallback `openai/gpt-6.1-sol`. Initial generation and full regeneration.
+- `resume_writer`: `anthropic/claude-haiku-5.5` for Low and Medium, `anthropic/claude-sonnet-5.5` for High; fallback `openai/gpt-6.1-sol`. Initial generation and full regeneration.
 - `section_writer`: `google/gemini-3.8-flash`, fallback `openai/gpt-6-luna`. Section/entry regeneration and keyword optimization patches.
-- `repair_writer`: Sonnet 5.5, fallback GPT 6.1 Sol. Repairs, including legacy validation repairs.
+- `repair_writer`: Haiku 5.5 for Low and Medium, Sonnet 5.5 for High; fallback GPT 6.1 Sol. Repairs, including legacy validation repairs.
 - `claim_audit`: `typesafe/jev-1.13` (Decisions API), with an `enabled` flag. First-pass claim and title audit.
 - `audit_escalation`: Sonnet 5.5, fallback Gemini 3.8 Flash. LLM grounding audit for uncertain claims.
 - `job_extraction`, `keyword_extraction`, `resume_judge`, `resume_import`: Gemini 3.8 Flash, fallback GPT 6 Luna.

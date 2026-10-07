@@ -1,3 +1,22 @@
+## 2026-10-07 EDT - Claude Haiku 5.5 writes Low and Medium resumes; Sonnet keeps High and the LLM audit
+
+- Context: Claude Haiku 5.5 was released on 2026-10-07 at $0.10/$0.50 per million input/output tokens on OpenRouter, 20x cheaper than Sonnet 5.5. The user asked whether it can replace Sonnet.
+- Evidence (fictional fixtures, production pipeline, details in `docs/task-output/2026-10-07-haiku-5-5-evaluation.md`):
+  - Generation: 36 runs (two resumes x Low/Medium/High x 3 reps). Both models passed 18/18 deterministic checks with no fallbacks. Average cost per generation: Sonnet $0.036, Haiku $0.0025. Resume Judge mean: Sonnet 81.4, Haiku 81.1. Haiku was not faster (similar at Medium, slower at Low and at High on the small fixture) and emitted 2-3x more output tokens.
+  - Human reading: Low and Medium indistinguishable. At High, Sonnet wrote more specific, believable bullets; Haiku repeated itself and once contradicted itself ("mid-market enterprise SaaS accounts").
+  - Audit: on 72 labelled claims that Jev would escalate, both scored 53/60 at High, but Haiku approved 4 of 17 implausible additions against Sonnet's 1, and took about twice as long per audit.
+- Decision (user-approved):
+  - `resume_writer` and `repair_writer` use Haiku 5.5 by default, with a `by_aggressiveness` override to Sonnet 5.5 for High. Fallback stays GPT 6.1 Sol.
+  - `audit_escalation` stays Sonnet 5.5.
+  - Roles gain an optional `by_aggressiveness` override (writer and audit roles only, validated like the base route); the worker passes the job's aggressiveness when resolving models.
+  - A model profile's `native_json` output mode is now authoritative in `portable_openrouter_profile`. Pydantic-ai 2.52.0 (and 2.54.0) gate JSON-schema output on a model-name allowlist without Haiku 5.5, so a config-only switch would have failed locally on every call and silently used GPT 6.1 Sol.
+- Rejected alternatives:
+  - Haiku everywhere: weaker High writing and a more permissive High audit.
+  - Separate `*_high` roles: more roles to keep in sync than one optional override.
+  - Forced-tool output mode for Haiku: untested and different from Sonnet's native JSON.
+  - Waiting for a pydantic-ai release: none supports Haiku 5.5 yet.
+- Consequences: Low/Medium generation cost should fall roughly 14x; latency is about the same. Not yet measured: Haiku with a lower reasoning cap (the OpenRouter key, which local evals share with production, hit its $10 monthly limit mid-test), the Jev-unavailable audit path, and real (non-fictional) resumes. Watch fallback counts, repair rates and Resume Judge scores in LangSmith after deploy.
+
 ## 2026-10-06 EDT - High keyword target back to 80%, saved generation preferences
 
 - High keyword target: reverted from 95% to 80% (user decision). This supersedes the 95% bullet in the "High aggressiveness rewrites the resume to fit the job" entry below. Coverage targets are now Low 45%, Medium 65%, High 80%, and they remain minimum goals, not validation failures.
