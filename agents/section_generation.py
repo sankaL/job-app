@@ -83,7 +83,9 @@ HIGH_FIT_CLAIM_POLICY = (
     "in that period, could credibly have done: technologies, tools, methods, responsibilities, projects, scope, outcomes and metrics "
     "chosen to match the job description. Cite the source bullets a claim replaces or extends, or the role's entry ID for new work. "
     "Never invent or change employers, dates, tenure, years of experience, institutions, degrees, credentials, certifications, "
-    "licences, awards or personal information, and never claim a technology or scale that could not fit that role and period."
+    "licences, awards or personal information, and never claim a technology or scale that could not fit that role and period. "
+    "A number taken from the source keeps its original measure and achievement; never reuse it for different work or a "
+    "different quantity."
 )
 # Sent with High writing only. The staged pipeline supplies tailored_draft to later stages.
 HIGH_WRITING_RULES = (
@@ -94,7 +96,11 @@ HIGH_WRITING_RULES = (
     "role, Skills lists the skills the tailored work uses plus the job's keyword skills, and Summary describes the candidate "
     "the tailored draft presents. Still cite reviewed source IDs; tailored_draft is context, not a citation target."
 )
-STRICT_CLAIM_POLICY = "Do not invent metrics, scope, technologies, credentials or facts."
+STRICT_CLAIM_POLICY = (
+    "Do not invent metrics, scope, technologies, credentials or facts. A number keeps its source measure, direction, subject "
+    "and context. A job requirement is never evidence of the candidate's past work or expertise. A reframed title needs "
+    "demonstrated responsibilities in the same role family and the same seniority."
+)
 # High keyword optimization follows High rules in the section pipeline; the legacy Markdown path stays strict.
 HIGH_KEYWORD_CONTRACT = (
     "Preserve the current draft's factual fields, titles and bullet identities. Work missing keywords into existing bullets, Skills "
@@ -104,8 +110,23 @@ HIGH_KEYWORD_CONTRACT = (
 # Placed after the shared Unslop block, whose "Use I when it fits" suits prose but not resumes.
 RESUME_VOICE_RULE = (
     "Resume voice overrides the general writing guidance above: write bullets and Summary sentences in implied first person. "
-    "Start bullets with an action verb and never use I, me, my or myself."
+    "Start bullets with an action verb and never use I, me, my or myself. Write ended roles in past tense; only a current "
+    "role may use present tense."
 )
+# Base-form verbs that read as present tense at the start of a bullet. Words that also start ordinary
+# noun phrases ("Lead developer", "Support for 40 clinics", "Design lead", "Report owner") are left out,
+# as are same-form irregulars (cut, set, put, read, let, hit, spread, cost, shut).
+_PRESENT_TENSE_VERBS = frozenset("""
+    accelerate administer advise analyze analyse apply assess assist automate collaborate conduct configure
+    consolidate coordinate create deliver deploy develop establish evaluate execute expand facilitate handle implement
+    improve increase introduce join maintain manage migrate negotiate optimize optimise orchestrate organize organise
+    oversee perform precept prepare prioritize provide rebuild recruit redesign reduce refactor resolve serve simplify
+    standardize standardise streamline supervise teach troubleshoot validate verify write
+""".split())
+# A role has ended only when its date range shows an explicit end date. "Present", "Today", "to date"
+# or an open end ("2022 -") is a current role and may use present tense.
+_ROLE_END_DATE_RE = re.compile(
+    r"(?:-|\u2013|\u2014|\bto\b|\buntil\b|\btill\b)\s*(?:(?:[A-Za-z]{3,9}\.?|\d{1,2}/)\s*)?(?:19|20)\d{2}\s*$", re.I)
 _YEAR_RE = re.compile(r"^(?:19|20)\d{2}$")
 # "I" as a pronoun, not a roman numeral ("Tier I support", "Phase I"); plus me/my/myself.
 _FIRST_PERSON_RE = re.compile(
@@ -300,6 +321,22 @@ def _tailored_bullet_id(entry_id: str, text: str) -> str:
     return "tailored-" + sha256(f"{entry_id}\0{text.strip()}".encode()).hexdigest()[:24]
 
 
+def _first_word(text: str) -> str:
+    match = re.match(r"\s*[-*\u2022]?\s*([A-Za-z]+)", text or "")
+    return match.group(1).lower() if match else ""
+
+
+def _check_past_role_tense(text: str, references: list[str], source_texts: dict[str, str], date_range: str,
+                           user_wording: Optional[str] = None) -> None:
+    """A role that has ended reads in past tense; the cited source's or the user's own voice is kept (like first person)."""
+    if not _ROLE_END_DATE_RE.search(date_range or ""):
+        return
+    verb = _first_word(text)
+    voices = [source_texts.get(ref, "") for ref in references] + ([user_wording] if user_wording else [])
+    if verb in _PRESENT_TENSE_VERBS and not any(_first_word(voice) == verb for voice in voices):
+        raise SectionValidationError("present_tense_past_role")
+
+
 def _validate_title(title: str, source_title: str, aggressiveness: str) -> None:
     from experience_contract import is_title_rewrite_allowed
     # The existing title contract is the product source of truth. Its public
@@ -356,6 +393,8 @@ def apply_section_rewrite(
                 if not set(bullet.source_ids).issubset(allowed_refs):
                     raise SectionValidationError("cross_entry_source_reference")
                 _check_grounding(bullet.text, bullet.source_ids, texts, privacy_values, aggressiveness=aggressiveness)
+                if source.kind == "professional_experience":
+                    _check_past_role_tense(bullet.text, bullet.source_ids, texts, original.fields.get("date_range", ""))
                 identifier = _bullet_id(bullet.source_ids)
                 # Document IDs are unique, so a bullet citing only its role cannot reuse the role's ID.
                 if aggressiveness == "high" and (identifier in used_ids or identifier == entry.id):
@@ -550,7 +589,8 @@ def grounding_audit_system_prompt(aggressiveness: str) -> str:
             "Skills describe that tailored resume: judge them against it, and against the reviewed source only for employers, dates, "
             "tenure, education and credentials. Fail claims that invent or change employers (unsupported_employer), credentials, "
             "certifications, degrees or institutions (unsupported_credential), dates, tenure or years of experience "
-            "(unsupported_date_or_tenure), or a title's seniority (unsupported_role_reframe). Fail claims that could not fit the role, "
+            "(unsupported_date_or_tenure), or a title's seniority (unsupported_role_reframe). Fail a claim that reuses a number from "
+            "the source for different work or a different quantity (unsupported_metric). Fail claims that could not fit the role, "
             "such as a technology that did not exist in that period or an absurd scale for the employer (implausible_claim). "
             "Return one decision per requested section in order. " + data_rule)
     common = ("Return one decision per requested section in order. "
@@ -1323,6 +1363,9 @@ def apply_keyword_patch(*, patch: Any, source: ResumeSection, current: ResumeSec
             original = existing_bullets[bullet.id]
             if bullet.text == original.text:
                 continue
+            if source.kind == "professional_experience":
+                _check_past_role_tense(bullet.text, bullet.source_ids, _source_texts(document), anchored.fields.get("date_range", ""),
+                                       user_wording=original.text)
             original.text = bullet.text.strip()
             original.source_ids = list(dict.fromkeys(bullet.source_ids))
             audited.bullets.append(original.model_copy(deep=True))

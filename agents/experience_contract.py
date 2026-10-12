@@ -69,6 +69,10 @@ SENIORITY_PATTERNS: tuple[tuple[str, int], ...] = (
     ("junior", 1),
     ("jr", 1),
     ("intern", 0),
+    # Word-boundary matching: "intern" does not match "Internship", so list the forms explicitly.
+    ("internship", 0),
+    ("co-op", 0),
+    ("coop", 0),
     ("trainee", 0),
     ("apprentice", 0),
 )

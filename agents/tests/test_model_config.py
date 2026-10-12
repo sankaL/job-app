@@ -36,19 +36,47 @@ def test_pipeline_routing_keys_come_from_roles():
         model_config.route("resume_writer").model, model_config.route("resume_writer").fallback)
 
 
-HAIKU, SONNET, SOL = "anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol"
+HAIKU, SONNET, SOL = "anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5", "openai/gpt-5.6-sol"
+LUNA = "openai/gpt-6-luna"
 
 
-@pytest.mark.parametrize("aggressiveness,model", [(None, HAIKU), ("low", HAIKU), ("Medium", HAIKU), ("high", SONNET)])
-def test_writers_route_by_aggressiveness(aggressiveness, model):
+# Routing chosen from the 2026-10-12 bake-off.
+@pytest.mark.parametrize("aggressiveness,writer,section", [
+    (None, SONNET, LUNA), ("low", SONNET, LUNA), ("Medium", SONNET, LUNA), ("high", HAIKU, SONNET)])
+def test_writers_route_by_aggressiveness(aggressiveness, writer, section):
     import worker
-    assert worker._resolve_generation_models(operation="generation", aggressiveness=aggressiveness) == (model, SOL)
-    assert worker._resolve_generation_models(operation="regeneration_full", aggressiveness=aggressiveness) == (model, SOL)
+    assert worker._resolve_generation_models(operation="generation", aggressiveness=aggressiveness) == (writer, SOL)
+    assert worker._resolve_generation_models(operation="regeneration_full", aggressiveness=aggressiveness) == (writer, SOL)
+    assert worker._resolve_generation_models(operation="regeneration_section", aggressiveness=aggressiveness) == (section, HAIKU)
     keys = worker._pipeline_model_settings(aggressiveness)
-    assert (keys["_repair_model"], keys["_repair_fallback_model"]) == (model, SOL)
-    # The LLM audit keeps Sonnet at every level; the section writer has no per-level override.
+    # Repairs follow the generation routing.
+    assert (keys["_repair_model"], keys["_repair_fallback_model"]) == (writer, SOL)
+    assert (keys["_routine_model"], keys["_routine_fallback_model"]) == (section, HAIKU)
+    # The LLM audit keeps Sonnet at every level.
     assert keys["_audit_model"] == SONNET
-    assert keys["_routine_model"] == model_config.route("section_writer").model
+
+
+@pytest.mark.parametrize("aggressiveness", [None, "low", "medium", "high"])
+def test_keyword_optimization_uses_sonnet_separately_from_section_regeneration(aggressiveness):
+    import worker
+    assert worker._resolve_generation_models(operation="keyword_optimization", aggressiveness=aggressiveness) == (SONNET, SOL)
+    if aggressiveness != "high":
+        assert worker._resolve_generation_models(operation="regeneration_section", aggressiveness=aggressiveness)[0] == LUNA
+
+
+def test_resume_judge_uses_haiku_with_luna_fallback():
+    import worker
+    assert worker._role_models("resume_judge") == (HAIKU, LUNA)
+
+
+def test_writer_profiles_use_low_reasoning_and_standard_price_endpoints():
+    config = model_config.get_model_config()
+    for name in (SONNET, HAIKU, SOL, LUNA):
+        profile = config.models[name]
+        assert profile.output == "native_json"
+        assert profile.reasoning == {"effort": "low", "exclude": True}
+        tags = profile.providers.get("order", []) + profile.providers.get("only", [])
+        assert tags and not any(tag.endswith("/fast") for tag in tags), name
 
 
 def test_unknown_aggressiveness_fails_closed():
@@ -95,5 +123,5 @@ def test_removed_model_environment_variables_are_ignored(monkeypatch):
     for name, value in (("TIER1_MODEL", "vendor/a"), ("TIER2_MODEL", "vendor/b"), ("JEV_AUDIT_MODEL", "vendor/c")):
         monkeypatch.setenv(name, value)
     worker.WorkerSettingsEnv()
-    assert worker._role_models("resume_writer")[0] == "anthropic/claude-haiku-5.5"
+    assert worker._role_models("resume_writer")[0] == "anthropic/claude-sonnet-5.5"
     assert worker._pipeline_model_settings()["_jev_audit_model"] == "typesafe/jev-1.13"

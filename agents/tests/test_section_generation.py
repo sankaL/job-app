@@ -1278,3 +1278,95 @@ async def test_unfinished_length_reduction_fails_instead_of_keeping_longer_origi
             {'sections': [deepcopy(oversized)]},
             {'sections': [deepcopy(oversized)]},
         ])
+
+
+@pytest.mark.parametrize('aggressiveness', ['low', 'medium', 'high'])
+@pytest.mark.parametrize('text', ['Resolve Python API latency issues and maintain FastAPI services by 35%.',
+                                  'Maintain FastAPI services with 35% lower Python API latency.'])
+def test_present_tense_in_an_ended_role_is_rejected_for_repair(text, aggressiveness):
+    # 2026-10-12 bake-off: finished roles were rewritten as "Resolve ...", "Care for ..." and passed every check.
+    doc = validate_resume_document(source_document())
+    output = experience_output()
+    output['entries'][0]['bullets'][0]['text'] = text
+    with pytest.raises(pipeline.SectionValidationError, match='present_tense_past_role'):
+        pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=output, document=doc, aggressiveness=aggressiveness)
+
+
+def test_tense_check_allows_current_roles_same_form_irregulars_and_present_tense_sources():
+    payload = source_document()
+    payload['sections'][1]['entries'][0]['fields']['date_range'] = '2020 - Present'
+    doc = validate_resume_document(payload)
+    output = experience_output()
+    output['entries'][0]['bullets'][0]['text'] = 'Maintain FastAPI services with 35% lower Python API latency.'
+    # role-two ended in 2020; "Cut" is its own past tense, so it is not flagged.
+    output['entries'][1]['bullets'][0]['text'] = 'Cut manual steps from internal tools.'
+    pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=output, document=doc, aggressiveness='medium')
+    # A source already written in present tense keeps its own voice, like first person.
+    payload = source_document()
+    payload['sections'][1]['entries'][1]['bullets'][0]['text'] = 'Build internal tools.'
+    doc = validate_resume_document(payload)
+    output = experience_output()
+    output['entries'][1]['bullets'][0]['text'] = 'Build internal tools.'
+    pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=output, document=doc, aggressiveness='medium')
+
+
+def test_writer_voice_rule_asks_for_past_tense_in_ended_roles():
+    assert 'Write ended roles in past tense' in pipeline.RESUME_VOICE_RULE
+
+
+def test_high_policy_and_audit_keep_source_numbers_with_their_achievement():
+    # 2026-10-12 bake-off: a team size became a platform count and a suite's runtime cut was credited to other work.
+    rule = 'A number taken from the source keeps its original measure and achievement'
+    assert rule in pipeline.HIGH_FIT_CLAIM_POLICY
+    assert 'reuses a number from the source for different work' in pipeline.grounding_audit_system_prompt('high')
+    import jev_audit
+    assert 'reuses a number from the evidence' in jev_audit.HIGH_OPTIONS['implausible_claim']
+
+
+def test_strict_writer_policy_states_the_audit_rules_up_front():
+    for rule in ('A number keeps its source measure, direction, subject and context',
+                 "A job requirement is never evidence of the candidate's past work",
+                 'same role family and the same seniority'):
+        assert rule in pipeline.STRICT_CLAIM_POLICY
+
+
+@pytest.mark.parametrize('date_range,ended', [
+    ('2020 - 2024', True), ('Jan 2019 - Dec 2021', True), ('2016 \u2013 2018', True), ('03/2019 - 11/2021', True),
+    ('2018 to 2020', True),
+    # Current or open-ended roles may use present tense (code review: these were treated as finished).
+    ('2020 - Present', False), ('Jan 2022 \u2013 Today', False), ('2022 \u2013', False), ('2022 - to date', False),
+    ('2021 - Till Date', False), ('2022 - Current', False), ('2022', False), ('', False),
+])
+def test_tense_check_applies_only_to_roles_with_an_explicit_end_date(date_range, ended):
+    payload = source_document()
+    payload['sections'][1]['entries'][0]['fields']['date_range'] = date_range
+    doc = validate_resume_document(payload)
+    output = experience_output()
+    output['entries'][0]['bullets'][0]['text'] = 'Maintain FastAPI services with 35% lower Python API latency.'
+    if ended:
+        with pytest.raises(pipeline.SectionValidationError, match='present_tense_past_role'):
+            pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=output, document=doc, aggressiveness='medium')
+    else:
+        pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=output, document=doc, aggressiveness='medium')
+
+
+@pytest.mark.parametrize('text', ['Lead developer on Python APIs with 35% lower latency and FastAPI services.',
+                                  'Support for Python APIs with 35% lower latency across FastAPI services.',
+                                  'Design lead for Python APIs with 35% lower latency in FastAPI services.'])
+def test_noun_led_bullets_in_an_ended_role_are_not_flagged_as_present_tense(text):
+    doc = validate_resume_document(source_document())
+    output = experience_output()
+    output['entries'][0]['bullets'][0]['text'] = text
+    pipeline.apply_section_rewrite(source=doc.sections[1], rewrite=output, document=doc, aggressiveness='medium')
+
+
+def test_keyword_patch_rejects_present_tense_in_an_ended_role_but_keeps_user_wording():
+    doc = validate_resume_document(source_document())
+    current = doc.sections[1].model_copy(deep=True)
+    patch = {'id': 'experience-id', 'paragraph': None, 'source_ids': [], 'entries': [{'id': 'role-one', 'bullets': [
+        {'id': 'bullet-two', 'text': 'Maintain FastAPI services and Python APIs.', 'source_ids': ['bullet-two']}]}]}
+    with pytest.raises(pipeline.SectionValidationError, match='present_tense_past_role'):
+        pipeline.apply_keyword_patch(patch=patch, source=doc.sections[1], current=current, document=doc, privacy_values=[])
+    # The user's own current wording already starts with that verb: keep their voice.
+    current.entries[0].bullets[1].text = 'Maintain FastAPI services.'
+    pipeline.apply_keyword_patch(patch=patch, source=doc.sections[1], current=current, document=doc, privacy_values=[])

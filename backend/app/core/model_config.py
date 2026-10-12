@@ -15,7 +15,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROLES = (
-    "resume_writer", "section_writer", "repair_writer", "claim_audit", "audit_escalation",
+    "resume_writer", "section_writer", "keyword_writer", "repair_writer", "claim_audit", "audit_escalation",
     "job_extraction", "keyword_extraction", "resume_judge", "resume_import", "import_section_classification",
 )
 # Roles answered by the OpenRouter Decisions API; every other role uses chat completions.
@@ -23,7 +23,7 @@ DECISIONS_ROLES = frozenset({"claim_audit", "import_section_classification"})
 # Only the claim audit can be switched off (the LLM audit then checks every section).
 OPTIONAL_ROLES = frozenset({"claim_audit"})
 # Roles the worker resolves with the job's aggressiveness, so only they may route by level.
-LEVEL_ROUTED_ROLES = frozenset({"resume_writer", "section_writer", "repair_writer", "audit_escalation"})
+LEVEL_ROUTED_ROLES = frozenset({"resume_writer", "section_writer", "keyword_writer", "repair_writer", "audit_escalation"})
 AGGRESSIVENESS_LEVELS = ("low", "medium", "high")
 BUNDLED_PATH = Path(__file__).resolve().with_name("model-config.json")
 _override: Optional["ModelConfig"] = None

@@ -4,7 +4,7 @@ from __future__ import annotations
 import model_config
 from worker import WorkerSettingsEnv
 
-TIER2_ROLES = ("section_writer", "job_extraction", "keyword_extraction", "resume_judge")
+TIER2_ROLES = ("section_writer", "keyword_writer", "job_extraction", "keyword_extraction", "resume_judge")
 
 
 def worker_settings(**kwargs):

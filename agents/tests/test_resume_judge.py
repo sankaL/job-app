@@ -249,3 +249,31 @@ async def test_judge_resume_uses_fallback_model_after_primary_failure(monkeypatc
     assert result["attempt_diagnostics"][0]["model"] == "primary-model"
     assert result["attempt_diagnostics"][1]["model"] == "fallback-model"
     assert result["resume_judge_result"]["status"] == "succeeded"
+
+
+def test_judge_schema_names_every_dimension_for_native_json_providers():
+    # An open dict let Gemini and Claude return {} under native JSON-schema output (2026-10-12 bake-off).
+    names = [name for name, _weight in resume_judge.DIMENSION_SPECS]
+    schema = JudgeModelResponse.model_json_schema()
+    dimensions = schema["$defs"]["JudgeDimensionScores"]
+    assert list(dimensions["properties"]) == names
+    assert dimensions["required"] == names
+    assert dimensions.get("additionalProperties") is False
+    instructions = schema["$defs"]["JudgeRegenerationInstructions"]
+    assert set(instructions["properties"]) == resume_judge.SUPPORTED_REGENERATION_SECTIONS
+
+
+def test_empty_dimension_scores_fail_validation():
+    with pytest.raises(Exception, match="role_alignment"):
+        JudgeModelResponse.model_validate({"score_summary": "ok", "dimension_scores": {}, "evaluator_notes": "ok"})
+
+
+def test_regeneration_instructions_keep_normalization_and_dict_output():
+    response = build_response(regeneration_instructions={
+        "summary": ["  Tighten.  ", " ", "a", "b", "c", "d"], "skills": ["  "]})
+    assert dict(response.regeneration_instructions.items()) == {"summary": ["Tighten.", "a", "b", "c"]}
+    blank = JudgeModelResponse.model_validate({**build_response().model_dump(), "regeneration_instructions": {"skills": [" "]}})
+    assert blank.regeneration_instructions is None
+    result = resume_judge._finalize_response(response=build_response(), evaluated_draft_updated_at="t", scored_at="t")
+    assert isinstance(result["dimension_scores"], dict) and set(result["dimension_scores"]) == {n for n, _ in resume_judge.DIMENSION_SPECS}
+    assert result["regeneration_instructions"] == {"summary": ["Tighten weak sections."]}

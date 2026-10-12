@@ -229,6 +229,8 @@ def _resolve_generation_models(operation: str = "generation", aggressiveness: Op
     """First writer by operation; legacy subscription/job model overrides are ignored."""
     if operation in {"generation", "full", "regeneration_full"}:
         return _role_models("resume_writer", aggressiveness)
+    if operation == "keyword_optimization":
+        return _role_models("keyword_writer", aggressiveness)
     return _role_models("section_writer", aggressiveness)
 
 

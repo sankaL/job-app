@@ -110,10 +110,51 @@ class JudgeDimensionResponse(StrictModel):
         return stripped
 
 
+class JudgeDimensionScores(StrictModel):
+    """Every dimension is a named, required field.
+
+    An open dict schema lets native JSON-schema providers (Gemini, Claude) return an
+    empty object, which failed every Judge call before this fix (2026-10-12).
+    """
+    role_alignment: JudgeDimensionResponse
+    specificity_and_concreteness: JudgeDimensionResponse
+    voice_and_human_quality: JudgeDimensionResponse
+    grounding_integrity: JudgeDimensionResponse
+    ats_safety_and_formatting: JudgeDimensionResponse
+    length_and_density: JudgeDimensionResponse
+
+    def __getitem__(self, name: str) -> JudgeDimensionResponse:
+        if name not in DIMENSION_WEIGHT_MAP:
+            raise KeyError(name)
+        return getattr(self, name)
+
+
+class JudgeRegenerationInstructions(StrictModel):
+    """Section-keyed instructions, one optional field per supported section (same reason as above)."""
+    summary: Optional[list[str]] = None
+    professional_experience: Optional[list[str]] = None
+    education: Optional[list[str]] = None
+    skills: Optional[list[str]] = None
+    projects: Optional[list[str]] = None
+    certifications: Optional[list[str]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_unsupported_sections(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            for section_id in value:
+                if str(section_id).strip() not in SUPPORTED_REGENERATION_SECTIONS:
+                    raise ValueError(f"Unsupported regeneration instruction section: {str(section_id).strip()}")
+        return value
+
+    def items(self) -> list[tuple[str, list[str]]]:
+        return [(name, getattr(self, name)) for name in type(self).model_fields if getattr(self, name)]
+
+
 class JudgeModelResponse(StrictModel):
     score_summary: str
-    dimension_scores: dict[str, JudgeDimensionResponse]
-    regeneration_instructions: Optional[dict[str, list[str]]] = None
+    dimension_scores: JudgeDimensionScores
+    regeneration_instructions: Optional[JudgeRegenerationInstructions] = None
     regeneration_priority_dimensions: list[str] = Field(default_factory=list)
     evaluator_notes: str
 
@@ -127,18 +168,17 @@ class JudgeModelResponse(StrictModel):
 
     @field_validator("regeneration_instructions")
     @classmethod
-    def normalize_regeneration_instructions(cls, value: Optional[dict[str, list[str]]]) -> Optional[dict[str, list[str]]]:
+    def normalize_regeneration_instructions(
+        cls, value: Optional[JudgeRegenerationInstructions]
+    ) -> Optional[JudgeRegenerationInstructions]:
         if value is None:
             return None
         normalized: dict[str, list[str]] = {}
         for section_id, instructions in value.items():
-            key = str(section_id).strip()
-            if key not in SUPPORTED_REGENERATION_SECTIONS:
-                raise ValueError(f"Unsupported regeneration instruction section: {key}")
             cleaned = [str(item).strip() for item in instructions if str(item).strip()]
             if cleaned:
-                normalized[key] = cleaned[:4]
-        return normalized or None
+                normalized[section_id] = cleaned[:4]
+        return JudgeRegenerationInstructions(**normalized) if normalized else None
 
     @field_validator("regeneration_priority_dimensions")
     @classmethod
@@ -152,18 +192,6 @@ class JudgeModelResponse(StrictModel):
             seen.add(key)
             normalized.append(key)
         return normalized
-
-    @model_validator(mode="after")
-    def validate_dimension_scores(self) -> "JudgeModelResponse":
-        missing = [name for name, _weight in DIMENSION_SPECS if name not in self.dimension_scores]
-        if missing:
-            raise ValueError(f"Missing dimension scores: {', '.join(missing)}")
-
-        extra = [name for name in self.dimension_scores if name not in DIMENSION_WEIGHT_MAP]
-        if extra:
-            raise ValueError(f"Unexpected dimension scores: {', '.join(extra)}")
-
-        return self
 
 
 def _normalize_prompt_text(content: str, limit: int) -> str:

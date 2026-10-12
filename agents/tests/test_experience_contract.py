@@ -251,3 +251,26 @@ async def test_validate_resume_fails_when_professional_experience_contract_is_un
 
     assert result["valid"] is False
     assert any(error["type"] == "experience_structure_violation" for error in result["errors"])
+
+
+@pytest.mark.parametrize("aggressiveness", ["medium", "high"])
+@pytest.mark.parametrize("source,generated,allowed", [
+    # 2026-10-12 bake-off: "(Internship)" was dropped in 4 runs and passed, because "intern" did not match "Internship".
+    ("Functional Verification Tester (Internship)", "Functional Verification Tester", False),
+    ("Functional Verification Tester (Internship)", "Functional Verification Tester, Internship", True),
+    ("Software Developer (Co-op)", "Software Developer", False),
+    ("Software Developer", "Software Developer Co-op", False),
+])
+def test_title_rewrite_keeps_internship_and_co_op_qualifiers(aggressiveness, source, generated, allowed):
+    from experience_contract import is_title_rewrite_allowed
+    assert is_title_rewrite_allowed(source_title=source, generated_title=generated, aggressiveness=aggressiveness) is allowed
+
+
+@pytest.mark.parametrize("source,generated", [
+    # "Student" names the people served in these jobs; it is not a seniority qualifier.
+    ("Student Success Advisor", "Academic Advisor"),
+    ("Student Affairs Coordinator", "Program Coordinator"),
+])
+def test_student_in_a_job_name_is_not_treated_as_seniority(source, generated):
+    from experience_contract import is_title_rewrite_allowed
+    assert is_title_rewrite_allowed(source_title=source, generated_title=generated, aggressiveness="high") is True

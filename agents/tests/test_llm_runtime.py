@@ -311,8 +311,8 @@ async def test_model_trace_includes_redacted_prompt_and_output_when_content_opte
 @pytest.mark.parametrize('model_name,expected', [
     ('google/gemini-3.8-flash', {'output_mode': 'native', 'temperature': 'provider_default',
         'reasoning_effort': 'medium', 'reasoning_text_excluded': True}),
-    ('anthropic/claude-sonnet-5.5', {'output_mode': 'native', 'reasoning_effort': 'capped',
-        'reasoning_max_tokens': 2000, 'reasoning_text_excluded': True}),
+    ('anthropic/claude-sonnet-5.5', {'output_mode': 'native', 'reasoning_effort': 'low',
+        'reasoning_max_tokens': None, 'reasoning_text_excluded': True}),
     ('test/provider', {'output_mode': 'tool', 'temperature': 0.35,
         'reasoning_effort': 'high', 'reasoning_text_excluded': False}),
 ])
@@ -348,7 +348,7 @@ async def test_optional_trace_setup_failure_does_not_fail_provider_call(monkeypa
 
 @pytest.mark.asyncio
 # Claude Haiku 5.5 is newer than the pinned SDK's JSON-schema allowlist; the config's native_json mode must still apply.
-@pytest.mark.parametrize('model_name', ['anthropic/claude-sonnet-5.5','anthropic/claude-haiku-5.5','openai/gpt-6.1-sol','google/gemini-3.8-flash','openai/gpt-6-luna'])
+@pytest.mark.parametrize('model_name', ['anthropic/claude-sonnet-5.5','anthropic/claude-haiku-5.5','openai/gpt-5.6-sol','google/gemini-3.8-flash','openai/gpt-6-luna'])
 async def test_current_models_use_native_json_default_reasoning_and_bounded_correction(monkeypatch, model_name):
     import llm_runtime
     requests = mock_provider(monkeypatch, [{'count':'invalid'}, {'count':2}])
@@ -466,8 +466,15 @@ async def test_failed_model_run_is_marked_as_error_with_fixed_label(monkeypatch)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('model_name,pinned', [('google/gemini-3.8-flash', ['google-ai-studio']), ('anthropic/claude-sonnet-5.5', None), ('openai/gpt-6-luna', None)])
-async def test_requests_deny_data_retention_route_by_latency_and_record_served_provider(monkeypatch, model_name, pinned):
+# Preferred standard-price endpoints come from the 2026-10-12 provider probe; fast tiers are never configured.
+@pytest.mark.parametrize('model_name,pinned,order', [
+    ('google/gemini-3.8-flash', ['google-ai-studio'], None),
+    ('anthropic/claude-sonnet-5.5', None, ['anthropic', 'azure/global']),
+    ('anthropic/claude-haiku-5.5', None, ['azure/global', 'anthropic']),
+    ('openai/gpt-6-luna', None, ['openai', 'azure']),
+    ('openai/gpt-5.6-sol', None, ['openai']),
+])
+async def test_requests_deny_data_retention_route_by_latency_and_record_served_provider(monkeypatch, model_name, pinned, order):
     requests = mock_provider(monkeypatch, [{'count': 3}])
     budget = CallBudget.for_seconds(3)
     await structured_call(prompt=[('human', 'Count.')], output_type=ExampleOutput, model_name=model_name, api_key='test',
@@ -475,6 +482,8 @@ async def test_requests_deny_data_retention_route_by_latency_and_record_served_p
     provider = requests[0]['provider']
     assert provider['data_collection'] == 'deny' and provider['require_parameters'] is True and provider['sort'] == 'latency'
     assert provider.get('only') == pinned
+    assert provider.get('order') == order
+    assert not any(tag.endswith('/fast') for tag in (provider.get('order') or []) + (provider.get('only') or []))
     assert budget.attempts[-1]['served_provider'] == 'Synthetic'
 
 

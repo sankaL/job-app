@@ -46,7 +46,8 @@ HIGH_OPTIONS: dict[str, str] = {
     "plausible": ("The claim could describe work in this role, at this employer and in this period, even when it is entirely new "
                   "and the evidence does not mention it, and it keeps the evidence's employers, dates and credentials."),
     "implausible_claim": ("The claim could not fit this role: it names a technology that did not exist in the role's period, "
-                          "states an absurd scale for the employer, or claims a higher seniority than the role title."),
+                          "states an absurd scale for the employer, claims a higher seniority than the role title, or reuses a "
+                          "number from the evidence to describe different work or a different quantity."),
     "unsupported_employer": "The claim names an employer, client or organisation that the evidence does not mention.",
     "unsupported_credential": "The claim adds a certification, degree, licence or award that the evidence does not mention.",
     "unsupported_date_or_tenure": "The claim changes dates, duration or years of experience.",

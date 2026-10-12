@@ -166,6 +166,9 @@ async def test_live_evaluation_honors_env_file_project_and_tags_case(monkeypatch
     env_file.write_text("LANGSMITH_TRACING=true\nLANGSMITH_PROJECT=eval-project\nLANGSMITH_API_KEY=eval-key\nLANGSMITH_WORKSPACE_ID=eval-workspace\n")
     values = {**evaluator.configuration(env_file), "APP_DEV_MODE": "true", "OPENROUTER_API_KEY": "provider-key",
         "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"}
+    async def enough_headroom(*_args, **_kwargs):
+        return {"key_remaining_usd": 30.0, "account_remaining_usd": 30.0}
+    monkeypatch.setattr(evaluator, "require_spend_headroom", enough_headroom)
     captured = []
     @contextmanager
     def scope(name, **kwargs):
@@ -201,3 +204,45 @@ async def test_live_tracing_missing_config_blocks_provider_work(monkeypatch, mis
     monkeypatch.setattr(evaluator.pipeline, "generate_document", unexpected)
     with pytest.raises(RuntimeError, match=missing):
         await run_cases(CASES[:1], values, arguments(live=True))
+
+
+def spend_transport(key_remaining, credits=40.0, usage=10.0, status=200):
+    def handler(request):
+        if status != 200:
+            return httpx.Response(status, json={"error": {"message": "nope"}})
+        if request.url.path.endswith("/key"):
+            return httpx.Response(200, json={"data": {} if key_remaining == "missing" else {"limit_remaining": key_remaining}})
+        return httpx.Response(200, json={"data": {"total_credits": credits, "total_usage": usage}})
+    return httpx.MockTransport(handler)
+
+
+VALUES = {"OPENROUTER_API_KEY": "sk-or-secret-value", "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1"}
+
+
+@pytest.mark.asyncio
+async def test_live_runs_refuse_when_the_shared_account_is_low_even_if_the_key_has_headroom():
+    from evals.run_sections import require_spend_headroom
+    # 2026-10-12: the key showed $28 left while the account had about $2, and calls failed with 402.
+    with pytest.raises(EvaluationLimit, match=r"\$2\.00 left") as caught:
+        await require_spend_headroom(VALUES, 20, transport=spend_transport(28.0, credits=40.0, usage=38.0))
+    assert "sk-or-secret-value" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_live_runs_refuse_when_the_key_limit_is_low_and_allow_healthy_or_unlimited_keys():
+    from evals.run_sections import require_spend_headroom
+    with pytest.raises(EvaluationLimit, match=r"\$5\.00 left"):
+        await require_spend_headroom(VALUES, 20, transport=spend_transport(5.0))
+    assert await require_spend_headroom(VALUES, 20, transport=spend_transport(25.0)) == {
+        "key_remaining_usd": 25.0, "account_remaining_usd": 30.0}
+    assert (await require_spend_headroom(VALUES, 20, transport=spend_transport(None)))["key_remaining_usd"] is None
+
+
+@pytest.mark.asyncio
+async def test_spend_check_fails_closed_when_balances_cannot_be_read():
+    from evals.run_sections import require_spend_headroom
+    with pytest.raises(EvaluationLimit, match="Could not confirm"):
+        await require_spend_headroom(VALUES, 20, transport=spend_transport(25.0, status=401))
+    # A response without the key limit field is not mistaken for an unlimited key.
+    with pytest.raises(EvaluationLimit, match="Could not confirm"):
+        await require_spend_headroom(VALUES, 20, transport=spend_transport("missing"))

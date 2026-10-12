@@ -27,7 +27,7 @@ import jev_audit  # noqa: E402
 import model_config  # noqa: E402
 from evals.fixtures import source_document  # noqa: E402
 from llm_runtime import CallBudget, structured_call  # noqa: E402
-from evals.run_sections import configuration  # noqa: E402
+from evals.run_sections import DEFAULT_MIN_REMAINING_USD, configuration, require_spend_headroom  # noqa: E402
 
 FIELDS = ["registered nurse", "marketing manager", "staff accountant", "data analyst", "high school teacher",
           "site reliability engineer", "operations supervisor", "UX designer"]
@@ -364,11 +364,14 @@ async def main() -> int:
     parser.add_argument("--extra-source", type=Path, help="Local writer_messages.json with a reviewed_source (never written to the report).")
     parser.add_argument("--resumes", type=int, default=6)
     parser.add_argument("--max-cost-usd", type=float, default=3.0)
+    parser.add_argument("--min-remaining-usd", type=float, default=DEFAULT_MIN_REMAINING_USD,
+                        help="Refuse to start unless the shared OpenRouter key and account both have at least this much left.")
     # v2 adds Summary sentences and Skills groups; v1 datasets held Experience bullets only.
     parser.add_argument("--dataset", type=Path, default=Path("/app/evals/results/jev-dataset-v2.json"))
     parser.add_argument("--output", type=Path, default=Path("/app/evals/results/jev-audit-report.json"))
     args = parser.parse_args()
     values = configuration(args.env_file)
+    await require_spend_headroom(values, args.min_remaining_usd)  # Shares the production key and account.
     meter = Meter(args.max_cost_usd)
     if args.dataset.exists():
         rows = json.loads(args.dataset.read_text())

@@ -1720,8 +1720,10 @@ async def test_run_regeneration_job_success(monkeypatch):
         regeneration_instructions="Make the summary more direct.",
     )
 
-    assert observed_regen_kwargs["model"] == "google/gemini-3.8-flash"
-    assert observed_regen_kwargs["fallback_model"] == "openai/gpt-6-luna"
+    # Section regeneration uses the section_writer route for the job's aggressiveness; legacy job model keys are ignored.
+    import model_config
+    route = model_config.route("section_writer", "medium")
+    assert (observed_regen_kwargs["model"], observed_regen_kwargs["fallback_model"]) == (route.model, route.fallback)
     assert observed_regen_kwargs["reasoning_effort"] == "auto"
     assert observed_regen_kwargs["fallback_reasoning_effort"] == "auto"
     assert len(callback_payloads) == 1

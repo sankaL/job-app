@@ -1,3 +1,28 @@
+## 2026-10-12 EDT - Bake-off routing applied; Judge schema, seniority, tense and High number fixes
+
+- Context: The 2026-10-12 model bake-off (`docs/task-output/2026-10-12-model-bakeoff.md`) compared seven writing models plus Gemini 3.8 Flash on the production pipeline. It found a production Resume Judge failure, two deterministic-check gaps, a High audit gap and a slow writer fallback.
+- Decision (user-approved routing, which differs from the report's quality-first picks):
+  - `resume_writer` and `repair_writer`: Sonnet 5.5 for Low and Medium, Haiku 5.5 for High; fallback GPT-5.6 Sol, replacing GPT-6.1 Sol (same price, no 50-119 s tail). Repairs follow generation routing (user choice).
+  - `section_writer`: GPT-6 Luna for Low and Medium, Sonnet 5.5 for High; fallback Haiku 5.5. Gemini distorted real facts at High in the test.
+  - New `keyword_writer` role: Sonnet 5.5 at every level, fallback GPT-5.6 Sol (owner request), so keyword patches never run on an untested model.
+  - `resume_judge`: Haiku 5.5, fallback GPT-6 Luna.
+  - Sonnet, Haiku, GPT-6 Luna and GPT-5.6 Sol use reasoning effort `low`, as tested (user choice); Gemini stays medium.
+  - Providers: per-model `providers.order` of measured standard-price endpoints. Never `/fast` tiers (user instruction: no extra cost). OpenRouter fallbacks stay allowed.
+- Fixes:
+  - Resume Judge: `dimension_scores` and `regeneration_instructions` now name every key. With open dictionaries, Gemini and the Claude models returned `{}`, so every production Judge call failed on Gemini and the fallback answered.
+  - Seniority: `SENIORITY_PATTERNS` adds internship, co-op and coop (student was dropped after code review, because it names who a job serves). Word-boundary matching meant "intern" never matched "Internship", and a dropped "(Internship)" passed every level.
+  - Tense: a new local check, `present_tense_past_role`, rejects bullets that start with an unambiguous base-form verb in a role with an explicit end date, keeping a cited source's or the user's own voice. It also runs on keyword patches. After code review, Present, Today, to date and open ends count as current, and noun-like words (lead, support, design, report, …) are excluded. `RESUME_VOICE_RULE` asks for past tense.
+  - High numbers: `HIGH_FIT_CLAIM_POLICY`, the High LLM audit (`unsupported_metric`) and Jev's High `implausible_claim` definition now forbid reusing a source number for different work or a different quantity.
+  - Medium repairs: `STRICT_CLAIM_POLICY` now states the audit's own rules (number context, job requirements are not evidence, title reframe rule).
+  - Evals: live runs refuse to start unless both the key limit and the account credit have at least `--min-remaining-usd` (default $20) left, because local evals share the production key and account.
+- Rejected or deferred:
+  - A local "number provenance" check for High: the observed distortions kept the number in its cited bullet, so the check would not catch them.
+  - A High word cap: the reported overrun used made-up thresholds. All drafts were within the product's hard caps, and the report was corrected.
+  - Pinning Gemini to Vertex: none of its remaining roles were tested there.
+- Consequences:
+  - The Jev High option wording changed, so re-run the labelled Jev evaluation for High before trusting the change.
+  - The live eval for the new routing and the repair-rate effect of the stricter writer policy still need measuring. Both wait for an OpenRouter credit top-up (about $2 left).
+
 ## 2026-10-07 EDT - Claude Haiku 5.5 writes Low and Medium resumes; Sonnet keeps High and the LLM audit
 
 - Context: Claude Haiku 5.5 was released on 2026-10-07 at $0.10/$0.50 per million input/output tokens on OpenRouter, 20x cheaper than Sonnet 5.5. The user asked whether it can replace Sonnet.

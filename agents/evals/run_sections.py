@@ -52,6 +52,36 @@ def configuration(env_file: Path | None) -> dict[str, str]:
     return {**values, **os.environ}
 
 
+DEFAULT_MIN_REMAINING_USD = 20.0
+SPEND_CHECK_TIMEOUT_SECONDS = 10.0
+
+
+async def require_spend_headroom(values: dict[str, str], minimum_usd: float,
+                                 transport: httpx.AsyncBaseTransport | None = None) -> dict[str, float | None]:
+    """Refuse a live run unless OpenRouter has at least `minimum_usd` left.
+
+    Local evaluations share the production key and account, so both ceilings matter: the key's
+    spending limit (403 when exhausted) and the account's credit balance (402 when exhausted).
+    Fails closed when either cannot be read. The key is never echoed.
+    """
+    base = values.get("OPENROUTER_BASE_URL", "").rstrip("/")
+    headers = {"Authorization": f"Bearer {values.get('OPENROUTER_API_KEY', '')}"}
+    try:
+        async with httpx.AsyncClient(timeout=SPEND_CHECK_TIMEOUT_SECONDS, transport=transport) as client:
+            key = (await client.get(f"{base}/key", headers=headers)).raise_for_status().json()["data"]
+            credits = (await client.get(f"{base}/credits", headers=headers)).raise_for_status().json()["data"]
+        # A null limit means the key has no spending cap; a missing field fails closed below.
+        headroom = {"key_remaining_usd": None if key["limit_remaining"] is None else float(key["limit_remaining"]),
+                    "account_remaining_usd": float(credits["total_credits"]) - float(credits["total_usage"])}
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        raise EvaluationLimit("Could not confirm the OpenRouter spending headroom; refusing a live run.") from None
+    left = min(value for value in headroom.values() if value is not None)
+    if left < minimum_usd:
+        raise EvaluationLimit(f"OpenRouter has ${left:.2f} left (key or account), below the ${minimum_usd:.2f} floor "
+                              "kept for production. Top up or lower --min-remaining-usd.")
+    return headroom
+
+
 def configuration_status(values: dict[str, str]) -> dict[str, bool]:
     key = values.get("OPENROUTER_API_KEY", "").strip()
     endpoint = urlsplit(values.get("OPENROUTER_BASE_URL", ""))
@@ -359,18 +389,24 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
         raise EvaluationLimit("Live evaluation requires configured dev-mode OpenRouter credentials and both models.")
     if live and any(case.fault for case in cases):
         raise EvaluationLimit("Injected recovery fixtures are offline-only.")
-    # The first writer is chosen per case aggressiveness, as in the worker.
-    writers = {case.aggressiveness: model_config.route("resume_writer", case.aggressiveness) for case in cases}
+    # The first writer is chosen per case operation and aggressiveness, as in worker._resolve_generation_models.
+    full_operations = {"generation", "regeneration_full"}
     def writer_models(case: Case) -> tuple[str, str]:
         if not live:
-            return "eval/primary", "eval/fallback"
-        route = writers[case.aggressiveness]
+            return ("eval/primary", "eval/fallback") if case.operation in full_operations else ("eval/routine", "eval/routine-fallback")
+        role = ("resume_writer" if case.operation in full_operations
+                else "keyword_writer" if case.operation == "keyword_optimization" else "section_writer")
+        route = model_config.route(role, case.aggressiveness)
+        return route.model, route.fallback or route.model
+    def routine_models(case: Case) -> tuple[str, str]:
+        if not live:
+            return "eval/routine", "eval/routine-fallback"
+        route = model_config.route("section_writer", case.aggressiveness)
         return route.model, route.fallback or route.model
     meter = RunMeter(live=live, max_requests=args.max_requests, max_output_tokens=args.max_output_tokens,
         max_seconds=args.max_seconds, max_cost_usd=Decimal(str(args.max_cost_usd)))
-    routine = model_config.route("section_writer").model if live else "eval/routine"
-    routine_fallback = (model_config.route("section_writer").fallback or routine) if live else "eval/routine-fallback"
-    meter.model_roles = {routine: "routine", routine_fallback: "routine-fallback",
+    meter.model_roles = {**{routine_models(case)[0]: "routine" for case in cases},
+        **{routine_models(case)[1]: "routine-fallback" for case in cases},
         **{name: "fallback" for case in cases for name in writer_models(case)[1:]},
         **{writer_models(case)[0]: "primary" for case in cases}}
     meter.diagnostic_errors = bool(getattr(args, "diagnostic_errors", False))
@@ -395,6 +431,8 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
                 langsmith_api_key=values.get("LANGSMITH_API_KEY"))
             stack.enter_context(patch.object(tracing, "_TraceSettings", lambda: trace_settings))
             tracing._trace_config()  # Invalid enabled configuration blocks provider work.
+            # Local checks first, then confirm the shared key and account can afford the run.
+            await require_spend_headroom(values, float(getattr(args, "min_remaining_usd", DEFAULT_MIN_REMAINING_USD)))
             original_scope = tracing.trace_scope
             def evaluation_scope(name, **kwargs):
                 kwargs["metadata"] = {**kwargs.get("metadata", {}),
@@ -407,6 +445,7 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
             stack.enter_context(patch.object(llm_runtime, "trace_scope", lambda *_args, **_kwargs: nullcontext(None)))
         for case in cases:
             meter.current_case = case
+            routine, routine_fallback = routine_models(case)
             settings = {**case_settings(case), "_routine_model": routine, "_routine_fallback_model": routine_fallback}
             model, fallback = writer_models(case)
             case_started = perf_counter()
@@ -414,8 +453,7 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
                 meter.check()
                 result = await pipeline.generate_document(source_payload=source_document(), generation_settings=settings, section_preferences=[],
                     job_title="Backend Engineer", company_name="Fictional Northstar Tools", job_description=JOB_DESCRIPTION,
-                    model=model if case.operation in {"generation", "regeneration_full"} else routine,
-                    fallback_model=fallback if case.operation in {"generation", "regeneration_full"} else routine_fallback, api_key=values["OPENROUTER_API_KEY"] if live else "synthetic",
+                    model=model, fallback_model=fallback, api_key=values["OPENROUTER_API_KEY"] if live else "synthetic",
                     base_url=values["OPENROUTER_BASE_URL"] if live else "https://synthetic.invalid/v1", on_progress=None,
                     reasoning_effort="auto",
                     target_section_id="experience" if case.operation == "regeneration_section" else None,
@@ -462,6 +500,8 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--max-seconds", type=float, default=360)
     result.add_argument("--max-cost-usd", type=Decimal, default=Decimal("1.00"), help="Stop subsequent requests at this reported charged-cost threshold.")
     result.add_argument("--output", type=Path, help="Optional local JSON metrics artifact.")
+    result.add_argument("--min-remaining-usd", type=float, default=DEFAULT_MIN_REMAINING_USD,
+        help="Live only: refuse to start unless the shared OpenRouter key and account both have at least this much left.")
     result.add_argument("--save-documents", action="store_true", help="Include synthetic generated documents for human review.")
     result.add_argument("--diagnostic-errors", action="store_true", help="Synthetic debugging only: include up to three redacted provider error messages, capped at 500 characters each.")
     return result
@@ -487,7 +527,10 @@ def main() -> int:
     try:
         report = asyncio.run(run_cases(cases, values, args))
     except Exception as error:
-        print(json.dumps({"status": "blocked", "error_type": type(error).__name__, "configuration_available": configuration_status(values)}))
+        blocked = {"status": "blocked", "error_type": type(error).__name__, "configuration_available": configuration_status(values)}
+        if isinstance(error, EvaluationLimit):
+            blocked["reason"] = str(error)  # Safe, fixed messages without provider content or credentials.
+        print(json.dumps(blocked))
         return 2
     encoded = json.dumps(report, indent=2) + "\n"
     if args.output:

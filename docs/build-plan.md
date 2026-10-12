@@ -1,12 +1,37 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-07
+**Last updated:** 2026-10-12
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## Bake-off routing and defect fixes
+
+**Status:** Complete locally, not deployed (2026-10-12 13:20 EDT).
+
+- Applied the owner's routing:
+  - Generation and repairs: Sonnet 5.5 for Low and Medium, Haiku 5.5 for High; fallback GPT-5.6 Sol.
+  - Section edits: GPT-6 Luna for Low and Medium, Sonnet for High; fallback Haiku.
+  - Keyword optimization: a new `keyword_writer` role, Sonnet at every level.
+  - Judge: Haiku, fallback GPT-6 Luna.
+  - Reasoning effort low, and per-model standard-price provider order, never `/fast`.
+- Fixed the production Resume Judge schema (named dimension and instruction fields), the internship and co-op seniority gap, present tense in ended roles (new local check plus prompt rule), and High number reuse (writer policy, LLM audit, Jev option).
+- Added the audit's Medium rules to the writer policy, and a spend-headroom guard for live evals.
+- Tests: agents and backend suites pass; the offline evals pass 7 of 7.
+- Live check after the credit top-up (about $0.24): every task ran on its configured model and preferred provider, with no fallbacks and no failed checks. The Haiku Judge returned 20 of 20 on the first call. In the High Jev re-run, bad claims accepted stayed at 0% and wrongful rejections fell from 9.4% to 4.3%.
+- Open: commit and deploy after confirmation. The OpenRouter account has about $11.70 left, so top up before normal traffic.
+- Notes: `docs/task-output/2026-10-12-bakeoff-fixes-and-routing.md`.
+
+## Model bake-off across generation, regeneration, section edits and Resume Judge
+
+**Status:** Evaluation complete; no code changed (2026-10-12).
+
+- Compared seven writing models plus Gemini 3.8 Flash on the production pipeline at Low/Medium/High, using one real and two fictional resumes. Quality was graded blind; spend was $11.14. Summary: `docs/task-output/2026-10-12-model-bakeoff.md`; full report: https://claude.ai/artifact/Wu1tHJb2HNMw8D3Ux3b7eM
+- Found a production Resume Judge schema bug: the primary model fails on every call and the fallback answers. Also found pipeline gaps: seniority qualifiers, tense, High length caps, metric provenance at High.
+- Open: the owner's routing decision, the Judge schema fix, and a top-up of OpenRouter credits (about $1.97 left).
 
 ## Claude Haiku 5.5 for Low/Medium resume writing
 
