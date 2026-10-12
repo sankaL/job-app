@@ -15,7 +15,7 @@ export const Input = forwardRef<
           ? "app-check"
           : type === "file"
             ? "app-file"
-            : "app-input w-full px-3 py-2 text-sm",
+            : "app-input h-[var(--size-element-md)] w-full px-3 py-0 text-sm",
         className,
       )}
       {...props}

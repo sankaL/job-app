@@ -61,7 +61,9 @@ function Breadcrumbs({ overrides }: BreadcrumbsProps) {
       {crumbs.map((crumb, index) => (
         <span
           key={crumb.path || `crumb-${index}`}
-          className="flex min-w-0 items-center gap-1.5"
+          // Phones show only the current page; ancestors and separators
+          // return from sm up.
+          className={`min-w-0 items-center gap-1.5 ${crumb.isLast ? "flex" : "hidden sm:flex"}`}
         >
           {index > 0 && (
             <svg
@@ -69,7 +71,7 @@ function Breadcrumbs({ overrides }: BreadcrumbsProps) {
               height="14"
               viewBox="0 0 14 14"
               fill="none"
-              className="flex-shrink-0"
+              className="hidden flex-shrink-0 sm:block"
               style={{ color: "var(--color-border-emphasized)" }}
             >
               <path
@@ -91,7 +93,7 @@ function Breadcrumbs({ overrides }: BreadcrumbsProps) {
           ) : (
             <Link
               to={crumb.path}
-              className="truncate transition-colors hidden sm:inline"
+              className="truncate transition-colors"
               style={{
                 color: "var(--color-text-secondary)",
                 maxWidth: "120px",

@@ -266,6 +266,23 @@ export function ExtensionPage() {
         title="Chrome Extension"
         primaryActionIndex={0}
         subtitle="Capture job postings directly from your browser"
+        mobilePrimary={
+          <Button
+            size="sm"
+            loading={isConnecting}
+            onClick={() => void handleConnect()}
+          >
+            {status?.connected ? "Rotate" : "Connect"}
+          </Button>
+        }
+        mobileMenu={[
+          {
+            label: "Revoke Access",
+            destructive: true,
+            disabled: isRevoking,
+            onSelect: () => void handleRevoke(),
+          },
+        ]}
         actions={
           <>
             <Button

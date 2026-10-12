@@ -9,7 +9,7 @@ import { Divider } from "@astryxdesign/core/Divider";
 import { Field } from "@astryxdesign/core/Field";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
-import { useMediaQuery } from "@astryxdesign/core/hooks";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -104,7 +104,7 @@ function PersonalInformationSection({
     value: EditableProfileState[K],
   ) => void;
 }) {
-  const isNarrow = useMediaQuery("(max-width: 768px)");
+  const isNarrow = useIsMobile();
   return (
     <Grid columns={isNarrow ? 1 : { minWidth: 320, max: 2 }} gap={10}>
       <VStack gap={1}>
@@ -285,7 +285,7 @@ export function ProfilePage() {
     updateField,
     save,
   } = useProfileEditor();
-  const isNarrow = useMediaQuery("(max-width: 768px)");
+  const isNarrow = useIsMobile();
 
   if (isLoading) return <ProfileLoading />;
   if (!profile) return <ProfileUnavailable error={error} />;
@@ -301,6 +301,7 @@ export function ProfilePage() {
               color="secondary"
               role="status"
               aria-live="polite"
+              className="max-md:sr-only"
             >
               {saveState === "saved"
                 ? "Saved"

@@ -35,7 +35,7 @@ export function SectionTitle({
   caption?: ReactNode;
 }) {
   return (
-    <HStack gap={3} hAlign="between" vAlign="center">
+    <HStack gap={3} hAlign="between" vAlign="center" wrap="wrap">
       <Heading level={3}>{title}</Heading>
       {typeof caption === "string" ? (
         <Text type="supporting" color="secondary">

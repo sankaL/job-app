@@ -517,7 +517,7 @@ export function DashboardPage() {
       />
       <Section density="compact">
         <VStack gap={3}>
-          <HStack hAlign="between" vAlign="center">
+          <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
             <Heading level={3}>Recent activity</Heading>
             <Button
               size="sm"
@@ -557,16 +557,22 @@ export function DashboardPage() {
                       aria-hidden="true"
                       className="text-[var(--color-success)]"
                     />
-                    <Text type="supporting" color="secondary">
+                    <Text
+                      type="supporting"
+                      color="secondary"
+                      className="max-sm:sr-only"
+                    >
                       Applied
                     </Text>
                   </HStack>
                 )}
-                <StatusBadge
-                  status={app.visible_status}
-                  size="sm"
-                  layout="rail"
-                />
+                <span className="shrink-0">
+                  <StatusBadge
+                    status={app.visible_status}
+                    size="sm"
+                    layout="rail"
+                  />
+                </span>
               </Link>
             ))}
           </div>

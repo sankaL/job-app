@@ -3,6 +3,8 @@ import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { HStack, VStack } from "@astryxdesign/core/Layout";
 import { Text } from "@astryxdesign/core/Text";
 import { useDeferredValue, useEffect, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CircleStop, Trash2 } from "lucide-react";
@@ -423,14 +425,19 @@ function BulkSelectionSection({
   onApply: () => void;
   onDelete: () => void;
 }) {
+  const isMobile = useIsMobile();
   if (count === 0) return null;
   const warning =
     activeCount === 1
       ? "Delete is unavailable while 1 selected application is still processing."
       : `Delete is unavailable while ${activeCount} selected applications are still processing.`;
-  return (
-    <Section variant="default" density="compact">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+  const bar = (
+    <Section
+      variant="default"
+      density="compact"
+      className="app-mobile-action-bar"
+    >
+      <div className="flex flex-col gap-3 max-md:flex-row max-md:items-center max-md:justify-between lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
           <Text
             as="p"
@@ -438,7 +445,10 @@ function BulkSelectionSection({
             type="label"
             style={{ color: "var(--color-text-primary)" }}
           >
-            {formatApplicationCount(count)} selected
+            <span className="md:hidden">{count} selected</span>
+            <span className="max-md:hidden">
+              {formatApplicationCount(count)} selected
+            </span>
           </Text>
           {activeCount > 0 && (
             <Text
@@ -447,7 +457,10 @@ function BulkSelectionSection({
               type="supporting"
               style={{ color: "var(--color-error)" }}
             >
-              {warning}
+              <span className="md:hidden">
+                Can't delete while {activeCount} still processing.
+              </span>
+              <span className="max-md:hidden">{warning}</span>
             </Text>
           )}
         </div>
@@ -476,6 +489,59 @@ function BulkSelectionSection({
       </div>
     </Section>
   );
+  // On phones the bar is fixed to the screen. The page wrapper keeps a
+  // transform from its entry animation, which would trap a fixed child, so
+  // render the bar at the document root there.
+  return isMobile ? createPortal(bar, document.body) : bar;
+}
+
+// Phone card built from the desktop column renderers so both layouts share
+// selection, notices and row actions. Base Resume is desktop-only.
+function buildApplicationMobileCard(columns: Column<ApplicationSummary>[]) {
+  const byKey = Object.fromEntries(
+    columns.map((column) => [column.key, column]),
+  );
+  const cell = (key: string, app: ApplicationSummary) =>
+    byKey[key]?.render(app) ?? null;
+  return {
+    header: byKey.select ? (
+      <HStack gap={3} vAlign="center" paddingBlock={2}>
+        {byKey.select.header}
+        <Text type="supporting" color="secondary">
+          Select page
+        </Text>
+      </HStack>
+    ) : null,
+    card: (app: ApplicationSummary) => (
+      <HStack gap={3} vAlign="start">
+        {cell("select", app)}
+        <VStack gap={1} className="min-w-0 flex-1">
+          <HStack gap={3} vAlign="start">
+            <VStack gap={0} className="min-w-0 flex-1">
+              {cell("title", app)}
+            </VStack>
+            {cell("actions", app)}
+          </HStack>
+          <HStack gap={3} vAlign="center">
+            <HStack gap={2} vAlign="center" className="min-w-0 flex-1">
+              <VStack gap={0} className="min-w-0">
+                {cell("company", app)}
+              </VStack>
+              <span
+                className="shrink-0 text-xs tabular-nums"
+                style={{ color: "var(--color-text-disabled)" }}
+              >
+                {new Date(app.updated_at).toLocaleDateString()}
+              </span>
+            </HStack>
+            <VStack gap={0} className="shrink-0">
+              {cell("status", app)}
+            </VStack>
+          </HStack>
+        </VStack>
+      </HStack>
+    ),
+  };
 }
 
 function ApplicationsTableSection({
@@ -498,6 +564,7 @@ function ApplicationsTableSection({
   toolbar: TableToolbar;
 }) {
   if (!applications) return <SkeletonTable rows={8} columns={7} />;
+  const mobile = buildApplicationMobileCard(columns);
   const empty = source.length === 0;
   const emptyState = (
     <EmptyState
@@ -529,6 +596,8 @@ function ApplicationsTableSection({
       verticalAlign="middle"
       onVisibleRowsChange={onVisibleRows}
       emptyState={emptyState}
+      mobileCard={mobile.card}
+      mobileHeader={mobile.header}
     />
   );
 }
@@ -673,7 +742,9 @@ function ApplicationListModals(
 
 function ApplicationsListView(props: ApplicationsListViewProps) {
   return (
-    <div className="page-enter space-y-5">
+    <div
+      className={`page-enter space-y-5${props.selectedIds.length ? " max-md:pb-24" : ""}`}
+    >
       <ApplicationsHeader
         applications={props.applications}
         onCreate={() => props.setShowCreateModal(true)}

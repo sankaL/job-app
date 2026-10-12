@@ -7,7 +7,10 @@ import { Pencil, Trash2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAppContext } from "@/components/layout/AppContext";
 import { ActionButtons } from "@/components/ui/button-group";
-import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  PageHeader,
+  type MobileMenuAction,
+} from "@/components/layout/PageHeader";
 import {
   ResumeContactSection,
   ResumeSectionWorkbench,
@@ -249,6 +252,52 @@ export function BaseResumeEditorPage() {
     ? JSON.stringify({ name, document }) !== savedSnapshot
     : Boolean(name.trim() || document.sections.length);
   const reviewingUpload = uploadMode && Boolean(resume);
+  const primaryAction =
+    !loading && (resume || (!uploadMode && isNew)) ? (
+      <Button
+        type="submit"
+        form="base-resume-edit-form"
+        title={dirty ? "Save unsaved changes" : "Save resume"}
+        loading={saving}
+        disabled={saving}
+      >
+        {saving
+          ? "Saving…"
+          : saved
+            ? "Saved"
+            : isNew && !resume
+              ? "Create Resume"
+              : "Save Changes"}
+      </Button>
+    ) : !loading && isNew && uploadMode && !resume ? (
+      <Button
+        type="submit"
+        form="resume-upload-form"
+        disabled={uploading}
+      >
+        {uploading ? "Import in progress" : "Upload & Parse"}
+      </Button>
+    ) : null;
+  const mobileMenu: MobileMenuAction[] | undefined =
+    !loading && resume && !isNew
+      ? [
+          ...(!resume.is_default
+            ? [
+                {
+                  label: settingDefault ? "Setting…" : "Set Default",
+                  disabled: settingDefault,
+                  onSelect: () => void handleDefault(),
+                },
+              ]
+            : []),
+          {
+            label: "Delete resume",
+            destructive: true,
+            disabled: deleting,
+            onSelect: () => setConfirmDelete(true),
+          },
+        ]
+      : undefined;
   return (
     <div
       className={`resume-editor page-enter w-full ${!loading && (resume || (!uploadMode && isNew)) ? "resume-editor--workbench" : "space-y-5"}`}
@@ -312,6 +361,8 @@ export function BaseResumeEditorPage() {
             ? `Source resume · revision ${resume.document?.revision ?? 1}`
             : "Build a reviewed source for every tailored resume"
         }
+        mobileMenu={mobileMenu}
+        mobilePrimary={primaryAction}
         actions={
           !loading && (resume || isNew) ? (
             <ActionButtons label={`${resume?.name ?? "Resume"} actions`}>
@@ -336,31 +387,7 @@ export function BaseResumeEditorPage() {
                   </IconButton>
                 </>
               ) : null}
-              {!loading && (resume || (!uploadMode && isNew)) ? (
-                <Button
-                  type="submit"
-                  form="base-resume-edit-form"
-                  title={dirty ? "Save unsaved changes" : "Save resume"}
-                  loading={saving}
-                  disabled={saving}
-                >
-                  {saving
-                    ? "Saving…"
-                    : saved
-                      ? "Saved"
-                      : isNew && !resume
-                        ? "Create Resume"
-                        : "Save Changes"}
-                </Button>
-              ) : !loading && isNew && uploadMode && !resume ? (
-                <Button
-                  type="submit"
-                  form="resume-upload-form"
-                  disabled={uploading}
-                >
-                  {uploading ? "Import in progress" : "Upload & Parse"}
-                </Button>
-              ) : null}
+              {primaryAction}
             </ActionButtons>
           ) : undefined
         }

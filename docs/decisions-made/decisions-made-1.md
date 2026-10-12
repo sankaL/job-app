@@ -1,3 +1,18 @@
+## 2026-10-12 EDT - Phone layouts replace sideways scrolling with cards, menus and pane switching
+
+- Context: On phones, the Applications table needed about 988px and Admin Users about 1176px, so data scrolled sideways inside the table. Page actions crowded the top bar. Application details stacked under a long resume, and the compare header covered about 40% of the screen.
+- Decision (user-approved):
+  - Below 768px, tables render rows as stacked cards with primary fields and row actions. Secondary columns are hidden: Base Resume, invite dates and Updated.
+  - Application detail below 1280px uses a Resume / Details segmented switch rather than a bottom sheet.
+  - Admin pages are included.
+- This replaces the earlier rule "Keep every column/action reachable through horizontal scrolling on narrow screens". Every action stays reachable on the card, and hidden fields remain on wider screens and in edit dialogs.
+- Pane switching hides the inactive pane with CSS and keeps both mounted. This preserves unsaved editor, notes and field state, matching the existing rule that responsive layout changes must not remount the page.
+- Page headers with several actions keep one visible action on phones and move the rest into a More actions menu (`PageHeader` `mobileMenu`/`mobilePrimary`).
+- The applications bulk-selection bar pins to the bottom on phones. It is a selection bar, not a page action, so the "no bottom action strip" rule for page actions still holds.
+- Rejected:
+  - Fewer table columns on phones: still a table, and still cramped at 343px of content.
+  - A bottom sheet for application details: it hides the resume behind an overlay, and the switch is simpler for long forms.
+
 ## 2026-10-12 EDT - Bake-off routing applied; Judge schema, seniority, tense and High number fixes
 
 - Context: The 2026-10-12 model bake-off (`docs/task-output/2026-10-12-model-bakeoff.md`) compared seven writing models plus Gemini 3.8 Flash on the production pipeline. It found a production Resume Judge failure, two deterministic-check gaps, a High audit gap and a slow writer fallback.

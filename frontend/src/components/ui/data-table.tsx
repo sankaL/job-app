@@ -26,11 +26,15 @@ import {
   ArrowUpDown,
   Bookmark,
   BookmarkPlus,
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
   Search,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 type SortableValue = string | number | boolean | Date | null | undefined;
 export type Column<T> = {
@@ -73,6 +77,10 @@ type DataTableProps<T> = {
   defaultGroup?: string;
   defaultSort?: { key: string; direction: "asc" | "desc" };
   filterData?: T[];
+  /** Phone layout: render each row as a stacked card instead of a table row. */
+  mobileCard?: (row: T) => ReactNode;
+  /** Phone layout: controls shown above the cards, such as select-all. */
+  mobileHeader?: ReactNode;
 };
 function getDateSortValue(value: Exclude<SortableValue, null | undefined>) {
   if (value instanceof Date) return value.getTime();
@@ -233,7 +241,11 @@ export function DataTable<T>({
   defaultGroup = "",
   defaultSort,
   filterData = data,
+  mobileCard,
+  mobileHeader,
 }: DataTableProps<T>) {
+  const isMobile = useIsMobile();
+  const cardMode = Boolean(isMobile && mobileCard);
   const [currentPage, setCurrentPage] = useState(1);
   const [view, setView] = useState<View>({
     hidden: [],
@@ -281,16 +293,18 @@ export function DataTable<T>({
   const rows = ordered
     .slice(start, start + safePageSize)
     .map((record) => ({ record }));
+  function toggleGroup(key: string) {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }
   const grouped = useTableGroupedRows({
     data: rows,
     groupBy: (row) => groupColumn?.groupValue?.(row.record) ?? "",
     collapsedGroups: collapsed,
-    onToggleGroup: (key) =>
-      setCollapsed((current) => {
-        const next = new Set(current);
-        if (!next.delete(key)) next.add(key);
-        return next;
-      }),
+    onToggleGroup: toggleGroup,
     getRowKey: (row) => getRowKey(row.record),
   });
   const visibleRows = rows
@@ -370,160 +384,328 @@ export function DataTable<T>({
     toolbar?.filters?.some((filter) => filter.value !== "all") ||
     Object.values(view.filters).some((values) => values.length),
   );
-  return (
-    <VStack gap={0} className="app-table-frame min-w-0">
-      <HStack gap={3} paddingBlock={4} vAlign="center" wrap="wrap">
-        {toolbar && (
-          <TextInput
-            label={toolbar.searchLabel}
-            isLabelHidden
-            size="sm"
-            placeholder={toolbar.placeholder}
-            startIcon={Search}
-            value={toolbar.search}
-            onChange={toolbar.onSearch}
-            hasClear
-            className="w-full sm:w-48"
-          />
-        )}
-        {toolbar?.filters?.map((filter) => (
-          <FilterChip
-            key={filter.key}
-            label={filter.label}
-            multiple={filter.multiple ?? false}
-            values={filter.value === "all" ? [] : filter.value.split("|")}
-            options={filter.options}
-            onChange={(values) => filter.onChange(values.join("|") || "all")}
-          />
-        ))}
-        {filterColumns.map((column) => (
-          <FilterChip
+  const searchInput = toolbar && (
+    <TextInput
+      label={toolbar.searchLabel}
+      isLabelHidden
+      size="sm"
+      placeholder={toolbar.placeholder}
+      startIcon={Search}
+      value={toolbar.search}
+      onChange={toolbar.onSearch}
+      hasClear
+      width={isMobile ? "100%" : undefined}
+      className={isMobile ? undefined : "w-full sm:w-48"}
+    />
+  );
+  const filterChips = (
+    <>
+      {toolbar?.filters?.map((filter) => (
+        <FilterChip
+          key={filter.key}
+          label={filter.label}
+          multiple={filter.multiple ?? false}
+          values={filter.value === "all" ? [] : filter.value.split("|")}
+          options={filter.options}
+          onChange={(values) => filter.onChange(values.join("|") || "all")}
+        />
+      ))}
+      {filterColumns.map((column) => (
+        <FilterChip
+          key={column.key}
+          label={String(column.header)}
+          values={view.filters[column.key] ?? []}
+          options={[...new Set(filterData.map(column.filterValue!))]
+            .sort()
+            .map((value) => ({ value, label: value }))}
+          onChange={(values) =>
+            patchView({ filters: { ...view.filters, [column.key]: values } })
+          }
+        />
+      ))}
+    </>
+  );
+  const resultSummary = (
+    <>
+      <Text type="supporting" color="secondary" role="status">
+        {filtered.length} {filtered.length === 1 ? "result" : "results"}
+      </Text>
+      {hasFilters && (
+        <Button variant="ghost" size="sm" onClick={clearAll}>
+          Clear all
+        </Button>
+      )}
+    </>
+  );
+  const groupByItems = (
+    <DropdownMenuRadioGroup
+      key="group-by"
+      label="Group by"
+      value={view.group}
+      onChange={(group) => {
+        patchView({ group });
+        setCollapsed(new Set());
+      }}
+    >
+      <DropdownMenuRadioItem value="" label="No grouping" />
+      {columns
+        .filter((column) => column.groupValue)
+        .map((column) => (
+          <DropdownMenuRadioItem
             key={column.key}
-            label={String(column.header)}
-            values={view.filters[column.key] ?? []}
-            options={[...new Set(filterData.map(column.filterValue!))]
-              .sort()
-              .map((value) => ({ value, label: value }))}
-            onChange={(values) =>
-              patchView({ filters: { ...view.filters, [column.key]: values } })
-            }
+            value={column.key}
+            label={`Group by ${String(column.header)}`}
           />
         ))}
-        <Text type="supporting" color="secondary" role="status">
-          {filtered.length} {filtered.length === 1 ? "result" : "results"}
-        </Text>
-        {hasFilters && (
-          <Button variant="ghost" size="sm" onClick={clearAll}>
-            Clear all
-          </Button>
-        )}
-        <HStack gap={2} vAlign="center" className="ml-auto">
-          <DropdownMenu
-            button={{ label: "View options", variant: "ghost", size: "sm" }}
-          >
+    </DropdownMenuRadioGroup>
+  );
+  const savedViewItems = [
+    ...saved.map((item) => (
+      <DropdownMenuItem
+        key={item.id}
+        label={item.name}
+        onClick={() => {
+          setView(item.view);
+          setCollapsed(new Set());
+          setCurrentPage(1);
+          toolbar?.onSearch(item.search);
+          toolbar?.filters?.forEach((filter) =>
+            filter.onChange(item.external[filter.key] ?? "all"),
+          );
+        }}
+      />
+    )),
+    saved.length > 0 && (
+      <DropdownMenuItem
+        key="clear-saved"
+        label="Clear saved views"
+        variant="destructive"
+        onClick={() => setSaved([])}
+      />
+    ),
+  ];
+  const sortableColumns = columns.filter(
+    (column) => column.sortable && typeof column.header === "string",
+  );
+  // Phones: cards replace columns, so the menu offers sort and grouping in
+  // place of column headers, density and column visibility.
+  const mobileToolbar = (
+    <VStack gap={3} paddingBlock={4}>
+      <HStack gap={2} vAlign="center">
+        <div className="min-w-0 flex-1">{searchInput}</div>
+        <DropdownMenu
+          button={{
+            label: "View options",
+            variant: "ghost",
+            size: "sm",
+            isIconOnly: true,
+            icon: <Icon icon={MoreHorizontal} size="sm" />,
+          }}
+        >
+          {sortableColumns.length > 0 && (
             <DropdownMenuRadioGroup
-              label="Group by"
-              value={view.group}
-              onChange={(group) => {
-                patchView({ group });
-                setCollapsed(new Set());
+              key="sort-by"
+              label="Sort by"
+              value={view.sortKey ? `${view.sortKey}:${view.sortDir}` : ""}
+              onChange={(value) => {
+                const [sortKey, sortDir] = value.split(":");
+                patchView({ sortKey, sortDir: sortDir as View["sortDir"] });
               }}
             >
-              <DropdownMenuRadioItem value="" label="No grouping" />
-              {columns
-                .filter((column) => column.groupValue)
-                .map((column) => (
-                  <DropdownMenuRadioItem
-                    key={column.key}
-                    value={column.key}
-                    label={`Group by ${String(column.header)}`}
-                  />
-                ))}
+              {sortableColumns.flatMap((column) => [
+                <DropdownMenuRadioItem
+                  key={`${column.key}:asc`}
+                  value={`${column.key}:asc`}
+                  label={`${String(column.header)} ↑`}
+                />,
+                <DropdownMenuRadioItem
+                  key={`${column.key}:desc`}
+                  value={`${column.key}:desc`}
+                  label={`${String(column.header)} ↓`}
+                />,
+              ])}
             </DropdownMenuRadioGroup>
-            <DropdownMenuDivider />
-            <DropdownMenuRadioGroup
-              label="Row density"
-              value={view.density}
-              onChange={(value) =>
-                patchView({ density: value as View["density"] })
-              }
-            >
-              <DropdownMenuRadioItem value="compact" label="Compact rows" />
-              <DropdownMenuRadioItem
-                value="balanced"
-                label="Comfortable rows"
-              />
-              <DropdownMenuRadioItem value="spacious" label="Spacious rows" />
-            </DropdownMenuRadioGroup>
-            <DropdownMenuDivider />
-            {columns
-              .filter(
-                (column) => typeof column.header === "string" && column.header,
-              )
-              .map((column, index) => (
-                <DropdownMenuCheckboxItem
-                  key={column.key}
-                  label={`Show ${column.header}`}
-                  value={!view.hidden.includes(column.key)}
-                  isDisabled={index === 0}
-                  onChange={(checked) =>
-                    patchView({
-                      hidden: checked
-                        ? view.hidden.filter((key) => key !== column.key)
-                        : [...view.hidden, column.key],
-                    })
-                  }
-                />
-              ))}
-          </DropdownMenu>
-          <IconButton
-            aria-label="Create saved view"
-            title="Create saved view for this page session"
+          )}
+          {sortableColumns.length > 0 && <DropdownMenuDivider key="d1" />}
+          {groupByItems}
+          <DropdownMenuDivider key="d2" />
+          <DropdownMenuItem
+            key="save-view"
+            label="Create saved view"
             onClick={() => setSaveName("")}
+          />
+          {savedViewItems}
+        </DropdownMenu>
+      </HStack>
+      {Boolean(toolbar?.filters?.length || filterColumns.length) && (
+        <HStack
+          gap={2}
+          vAlign="center"
+          className="app-chip-strip -mx-4 flex-nowrap overflow-x-auto px-4"
+        >
+          {filterChips}
+        </HStack>
+      )}
+      {/* With cards, the count sits on the row above them instead. */}
+      {(!cardMode || filtered.length === 0) && (
+        <HStack gap={2} vAlign="center" hAlign="end">
+          {resultSummary}
+        </HStack>
+      )}
+    </VStack>
+  );
+  const desktopToolbar = (
+    <HStack gap={3} paddingBlock={4} vAlign="center" wrap="wrap">
+      {searchInput}
+      {filterChips}
+      {resultSummary}
+      <HStack gap={2} vAlign="center" className="ml-auto">
+        <DropdownMenu
+          button={{ label: "View options", variant: "ghost", size: "sm" }}
+        >
+          {groupByItems}
+          <DropdownMenuDivider />
+          <DropdownMenuRadioGroup
+            label="Row density"
+            value={view.density}
+            onChange={(value) =>
+              patchView({ density: value as View["density"] })
+            }
           >
-            <BookmarkPlus size={18} />
-          </IconButton>
-          <DropdownMenu
-            button={{
-              label: "Saved views",
-              tooltip: "Saved views for this page session",
-              variant: "ghost",
-              size: "sm",
-              isIconOnly: true,
-              icon: <Icon icon={Bookmark} size="sm" />,
-            }}
-          >
-            {saved.length === 0 && (
-              <DropdownMenuItem
-                label="No saved views in this session"
-                isDisabled
-              />
-            )}
-            {saved.map((item) => (
-              <DropdownMenuItem
-                key={item.id}
-                label={item.name}
-                onClick={() => {
-                  setView(item.view);
-                  setCollapsed(new Set());
-                  setCurrentPage(1);
-                  toolbar?.onSearch(item.search);
-                  toolbar?.filters?.forEach((filter) =>
-                    filter.onChange(item.external[filter.key] ?? "all"),
-                  );
-                }}
+            <DropdownMenuRadioItem value="compact" label="Compact rows" />
+            <DropdownMenuRadioItem value="balanced" label="Comfortable rows" />
+            <DropdownMenuRadioItem value="spacious" label="Spacious rows" />
+          </DropdownMenuRadioGroup>
+          <DropdownMenuDivider />
+          {columns
+            .filter(
+              (column) => typeof column.header === "string" && column.header,
+            )
+            .map((column, index) => (
+              <DropdownMenuCheckboxItem
+                key={column.key}
+                label={`Show ${column.header}`}
+                value={!view.hidden.includes(column.key)}
+                isDisabled={index === 0}
+                onChange={(checked) =>
+                  patchView({
+                    hidden: checked
+                      ? view.hidden.filter((key) => key !== column.key)
+                      : [...view.hidden, column.key],
+                  })
+                }
               />
             ))}
-            {saved.length > 0 && (
-              <DropdownMenuItem
-                label="Clear saved views"
-                variant="destructive"
-                onClick={() => setSaved([])}
-              />
-            )}
-          </DropdownMenu>
+        </DropdownMenu>
+        <IconButton
+          aria-label="Create saved view"
+          title="Create saved view for this page session"
+          onClick={() => setSaveName("")}
+        >
+          <BookmarkPlus size={18} />
+        </IconButton>
+        <DropdownMenu
+          button={{
+            label: "Saved views",
+            tooltip: "Saved views for this page session",
+            variant: "ghost",
+            size: "sm",
+            isIconOnly: true,
+            icon: <Icon icon={Bookmark} size="sm" />,
+          }}
+        >
+          {saved.length === 0 && (
+            <DropdownMenuItem label="No saved views in this session" isDisabled />
+          )}
+          {savedViewItems}
+        </DropdownMenu>
+      </HStack>
+    </HStack>
+  );
+  // One header per group even when the sort interleaves group values.
+  const cardGroups: { key: string; rows: T[] }[] = [];
+  const groupIndex = new Map<string, { key: string; rows: T[] }>();
+  for (const { record } of rows) {
+    const key = groupColumn?.groupValue?.(record) ?? "";
+    const group = groupIndex.get(key);
+    if (group) group.rows.push(record);
+    else {
+      const created = { key, rows: [record] };
+      groupIndex.set(key, created);
+      cardGroups.push(created);
+    }
+  }
+  const renderCard = (record: T) => (
+    <li
+      key={getRowKey(record)}
+      className="app-mobile-card"
+      data-clickable={onRowClick ? "true" : undefined}
+      tabIndex={onRowClick ? 0 : undefined}
+      onClick={(event) => {
+        if (
+          !onRowClick ||
+          (event.target as HTMLElement).closest(
+            "button, input, a, [role=checkbox], [role^=menuitem]",
+          )
+        )
+          return;
+        onRowClick(record);
+      }}
+      onKeyDown={(event) => {
+        if (
+          onRowClick &&
+          event.target === event.currentTarget &&
+          (event.key === "Enter" || event.key === " ")
+        ) {
+          event.preventDefault();
+          onRowClick(record);
+        }
+      }}
+    >
+      {mobileCard!(record)}
+    </li>
+  );
+  const cardList = cardMode && (
+    <VStack gap={0} className="app-mobile-card-list">
+      <HStack gap={2} vAlign="center" hAlign="between">
+        {mobileHeader ?? <span />}
+        <HStack gap={2} vAlign="center">
+          {resultSummary}
         </HStack>
       </HStack>
+      {cardGroups.map((group) => {
+        const isCollapsed = Boolean(groupColumn) && collapsed.has(group.key);
+        return (
+          <VStack key={group.key || "all"} gap={0}>
+            {groupColumn && (
+              <button
+                type="button"
+                className="app-mobile-group-header"
+                aria-expanded={!isCollapsed}
+                onClick={() => toggleGroup(group.key)}
+              >
+                {isCollapsed ? (
+                  <ChevronRight size={14} aria-hidden="true" />
+                ) : (
+                  <ChevronDown size={14} aria-hidden="true" />
+                )}
+                <span>{group.key}</span>
+                <span className="app-mobile-group-count">
+                  {group.rows.length}
+                </span>
+              </button>
+            )}
+            {!isCollapsed && (
+              <ul className="app-mobile-cards">{group.rows.map(renderCard)}</ul>
+            )}
+          </VStack>
+        );
+      })}
+    </VStack>
+  );
+  return (
+    <VStack gap={0} className="app-table-frame min-w-0">
+      {isMobile ? mobileToolbar : desktopToolbar}
       {saveName !== null && (
         <HStack gap={2} paddingBlockEnd={4} wrap="wrap">
           <TextInput
@@ -568,6 +750,8 @@ export function DataTable<T>({
       )}
       {filtered.length === 0 ? (
         (emptyState ?? <Text type="body">No matching results.</Text>)
+      ) : cardMode ? (
+        cardList
       ) : (
         <Table<{ record: T }>
           data={groupColumn ? grouped.data : rows}
@@ -632,9 +816,11 @@ export function DataTable<T>({
             {filtered.length}
           </Text>
           <HStack gap={2} vAlign="center">
-            <Text type="supporting">
-              Page {page} of {totalPages}
-            </Text>
+            {!isMobile && (
+              <Text type="supporting">
+                Page {page} of {totalPages}
+              </Text>
+            )}
             <ActionButtons label="Pagination" size="sm">
             <Button
               variant="ghost"

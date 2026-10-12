@@ -468,7 +468,7 @@ export function ApplicationActivityItem({
     <article className="group/item relative border-b border-[var(--color-border)] pb-4">
       <div
         data-activity-dot
-        className="absolute z-10 left-[-29px] top-1.5 h-2.5 w-2.5 rounded-full border-2 bg-[var(--color-background-surface)] transition-transform group-hover/item:scale-110"
+        className={`absolute z-10 left-[-29px] ${expandable ? "top-2" : "top-2.5"} h-2.5 w-2.5 rounded-full border-2 bg-[var(--color-background-surface)] transition-transform group-hover/item:scale-110`}
         style={{ borderColor: dotColor }}
       />
       {expandable ? (

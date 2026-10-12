@@ -73,9 +73,19 @@ function optionsFrom(
 // form validation, form data, selection refs and existing change-event consumers.
 export const Select = forwardRef<
   HTMLSelectElement,
-  SelectHTMLAttributes<HTMLSelectElement>
+  SelectHTMLAttributes<HTMLSelectElement> & { controlSize?: "sm" | "md" | "lg" }
 >(function Select(
-  { className, children, value, defaultValue, onChange, style, id, ...props },
+  {
+    className,
+    children,
+    value,
+    defaultValue,
+    onChange,
+    style,
+    id,
+    controlSize = "md",
+    ...props
+  },
   ref,
 ) {
   const options = optionsFrom(children);
@@ -109,6 +119,7 @@ export const Select = forwardRef<
           id,
           label: selected?.label ?? options[0]?.label ?? label,
           variant: "secondary",
+          size: controlSize,
           width: "100%",
           isDisabled: props.disabled,
           "aria-label": props["aria-label"],

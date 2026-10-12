@@ -143,7 +143,7 @@ function ActivityTimeline({ grouped, expandedIds, onToggle }: {
       <div ref={lineRef} aria-hidden="true" data-testid="activity-timeline-line" className="absolute left-0 w-px bg-[var(--color-border)] pointer-events-none" />
       {grouped.map((group) => (
         <section key={group.label} className="space-y-4">
-          <div className="text-xs font-bold text-[var(--color-text-secondary)]">
+          <div className="text-xs font-bold text-[color-mix(in_srgb,var(--brand-orange)_70%,var(--color-text-secondary))]">
             {group.label}
           </div>
           <div className="space-y-4">
@@ -245,7 +245,7 @@ export function ApplicationActivityPanel({
 
   return createPortal(
     <VStack
-      className="fixed inset-0 z-50"
+      className="fixed inset-0 z-50 max-sm:bg-[var(--color-overlay)]"
       data-testid="activity-panel-overlay"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -255,11 +255,11 @@ export function ApplicationActivityPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Application activity"
-        className="absolute inset-x-0 bottom-0 top-[10%] overflow-hidden border-t bg-[var(--color-background-surface)] shadow-[var(--shadow-high)] sm:inset-y-0 sm:left-auto sm:w-[28rem] sm:max-w-[90vw] sm:border-l sm:border-t-0"
+        className="absolute inset-x-0 bottom-0 top-[10%] flex flex-col overflow-hidden rounded-t-[var(--radius-container)] border-t bg-[var(--color-background-surface)] sm:rounded-none shadow-[var(--shadow-high)] sm:inset-y-0 sm:left-auto sm:w-[28rem] sm:max-w-[90vw] sm:border-l sm:border-t-0"
         style={{ borderColor: "var(--color-border)" }}
       >
         <header
-          className="flex items-start justify-between gap-3 border-b px-4 py-3"
+          className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3"
           style={{ borderColor: "var(--color-border)" }}
         >
           <div>
@@ -286,7 +286,7 @@ export function ApplicationActivityPanel({
             <X size={14} aria-hidden="true" />
           </Button>
         </header>
-        <div className="h-[calc(100%-65px)] overflow-y-auto px-4 py-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <ActivityPanelBody
             isLoading={isLoading}
             errorMessage={errorMessage}

@@ -93,7 +93,7 @@ export function EditUserModal({ open, user, onClose, onSubmit }: EditUserModalPr
       onClose={handleClose}
       closeDisabled={isSubmitting}
     >
-        <form className="px-6 pb-6 pt-5" onSubmit={handleSubmit}>
+        <form className="px-4 pb-5 pt-5 sm:px-6 sm:pb-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div>

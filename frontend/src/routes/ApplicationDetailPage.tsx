@@ -7,6 +7,10 @@ import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@astryxdesign/core/SegmentedControl";
+import {
   FormEvent,
   useEffect,
   useMemo,
@@ -108,6 +112,7 @@ import {
   useBaseResumesQuery,
 } from "@/lib/queries";
 import { useApplicationEventStream } from "@/lib/use-application-event-stream";
+import { useIsMobile, useIsWideWorkspace } from "@/lib/use-is-mobile";
 
 type JobFormState = {
   job_title: string;
@@ -1299,12 +1304,12 @@ function KeywordDialogContent(
   const missingCount = props.match ? props.match.missing_keywords.length : 0;
   return (
     <div
-      className="animate-scaleIn"
+      className="animate-scaleIn app-dialog-panel"
       style={{
         position: "relative",
         zIndex: 1,
         width: "min(920px, 100%)",
-        maxHeight: "calc(100vh - 48px)",
+        maxHeight: "calc(100dvh - 48px)",
         overflowY: "auto",
         borderRadius: "var(--radius-container)",
         background: "white",
@@ -1384,6 +1389,7 @@ function KeywordDialog(props: KeywordDialogProps) {
   );
   return createPortal(
     <div
+      className="app-dialog-overlay"
       style={{
         position: "fixed",
         inset: 0,
@@ -2172,6 +2178,9 @@ export function ApplicationDetailPage() {
   const [fullRegenUseLatestBase, setFullRegenUseLatestBase] = useState(false);
   const [activityPanelOpen, setActivityPanelOpen] = useState(false);
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
+  const isMobile = useIsMobile();
+  const isWideWorkspace = useIsWideWorkspace();
+  const [mobilePane, setMobilePane] = useState<"resume" | "details">("resume");
   const [showResumeJudgeDialog, setShowResumeJudgeDialog] = useState(false);
   const [expandedResumeJudgeDimension, setExpandedResumeJudgeDimension] =
     useState<string | null>(null);
@@ -2778,6 +2787,13 @@ export function ApplicationDetailPage() {
       }
     }
   }, [baseResumesQuery.data, selectedResumeId]);
+
+  // Below xl only one pane shows. Generation is started from Details, so
+  // bring the Resume pane forward to show its progress and outcome.
+  const generationRunning = isGenerationWorkflowActive(detail);
+  useEffect(() => {
+    if (generationRunning) setMobilePane("resume");
+  }, [generationRunning]);
 
   if (!applicationId) return null;
   const activeApplicationId = applicationId;
@@ -3686,20 +3702,30 @@ export function ApplicationDetailPage() {
             }
             actions={
               <HStack gap={2} wrap="wrap">
-                <ActionButtons label="Application actions" size="sm" primaryIndex={compareMode ? 0 : 1}>
-                  {compareMode && (
+                <ActionButtons label="Application actions" size="sm" primaryIndex={compareMode && !isMobile ? 0 : 1}>
+                  {compareMode && !isMobile && (
                     <Button size="sm" onClick={handleToggleCompareMode}>
                       Close Comparison
                     </Button>
                   )}
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => setActivityPanelOpen(true)}
-                  >
-                    <History size={14} aria-hidden="true" />
-                    Activity
-                  </Button>
+                  {isMobile ? (
+                    <IconButton
+                      aria-label="Activity"
+                      title="Activity"
+                      onClick={() => setActivityPanelOpen(true)}
+                    >
+                      <History size={16} aria-hidden="true" />
+                    </IconButton>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setActivityPanelOpen(true)}
+                    >
+                      <History size={14} aria-hidden="true" />
+                      Activity
+                    </Button>
+                  )}
                   <DropdownMenu
                     presentation="popover"
                     placement="below"
@@ -4326,10 +4352,33 @@ export function ApplicationDetailPage() {
                 className={
                   compareMode
                     ? "space-y-4"
-                    : `application-workspace grid gap-4 xl:items-start${detailsCollapsed ? " application-workspace--details-collapsed" : ""}`
+                    : `application-workspace grid gap-4 xl:items-start${detailsCollapsed && isWideWorkspace ? " application-workspace--details-collapsed" : ""}`
                 }
                 data-compare-mode={compareMode ? "open" : "closed"}
+                data-mobile-pane={
+                  !compareMode && !isWideWorkspace ? mobilePane : undefined
+                }
               >
+                {/* Below xl the two columns share one screen: switch between them
+                    instead of stacking the details under a long resume. Both
+                    panes stay mounted so unsaved edits survive the switch. */}
+                {!compareMode && !isWideWorkspace && (
+                  <div className="application-pane-switch">
+                    {pageHeader}
+                    <SegmentedControl
+                      label="Application view"
+                      value={mobilePane}
+                      size="sm"
+                      layout="fill"
+                      onChange={(value) =>
+                        setMobilePane(value as "resume" | "details")
+                      }
+                    >
+                      <SegmentedControlItem value="resume" label="Resume" />
+                      <SegmentedControlItem value="details" label="Details" />
+                    </SegmentedControl>
+                  </div>
+                )}
                 {/* Resume tabs and content occupy the left side of the workspace. */}
                 <div
                   ref={resumeColumnRef}
@@ -4339,7 +4388,7 @@ export function ApplicationDetailPage() {
                       : "application-resume-column min-w-0"
                   }
                 >
-                  {!compareMode && pageHeader}
+                  {!compareMode && isWideWorkspace && pageHeader}
                   {/* Resume Content Area */}
                   <GenerationHandoff mode={resumeHandoffMode} scope={resumeColumnRef}>
                   {showSectionProgress ? (
@@ -4454,7 +4503,7 @@ export function ApplicationDetailPage() {
                 <ApplicationDetailsPanel
                   key={activeApplicationId}
                   hidden={compareMode}
-                  collapsed={detailsCollapsed}
+                  collapsed={detailsCollapsed && isWideWorkspace}
                   onToggle={() => setDetailsCollapsed((value) => !value)}
                 >
                   {detail.internal_state !== "duplicate_review_required" && (
@@ -4954,6 +5003,7 @@ export function ApplicationDetailPage() {
             resumeJudgeHasCompletedScore &&
             createPortal(
               <div
+                className="app-dialog-overlay"
                 style={{
                   position: "fixed",
                   inset: 0,
@@ -4975,12 +5025,12 @@ export function ApplicationDetailPage() {
                   }}
                 />
                 <div
-                  className="animate-scaleIn"
+                  className="animate-scaleIn app-dialog-panel app-dialog-panel--padded"
                   style={{
                     position: "relative",
                     zIndex: 1,
                     width: "min(920px, 100%)",
-                    maxHeight: "calc(100vh - 48px)",
+                    maxHeight: "calc(100dvh - 48px)",
                     overflowY: "auto",
                     borderRadius: "var(--radius-container)",
                     background:

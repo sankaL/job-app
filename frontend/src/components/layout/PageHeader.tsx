@@ -6,6 +6,18 @@ import { createPortal } from "react-dom";
 import { usePageActionHost } from "./ShellLayoutContext";
 import type { ReactNode } from "react";
 import { ActionButtons } from "@/components/ui/button-group";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { Icon } from "@astryxdesign/core/Icon";
+import { MoreHorizontal } from "lucide-react";
+import { useIsMobile } from "@/lib/use-is-mobile";
+
+export type MobileMenuAction = {
+  label: string;
+  onSelect: () => void;
+  icon?: ReactNode;
+  destructive?: boolean;
+  disabled?: boolean;
+};
 
 type PageHeaderProps = {
   title: string;
@@ -17,6 +29,12 @@ type PageHeaderProps = {
   hasBodyHeading?: boolean;
   groupActions?: boolean;
   primaryActionIndex?: number;
+  /**
+   * Phones: the top bar has room for one action. When set, `mobilePrimary`
+   * (if any) stays visible and these actions move into a "More actions" menu.
+   */
+  mobileMenu?: MobileMenuAction[];
+  mobilePrimary?: ReactNode;
 };
 
 export function PageHeader({
@@ -29,9 +47,37 @@ export function PageHeader({
   hasBodyHeading = false,
   groupActions = true,
   primaryActionIndex,
+  mobileMenu,
+  mobilePrimary,
 }: PageHeaderProps) {
   const actionHost = usePageActionHost();
-  const actionContent = actions || (!hasBodyHeading && titleAction) ? (
+  const isMobile = useIsMobile();
+  const mobileContent = (
+    <HStack gap={2} vAlign="center" hAlign="end" className="max-w-full">
+      {mobilePrimary}
+      <DropdownMenu
+        presentation="popover"
+        placement="below"
+        alignment="end"
+        menuWidth="max-content"
+        button={{
+          label: "More actions",
+          variant: "ghost",
+          size: "sm",
+          isIconOnly: true,
+          icon: <Icon icon={MoreHorizontal} size="sm" />,
+        }}
+        items={(mobileMenu ?? []).map((item) => ({
+          label: item.label,
+          icon: item.icon,
+          isDisabled: item.disabled,
+          variant: item.destructive ? ("destructive" as const) : undefined,
+          onClick: item.onSelect,
+        }))}
+      />
+    </HStack>
+  );
+  const desktopContent = actions || (!hasBodyHeading && titleAction) ? (
         <HStack gap={2} wrap="wrap" hAlign="end" className="max-w-full">
           {groupActions ? (
             <ActionButtons label={`${title} actions`} primaryIndex={primaryActionIndex}>
@@ -41,6 +87,8 @@ export function PageHeader({
           ) : <>{!hasBodyHeading && titleAction}{actions}</>}
         </HStack>
       ) : null;
+  const actionContent =
+    isMobile && mobileMenu?.length ? mobileContent : desktopContent;
   return (
     <>
       {hasBodyHeading ? (

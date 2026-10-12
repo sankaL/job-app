@@ -28,7 +28,9 @@ export function CompareSectionNav({
     if (activeBtn) {
       const containerRect = containerRef.current.getBoundingClientRect();
       const btnRect = activeBtn.getBoundingClientRect();
-      const left = btnRect.left - containerRect.left;
+      // The pill lives inside the scrolling strip, so offset by its scroll.
+      const left =
+        btnRect.left - containerRect.left + containerRef.current.scrollLeft;
       const width = btnRect.width;
 
       gsap.to(pillRef.current, {
@@ -38,6 +40,7 @@ export function CompareSectionNav({
         duration: 0.28,
         ease: "power2.out",
       });
+      activeBtn.scrollIntoView?.({ block: "nearest", inline: "nearest" });
     }
   }, [activeSectionId, sections]);
 

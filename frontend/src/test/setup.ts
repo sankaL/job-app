@@ -5,6 +5,11 @@ Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: (query: string): MediaQueryList => ({
     matches: (() => {
+      const legacy = query.match(/(min|max)-width:\s*(\d+)px/);
+      if (legacy)
+        return legacy[1] === "min"
+          ? window.innerWidth >= Number(legacy[2])
+          : window.innerWidth <= Number(legacy[2]);
       const width = query.match(/width\s*([<>]=?)\s*(\d+)px/);
       if (!width) return false;
       const target = Number(width[2]);

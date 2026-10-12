@@ -364,6 +364,45 @@
     padding: 1.75rem 2rem;
   }
 }
+/* Phones: one scrolling row of section pills pinned under the top bar,
+   instead of several wrapped rows above the sheet. */
+@media (max-width: 767px) {
+  .resume-index {
+    position: sticky;
+    top: var(--topbar-height);
+    z-index: 5;
+    background: var(--color-background-surface);
+  }
+  .resume-index-inner {
+    padding: 0;
+  }
+  .resume-index-inner > h2 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .resume-section-links {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0;
+    padding: var(--spacing-2) 0;
+    scrollbar-width: none;
+  }
+  .resume-section-links::-webkit-scrollbar {
+    display: none;
+  }
+  .resume-section-links button {
+    flex-shrink: 0;
+    max-width: 14rem;
+    white-space: nowrap;
+  }
+  .resume-section-links .resume-reference-tab {
+    margin-top: 0;
+  }
+}
 .resume-section-links .resume-reference-tab {
   margin-top: 0.75rem;
   background: var(--color-background-muted);
@@ -537,7 +576,7 @@
     min-height: 0;
   }
   .draft-workbench-region .resume-sheet {
-    height: min(42rem, calc(100dvh - var(--topbar-height) - 5rem));
+    height: auto;
   }
 }
 
@@ -735,9 +774,21 @@
   background: color-mix(in srgb, var(--color-border-orange) 6%, transparent);
 }
 .application-support-rail-label { writing-mode: vertical-rl; }
-@media (max-width: 767px) {
-  .application-workspace--details-collapsed {
-    margin-inline-end: calc(-1 * var(--spacing-4));
+/* Below xl the resume and details share one screen behind a Resume | Details
+   switch; the collapse-to-rail control is desktop-only. */
+.application-pane-switch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  min-width: 0;
+}
+@media (max-width: 1279px) {
+  .application-workspace[data-mobile-pane="resume"] > .application-support-column,
+  .application-workspace[data-mobile-pane="details"] > .application-resume-column {
+    display: none;
+  }
+  .application-support-toggle {
+    display: none;
   }
 }
 

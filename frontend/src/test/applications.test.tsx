@@ -29,6 +29,7 @@ import { BaseResumesPage } from "@/routes/BaseResumesPage";
 import { DashboardPage } from "@/routes/DashboardPage";
 import { ExtensionPage } from "@/routes/ExtensionPage";
 import { ProfilePage } from "@/routes/ProfilePage";
+import { setViewportWidth } from "./viewport";
 import { createAppQueryClient } from "@/lib/query-client";
 
 const api = vi.hoisted(() => ({
@@ -435,6 +436,27 @@ describe("phase 1 applications UI", () => {
     expect(api.fetchSessionBootstrap).toHaveBeenCalledTimes(1);
     expect(api.listBaseResumes).toHaveBeenCalledTimes(1);
     expect(api.listApplications).toHaveBeenCalledTimes(0);
+  });
+
+  it("moves secondary page actions into a More actions menu on phones", async () => {
+    const restoreViewport = setViewportWidth(390);
+    try {
+      api.listBaseResumes.mockResolvedValue([]);
+      renderWithAppProvider(<BaseResumesPage />);
+      await screen.findByText(/no resumes yet/i);
+      expect(
+        screen.getByRole("button", { name: "New Resume" }),
+      ).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+      expect(
+        await screen.findByRole("menuitem", { name: "Upload PDF" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("menuitem", { name: "Start from Scratch" }),
+      ).toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
   });
 
   it("does not show a dismiss action for applications query load failures", async () => {
@@ -7144,29 +7166,92 @@ describe("phase 1 applications UI", () => {
   });
 
   it("collapses application details and restores unsaved fields with keyboard activation", async () => {
-    renderWithAppProvider(
-      <Routes>
-        <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
-      </Routes>,
-      { initialEntries: ["/app/applications/app-1"] },
-    );
-    const collapse = await screen.findByRole("button", { name: "Collapse application details" });
-    await userEvent.click(screen.getByRole("button", { name: "Edit Company" }));
-    const company = screen.getByRole("textbox", { name: "Company" });
-    await userEvent.clear(company);
-    await userEvent.type(company, "Unsaved company");
-    const content = document.getElementById(collapse.getAttribute("aria-controls")!);
-    expect(collapse).toHaveAttribute("aria-expanded", "true");
-    await userEvent.click(collapse);
-    expect(content).not.toBeVisible();
-    expect(company).toBeInTheDocument();
-    const expand = screen.getByRole("button", { name: "Expand application details" });
-    expect(expand).toHaveFocus();
-    expect(expand).toHaveAttribute("aria-expanded", "false");
-    await userEvent.keyboard("{Enter}");
-    expect(content).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "Company" })).toHaveValue("Unsaved company");
-    expect(api.patchApplication).not.toHaveBeenCalled();
+    const restoreViewport = setViewportWidth(1440);
+    try {
+      renderWithAppProvider(
+        <Routes>
+          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        </Routes>,
+        { initialEntries: ["/app/applications/app-1"] },
+      );
+      const collapse = await screen.findByRole("button", { name: "Collapse application details" });
+      await userEvent.click(screen.getByRole("button", { name: "Edit Company" }));
+      const company = screen.getByRole("textbox", { name: "Company" });
+      await userEvent.clear(company);
+      await userEvent.type(company, "Unsaved company");
+      const content = document.getElementById(collapse.getAttribute("aria-controls")!);
+      expect(collapse).toHaveAttribute("aria-expanded", "true");
+      await userEvent.click(collapse);
+      expect(content).not.toBeVisible();
+      expect(company).toBeInTheDocument();
+      const expand = screen.getByRole("button", { name: "Expand application details" });
+      expect(expand).toHaveFocus();
+      expect(expand).toHaveAttribute("aria-expanded", "false");
+      await userEvent.keyboard("{Enter}");
+      expect(content).toBeVisible();
+      expect(screen.getByRole("textbox", { name: "Company" })).toHaveValue("Unsaved company");
+      expect(api.patchApplication).not.toHaveBeenCalled();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("switches between resume and details below xl without losing unsaved edits", async () => {
+    const restoreViewport = setViewportWidth(390);
+    try {
+      renderWithAppProvider(
+        <Routes>
+          <Route path="/app/applications/:applicationId" element={<ApplicationDetailPage />} />
+        </Routes>,
+        { initialEntries: ["/app/applications/app-1"] },
+      );
+      const details = await screen.findByRole("radio", { name: "Details" });
+      const workspace = document.querySelector(".application-workspace")!;
+      expect(workspace).toHaveAttribute("data-mobile-pane", "resume");
+      await userEvent.click(details);
+      expect(workspace).toHaveAttribute("data-mobile-pane", "details");
+      await userEvent.click(screen.getByRole("button", { name: "Edit Company" }));
+      const company = screen.getByRole("textbox", { name: "Company" });
+      await userEvent.clear(company);
+      await userEvent.type(company, "Unsaved company");
+      await userEvent.click(screen.getByRole("radio", { name: "Resume" }));
+      expect(workspace).toHaveAttribute("data-mobile-pane", "resume");
+      await userEvent.click(screen.getByRole("radio", { name: "Details" }));
+      expect(screen.getByRole("textbox", { name: "Company" })).toHaveValue("Unsaved company");
+      // Phones keep Activity as an icon action beside the Actions menu.
+      expect(screen.getByRole("button", { name: "Activity" })).toBeInTheDocument();
+      expect(api.patchApplication).not.toHaveBeenCalled();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("renders application rows as cards on phones without the base resume column", async () => {
+    const restoreViewport = setViewportWidth(390);
+    try {
+      api.listApplications.mockResolvedValue([buildApplicationSummary()]);
+      renderWithAppProvider(<ApplicationsListPage />);
+      expect(await screen.findByText("Backend Engineer")).toBeInTheDocument();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      const card = screen.getByRole("listitem");
+      expect(within(card).getByText("Acme")).toBeInTheDocument();
+      expect(within(card).getByText("In Progress")).toBeInTheDocument();
+      expect(within(card).queryByText("Default Resume")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("checkbox", { name: "Select Backend Engineer" }),
+      ).toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole("checkbox", { name: "Select Backend Engineer" }),
+      );
+      // The fixed bar renders at the document root, outside the animated page.
+      const bar = document.querySelector(".app-mobile-action-bar");
+      expect(bar?.parentElement).toBe(document.body);
+      expect(within(bar as HTMLElement).getByText("1 selected")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Delete Backend Engineer" }));
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
   });
 
   it("shows the activity button in the detail header and fetches activity only when opened", async () => {

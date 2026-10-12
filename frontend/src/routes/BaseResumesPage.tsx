@@ -190,7 +190,7 @@ function BaseResumeContent({
 }) {
   if (!resumes)
     return (
-      <Grid columns={{ minWidth: 320 }} gap={2}>
+      <Grid columns={{ minWidth: 280 }} gap={2}>
         {Array.from({ length: 3 }, (_, index) => (
           <SkeletonSection key={index} />
         ))}
@@ -225,7 +225,7 @@ function BaseResumeContent({
     );
   return (
     <LinkProvider component={ResumeCardLink}>
-      <Grid columns={{ minWidth: 320 }} gap={2} className="-m-2">
+      <Grid columns={{ minWidth: 280 }} gap={2} className="-m-2">
         {filteredResumes.map((resume) => (
           <ResumeCard
             key={resume.id}
@@ -299,6 +299,24 @@ export function BaseResumesPage() {
       <PageHeader
         title="Resumes"
         subtitle="Manage your base resume templates"
+        mobilePrimary={
+          <Button
+            size="sm"
+            onClick={() => navigate("/app/resumes/new?mode=blank")}
+          >
+            New Resume
+          </Button>
+        }
+        mobileMenu={[
+          {
+            label: "Upload PDF",
+            onSelect: () => navigate("/app/resumes/new?mode=upload"),
+          },
+          {
+            label: "Start from Scratch",
+            onSelect: () => navigate("/app/resumes/new?mode=blank"),
+          },
+        ]}
         actions={
           <>
             <Button

@@ -66,9 +66,10 @@ export function ModalShell({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="animate-scaleIn relative z-[1] overflow-hidden"
+        className="animate-scaleIn relative z-[1] flex flex-col overflow-hidden"
         style={{
           width,
+          maxHeight: "calc(100dvh - 2rem)",
           borderRadius: "var(--radius-container)",
           border: "1px solid var(--color-border)",
           background: "var(--color-background-surface)",
@@ -76,7 +77,7 @@ export function ModalShell({
         }}
       >
         <div
-          className="flex items-start justify-between gap-4 px-6 pb-4 pt-6"
+          className="flex shrink-0 items-start justify-between gap-4 px-4 pb-4 pt-5 sm:px-6 sm:pt-6"
           style={{ borderBottom: "1px solid var(--color-border)" }}
         >
           <div className="space-y-1.5">
@@ -120,7 +121,9 @@ export function ModalShell({
             <X size={15} aria-hidden="true" />
           </Button>
         </div>
-        {children}
+        {/* The body scrolls so short phones and the on-screen keyboard
+            never clip the form or its actions. */}
+        <div className="min-h-0 overflow-y-auto">{children}</div>
       </div>
     </div>,
     document.body,

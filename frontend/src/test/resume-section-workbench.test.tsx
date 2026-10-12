@@ -116,6 +116,15 @@ describe("section workbench", () => {
     expect(screen.getByLabelText("Section heading 1")).toHaveValue("Custom section");
   });
 
+  it("only offers section types that are not already in the resume, plus custom", async () => {
+    const user = userEvent.setup();
+    render(<ControlledWorkbench />);
+    await user.click(screen.getByLabelText("New section type"));
+    expect(screen.queryByRole("menuitemradio", { name: "Professional experience" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Education" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: "Custom section" })).toBeInTheDocument();
+  });
+
   it("preserves opaque source text exactly when organizing its first role", async () => {
     const user = userEvent.setup();
     const content = "Acme — Engineer\n\n- Improved delivery by +20.5%\n- Built C++ services\n";

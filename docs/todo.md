@@ -46,7 +46,7 @@ Opus
 - [] Look into the page count logic. Is it working when the base resume is small? 
 - [] sockets instead of polling?
 - [x] [2026-10-04] Investigate why LangSmith costs for generation traces are showing as zero / not being traced.
-- [] [2026-10-04] Clarify and improve base resume "Add Section" logic: currently allows selecting sections already present in the resume; determine if purpose is custom sections vs. duplicates, and make dropdown choices smarter/clearer.
+- [] [2026-10-04] Clarify and improve base resume "Add Section" logic: currently allows selecting sections already present in the resume; determine if purpose is custom sections vs. duplicates, and make dropdown choices smarter/clearer and intiutive for the user to use. dont have the same functionality being done by different UI flows.
 - [] [2026-10-04] Fix button icon alignment: on buttons like "Add Section", icons are not center-aligned on the Y-axis with text (appearing slightly higher). - Comprehensive UI audit of all buttons and icons across the app for vertical alignment and consistency.
 - [] [2026-10-04] Appslication activity sidebar timeline alignment: fix the activity dot so it aligns with the action header rather than sitting above it, and indent the date all the way to the left so it aligns with the vertical timeline line.
 - [x] [2026-10-04] Fix Resume Judge UI: fix broken dropdowns and layout issues across judge sections.

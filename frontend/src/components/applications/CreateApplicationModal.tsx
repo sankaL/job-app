@@ -254,7 +254,7 @@ export function CreateApplicationModal({
       onClose={handleClose}
       closeDisabled={isSubmitting}
     >
-      <form className="px-6 pb-6 pt-5" onSubmit={handleSubmit}>
+      <form className="px-4 pb-5 pt-5 sm:px-6 sm:pb-6" onSubmit={handleSubmit}>
         <div className="space-y-4">
           <SourceModeSelector
             value={sourceMode}

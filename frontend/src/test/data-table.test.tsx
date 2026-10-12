@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DataTable } from "@/components/ui/data-table";
+import { setViewportWidth } from "./viewport";
 
 type Row = {
   id: string;
@@ -355,4 +356,125 @@ describe("Astryx table-filter behavior", () => {
       screen.getByRole("menuitemradio", { name: "Compact rows" }),
     ).toHaveAttribute("aria-checked", "true");
   }, 15000);
+});
+
+describe("data table phone cards", () => {
+  type Card = { id: string; title: string; group: string; note: string };
+  const cards: Card[] = [
+    { id: "a", title: "Alpha role", group: "Open", note: "secondary a" },
+    { id: "b", title: "Beta role", group: "Closed", note: "secondary b" },
+    { id: "c", title: "Gamma role", group: "Open", note: "secondary c" },
+  ];
+  const columns = [
+    {
+      key: "title",
+      header: "Title",
+      sortable: true,
+      render: (row: Card) => row.title,
+    },
+    {
+      key: "group",
+      header: "Group",
+      groupValue: (row: Card) => row.group,
+      render: (row: Card) => row.group,
+    },
+    { key: "note", header: "Note", render: (row: Card) => row.note },
+  ];
+
+  it("renders cards instead of a table below md and keeps row activation and grouping", async () => {
+    const restoreViewport = setViewportWidth(390);
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    const onVisibleRowsChange = vi.fn();
+    try {
+      render(
+        <DataTable
+          columns={columns}
+          data={cards}
+          getRowKey={(row) => row.id}
+          onRowClick={onRowClick}
+          onVisibleRowsChange={onVisibleRowsChange}
+          defaultGroup="group"
+          mobileCard={(row) => (
+            <>
+              <span>{row.title}</span>
+              <button type="button">Act on {row.title}</button>
+            </>
+          )}
+        />,
+      );
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+      expect(screen.queryByText("secondary a")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("listitem")).toHaveLength(3);
+
+      await user.click(screen.getByText("Alpha role"));
+      expect(onRowClick).toHaveBeenCalledWith(cards[0]);
+      await user.click(screen.getByRole("button", { name: "Act on Beta role" }));
+      expect(onRowClick).toHaveBeenCalledTimes(1);
+
+      await user.click(screen.getByRole("button", { name: /open/i }));
+      expect(screen.queryByText("Alpha role")).not.toBeInTheDocument();
+      expect(screen.getByText("Beta role")).toBeInTheDocument();
+      expect(onVisibleRowsChange).toHaveBeenLastCalledWith([cards[1]]);
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("activates cards from the keyboard and keeps one header per group when sorting interleaves groups", async () => {
+    const restoreViewport = setViewportWidth(390);
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    try {
+      render(
+        <DataTable
+          columns={columns}
+          data={cards}
+          getRowKey={(row) => row.id}
+          onRowClick={onRowClick}
+          defaultGroup="group"
+          defaultSort={{ key: "title", direction: "asc" }}
+          mobileCard={(row) => (
+            <>
+              <span>{row.title}</span>
+              <span role="menuitemradio" aria-checked="false">
+                Pick {row.title}
+              </span>
+            </>
+          )}
+        />,
+      );
+      // Alpha (Open), Beta (Closed), Gamma (Open) sort by title, interleaving groups.
+      expect(screen.getAllByRole("button", { name: /open/i })).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: /closed/i })).toHaveLength(1);
+
+      await user.click(screen.getByText("Pick Alpha role"));
+      expect(onRowClick).not.toHaveBeenCalled();
+
+      const card = screen.getByText("Gamma role").closest("li")!;
+      card.focus();
+      await user.keyboard("{Enter}");
+      expect(onRowClick).toHaveBeenCalledWith(cards[2]);
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("keeps the table at desktop widths even when a card renderer is provided", () => {
+    const restoreViewport = setViewportWidth(1280);
+    try {
+      render(
+        <DataTable
+          columns={columns}
+          data={cards}
+          getRowKey={(row) => row.id}
+          mobileCard={(row) => <span>card {row.title}</span>}
+        />,
+      );
+      expect(screen.getByRole("table")).toBeInTheDocument();
+      expect(screen.queryByText("card Alpha role")).not.toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
+  });
 });

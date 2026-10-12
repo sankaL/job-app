@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
+  ChevronDown,
   Sparkles,
   Layers,
   CheckCircle2,
@@ -35,10 +36,14 @@ export function CompareHeroBar({
   sectionNavigation,
 }: CompareHeroBarProps) {
   const { stats } = summary;
+  // Phones keep only section navigation pinned; the comparison summary and
+  // highlight options open on demand so the diff keeps most of the screen.
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const mobileHidden = optionsOpen ? "" : "max-md:hidden";
 
   return (
     <div
-      className="sticky top-[var(--topbar-height)] z-20 border-b p-3.5 sm:p-4 backdrop-blur-md transition-all"
+      className="sticky top-[var(--topbar-height)] z-20 border-b p-3 sm:p-4 backdrop-blur-md transition-all"
       style={{
         background: "var(--color-background-surface)",
         borderColor: "var(--color-border)",
@@ -46,7 +51,11 @@ export function CompareHeroBar({
     >
       {/* Comparison context */}
       <div
-        className="flex flex-wrap items-center justify-between gap-3 border-b pb-3"
+        id="compare-summary"
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 border-b pb-3 max-md:mb-3",
+          mobileHidden,
+        )}
         style={{ borderColor: "var(--color-border)" }}
       >
         {/* Left side: Context Badges */}
@@ -154,11 +163,32 @@ export function CompareHeroBar({
       </div>
 
       {/* Bottom row: Diff Stats & Layout Controls */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs md:mt-3 md:gap-3 max-md:[&>[role=navigation]]:flex-1">
         {sectionNavigation}
+        <Button
+          variant="ghost"
+          type="button"
+          size="sm"
+          className="shrink-0 md:hidden"
+          aria-expanded={optionsOpen}
+          aria-controls="compare-summary"
+          onClick={() => setOptionsOpen((open) => !open)}
+        >
+          Options
+          <ChevronDown
+            size={14}
+            aria-hidden="true"
+            className={cn("transition-transform", optionsOpen && "rotate-180")}
+          />
+        </Button>
 
         {/* View Controls & Highlighting Switch */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-2.5 max-md:basis-full",
+            mobileHidden,
+          )}
+        >
           {/* Highlighting Mode Selector */}
           <div
             className="inline-flex items-center rounded-lg border p-0.5 shadow-2xs"
@@ -211,9 +241,9 @@ export function CompareHeroBar({
             </Button>
           </div>
 
-          {/* Layout Mode Selector */}
+          {/* Layout Mode Selector: side by side only differs from lg up. */}
           <div
-            className="inline-flex items-center rounded-lg border p-0.5 shadow-2xs"
+            className="hidden items-center rounded-lg border p-0.5 shadow-2xs lg:inline-flex"
             style={{
               borderColor: "var(--color-border)",
               background: "var(--color-background-muted)",

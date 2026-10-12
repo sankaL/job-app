@@ -2,6 +2,7 @@ import { ActionButtons } from "@/components/ui/button-group";
 import { Text } from "@astryxdesign/core/Text";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Textarea } from "@/components/ui/textarea";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import {
   useId,
   useEffect,
@@ -413,15 +414,8 @@ export function ResumeSectionWorkbench({
   ) => string | null;
 }) {
   const workbenchId = useId();
-  const [verticalTabs, setVerticalTabs] = useState(false);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia("(min-width: 768px)");
-    const update = () => setVerticalTabs(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
+  // The index is a vertical rail from md up and a scrolling strip on phones.
+  const verticalTabs = !useIsMobile();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(
     contactPanel ? "contact" : null,
@@ -432,9 +426,15 @@ export function ResumeSectionWorkbench({
       setEditingId(null);
     }
   }, [processing?.sectionId]);
-  const [newKind, setNewKind] = useState<ResumeSectionKind>(
-    "professional_experience",
-  );
+  const [newKind, setNewKind] = useState<ResumeSectionKind>("custom");
+  const usedKinds = new Set(document.sections.map((section) => section.kind));
+  // Standard sections exist once per resume; only Custom can repeat.
+  const addableKinds = (
+    Object.keys(SECTION_LABELS) as ResumeSectionKind[]
+  ).filter((kind) => kind === "custom" || !usedKinds.has(kind));
+  const effectiveNewKind = addableKinds.includes(newKind)
+    ? newKind
+    : addableKinds[0];
   function updateSection(
     id: string,
     update: Partial<ResumeSection>,
@@ -501,6 +501,13 @@ export function ResumeSectionWorkbench({
     setSelectedId(id);
     setEditingId(null);
   }
+  // Keep the active section pill visible in the phone scroll strip.
+  useEffect(() => {
+    if (verticalTabs || !selectedTab) return;
+    window.document
+      .getElementById(`${workbenchId}-tab-${selectedTab}`)
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [selectedTab, verticalTabs, workbenchId]);
   function handleTabKey(
     event: KeyboardEvent<HTMLButtonElement>,
     index: number,
@@ -866,13 +873,20 @@ export function ResumeSectionWorkbench({
                             })
                           }
                         >
-                          {Object.entries(SECTION_LABELS).map(
-                            ([kind, label]) => (
+                          {(
+                            Object.keys(SECTION_LABELS) as ResumeSectionKind[]
+                          )
+                            .filter(
+                              (kind) =>
+                                kind === "custom" ||
+                                kind === section.kind ||
+                                !usedKinds.has(kind),
+                            )
+                            .map((kind) => (
                               <option key={kind} value={kind}>
-                                {label}
+                                {SECTION_LABELS[kind]}
                               </option>
-                            ),
-                          )}
+                            ))}
                         </Select>
                       </label>
                       <Text
@@ -1080,27 +1094,30 @@ export function ResumeSectionWorkbench({
           >
             New section type
           </label>
-          <Select
-            id={`${workbenchId}-add-section-kind`}
-            disabled={disabled}
-            value={newKind}
-            onChange={(event) =>
-              setNewKind(event.target.value as ResumeSectionKind)
-            }
-          >
-            {Object.entries(SECTION_LABELS).map(([kind, label]) => (
-              <option key={kind} value={kind}>
-                {label}
-              </option>
-            ))}
-          </Select>
+          {addableKinds.length > 1 && (
+            <Select
+              controlSize="sm"
+              id={`${workbenchId}-add-section-kind`}
+              disabled={disabled}
+              value={effectiveNewKind}
+              onChange={(event) =>
+                setNewKind(event.target.value as ResumeSectionKind)
+              }
+            >
+              {addableKinds.map((kind) => (
+                <option key={kind} value={kind}>
+                  {SECTION_LABELS[kind]}
+                </option>
+              ))}
+            </Select>
+          )}
           <Button
             size="sm"
             type="button"
             variant="secondary"
             disabled={disabled}
             onClick={() => {
-              const section = createResumeSection(newKind);
+              const section = createResumeSection(effectiveNewKind);
               onChange({
                 ...document,
                 sections: [...document.sections, section],
@@ -1109,7 +1126,8 @@ export function ResumeSectionWorkbench({
               setEditingId(section.id);
             }}
           >
-            <Plus size={14} /> Add section
+            <Plus size={14} />{" "}
+            {addableKinds.length > 1 ? "Add section" : "Add custom section"}
           </Button>
         </div>
       </div>

@@ -33,8 +33,10 @@
   flex-shrink: 0;
 }
 
+/* Block-level flex avoids baseline alignment inside the label's line box, which
+   offset icon-first content vertically. */
 .app-button-content {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: inherit;
   gap: var(--spacing-2);

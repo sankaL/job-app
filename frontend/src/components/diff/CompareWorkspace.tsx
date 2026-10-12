@@ -156,7 +156,7 @@ export function CompareWorkspace({
       {/* Edit Mode Panel or Comparison Stream */}
       {editMode ? (
         <Section className="p-4 sm:p-6">
-          <div className="mb-3 flex items-center justify-between border-b pb-2.5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b pb-2.5">
             <Heading
               level={3}
               style={{ color: "var(--color-accent)" }}
@@ -164,7 +164,7 @@ export function CompareWorkspace({
               Edit Tailored Draft
             </Heading>
             <span
-              className="text-xs"
+              className="text-xs max-md:hidden"
               style={{ color: "var(--color-text-secondary)" }}
             >
               Changes will immediately update the comparison diff upon saving.

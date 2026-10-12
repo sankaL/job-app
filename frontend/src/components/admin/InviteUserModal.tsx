@@ -79,7 +79,7 @@ export function InviteUserModal({ open, onClose, onSubmit }: InviteUserModalProp
       closeDisabled={isSubmitting}
       width="min(480px, calc(100vw - 32px))"
     >
-        <form className="px-6 pb-6 pt-5" onSubmit={handleSubmit}>
+        <form className="px-4 pb-5 pt-5 sm:px-6 sm:pb-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
               <Label htmlFor="invite-email">Email</Label>

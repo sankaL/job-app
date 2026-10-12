@@ -409,7 +409,18 @@ body,
   --app-content-padding-top: var(--spacing-8);
   width: 100%;
   min-width: 0;
+  min-height: calc(100dvh - var(--topbar-height));
   padding: var(--app-content-padding-top) var(--spacing-8) var(--spacing-10);
+  background-color: var(--color-background-surface);
+}
+/* Elevated look on the wash shell: grey chrome, white content with a rounded
+   top-start corner beside the inline side nav. Drawn here rather than with
+   AppShell variant="elevated", which wraps <main> only while the side nav is
+   inline and so remounts the page on immersive/breakpoint changes. */
+@media (min-width: 768px) {
+  .app-shell-root[data-shell-mode="default"] .app-shell-content {
+    border-start-start-radius: var(--radius-page);
+  }
 }
 .app-topbar {
   padding-inline: var(--spacing-6);
@@ -626,38 +637,99 @@ body,
    Mobile Responsive Utilities
    ============================================================ */
 
-/* Show/hide utilities */
-
 @media (max-width: 767px) {
   /* ---- Topbar compact ---- */
   :root {
     --topbar-height: 52px;
   }
 
-  /* ---- DataTable column hiding ---- */
-  .dt-hide-mobile {
-    display: none !important;
-  }
+}
 
-  /* ---- Filters toggle ---- */
-  .mobile-filters-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-radius: var(--radius-element);
-    border: 1px solid var(--color-border);
+/* ---- DataTable phone cards ---- */
+.app-mobile-cards {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.app-mobile-card {
+  padding: var(--spacing-3) 0;
+  border-bottom: 1px solid var(--color-border);
+  min-width: 0;
+}
+.app-mobile-card[data-clickable="true"] {
+  cursor: pointer;
+}
+.app-mobile-card[data-clickable="true"]:active {
+  background: var(--color-background-muted);
+}
+.app-mobile-card:focus-visible {
+  outline: 2px solid var(--color-focus-ring, var(--color-accent));
+  outline-offset: -2px;
+}
+.app-mobile-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  width: 100%;
+  padding: var(--spacing-3) 0 var(--spacing-2);
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: start;
+  cursor: pointer;
+}
+.app-mobile-group-count {
+  margin-inline-start: auto;
+  font-variant-numeric: tabular-nums;
+}
+/* Bulk/selection bars pin to the bottom of the screen on phones. */
+@media (max-width: 767px) {
+  .app-mobile-action-bar {
+    position: fixed;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: 30;
+    padding: var(--spacing-3) var(--spacing-4)
+      calc(var(--spacing-3) + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-border);
     background: var(--color-background-surface);
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--color-text-secondary);
-    cursor: pointer;
-    transition: all var(--duration-fast) var(--ease-out);
+    box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08);
   }
+}
+/* Large breakdown dialogs open as bottom sheets on phones. Inline styles set
+   the desktop frame, so these overrides need !important. */
+@media (max-width: 767px) {
+  .app-dialog-overlay {
+    padding: 0 !important;
+    align-items: flex-end !important;
+  }
+  .app-dialog-panel {
+    width: 100% !important;
+    max-height: calc(100dvh - var(--spacing-6)) !important;
+    border-end-start-radius: 0 !important;
+    border-end-end-radius: 0 !important;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .app-dialog-panel--padded {
+    padding: var(--spacing-4) !important;
+  }
+}
 
-  .mobile-filters-toggle:active {
-    background: var(--color-background-muted);
-  }
+/* Filter chips scroll as one row on phones; data never does. */
+.app-chip-strip {
+  scrollbar-width: none;
+}
+.app-chip-strip::-webkit-scrollbar {
+  display: none;
+}
+.app-chip-strip > * {
+  flex-shrink: 0;
 }
 
 /* ---- Notification panel mobile ---- */
@@ -773,7 +845,9 @@ body,
 }
 .page-enter > .app-page-heading-hidden + :not([hidden]) { margin-top: 0; }
 @media (max-width: 767px) {
-  .app-topbar:has(.app-topbar-page-actions:not(:empty)) .app-brand { display: none; }
+  /* The menu toggle replaces the logo on phones on every page, with or
+     without page actions, so admin and user headers match. */
+  .app-topbar .app-brand { display: none; }
   .app-topbar-page-actions { flex-shrink: 1; }
 }
 

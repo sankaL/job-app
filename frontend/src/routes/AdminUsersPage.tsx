@@ -65,7 +65,7 @@ function fullName(user: AdminUser) {
 
 function UserIdentityCell({ user }: { user: AdminUser }) {
   return (
-    <div className="space-y-0.5">
+    <div className="min-w-0 space-y-0.5">
       <Text
         as="p"
         display="block"
@@ -78,6 +78,7 @@ function UserIdentityCell({ user }: { user: AdminUser }) {
         as="p"
         display="block"
         type="supporting"
+        className="truncate"
         style={{ color: "var(--color-text-secondary)" }}
       >
         {user.email}
@@ -195,6 +196,7 @@ function AdminUsersTable({
         user.is_active ? "Active" : "Deactivated",
       header: "Status",
       width: "14%",
+      minWidth: 100,
       sortable: true,
       sortValue: (user: AdminUser) =>
         `${user.is_active}-${user.onboarding_completed_at ? "complete" : "invited"}`,
@@ -205,7 +207,7 @@ function AdminUsersTable({
       groupValue: (user: AdminUser) => user.subscription_tier,
       filterValue: (user: AdminUser) => user.subscription_tier,
       header: "Tier",
-      width: "12%",
+      width: "88px",
       sortable: true,
       sortValue: (user: AdminUser) => user.subscription_tier,
       render: (user: AdminUser) => <UserTierCell user={user} />,
@@ -234,7 +236,7 @@ function AdminUsersTable({
     {
       key: "updated_at",
       header: "Updated",
-      width: "10%",
+      width: "112px",
       sortable: true,
       sortValue: (user: AdminUser) => user.updated_at,
       render: (user: AdminUser) => (
@@ -270,6 +272,34 @@ function AdminUsersTable({
       density="default"
       verticalAlign="top"
       columns={columns}
+      mobileCard={(user) => (
+        <HStack gap={3} vAlign="start">
+          <VStack gap={2} className="min-w-0 flex-1">
+            <UserIdentityCell user={user} />
+            <HStack gap={2} vAlign="center" wrap="wrap">
+              <Token
+                label={user.is_active ? "Active" : "Deactivated"}
+                color={user.is_active ? "green" : "gray"}
+                size="sm"
+                className="rounded-full"
+              />
+              <UserTierCell user={user} />
+              {!user.onboarding_completed_at && (
+                <Text type="supporting" color="secondary">
+                  Invite pending
+                </Text>
+              )}
+            </HStack>
+          </VStack>
+          <UserActionsCell
+            user={user}
+            isSelf={currentUserId === user.id}
+            onEdit={() => onEdit(user)}
+            onToggleActive={() => onToggleActive(user)}
+            onDelete={() => onDelete(user)}
+          />
+        </HStack>
+      )}
       emptyState={
         <div className="rounded-xl border border-dashed px-6 py-10 text-center">
           <UserPlus
@@ -348,6 +378,19 @@ function AdminUsersContent(props: AdminUsersContentProps) {
       <PageHeader
         title="User Management"
         subtitle="Invite, update, and control user access."
+        mobilePrimary={
+          <Button size="sm" onClick={props.onOpenInvite}>
+            <Send size={14} />
+            Invite
+          </Button>
+        }
+        mobileMenu={[
+          {
+            label: "Refresh",
+            disabled: props.isLoading,
+            onSelect: props.onRefresh,
+          },
+        ]}
         actions={
           <>
             <Button
