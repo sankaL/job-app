@@ -399,13 +399,14 @@
     max-width: 14rem;
     white-space: nowrap;
   }
-  .resume-section-links .resume-reference-tab {
-    margin-top: 0;
-  }
 }
 .resume-section-links .resume-reference-tab {
-  margin-top: 0.75rem;
   background: var(--color-background-muted);
+}
+@media (min-width: 768px) {
+  .resume-section-links .resume-reference-tab {
+    margin-top: 0.75rem;
+  }
 }
 .resume-section-links .resume-reference-tab[aria-selected="true"] {
   background: var(--color-accent-muted);
