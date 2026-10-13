@@ -51,3 +51,13 @@ def test_progress_partial_sections_are_bounded_and_never_break_progress_reads():
     oversized = [{**partial[0], "content_md": "x" * 20_000}]
     assert ProgressRecord.model_validate({**base, "partial_sections": oversized}).partial_sections is None
     assert ProgressRecord.model_validate({**base, "partial_sections": "not a list"}).partial_sections is None
+
+
+def test_education_dates_hidden_unless_show_dates():
+    from app.services.resume_document import ResumeSection, render_section_content
+
+    entry = {"id": "e1", "fields": {"institution": "MIT", "qualification": "BSc", "date_range": "2014 - 2018"}, "bullets": []}
+    section = ResumeSection(id="s1", kind="education", heading="Education", entries=[entry])
+    assert "2018" not in render_section_content(section)
+    section.show_dates = True
+    assert "BSc | 2014 - 2018" in render_section_content(section)

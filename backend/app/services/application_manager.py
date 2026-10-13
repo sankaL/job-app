@@ -48,6 +48,8 @@ from app.services.jobs import (
     get_generation_job_queue,
     get_keyword_extraction_job_queue,
 )
+from app.services.export_filename import build_filename_values, render_filename
+from app.services.export_styles import is_valid_style_key, resolve_style
 from app.services.pdf_export import generate_docx, generate_pdf
 from app.services.progress import (
     ApplicationEvent,
@@ -3432,11 +3434,13 @@ class ApplicationService:
         *,
         user_id: str,
         application_id: str,
+        style: Optional[str] = None,
     ) -> tuple[bytes, str]:
         return await self._export_resume(
             user_id=user_id,
             application_id=application_id,
             export_format="pdf",
+            style=style,
         )
 
     async def export_docx(
@@ -3444,12 +3448,39 @@ class ApplicationService:
         *,
         user_id: str,
         application_id: str,
+        style: Optional[str] = None,
     ) -> tuple[bytes, str]:
         return await self._export_resume(
             user_id=user_id,
             application_id=application_id,
             export_format="docx",
+            style=style,
         )
+
+    def _export_filename(
+        self,
+        *,
+        user_id: str,
+        record: ApplicationRecord,
+        draft,
+        profile,
+        extension: str,
+    ) -> str:
+        # The name template belongs to the base resume the draft was generated from.
+        snapshot = draft.source_snapshot if isinstance(draft.source_snapshot, dict) else {}
+        base_resume_id = str(snapshot.get("base_resume_id") or record.base_resume_id or "").strip()
+        template = None
+        if base_resume_id:
+            base_resume = self.base_resume_repository.fetch_resume(user_id, base_resume_id)
+            template = getattr(base_resume, "export_filename_template", None) if base_resume is not None else None
+        values = build_filename_values(
+            full_name=self._clean_profile_value(getattr(profile, "name", None)),
+            first_name=getattr(profile, "first_name", None),
+            last_name=getattr(profile, "last_name", None),
+            company=record.company,
+            job_title=record.job_title,
+        )
+        return render_filename(template, values, extension)
 
     async def _export_resume(
         self,
@@ -3457,6 +3488,7 @@ class ApplicationService:
         user_id: str,
         application_id: str,
         export_format: str,
+        style: Optional[str] = None,
     ) -> tuple[bytes, str]:
         record = self._require_application(user_id=user_id, application_id=application_id)
 
@@ -3470,16 +3502,23 @@ class ApplicationService:
         profile = self._require_profile(user_id=user_id, action=f"exporting a {format_label}")
         self._require_profile_name(profile, action=f"exporting a {format_label}")
         personal_info = self._build_personal_info(profile)
-        full_name = (self._clean_profile_value(profile.name) or "resume").replace(" ", "_")
-
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        filename = f"{full_name}_resume_{timestamp}.{export_format_normalized}"
+        # An explicit unknown style fails closed; a stale saved preference falls back to the default.
+        saved_style = getattr(profile, "export_style", None)
+        export_style = resolve_style(style if style is not None else (saved_style if is_valid_style_key(saved_style) else None))
+        filename = self._export_filename(
+            user_id=user_id,
+            record=record,
+            draft=draft,
+            profile=profile,
+            extension=export_format_normalized,
+        )
 
         try:
             export_bytes = await generator(
                 markdown_content=self._normalize_draft_content(self._document_content(document=draft.document, user_id=user_id) if draft.document is not None else draft.content_md),
                 personal_info=personal_info,
                 page_length=str(draft.generation_params.get("page_length") or "1_page"),
+                style=export_style,
             )
         except asyncio.TimeoutError:
             await self._handle_export_failure(
@@ -3532,6 +3571,16 @@ class ApplicationService:
             application_id=application_id,
             user_id=user_id,
         )
+        if saved_style != export_style.key:
+            # Remembering the style is a convenience; never fail an export that already succeeded.
+            try:
+                self.profile_repository.update_export_style(user_id, export_style.key)
+            except Exception as exc:
+                logger.warning(
+                    "Could not save export style preference for application %s (%s).",
+                    application_id,
+                    type(exc).__name__,
+                )
 
         self.notification_repository.create_notification(
             user_id=user_id,
@@ -3547,7 +3596,7 @@ class ApplicationService:
             event_status="success",
             metadata={
                 "activity_type": "export_succeeded",
-                "details": {"format": format_label},
+                "details": {"format": format_label, "style": export_style.key},
             },
         )
 

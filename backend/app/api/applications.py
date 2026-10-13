@@ -30,6 +30,7 @@ from app.services.creation_activity import (
     ActivityRange,
     CreationActivity,
 )
+from app.services.export_filename import content_disposition
 from app.services.resume_render import build_render_document
 from app.services.progress import PartialSection, ProgressRecord, coerce_partial_sections, now_iso
 from app.services.url_security import OutboundResolutionUnavailable
@@ -1322,17 +1323,19 @@ async def export_pdf(
     application_id: str,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
+    style: Optional[str] = Query(default=None, max_length=32),
 ) -> Response:
     try:
         pdf_bytes, filename = await service.export_pdf(
             user_id=current_user.id,
             application_id=application_id,
+            style=style,
         )
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": content_disposition(filename),
             },
         )
     except Exception as error:
@@ -1344,17 +1347,19 @@ async def export_docx(
     application_id: str,
     current_user: Annotated[AuthenticatedUser, Depends(get_current_active_user)],
     service: Annotated[ApplicationService, Depends(get_application_service)],
+    style: Optional[str] = Query(default=None, max_length=32),
 ) -> Response:
     try:
         docx_bytes, filename = await service.export_docx(
             user_id=current_user.id,
             application_id=application_id,
+            style=style,
         )
         return Response(
             content=docx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": content_disposition(filename),
             },
         )
     except Exception as error:

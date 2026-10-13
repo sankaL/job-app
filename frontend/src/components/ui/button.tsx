@@ -61,11 +61,12 @@ export function Button({
       // Let complex visible children and aria-labelledby supply the accessible name.
       aria-label={props["aria-label"]}
       {...{ title }}
-      variant={group?.isPrimary ? "primary" : variant === "danger" ? "destructive" : group ? "secondary" : variant}
+      // Danger stays red even as a group's primary action (e.g. a confirm dialog's Delete).
+      variant={variant === "danger" ? "destructive" : group?.isPrimary ? "primary" : group ? "secondary" : variant}
       size={group?.size ?? size}
       isLoading={loading}
       isDisabled={disabled}
-      className={cn("app-button", className)}
+      className={cn("app-button", variant === "danger" && "app-button-danger", className)}
       style={{ ...geometry, ...style }}
     >
       <span

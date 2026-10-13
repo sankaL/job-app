@@ -385,6 +385,7 @@ A user can maintain multiple base resumes.
 
 - Before generating, the user selects which base resume to use
 - Each user may set one base resume as default
+- Each base resume has an optional **Download file name** template, set from a **File Name** button beside the page's save action. The button opens a dialog whose Apply updates the editor, and Save Changes, Create Resume or Upload & Parse persists it. It supports `{first name}`, `{last name}`, `{full name}`, `{company}` and `{job title}`, up to 120 characters. Unknown placeholders are rejected, and blank means the default `{first name} {last name} Resume`. The dialog shows clickable placeholder chips and a live example. Exports use the template of the base resume recorded in the draft's source snapshot, then the application's linked base resume. A deleted base resume falls back to the default.
 - If no base resume is selected at generation time, the default is used automatically
 - If no default is set and no selection is made, prompt the user to choose one before proceeding
 
@@ -446,7 +447,7 @@ Custom sections are supported now through the `custom` kind, with user-defined h
 - Professional Experience role order must stay fixed to the source anchors; reprioritization happens by changing bullet emphasis inside each anchored role
 - Professional Experience prose is returned with stable entry/bullet source references. Education and immutable entry facts are copied locally; deterministic entry blocks drive the workbench, validation and export. Ambiguous reviewed Experience remains preserved Markdown until the user structures it.
 - Professional Experience row 1 = `company | location`, row 2 = `role title | date range`
-- Education row 1 = `school | location`, row 2 = `degree/program | graduation date`
+- Education row 1 = `school | location`, row 2 = `degree/program | graduation date`. The graduation date shows only when the Education section's **Show year** toggle (`show_dates`) is on. It is off by default, including for existing documents, so years are hidden in the preview, Markdown projection and exports unless the user turns them on. The dates stay stored in the entry fields.
 - In both sections, the left fields are left-aligned and the right fields are right-aligned in preview, PDF, and DOCX
 - Low aggressiveness must keep Professional Experience titles source-exact
 - Medium may lightly reframe Professional Experience titles only when the new title stays grounded in the same core role family and seniority as the source title
@@ -563,7 +564,7 @@ The main working page for a single application.
 - Regenerate Section
 - Regenerate Full Resume
 - Retry Extraction (if extraction failed)
-- Export PDF / DOCX
+- Export… (style, format and file name in the Export dialog)
 - Re-evaluate Resume Judge for stale edited drafts
 
 ---
@@ -613,7 +614,12 @@ Users can edit section Markdown and structured entries in one workbench when gen
 
 ### 10.14 Resume Export
 
-**Trigger:** User clicks **Export PDF** or **Export DOCX**
+**Trigger:** User chooses **Export…** in the application Actions menu. This opens the Export dialog:
+- Five style cards, each with a static preview thumbnail rendered from a sample resume by the real exporter: **Classic** (the original serif layout and the default), **Modern** (sans-serif with a navy accent), **Compact** (dense, starts at a smaller layout preset), **Executive** (Garamond with spaced headings and a double rule) and **Minimal** (light sans-serif with no rules).
+- The selected card is the user's last exported style (`profiles.export_style`), or Classic before the first export. Cards are a keyboard-accessible radio group.
+- A PDF / Word (DOCX) toggle, defaulting to PDF.
+- A preview of the download file name.
+- Errors stay inside the dialog so the user can retry or pick another style. The dialog closes on success.
 
 **Process:**
 1. Render the latest saved draft document at request time, respecting inclusion and order. Legacy drafts use their saved `content_md`. No cached or persistent PDF is used.
@@ -622,13 +628,15 @@ Users can edit section Markdown and structured entries in one workbench when gen
 4. Stream the file directly to the browser as a download
 5. **Do not store exported files in persistent storage for MVP** — they are always regenerated on demand from the latest draft
 
-**Filename format:** `{full_name}_resume_{YYYYMMDD_HHMMSS}.{ext}`
+**Style:** The request carries an optional `style` key. A missing key uses the saved style, then Classic. An unknown key is rejected with 400 before rendering, and no failure notification is created. A successful export saves the style as the user's last-used style.
+
+**Filename format:** `{first name} {last name} Resume.{ext}` by default, e.g. `Sanka Lokuliyana Resume.pdf`, with no timestamp. The base resume the draft was generated from can override this with its **Download file name** template (see 10.5). Names come from the profile name (first and last word), falling back to the onboarding first and last name. Underscores and characters other than letters, digits, spaces, `-`, `&`, `.`, `(` and `)` become spaces, and runs of spaces collapse. A name that renders empty falls back to the default, then to `Resume`. The response sends an ASCII `filename` plus an RFC 5987 `filename*` so accented names survive.
 
 **Output requirements:**
 - Two ATS-safe formats only: PDF and DOCX
 - Clean, industry-standard single-column layout
-- No tables, no images, no decorative elements
-- Standard fonts (e.g., Georgia, Calibri, or equivalent)
+- No tables, no images, no decorative elements. Styles vary only typography, a single accent colour, header alignment, heading treatment and spacing.
+- Classic uses Georgia-style serif fonts. Other PDF styles embed bundled OFL fonts (Carlito, Source Sans 3, EB Garamond, Lato). In DOCX, each style names a common Office font (Calibri, Arial, Garamond, Calibri Light).
 - Margins: 0.75–1 inch
 - Section headings as bold text with visibly larger size than body copy
 - Sections in the saved resume document order, respecting its enabled flags

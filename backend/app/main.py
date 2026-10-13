@@ -1,6 +1,9 @@
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.access_requests import router as access_requests_router
@@ -8,6 +11,7 @@ from app.api.applications import router as applications_router
 from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
 from app.api.base_resumes import router as base_resumes_router
+from app.api.export_styles import router as export_styles_router
 from app.api.extension import router as extension_router
 from app.api.internal_worker import router as internal_worker_router
 from app.api.notifications import router as notifications_router
@@ -18,6 +22,7 @@ from app.core.config import get_settings
 from app.core.http_security import RequestBodyLimitMiddleware, SecurityHeadersMiddleware
 from app.core.rate_limit import RateLimitMiddleware, RedisRateLimiter
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 rate_limiter = RedisRateLimiter(settings.redis_url)
 
@@ -58,6 +63,7 @@ app.add_middleware(
         "X-Worker-Secret",
     ],
     expose_headers=[
+        "Content-Disposition",
         "Retry-After",
         "X-RateLimit-Limit",
         "X-RateLimit-Remaining",
@@ -68,6 +74,19 @@ app.add_middleware(
     path_limits={"/api/base-resumes/upload": 11 * 1024 * 1024},
 )
 app.add_middleware(SecurityHeadersMiddleware, production=not settings.is_development)
+
+
+@app.exception_handler(RequestValidationError)
+async def log_worker_callback_validation_error(request: Request, exc: RequestValidationError):
+    # Worker callbacks that fail validation otherwise leave only a bare 422. Log the
+    # field locations and rule names (never the submitted values) for diagnosis.
+    if request.url.path.startswith("/api/internal/worker/"):
+        logger.warning(
+            "Worker callback rejected path=%s errors=%s",
+            request.url.path,
+            [{"loc": ".".join(str(part) for part in error.get("loc", ())), "type": error.get("type"), "msg": str(error.get("msg"))[:200]} for error in exc.errors()],
+        )
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.get("/healthz")
@@ -81,6 +100,7 @@ app.include_router(profiles_router)
 app.include_router(applications_router)
 app.include_router(notifications_router)
 app.include_router(base_resumes_router)
+app.include_router(export_styles_router)
 app.include_router(extension_router)
 app.include_router(admin_router)
 app.include_router(public_invites_router)

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,6 +59,45 @@ describe("base resume save dock", () => {
     expect(saved.sections.every((section) => section.review_state === "needs_review")).toBe(true);
     expect(await screen.findByRole("button", { name: "Saved" })).toBeInTheDocument();
     expect(screen.getByText("0 of 2 populated sections reviewed")).toBeInTheDocument();
+  });
+
+  it("edits the download file name in a modal and saves it with Save Changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.updateBaseResume).mockImplementation(async (_id, payload) => ({
+      ...resume,
+      export_filename_template: payload.export_filename_template ?? null,
+      document: { ...payload.document!, revision: 4 },
+    }));
+    renderEditor();
+    await screen.findByRole("tab", { name: /Experience/ });
+    expect(screen.queryByRole("textbox", { name: "Download file name" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "File Name" }));
+    const dialog = await screen.findByRole("dialog", { name: "File Name" });
+    const field = within(dialog).getByRole("textbox", { name: "Download file name" });
+    expect(field).toHaveAttribute("placeholder", "{first name} {last name} Resume");
+
+    fireEvent.change(field, { target: { value: "{salary} Resume" } });
+    expect(within(dialog).getByText("Unknown placeholder {salary}.")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    expect(screen.getByRole("dialog", { name: "File Name" })).toBeInTheDocument();
+
+    fireEvent.change(field, { target: { value: "" } });
+    await user.click(within(dialog).getByRole("button", { name: "{full name}" }));
+    await user.type(field, " Resume");
+    await user.click(within(dialog).getByRole("button", { name: "{company}" }));
+    expect(field).toHaveValue("{full name} Resume {company}");
+    expect(within(dialog).getByText(/Example: Resume Acme\.pdf/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "File Name" })).not.toBeInTheDocument());
+    expect(api.updateBaseResume).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Save Changes" }));
+    await waitFor(() => expect(api.updateBaseResume).toHaveBeenCalledWith(
+      "base",
+      expect.objectContaining({ export_filename_template: "{full name} Resume {company}" }),
+    ));
+    expect(await screen.findByRole("button", { name: "Saved" })).toBeInTheDocument();
   });
 
   it("keeps edits and unsaved state after a revision conflict", async () => {
@@ -220,7 +259,7 @@ it("imports a dropped PDF and rejects multiple or non-PDF drops without replacin
   expect(screen.getByRole("alert")).toHaveTextContent("Choose one PDF file at a time.");
   await user.type(screen.getByRole("textbox", { name: "Resume Name" }), "Dropped resume");
   await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
-  await waitFor(() => expect(api.uploadBaseResume).toHaveBeenCalledWith(pdf, "Dropped resume", true));
+  await waitFor(() => expect(api.uploadBaseResume).toHaveBeenCalledWith(pdf, "Dropped resume", true, null));
 });
 
 it("ignores dropped replacements while importing and preserves the selected PDF after failure", async () => {

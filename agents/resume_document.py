@@ -55,6 +55,8 @@ class ResumeSection(BaseModel):
     entries: list[ResumeEntry] = Field(default_factory=list, max_length=100)
     # Set when generation could not verify a tailored version and kept the original text.
     generation_notice: Literal['kept_original_unverified'] | None = None
+    # Education only: include each entry's dates in the resume projection. Off by default.
+    show_dates: bool = False
 
     @model_validator(mode='after')
     def safe_heading(self):
@@ -279,7 +281,7 @@ def render_section_content(section: ResumeSection) -> str:
         else:
             first, second = facts.get('name', facts.get('text', '')), facts.get('details', '')
         if section.kind in {'professional_experience', 'education'}:
-            lines = [first + (' | ' + facts['location'] if facts.get('location') else ''), second + (' | ' + facts['date_range'] if facts.get('date_range') else '')]
+            lines = [first + (' | ' + facts['location'] if facts.get('location') else ''), second + (' | ' + facts['date_range'] if facts.get('date_range') and (section.kind != 'education' or section.show_dates) else '')]
         else:
             lines = [' | '.join(v for v in [first, facts.get('issuer', ''), facts.get('date', ''), facts.get('url', '')] if v)]
             if second:

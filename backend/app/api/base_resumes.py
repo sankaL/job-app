@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.core.access import get_current_active_user
 from app.core.auth import AuthenticatedUser
 from app.services.base_resumes import BaseResumeService, get_base_resume_service
+from app.services.export_filename import MAX_TEMPLATE_LENGTH, validate_template
 from app.services.resume_document import ResumeDocument
 from app.services.resume_parser import (
     PdfParseFailedError,
@@ -54,6 +55,7 @@ class CreateBaseResumeRequest(BaseModel):
     name: str
     content_md: str = ""
     document: Optional[ResumeDocument] = None
+    export_filename_template: Optional[str] = Field(default=None, max_length=MAX_TEMPLATE_LENGTH * 2)
 
     @model_validator(mode="after")
     def require_content(self):
@@ -83,6 +85,7 @@ class UpdateBaseResumeRequest(BaseModel):
     name: Optional[str] = None
     content_md: Optional[str] = None
     document: Optional[ResumeDocument] = None
+    export_filename_template: Optional[str] = Field(default=None, max_length=MAX_TEMPLATE_LENGTH * 2)
     expected_revision: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("name")
@@ -123,6 +126,7 @@ class BaseResumeDetail(BaseModel):
     raw_source_md: Optional[str] = None
     ready_for_generation: bool = False
     contact_suggestions: dict[str, str] = Field(default_factory=dict)
+    export_filename_template: Optional[str] = None
     is_default: bool
     created_at: str
     updated_at: str
@@ -164,6 +168,7 @@ async def create_base_resume(
             name=request.name,
             content_md=request.content_md,
             document=request.document.model_dump(mode="json") if request.document is not None else None,
+            export_filename_template=request.export_filename_template,
         )
         return BaseResumeDetail.model_validate(record.model_dump())
     except Exception as error:
@@ -178,6 +183,7 @@ async def upload_base_resume(
     service: Annotated[BaseResumeService, Depends(get_base_resume_service)],
     parser: Annotated[ResumeParserService, Depends(get_resume_parser)],
     use_llm_cleanup: Annotated[bool, Form()] = True,
+    export_filename_template: Annotated[Optional[str], Form()] = None,
 ) -> BaseResumeDetail:
     clean_name = name.strip()
     started_at = time.monotonic()
@@ -186,6 +192,10 @@ async def upload_base_resume(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Resume name is required and must be at most 200 characters.",
         )
+    try:
+        filename_template = validate_template(export_filename_template)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
     # Validate file extension
     filename = file.filename or ""
     if not filename.lower().endswith(".pdf"):
@@ -264,6 +274,7 @@ async def upload_base_resume(
             raw_source_md=raw_markdown,
             import_warning=import_result.warning,
             contact_suggestions=import_result.contact_suggestions,
+            export_filename_template=filename_template,
         )
         return BaseResumeDetail.model_validate(
             {

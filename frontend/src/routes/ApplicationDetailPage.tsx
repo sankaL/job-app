@@ -27,12 +27,12 @@ import {
   CircleStop,
   FileText,
   History,
+  Cpu,
   Sparkles,
   Trash2,
   ExternalLink,
   FileDown,
   Columns,
-  RefreshCw,
   Check,
   X,
 } from "lucide-react";
@@ -90,6 +90,8 @@ import {
   type GenerationPreferences,
   type BaseResumeDetail,
   type BaseResumeSummary,
+  type ExportFormat,
+  type ExportStyleKey,
   type ExtractionProgress,
   type JobKeywordsPayload,
   type KeywordMatch,
@@ -109,8 +111,11 @@ import {
   useApplicationDetailQuery,
   useApplicationDraftQuery,
   useApplicationProgressQuery,
+  useBaseResumeQuery,
   useBaseResumesQuery,
 } from "@/lib/queries";
+import { buildFilenameValues } from "@/lib/exportFilename";
+import { ExportResumeModal } from "@/components/applications/ExportResumeModal";
 import { useApplicationEventStream } from "@/lib/use-application-event-stream";
 import { useIsMobile, useIsWideWorkspace } from "@/lib/use-is-mobile";
 
@@ -123,8 +128,6 @@ type JobFormState = {
   job_posting_origin: string;
   job_posting_origin_other_text: string;
 };
-
-type ExportFormat = "pdf" | "docx";
 
 function JobInformationFields({
   form,
@@ -1618,7 +1621,7 @@ function UnavailableResumeJudgeSection({
       >
         {copy.message}
       </Text>
-      <div className="mt-3">
+      <div className="mt-3 flex justify-end">
         <Button
           size="sm"
           variant="secondary"
@@ -2146,6 +2149,14 @@ export function ApplicationDetailPage() {
     null,
   );
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  // File names come from the base resume the draft was generated from (see backend _export_filename).
+  const exportBaseResumeQuery = useBaseResumeQuery(
+    exportModalOpen
+      ? (draft?.source_snapshot?.base_resume_id ?? detail?.base_resume_id ?? undefined)
+      : undefined,
+  );
   const [showSectionRegen, setShowSectionRegen] = useState(false);
   const [regenSectionName, setRegenSectionName] = useState("");
   const [regenEntryId, setRegenEntryId] = useState<string | undefined>();
@@ -2314,9 +2325,12 @@ export function ApplicationDetailPage() {
   const selectedRegenSection = draft?.document?.sections.find(
     (section) => section.id === regenSectionName,
   );
-  const sectionSourceBlocker = selectedRegenSection
-    ? sectionRegenerationReason(selectedRegenSection, regenEntryId)
-    : null;
+  const sectionSourceBlocker =
+    draft && !draft.document
+      ? "This draft uses an older format. Run Full Regen with Use latest base resume first, then regenerate sections or roles."
+      : selectedRegenSection
+        ? sectionRegenerationReason(selectedRegenSection, regenEntryId)
+        : null;
   const sectionRegenerationBlocker =
     sectionSourceBlocker ??
     getSectionRegenerationBlocker(detail, regenSectionName, regenInstructions);
@@ -3412,27 +3426,35 @@ export function ApplicationDetailPage() {
     }
   }
 
-  async function handleExport(format: ExportFormat) {
+  function handleOpenExport() {
+    setActionsMenuOpen(false);
     if (draftDirty) {
       setError("Save or discard your section edits before exporting.");
       return;
     }
-    setActionsMenuOpen(false);
+    setExportError(null);
+    setExportModalOpen(true);
+  }
+
+  async function handleExport(format: ExportFormat, style: ExportStyleKey) {
+    if (draftDirty) {
+      setExportError("Save or discard your section edits before exporting.");
+      return;
+    }
     setExportingFormat(format);
+    setExportError(null);
     setError(null);
     try {
       const download =
         format === "pdf"
-          ? await exportPdf(activeApplicationId)
-          : await exportDocx(activeApplicationId);
+          ? await exportPdf(activeApplicationId, style)
+          : await exportDocx(activeApplicationId, style);
       const url = URL.createObjectURL(download.blob);
       const link = document.createElement("a");
       let linkAttached = false;
       try {
         link.href = url;
-        link.download =
-          download.filename ??
-          `resume-${detail?.job_title?.replace(/\s+/g, "-").toLowerCase() ?? activeApplicationId}.${format}`;
+        link.download = download.filename ?? `Resume.${format}`;
         document.body.appendChild(link);
         linkAttached = true;
         link.click();
@@ -3442,20 +3464,35 @@ export function ApplicationDetailPage() {
         }
         URL.revokeObjectURL(url);
       }
+    } catch (err) {
+      // The dialog stays open with the error so the user can retry or pick another style.
+      setExportError(
+        err instanceof Error
+          ? err.message
+          : `Unable to export ${format.toUpperCase()}.`,
+      );
+      toast(`Failed to export ${format.toUpperCase()}`, "error");
+      setExportingFormat(null);
+      return;
+    }
+    // The file is downloaded: close the dialog first so a failed refresh can't
+    // invite a retry that downloads it twice.
+    setExportModalOpen(false);
+    toast(`${format.toUpperCase()} exported successfully`);
+    try {
       await invalidateApplicationDraftQueries(queryClient, activeApplicationId);
       const updated = await detailQuery.refetch();
       if (updated.data) {
         applyDetailState(updated.data, { refreshShell: true });
       }
       refreshActivityTimeline();
-      toast(`${format.toUpperCase()} exported successfully`);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
     } catch (err) {
       setError(
         err instanceof Error
-          ? err.message
-          : `Unable to export ${format.toUpperCase()}.`,
+          ? `Exported, but the page could not refresh: ${err.message}`
+          : "Exported, but the page could not refresh. Reload to see the latest status.",
       );
-      toast(`Failed to export ${format.toUpperCase()}`, "error");
     } finally {
       setExportingFormat(null);
     }
@@ -3770,27 +3807,15 @@ export function ApplicationDetailPage() {
                             { type: "divider" as const },
                             {
                               label:
-                                exportingFormat === "pdf"
-                                  ? "Exporting PDF…"
-                                  : "Export PDF",
+                                exportingFormat !== null
+                                  ? "Exporting…"
+                                  : "Export…",
                               icon: <FileDown size={16} />,
                               isDisabled:
                                 exportingFormat !== null ||
                                 isRegenerating ||
                                 generationActive,
-                              onClick: () => void handleExport("pdf"),
-                            },
-                            {
-                              label:
-                                exportingFormat === "docx"
-                                  ? "Exporting DOCX…"
-                                  : "Export DOCX",
-                              icon: <FileDown size={16} />,
-                              isDisabled:
-                                exportingFormat !== null ||
-                                isRegenerating ||
-                                generationActive,
-                              onClick: () => void handleExport("docx"),
+                              onClick: handleOpenExport,
                             },
                             {
                               label: compareMode ? "Close comparison" : "Compare",
@@ -3807,7 +3832,7 @@ export function ApplicationDetailPage() {
                         ? [
                             {
                               label: "Regen Section",
-                              icon: <Sparkles size={16} />,
+                              icon: <Cpu size={16} />,
                               isDisabled:
                                 isRegenerating || exportingFormat !== null,
                               onClick: () => {
@@ -3818,7 +3843,7 @@ export function ApplicationDetailPage() {
                             },
                             {
                               label: isRegenerating ? "Starting…" : "Full Regen",
-                              icon: <RefreshCw size={16} />,
+                              icon: <Cpu size={16} />,
                               isDisabled:
                                 isRegenerating || exportingFormat !== null,
                               onClick: () => {
@@ -4648,6 +4673,27 @@ export function ApplicationDetailPage() {
               </div>
             )}
 
+          {exportModalOpen && (
+          <ExportResumeModal
+            open={exportModalOpen}
+            savedStyle={bootstrap?.profile?.export_style}
+            filenameTemplate={exportBaseResumeQuery.data?.export_filename_template}
+            filenameValues={buildFilenameValues({
+              fullName: bootstrap?.profile?.name,
+              firstName: bootstrap?.profile?.first_name,
+              lastName: bootstrap?.profile?.last_name,
+              company: detail?.company,
+              jobTitle: detail?.job_title,
+            })}
+            exportingFormat={exportingFormat}
+            error={exportError}
+            onClose={() => {
+              if (exportingFormat === null) setExportModalOpen(false);
+            }}
+            onExport={(format, style) => void handleExport(format, style)}
+          />
+          )}
+
           {/* Confirmation modal for marking as applied */}
           <ConfirmModal
             open={showAppliedConfirm}
@@ -4748,6 +4794,8 @@ export function ApplicationDetailPage() {
               </div>
             }
             confirmLabel={isRegenerating ? "Regenerating..." : "Regenerate"}
+            confirmIcon={<Cpu size={14} aria-hidden="true" />}
+            variant="orange-muted"
             loading={isRegenerating}
             onConfirm={async () => {
               const started = await handleFullRegeneration(
@@ -4974,7 +5022,7 @@ export function ApplicationDetailPage() {
                         Cancel
                       </Button>
                       <Button
-                        variant="ghost"
+                        variant="secondary"
                         type="button"
                         disabled={
                           isRegenerating ||
@@ -4982,10 +5030,10 @@ export function ApplicationDetailPage() {
                           !regenSectionName ||
                           !regenInstructions.trim()
                         }
-                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                        className="app-button-orange-muted inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={() => void handleSectionRegeneration()}
                       >
-                        <Sparkles size={14} />
+                        <Cpu size={14} />
                         {isRegenerating ? "Regenerating…" : "Regenerate"}
                       </Button>
 

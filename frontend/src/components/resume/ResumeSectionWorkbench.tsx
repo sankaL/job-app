@@ -20,8 +20,8 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
-  Cpu,
   Plus,
+  Cpu,
   RefreshCw,
   Trash2,
   ChevronDown,
@@ -260,7 +260,7 @@ function EntryEditor({
                 title={regenerationReason ?? undefined}
                 onClick={onRegenerate}
               >
-                <RefreshCw size={13} /> Regenerate role
+                <RefreshCw size={13} aria-hidden="true" /> Regenerate role
               </Button>
             )}
             <Button
@@ -790,20 +790,32 @@ export function ResumeSectionWorkbench({
                       size="sm"
                       variant="secondary"
                       type="button"
-                      aria-label={`Include ${section.heading}`}
-                      aria-pressed={section.enabled}
+                      aria-label={`${section.enabled ? "Exclude" : "Include"} ${section.heading}`}
                       disabled={disabled}
                       onClick={() => updateSection(section.id, { enabled: !section.enabled }, false)}
                     >
-                      {section.enabled && <Check size={14} aria-hidden="true" />}
-                      Include
+                      {section.enabled ? "Exclude" : "Include"}
                     </Button>
+                    {section.kind === "education" && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        type="button"
+                        aria-label={`Show years in ${section.heading}`}
+                        aria-pressed={!!section.show_dates}
+                        disabled={disabled}
+                        onClick={() => updateSection(section.id, { show_dates: !section.show_dates }, false)}
+                      >
+                        {section.show_dates && <Check size={14} aria-hidden="true" />}
+                        Show year
+                      </Button>
+                    )}
                     {onRegenerate && (
                       <Button
                         size="sm"
                         variant="secondary"
                         type="button"
-                        className="app-button-orange"
+                        className="app-button-orange-muted"
                         aria-label="Regenerate section"
                         disabled={
                           disabled ||

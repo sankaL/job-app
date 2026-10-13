@@ -5,11 +5,12 @@ import html
 import io
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
 from typing import Optional, Union
 
 import markdown
+from app.services.export_styles import ExportStyle, resolve_style
 from app.services.resume_render import build_render_document
 
 logger = logging.getLogger(__name__)
@@ -642,12 +643,82 @@ def _render_html_blocks(blocks: list[ExportBlock]) -> str:
     return "".join(html_blocks)
 
 
+def _font_face_css(style: ExportStyle) -> str:
+    return "".join(
+        "@font-face {"
+        f" font-family: '{face.family}';"
+        f" src: url('{face.path.as_uri()}');"
+        f" font-weight: {face.weight};"
+        f" font-style: {face.style};"
+        " }\n"
+        for face in style.font_faces
+    )
+
+
+def _rule_css(rule: str, width: float, color: str) -> str:
+    if rule == "double":
+        return f"{round(max(2.2, width * 3), 2)}pt double {color}"
+    if rule == "single":
+        return f"{width}pt solid {color}"
+    return "none"
+
+
+def _style_override_css(style: ExportStyle, preset: LayoutPreset) -> str:
+    """CSS appended after the base sheet so non-Classic styles override it via the cascade."""
+    if style.is_classic:
+        return ""
+    heading_size = preset.section_heading_size
+    if style.heading_transform != "uppercase":
+        # Mixed-case and small-caps headings read smaller than all-caps at the same size.
+        heading_size = round(heading_size * 1.12, 2)
+    header_rule = ""
+    if style.header_rule != "none":
+        header_rule = (
+            f"      border-bottom: {_rule_css(style.header_rule, 0.8, style.accent_color)};\n"
+            f"      padding-bottom: {round(preset.body_font_size * 0.45, 2)}pt;\n"
+        )
+    name_letter_spacing = (
+        f"      letter-spacing: {style.name_letter_spacing};\n" if style.name_letter_spacing else ""
+    )
+    font_family = (
+        f"      font-family: {style.font_family_css};\n" if style.font_family_css else ""
+    )
+    return f"""
+    {_font_face_css(style)}
+    body {{
+{font_family}      color: {style.text_color};
+    }}
+    .resume-header {{
+      text-align: {style.header_align};
+{header_rule}    }}
+    .resume-header h1 {{
+      font-size: {round(preset.name_font_size * style.name_scale, 2)}pt;
+      font-weight: {style.name_weight};
+      color: {style.accent_color};
+{name_letter_spacing}    }}
+    .resume-contact {{
+      color: {style.muted_color};
+    }}
+    .resume-section h2 {{
+      font-size: {heading_size}pt;
+      color: {style.accent_color};
+      text-align: {style.heading_align};
+      letter-spacing: {style.heading_letter_spacing};
+      text-transform: {"uppercase" if style.heading_transform == "uppercase" else "none"};
+      font-variant: {"small-caps" if style.heading_transform == "small-caps" else "normal"};
+      border-bottom: {_rule_css(style.heading_rule, style.heading_rule_width, style.accent_color)};
+    }}
+"""
+
+
 def _build_html(
     document_or_markdown: Union[ExportDocument, str],
     preset: LayoutPreset,
     *,
     preset_index: int = 0,
+    style: Optional[ExportStyle] = None,
 ) -> str:
+    style = style or resolve_style(None)
     document = (
         document_or_markdown
         if isinstance(document_or_markdown, ExportDocument)
@@ -664,6 +735,8 @@ def _build_html(
         ),
         2,
     )
+    if style.section_gap_scale != 1.0:
+        major_section_gap = round(major_section_gap * style.section_gap_scale, 2)
     header_gap = round(max(major_section_gap, preset.contact_to_first_section_margin * section_spacing_factor), 2)
     section_margin_top = major_section_gap
     section_heading_gap = round(max(4.0, preset.section_header_content_gap * section_spacing_factor), 2)
@@ -857,10 +930,10 @@ def _build_html(
     }}
     em {{
       font-style: italic;
-    }}
+    }}{_style_override_css(style, preset)}
   </style>
 </head>
-<body data-preset="{preset_index}" data-density="{density_label}">
+<body data-preset="{preset_index}" data-density="{density_label}" data-style="{style.key}">
   <main class="resume-root resume-root-{density_label}">
     {header_html}
     {intro_html}
@@ -907,6 +980,7 @@ def _validate_roomier_one_page_fit(
     base_pdf: bytes,
     base_preset: LayoutPreset,
     base_index: int,
+    style: Optional[ExportStyle] = None,
 ) -> bytes:
     best_pdf = base_pdf
     best_preset = base_preset
@@ -920,7 +994,7 @@ def _validate_roomier_one_page_fit(
             candidate_preset = build_candidate(best_preset)
             if candidate_preset == best_preset:
                 continue
-            html_content = _build_html(document, candidate_preset, preset_index=base_index)
+            html_content = _build_html(document, candidate_preset, preset_index=base_index, style=style)
             pdf_bytes, page_count = _render_html_to_pdf(html_content)
             if page_count > 1:
                 continue
@@ -937,24 +1011,29 @@ def _generate_pdf_with_autofit_sync(
     markdown_content: str,
     personal_info: Optional[dict] = None,
     page_length: Optional[str] = None,
+    style: Optional[ExportStyle] = None,
 ) -> bytes:
+    style = style or resolve_style(None)
     document = _build_export_document(markdown_content, personal_info)
     target_pages = PAGE_TARGETS.get(str(page_length or "1_page"), 1)
 
     last_pdf = b""
     for preset_index, preset in enumerate(LAYOUT_PRESETS):
+        if preset_index < style.start_preset_index:
+            continue
         if not _is_readable_preset(preset):
             continue
-        html_content = _build_html(document, preset, preset_index=preset_index)
+        html_content = _build_html(document, preset, preset_index=preset_index, style=style)
         pdf_bytes, page_count = _render_html_to_pdf(html_content)
         last_pdf = pdf_bytes
         if page_count <= target_pages:
-            if target_pages == 1:
+            if target_pages == 1 and style.expand_one_page:
                 return _validate_roomier_one_page_fit(
                     document,
                     base_pdf=pdf_bytes,
                     base_preset=preset,
                     base_index=preset_index,
+                    style=style,
                 )
             return pdf_bytes
 
@@ -1020,6 +1099,27 @@ def _apply_font_to_paragraph_runs(paragraph, *, size: float, font_name: str = "G
         _set_font(run, size=size, font_name=font_name)
 
 
+def _docx_rgb(hex_color: str):
+    from docx.shared import RGBColor  # noqa: WPS433
+
+    return RGBColor.from_string(hex_color.lstrip("#").upper())
+
+
+def _add_docx_bottom_border(paragraph, *, rule: str, color: str) -> None:
+    # Word border XML is a minimal way to preserve the PDF separators without tables/shapes.
+    from docx.oxml import OxmlElement  # noqa: WPS433
+    from docx.oxml.ns import qn  # noqa: WPS433
+
+    p_borders = OxmlElement("w:pBdr")
+    border = OxmlElement("w:bottom")
+    border.set(qn("w:val"), rule)
+    border.set(qn("w:sz"), "6")
+    border.set(qn("w:space"), "1")
+    border.set(qn("w:color"), color.lstrip("#").upper())
+    p_borders.append(border)
+    paragraph._element.get_or_add_pPr().append(p_borders)
+
+
 def _resolve_docx_layout(page_length: Optional[str], density_metrics: dict[str, float | int | bool | str]) -> DocxLayoutPreset:
     base = DOCX_LAYOUT_PRESETS.get(str(page_length or "1_page"), DOCX_LAYOUT_PRESETS["1_page"])
     if density_metrics["is_dense"]:
@@ -1053,14 +1153,19 @@ def _render_docx_sync(
     markdown_content: str,
     personal_info: Optional[dict] = None,
     page_length: Optional[str] = None,
+    style: Optional[ExportStyle] = None,
 ) -> bytes:
     from docx import Document  # noqa: WPS433
     from docx.enum.section import WD_SECTION_START  # noqa: WPS433
     from docx.enum.text import WD_TAB_ALIGNMENT  # noqa: WPS433
     from docx.shared import Inches, Pt  # noqa: WPS433
 
+    style = style or resolve_style(None)
+    font_name = style.docx_font
     document_model = _build_export_document(markdown_content, personal_info)
     layout = _resolve_docx_layout(page_length, document_model.density_metrics)
+    if style.docx_size_delta:
+        layout = replace(layout, body_font_size=round(layout.body_font_size + style.docx_size_delta, 2))
     major_section_gap = max(layout.body_font_size * layout.line_spacing * 0.95, layout.section_spacing_before)
     header_section_gap = max(layout.body_font_size * layout.line_spacing * 0.95, layout.header_spacing_after)
 
@@ -1075,26 +1180,42 @@ def _render_docx_sync(
     section.right_margin = Inches(layout.page_margin)
 
     normal_style = doc.styles["Normal"]
-    normal_style.font.name = "Georgia"
+    normal_style.font.name = font_name
+    if not style.is_classic:
+        normal_style.font.color.rgb = _docx_rgb(style.text_color)
     normal_style.font.size = Pt(layout.body_font_size)
     normal_style.paragraph_format.line_spacing = layout.line_spacing
     normal_style.paragraph_format.space_before = Pt(0)
     normal_style.paragraph_format.space_after = Pt(layout.paragraph_spacing)
 
     if document_model.header and (document_model.header.name or document_model.header.contact_line):
+        header_alignment = 1 if style.header_align == "center" else 0
         header_paragraph = doc.add_paragraph()
-        header_paragraph.alignment = 1
+        header_paragraph.alignment = header_alignment
         _set_paragraph_spacing(header_paragraph, after=0, line_spacing=1.0)
         if document_model.header.name:
             name_run = header_paragraph.add_run(document_model.header.name)
-            _set_font(name_run, size=layout.name_font_size, bold=True)
+            _set_font(
+                name_run,
+                size=round(layout.name_font_size * style.name_scale, 2),
+                font_name=font_name,
+                bold=style.name_weight >= 600,
+            )
+            if not style.is_classic:
+                name_run.font.color.rgb = _docx_rgb(style.accent_color)
+        last_header_paragraph = header_paragraph
 
         if document_model.header.contact_line:
             contact_paragraph = doc.add_paragraph()
-            contact_paragraph.alignment = 1
+            contact_paragraph.alignment = header_alignment
             _set_paragraph_spacing(contact_paragraph, after=header_section_gap, line_spacing=1.0)
             contact_run = contact_paragraph.add_run(document_model.header.contact_line)
-            _set_font(contact_run, size=layout.contact_font_size)
+            _set_font(contact_run, size=layout.contact_font_size, font_name=font_name)
+            if not style.is_classic:
+                contact_run.font.color.rgb = _docx_rgb(style.muted_color)
+            last_header_paragraph = contact_paragraph
+        if style.header_rule != "none":
+            _add_docx_bottom_border(last_header_paragraph, rule=style.header_rule, color=style.accent_color)
 
     def add_blocks(blocks: list[ExportBlock]) -> None:
         usable_width = section.page_width - section.left_margin - section.right_margin
@@ -1107,12 +1228,12 @@ def _render_docx_sync(
                 paragraph = doc.add_paragraph()
                 _set_paragraph_spacing(paragraph, after=layout.paragraph_spacing, line_spacing=layout.line_spacing)
                 _append_inline_html_runs(paragraph, block.html_fragment)
-                _apply_font_to_paragraph_runs(paragraph, size=content_font_size)
+                _apply_font_to_paragraph_runs(paragraph, size=content_font_size, font_name=font_name)
             elif isinstance(block, ExportSubheading):
                 paragraph = doc.add_paragraph()
                 _set_paragraph_spacing(paragraph, after=layout.paragraph_spacing, line_spacing=1.0)
                 run = paragraph.add_run(block.text)
-                _set_font(run, size=subheader_font_size, bold=True)
+                _set_font(run, size=subheader_font_size, font_name=font_name, bold=True)
             elif isinstance(block, ExportBulletList):
                 last_index = len(block.items) - 1
                 for item_index, item in enumerate(block.items):
@@ -1121,7 +1242,7 @@ def _render_docx_sync(
                     paragraph_after = entry_spacing_after if item_index == last_index else layout.paragraph_spacing
                     _set_paragraph_spacing(paragraph, after=paragraph_after, line_spacing=layout.line_spacing)
                     _append_inline_html_runs(paragraph, item)
-                    _apply_font_to_paragraph_runs(paragraph, size=content_font_size)
+                    _apply_font_to_paragraph_runs(paragraph, size=content_font_size, font_name=font_name)
             elif isinstance(block, ExportSplitGroup):
                 last_index = len(block.rows) - 1
                 for row_index, row in enumerate(block.rows):
@@ -1132,7 +1253,7 @@ def _render_docx_sync(
                     _append_inline_html_runs(paragraph, row.left_html, bold=row.emphasize_left)
                     paragraph.add_run("\t")
                     _append_inline_html_runs(paragraph, row.right_html)
-                    _apply_font_to_paragraph_runs(paragraph, size=subheader_font_size if row.emphasize_left else content_font_size)
+                    _apply_font_to_paragraph_runs(paragraph, size=subheader_font_size if row.emphasize_left else content_font_size, font_name=font_name)
             elif isinstance(block, ExportStructuredEntry):
                 primary = doc.add_paragraph()
                 primary.paragraph_format.tab_stops.add_tab_stop(usable_width, WD_TAB_ALIGNMENT.RIGHT)
@@ -1141,7 +1262,7 @@ def _render_docx_sync(
                 if block.primary_right_html:
                     primary.add_run("\t")
                     _append_inline_html_runs(primary, block.primary_right_html, italic=True)
-                _apply_font_to_paragraph_runs(primary, size=subheader_font_size)
+                _apply_font_to_paragraph_runs(primary, size=subheader_font_size, font_name=font_name)
 
                 secondary = doc.add_paragraph()
                 secondary.paragraph_format.tab_stops.add_tab_stop(usable_width, WD_TAB_ALIGNMENT.RIGHT)
@@ -1151,7 +1272,7 @@ def _render_docx_sync(
                 if block.secondary_right_html:
                     secondary.add_run("\t")
                     _append_inline_html_runs(secondary, block.secondary_right_html, italic=True)
-                _apply_font_to_paragraph_runs(secondary, size=subheader_font_size)
+                _apply_font_to_paragraph_runs(secondary, size=subheader_font_size, font_name=font_name)
 
                 last_index = len(block.bullets) - 1
                 for item_index, item in enumerate(block.bullets):
@@ -1160,7 +1281,7 @@ def _render_docx_sync(
                     paragraph_after = entry_spacing_after if item_index == last_index else layout.paragraph_spacing
                     _set_paragraph_spacing(paragraph, after=paragraph_after, line_spacing=layout.line_spacing)
                     _append_inline_html_runs(paragraph, item)
-                    _apply_font_to_paragraph_runs(paragraph, size=content_font_size)
+                    _apply_font_to_paragraph_runs(paragraph, size=content_font_size, font_name=font_name)
 
     add_blocks(document_model.intro_blocks)
 
@@ -1172,21 +1293,22 @@ def _render_docx_sync(
             after=layout.section_spacing_after,
             line_spacing=1.0,
         )
-        heading_run = heading_paragraph.add_run(section_block.heading.upper())
-        _set_font(heading_run, size=layout.section_heading_size, bold=True)
-        bottom_border = heading_paragraph._element.get_or_add_pPr()
-        # Word border XML is a minimal way to preserve the PDF heading separator without tables/shapes.
-        from docx.oxml import OxmlElement  # noqa: WPS433
-        from docx.oxml.ns import qn  # noqa: WPS433
-
-        p_borders = OxmlElement("w:pBdr")
-        border = OxmlElement("w:bottom")
-        border.set(qn("w:val"), "single")
-        border.set(qn("w:sz"), "6")
-        border.set(qn("w:space"), "1")
-        border.set(qn("w:color"), "111111")
-        p_borders.append(border)
-        bottom_border.append(p_borders)
+        heading_text = (
+            section_block.heading.upper() if style.heading_transform == "uppercase" else section_block.heading
+        )
+        heading_size = layout.section_heading_size
+        if style.heading_transform != "uppercase":
+            heading_size = round(heading_size * 1.12, 2)
+        if style.heading_align == "center":
+            heading_paragraph.alignment = 1
+        heading_run = heading_paragraph.add_run(heading_text)
+        _set_font(heading_run, size=heading_size, font_name=font_name, bold=True)
+        if style.heading_transform == "small-caps":
+            heading_run.font.small_caps = True
+        if not style.is_classic:
+            heading_run.font.color.rgb = _docx_rgb(style.accent_color)
+        if style.heading_rule != "none":
+            _add_docx_bottom_border(heading_paragraph, rule=style.heading_rule, color=style.accent_color)
         add_blocks(section_block.blocks)
 
     output = io.BytesIO()
@@ -1198,6 +1320,7 @@ async def generate_pdf(
     markdown_content: str,
     personal_info: Optional[dict] = None,
     page_length: Optional[str] = None,
+    style: Optional[ExportStyle] = None,
 ) -> bytes:
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(
@@ -1207,6 +1330,7 @@ async def generate_pdf(
             markdown_content,
             personal_info,
             page_length,
+            style,
         ),
         timeout=EXPORT_TIMEOUT_SECONDS,
     )
@@ -1216,6 +1340,7 @@ async def generate_docx(
     markdown_content: str,
     personal_info: Optional[dict] = None,
     page_length: Optional[str] = None,
+    style: Optional[ExportStyle] = None,
 ) -> bytes:
     loop = asyncio.get_running_loop()
     return await asyncio.wait_for(
@@ -1225,6 +1350,7 @@ async def generate_docx(
             markdown_content,
             personal_info,
             page_length,
+            style,
         ),
         timeout=EXPORT_TIMEOUT_SECONDS,
     )

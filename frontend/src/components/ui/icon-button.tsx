@@ -6,6 +6,7 @@ import { useActionGroup } from "./button-group";
 type IconButtonProps = PropsWithChildren<
   ButtonHTMLAttributes<HTMLButtonElement>
 > & {
+  /** `danger` is a solid red button with a white icon, inside or outside a group. */
   variant?: "default" | "danger";
 };
 
@@ -25,10 +26,18 @@ export function IconButton({
       tooltip={disabled ? undefined : title}
       {...{ title }}
       icon={children}
-      variant={group?.isPrimary ? "primary" : group ? "secondary" : "ghost"}
+      variant={
+        variant === "danger"
+          ? "destructive"
+          : group?.isPrimary
+            ? "primary"
+            : group
+              ? "secondary"
+              : "ghost"
+      }
       size={group?.size ?? "sm"}
       isDisabled={disabled}
-      className={cn(variant === "danger" && !group?.isPrimary && "text-error", className)}
+      className={cn(variant === "danger" && "app-button-danger", className)}
     />
   );
 }

@@ -1,6 +1,10 @@
 :root {
   --brand-orange: #ff5941;
   --brand-orange-hover: #e44730;
+  --brand-orange-muted: #c4553f;
+  --brand-orange-muted-hover: #ac4733;
+  --brand-red: #d92d20;
+  --brand-red-hover: #b42318;
   --sidebar-width: 240px;
   --topbar-height: 64px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -851,6 +855,26 @@ body,
   .app-topbar-page-actions { flex-shrink: 1; }
 }
 
+/* Every delete/removal action is a solid red button with white text or icon. */
+.app-button-danger,
+:is(.astryx-button, .astryx-icon-button).app-button-danger {
+  background-color: var(--brand-red) !important;
+  color: #ffffff !important;
+  border-color: var(--brand-red) !important;
+}
+.app-button-danger:hover:not(:disabled):not([aria-disabled="true"]),
+:is(.astryx-button, .astryx-icon-button).app-button-danger:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--brand-red-hover) !important;
+  border-color: var(--brand-red-hover) !important;
+}
+.app-button-danger:disabled,
+.app-button-danger[aria-disabled="true"],
+:is(.astryx-button, .astryx-icon-button).app-button-danger:disabled,
+:is(.astryx-button, .astryx-icon-button).app-button-danger[aria-disabled="true"] {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
 .app-button-orange,
 :is(.astryx-button, .astryx-icon-button).app-button-orange {
   background-color: var(--brand-orange) !important;
@@ -870,15 +894,34 @@ body,
   cursor: not-allowed !important;
 }
 
+.app-button-orange-muted,
+:is(.astryx-button, .astryx-icon-button).app-button-orange-muted {
+  background-color: var(--brand-orange-muted) !important;
+  color: #ffffff !important;
+  border-color: var(--brand-orange-muted) !important;
+}
+.app-button-orange-muted:hover:not(:disabled):not([aria-disabled="true"]),
+:is(.astryx-button, .astryx-icon-button).app-button-orange-muted:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--brand-orange-muted-hover) !important;
+  border-color: var(--brand-orange-muted-hover) !important;
+}
+.app-button-orange-muted:disabled,
+.app-button-orange-muted[aria-disabled="true"],
+:is(.astryx-button, .astryx-icon-button).app-button-orange-muted:disabled,
+:is(.astryx-button, .astryx-icon-button).app-button-orange-muted[aria-disabled="true"] {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
 .app-button-orange-outline,
 :is(.astryx-button, .astryx-icon-button).app-button-orange-outline {
   background-color: transparent !important;
-  color: var(--brand-orange) !important;
-  border: 1px solid var(--brand-orange) !important;
+  color: var(--brand-orange-muted) !important;
+  border: 1px solid var(--brand-orange-muted) !important;
 }
 .app-button-orange-outline:hover:not(:disabled):not([aria-disabled="true"]),
 :is(.astryx-button, .astryx-icon-button).app-button-orange-outline:hover:not(:disabled):not([aria-disabled="true"]) {
-  background-color: color-mix(in srgb, var(--brand-orange) 10%, transparent) !important;
+  background-color: color-mix(in srgb, var(--brand-orange-muted) 10%, transparent) !important;
 }
 .app-button-orange-outline:disabled,
 .app-button-orange-outline[aria-disabled="true"],

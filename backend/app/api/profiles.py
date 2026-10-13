@@ -71,6 +71,7 @@ class ProfileResponse(BaseModel):
     default_base_resume_id: Optional[str]
     section_preferences: dict[str, bool]
     section_order: list[str]
+    export_style: Optional[str] = None
     created_at: str
     updated_at: str
 

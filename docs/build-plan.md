@@ -8,6 +8,22 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Export styles and download file names
+
+**Status:** Complete locally, not committed (2026-10-12 EDT).
+
+- An Export dialog replaces the Export PDF / Export DOCX menu items. It has five style cards with preview thumbnails (Classic, Modern, Compact, Executive, Minimal), a PDF/DOCX toggle and a file-name preview. The last-used style is pre-selected.
+- Downloads are named `{first name} {last name} Resume.<ext>`. Each base resume can set a placeholder template for the name, on the upload form and in the editor.
+- Migration `000025` adds `profiles.export_style` and `base_resumes.export_filename_template`. There is a new `GET /api/export-styles`, and the export endpoints accept `?style=`.
+- Tests: backend suite (557) and frontend suite (330) pass. Details are in `docs/task-output/2026-10-12-export-styles-and-filenames.md`.
+
+## Optional education years
+
+**Status:** Complete locally, not committed (2026-10-12).
+
+- Education sections gain a `show_dates` flag (default off, no migration). The Markdown projection, workbench preview and PDF omit entry dates unless the user turns on "Show year" in the section toolbar. Existing documents therefore hide years by default; the dates stay stored in the entry fields.
+- Tests: backend unit test added; frontend typecheck and suite pass.
+
 ## Bake-off routing and defect fixes
 
 **Status:** Complete locally, not deployed (2026-10-12 13:20 EDT).

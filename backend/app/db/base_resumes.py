@@ -32,6 +32,7 @@ class BaseResumeRecord(BaseModel):
     raw_source_md: Optional[str] = None
     import_warning: Optional[str] = None
     contact_suggestions: dict[str, str] = Field(default_factory=dict)
+    export_filename_template: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -90,6 +91,7 @@ class BaseResumeRepository:
         raw_source_md: Optional[str] = None,
         import_warning: Optional[str] = None,
         contact_suggestions: Optional[dict[str, str]] = None,
+        export_filename_template: Optional[str] = None,
     ) -> BaseResumeRecord:
         query = """
         insert into public.base_resumes (
@@ -99,9 +101,10 @@ class BaseResumeRepository:
           document,
           raw_source_md,
           import_warning,
-          contact_suggestions
+          contact_suggestions,
+          export_filename_template
         )
-        values (%s, %s, %s, %s, %s, %s, %s)
+        values (%s, %s, %s, %s, %s, %s, %s, %s)
         returning
           id::text,
           name,
@@ -112,12 +115,13 @@ class BaseResumeRepository:
           raw_source_md,
           import_warning,
           contact_suggestions,
+          export_filename_template,
           created_at::text,
           updated_at::text
         """
 
         with _resume_name_conflict(), self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
-            cursor.execute(query, (user_id, name, content_md, Jsonb(document) if document else None, raw_source_md, import_warning, Jsonb(contact_suggestions or {})))
+            cursor.execute(query, (user_id, name, content_md, Jsonb(document) if document else None, raw_source_md, import_warning, Jsonb(contact_suggestions or {}), export_filename_template))
             row = cursor.fetchone()
             connection.commit()
 
@@ -138,6 +142,7 @@ class BaseResumeRepository:
           raw_source_md,
           import_warning,
           contact_suggestions,
+          export_filename_template,
           created_at::text,
           updated_at::text
         from public.base_resumes
@@ -164,7 +169,15 @@ class BaseResumeRepository:
                 raise LookupError("Base resume not found.")
             return existing
 
-        allowed_fields = {"name", "content_md", "document", "raw_source_md", "import_warning", "contact_suggestions"}
+        allowed_fields = {
+            "name",
+            "content_md",
+            "document",
+            "raw_source_md",
+            "import_warning",
+            "contact_suggestions",
+            "export_filename_template",
+        }
         if not set(updates).issubset(allowed_fields):
             raise ValueError("Unsupported base resume update field.")
         assignments = [
@@ -189,6 +202,7 @@ class BaseResumeRepository:
               raw_source_md,
               import_warning,
               contact_suggestions,
+              export_filename_template,
               created_at::text,
               updated_at::text
             """

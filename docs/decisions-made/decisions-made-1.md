@@ -1,3 +1,26 @@
+## 2026-10-13 EDT - Education years hidden by default
+
+- Context: Graduation years can invite age bias, and many candidates leave them off. Education entries always printed their `date_range`.
+- Decision: Education sections have a `show_dates` flag, default `false`, controlled by a "Show year" toggle in the section toolbar. When it is off, the Markdown projection, workbench preview and PDF omit Education dates. The dates stay stored in the entry fields, so turning the toggle on restores them. No migration is needed, because the flag lives in the section document JSON.
+- Consequence: existing documents have no flag, so they now hide Education years until the user turns the toggle on. This was an intentional default in the original change, recorded at the time only in `docs/build-plan.md` and `docs/database_schema.md`. A code review (2026-10-13) flagged the missing PRD and decisions-log record, and this entry adds it. The owner can flip the default if years should show for existing resumes.
+- Rejected: default-on for existing documents only (a migration or version check). It adds a schema distinction for a display preference that the user can change in one click.
+
+## 2026-10-12 EDT - Export styles dialog and clean, per-base-resume download names
+
+- Context: Every export used one serif style. Files downloaded as `Alex_Example_resume_20260412_101500.pdf`. The owner asked for several researched resume styles chosen in a dialog with previews, and for clean `First Last Resume` names that each base resume can configure.
+- Decision (user-approved plan):
+  - Five styles: Classic (default, unchanged output), Modern, Compact, Executive and Minimal. They map to the common template families: Harvard/Standard, Modern, Jake's-style dense, Executive and Minimal.
+  - All five are single-column with standard headings, so ATS parsing is unaffected. Two-column and sidebar layouts were left out because tables, columns and text boxes are the most cited ATS parsing risk.
+  - Previews are static PNG thumbnails rendered by the real exporter from a fictional sample resume (`backend/scripts/render_export_style_thumbnails.py`). Live per-user previews were rejected for now (owner choice).
+  - The pre-selected style is the last style the user exported with (`profiles.export_style`), otherwise Classic. Styles also apply to DOCX on a best-effort basis, using common Office fonts.
+  - File names have no timestamp. The default is `{first name} {last name} Resume`. Each base resume may set a template with `{first name}`, `{last name}`, `{full name}`, `{company}` and `{job title}`. The template comes from the draft's source-snapshot base resume, so it follows the resume the draft was built from.
+- Supporting changes:
+  - The backend image only ships DejaVu fonts, so the PDF styles embed bundled OFL fonts.
+  - CORS now exposes `Content-Disposition`. Before this, a cross-origin frontend could not read the server file name and fell back to a slug.
+- Rejected:
+  - Keeping timestamps in file names: the owner wants clean names. Browsers add ` (1)` when names repeat.
+  - Free text without placeholders: placeholders let one base resume name files per company.
+
 ## 2026-10-12 EDT - Phone layouts replace sideways scrolling with cards, menus and pane switching
 
 - Context: On phones, the Applications table needed about 988px and Admin Users about 1176px, so data scrolled sideways inside the table. Page actions crowded the top bar. Application details stacked under a long resume, and the compare header covered about 40% of the screen.

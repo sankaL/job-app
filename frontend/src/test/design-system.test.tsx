@@ -141,7 +141,35 @@ describe("shared app controls", () => {
       <IconButton aria-label="Delete" variant="danger">Delete</IconButton>
     </ActionButtons>);
     expect(screen.getByRole("button", { name: "Edit" })).toHaveAttribute("data-variant", "primary");
-    expect(screen.getByRole("button", { name: "Delete" })).toHaveAttribute("data-variant", "secondary");
+    const deleteIcon = screen.getByRole("button", { name: "Delete" });
+    expect(deleteIcon).toHaveAttribute("data-variant", "destructive");
+    expect(deleteIcon).toHaveClass("app-button-danger");
+  });
+
+  it("separates the primary action from delete with neutral actions in between", () => {
+    render(
+      <ActionButtons label="Resume actions" primaryIndex={1}>
+        <Button variant="secondary">File Name</Button>
+        <Button>Save Changes</Button>
+        <IconButton aria-label="Delete resume" variant="danger">Delete</IconButton>
+      </ActionButtons>,
+    );
+    const names = screen.getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent);
+    expect(names).toEqual(["Save Changes", "File Name", "Delete resume"]);
+    expect(screen.getByRole("button", { name: "Save Changes" })).toHaveAttribute("data-variant", "primary");
+    expect(screen.getByRole("button", { name: "File Name" })).toHaveAttribute("data-variant", "secondary");
+  });
+
+  it("keeps delete actions solid red even as a group's primary action", () => {
+    render(
+      <ActionButtons label="Confirm">
+        <Button variant="secondary">Cancel</Button>
+        <Button variant="danger">Delete Resume</Button>
+      </ActionButtons>,
+    );
+    const confirm = screen.getByRole("button", { name: "Delete Resume" });
+    expect(confirm).toHaveAttribute("data-variant", "destructive");
+    expect(confirm).toHaveClass("app-button-danger");
   });
 
   it("cleans up toast removal and automatic-dismiss timers on unmount", () => {

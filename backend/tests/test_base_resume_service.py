@@ -260,3 +260,23 @@ def test_library_summary_bounds_long_text():
     excerpt = _summary_excerpt(record)
     assert len(excerpt) <= 240
     assert excerpt.endswith("…")
+
+
+def test_export_filename_template_is_validated_on_create_and_update():
+    service, repository = _memory_service()
+    created = service.create_resume(
+        user_id="user-1",
+        name="Resume",
+        content_md="## Skills\nPython",
+        export_filename_template="  {full name} Resume {company} ",
+    )
+    assert created.export_filename_template == "{full name} Resume {company}"
+
+    updated = service.update_resume("user-1", created.id, {"export_filename_template": "   ", "expected_revision": 1})
+    assert updated.export_filename_template is None
+
+    with pytest.raises(ValueError, match="Unknown placeholder"):
+        service.update_resume("user-1", created.id, {"export_filename_template": "{salary}", "expected_revision": 2})
+    with pytest.raises(ValueError, match="Unknown placeholder"):
+        service.create_resume(user_id="user-1", name="Other", content_md="## Skills\nPython", export_filename_template="{age}")
+    assert repository.update_calls == 1

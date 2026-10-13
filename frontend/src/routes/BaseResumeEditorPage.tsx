@@ -3,7 +3,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queries";
-import { Pencil, Trash2 } from "lucide-react";
+import { FileText, Pencil, Trash2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAppContext } from "@/components/layout/AppContext";
 import { ActionButtons } from "@/components/ui/button-group";
@@ -21,7 +21,9 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ExportFilenameModal } from "@/components/resume/ExportFilenameModal";
 import { ResumePdfInput } from "@/components/resume/ResumePdfInput";
+import { validateFilenameTemplate } from "@/lib/exportFilename";
 import { ResumeImportProgress } from "@/components/ui/resume-processing";
 import { SkeletonSection } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
@@ -42,6 +44,14 @@ import {
   resumeDocumentError,
 } from "@/lib/resume-document";
 
+function editorSnapshot(
+  name: string,
+  document: ResumeDocument,
+  filenameTemplate: string,
+): string {
+  return JSON.stringify({ name, document, filenameTemplate: filenameTemplate.trim() });
+}
+
 export function BaseResumeEditorPage() {
   const { resumeId } = useParams<{ resumeId: string }>();
   const [searchParams] = useSearchParams();
@@ -56,6 +66,8 @@ export function BaseResumeEditorPage() {
   const uploadMode = isNew && searchParams.get("mode") === "upload";
   const [resume, setResume] = useState<BaseResumeDetail | null>(null);
   const [name, setName] = useState("");
+  const [filenameTemplate, setFilenameTemplate] = useState("");
+  const [filenameModalOpen, setFilenameModalOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const nameBeforeEdit = useRef("");
   const [document, setDocument] = useState<ResumeDocument>(emptyResumeDocument);
@@ -75,6 +87,7 @@ export function BaseResumeEditorPage() {
     setResume(null);
     setUploadFile(null);
     setName("");
+    setFilenameTemplate("");
     setEditingName(isNew && !uploadMode);
     setDocument(emptyResumeDocument());
     setError(null);
@@ -94,11 +107,16 @@ export function BaseResumeEditorPage() {
         if (cancelled) return;
         setResume(response);
         setName(response.name);
+        setFilenameTemplate(response.export_filename_template ?? "");
         const nextDocument =
           response.document ?? documentFromMarkdown(response.content_md);
         setDocument(nextDocument);
         setSavedSnapshot(
-          JSON.stringify({ name: response.name, document: nextDocument }),
+          editorSnapshot(
+            response.name,
+            nextDocument,
+            response.export_filename_template ?? "",
+          ),
         );
       })
       .catch((cause) => {
@@ -142,16 +160,26 @@ export function BaseResumeEditorPage() {
     setUploading(true);
     setError(null);
     try {
-      const response = await uploadBaseResume(file, name.trim(), classify);
+      const response = await uploadBaseResume(
+        file,
+        name.trim(),
+        classify,
+        filenameTemplate.trim() || null,
+      );
       queryClient.setQueryData(queryKeys.baseResume(response.id), response);
       void queryClient.invalidateQueries({ queryKey: queryKeys.baseResumes });
       setResume(response);
       const nextDocument =
         response.document ?? documentFromMarkdown(response.content_md);
       setName(response.name);
+      setFilenameTemplate(response.export_filename_template ?? "");
       setDocument(nextDocument);
       setSavedSnapshot(
-        JSON.stringify({ name: response.name, document: nextDocument }),
+        editorSnapshot(
+          response.name,
+          nextDocument,
+          response.export_filename_template ?? "",
+        ),
       );
       toast("Resume uploaded. Review each section before tailoring.");
     } catch (cause) {
@@ -172,6 +200,11 @@ export function BaseResumeEditorPage() {
       setError("Please enter a name.");
       return;
     }
+    const filenameError = validateFilenameTemplate(filenameTemplate);
+    if (filenameError) {
+      setError(filenameError);
+      return;
+    }
     const documentError = resumeDocumentError(document);
     if (documentError) {
       setError(documentError);
@@ -186,17 +219,28 @@ export function BaseResumeEditorPage() {
         ? await updateBaseResume(resume.id, {
             name: name.trim(),
             document,
+            export_filename_template: filenameTemplate.trim() || null,
             expected_revision: resume.document?.revision ?? 1,
           })
-        : await createBaseResume(name.trim(), content, document);
+        : await createBaseResume(
+            name.trim(),
+            content,
+            document,
+            filenameTemplate.trim() || null,
+          );
       queryClient.setQueryData(queryKeys.baseResume(response.id), response);
       void queryClient.invalidateQueries({ queryKey: queryKeys.baseResumes });
       setResume(response);
       const nextDocument = response.document ?? document;
       setName(response.name);
+      setFilenameTemplate(response.export_filename_template ?? "");
       setDocument(nextDocument);
       setSavedSnapshot(
-        JSON.stringify({ name: response.name, document: nextDocument }),
+        editorSnapshot(
+          response.name,
+          nextDocument,
+          response.export_filename_template ?? "",
+        ),
       );
       setSaved(true);
       setEditingName(false);
@@ -249,7 +293,7 @@ export function BaseResumeEditorPage() {
   }
 
   const dirty = savedSnapshot
-    ? JSON.stringify({ name, document }) !== savedSnapshot
+    ? editorSnapshot(name, document, filenameTemplate) !== savedSnapshot
     : Boolean(name.trim() || document.sections.length);
   const reviewingUpload = uploadMode && Boolean(resume);
   const primaryAction =
@@ -278,9 +322,17 @@ export function BaseResumeEditorPage() {
         {uploading ? "Import in progress" : "Upload & Parse"}
       </Button>
     ) : null;
+  const fileNameMenuAction: MobileMenuAction = {
+    label: "File name",
+    disabled: saving || uploading,
+    onSelect: () => setFilenameModalOpen(true),
+  };
   const mobileMenu: MobileMenuAction[] | undefined =
-    !loading && resume && !isNew
+    !loading && isNew && !resume
+      ? [fileNameMenuAction]
+      : !loading && resume && !isNew
       ? [
+          fileNameMenuAction,
           ...(!resume.is_default
             ? [
                 {
@@ -365,29 +417,40 @@ export function BaseResumeEditorPage() {
         mobilePrimary={primaryAction}
         actions={
           !loading && (resume || isNew) ? (
-            <ActionButtons label={`${resume?.name ?? "Resume"} actions`}>
-              {resume && !isNew ? (
-                <>
-                  {!resume.is_default && (
-                    <Button
-                      variant="secondary"
-                      disabled={settingDefault}
-                      onClick={() => void handleDefault()}
-                    >
-                      {settingDefault ? "Setting…" : "Set Default"}
-                    </Button>
-                  )}
-                  <IconButton
-                    variant="danger"
-                    aria-label="Delete resume"
-                    disabled={deleting}
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    <Trash2 size={16} />
-                  </IconButton>
-                </>
+            <ActionButtons
+              label={`${resume?.name ?? "Resume"} actions`}
+              // Save stays the orange primary action; delete sits after it at the end.
+              primaryIndex={resume && !isNew && !resume.is_default ? 2 : 1}
+            >
+              <Button
+                variant="secondary"
+                title="Name the files exported from this resume"
+                disabled={saving || uploading}
+                onClick={() => setFilenameModalOpen(true)}
+              >
+                <FileText size={14} aria-hidden="true" />
+                File Name
+              </Button>
+              {resume && !isNew && !resume.is_default ? (
+                <Button
+                  variant="secondary"
+                  disabled={settingDefault}
+                  onClick={() => void handleDefault()}
+                >
+                  {settingDefault ? "Setting…" : "Set Default"}
+                </Button>
               ) : null}
               {primaryAction}
+              {resume && !isNew ? (
+                <IconButton
+                  variant="danger"
+                  aria-label="Delete resume"
+                  disabled={deleting}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2 size={16} />
+                </IconButton>
+              ) : null}
             </ActionButtons>
           ) : undefined
         }
@@ -554,6 +617,23 @@ export function BaseResumeEditorPage() {
 
         </form>
       )}
+      <ExportFilenameModal
+        open={filenameModalOpen}
+        value={filenameTemplate}
+        profile={bootstrap?.profile ?? null}
+        applyHint={
+          uploadMode && !resume
+            ? "It is saved when you upload."
+            : isNew && !resume
+              ? "It is saved when you create the resume."
+              : "Save Changes to keep it."
+        }
+        onApply={(value) => {
+          setFilenameTemplate(value);
+          setSaved(false);
+        }}
+        onClose={() => setFilenameModalOpen(false)}
+      />
       <ConfirmModal
         open={confirmDelete}
         title="Delete resume?"

@@ -12,6 +12,7 @@ import {
   listAdminUsers,
   listApplications,
   listBaseResumes,
+  listExportStyles,
   listNotifications,
   type CreationActivityRange,
   type ProfileData,
@@ -35,6 +36,7 @@ export const queryKeys = {
   applicationActivity: (applicationId: string) => ["applicationActivity", applicationId] as const,
   baseResumes: ["baseResumes"] as const,
   baseResume: (resumeId: string) => ["baseResume", resumeId] as const,
+  exportStyles: ["exportStyles"] as const,
   notifications: ["notifications"] as const,
   adminMetrics: ["adminMetrics"] as const,
   subscriptionTiers: ["subscriptionTiers"] as const,
@@ -117,6 +119,15 @@ export function useBaseResumeQuery(resumeId: string | undefined) {
     queryFn: () => fetchBaseResume(resumeId!),
     staleTime: FIVE_MINUTES_MS,
     enabled: Boolean(resumeId) && resumeId !== "new",
+  });
+}
+
+export function useExportStylesQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.exportStyles,
+    queryFn: listExportStyles,
+    staleTime: Infinity,
+    enabled,
   });
 }
 

@@ -1,7 +1,7 @@
 # AI Resume Builder Database Schema
 
 **Document status:** Source of truth for the MVP database contract  
-**Last updated:** 2026-10-03
+**Last updated:** 2026-10-12
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Related rollout guide:** `docs/backend-database-migration-runbook.md`
 
@@ -53,7 +53,7 @@ Backend write paths must validate these shapes before persisting them.
 
 ### Section document v1
 
-`document` contains `schema_version: 1`, positive `revision`, and ordered `sections`. Each section has a unique stable `id`, `kind` (`summary`, `professional_experience`, `education`, `certifications`, `projects`, `skills`, `custom`), user heading, enabled flag, `review_state` (`reviewed` or `needs_review`), optional confidence 0..1, Markdown `content_md`, paragraph `source_ids` and nested entries. Entries contain stable `id`, string factual `fields`, and bullets `{id, text, source_ids}`. IDs must be unique across the document. Experience fields use `title/company/location/date_range`; Education uses `qualification/institution/location/date_range`. Structured entries are authoritative when present; Markdown holds prose or preserved ambiguous source blocks. Optional `generation_notice` is `"kept_original_unverified"` when generation could not verify a tailored version and kept the section's original source (or current draft) text; a user edit that changes that section's content clears it.
+`document` contains `schema_version: 1`, positive `revision`, and ordered `sections`. Each section has a unique stable `id`, `kind` (`summary`, `professional_experience`, `education`, `certifications`, `projects`, `skills`, `custom`), user heading, enabled flag, `review_state` (`reviewed` or `needs_review`), optional confidence 0..1, Markdown `content_md`, paragraph `source_ids` and nested entries. Entries contain stable `id`, string factual `fields`, and bullets `{id, text, source_ids}`. IDs must be unique across the document. Experience fields use `title/company/location/date_range`; Education uses `qualification/institution/location/date_range`. Structured entries are authoritative when present; Markdown holds prose or preserved ambiguous source blocks. Optional `generation_notice` is `"kept_original_unverified"` when generation could not verify a tailored version and kept the section's original source (or current draft) text; a user edit that changes that section's content clears it. Optional boolean `show_dates` (default `false`, Education only) includes each entry's `date_range` in the Markdown projection, preview and PDF; when false the dates are kept in `fields` but omitted from output.
 
 Initial generation uses populated enabled sections in the reviewed base document order. Existing structured drafts own their enabled flags and order independently. Full/targeted/keyword regeneration uses `source_snapshot` by default. Explicit full regeneration with `use_latest_base=true` resets content and layout from the linked reviewed base and replaces the snapshot on successful completion. Legacy drafts without trustworthy links require that explicit reset for new regeneration requests; reads, edits and exports remain available. No destructive backfill or schema migration is required for this change. Retain deprecated Profile JSON fields and historical snapshots.
 
@@ -125,6 +125,7 @@ Application-owned extension of `users`.
 | `default_base_resume_id` | `uuid` | Yes | `null` | Canonical pointer to the user's default base resume. Composite foreign key with `id` to `base_resumes (id, user_id)` and `ON DELETE SET NULL`. |
 | `section_preferences` | `jsonb` | No | `{"summary": true, "professional_experience": true, "education": true, "skills": true, "projects": true, "certifications": true}` | See JSON contract above. |
 | `section_order` | `jsonb` | No | `["summary", "professional_experience", "education", "skills", "projects", "certifications"]` | See JSON contract above. |
+| `export_style` | `text` | Yes | `null` | Last export style the user downloaded with; pre-selected in the Export dialog. `CHECK (export_style IS NULL OR export_style IN ('classic','modern','compact','executive','minimal'))`. Null means `classic`. |
 | `extension_token_hash` | `text` | Yes | `null` | Server-side hash of the scoped Chrome extension import token. Never exposed back to the client. |
 | `extension_token_created_at` | `timestamptz` | Yes | `null` | When the current extension token was issued or rotated. |
 | `extension_token_last_used_at` | `timestamptz` | Yes | `null` | Last successful extension import using the scoped token. |
@@ -205,6 +206,7 @@ Versioned section source resumes owned by a single user, with a stored Markdown 
 | `raw_source_md` | `text` | Yes | `null` | Original local extraction for recovery; may contain contact data, user-private. |
 | `import_warning` | `text` | Yes | `null` | Sanitized import/review guidance. |
 | `contact_suggestions` | `jsonb` | No | `{}` | Advisory locally parsed profile fields, never writer inputs. |
+| `export_filename_template` | `text` | Yes | `null` | Download file name for exports of drafts generated from this resume. Supports `{first name}`, `{last name}`, `{full name}`, `{company}`, `{job title}`. `CHECK (export_filename_template IS NULL OR (btrim(export_filename_template) <> '' AND char_length(export_filename_template) <= 120))`. Null means `{first name} {last name} Resume`. |
 | `created_at` | `timestamptz` | No | `now()` | Creation timestamp. |
 | `updated_at` | `timestamptz` | No | `now()` | Must update on every write. |
 

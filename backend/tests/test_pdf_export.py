@@ -3,6 +3,8 @@ from __future__ import annotations
 import io
 import re
 
+import pytest
+
 from app.services import pdf_export
 
 
@@ -454,3 +456,67 @@ def test_resolve_docx_layout_adjusts_for_dense_and_sparse_documents():
     assert dense.paragraph_spacing < baseline.paragraph_spacing
     assert sparse.body_font_size > baseline.body_font_size
     assert sparse.section_spacing_before > baseline.section_spacing_before
+
+
+_STYLE_SAMPLE_MARKDOWN = (
+    "## Summary\nBuilt backend systems.\n\n"
+    "## Professional Experience\n"
+    "Acme Corp | Toronto, ON\n"
+    "Senior Data Architect | Jan 2020 - Present\n"
+    "- Led platform work.\n"
+)
+
+
+def test_classic_style_html_matches_unstyled_output():
+    from app.services.export_styles import resolve_style
+
+    preset = pdf_export.LAYOUT_PRESETS[0]
+    unstyled = pdf_export._build_html(_STYLE_SAMPLE_MARKDOWN, preset)
+    classic = pdf_export._build_html(_STYLE_SAMPLE_MARKDOWN, preset, style=resolve_style("classic"))
+
+    assert classic == unstyled
+    assert "@font-face" not in classic
+    assert "font-family: 'Georgia', 'Times New Roman', serif;" in classic
+
+
+def test_non_classic_styles_override_fonts_with_bundled_files():
+    from app.services.export_styles import list_export_styles
+
+    preset = pdf_export.LAYOUT_PRESETS[0]
+    for style in list_export_styles():
+        if style.is_classic:
+            continue
+        html = pdf_export._build_html(_STYLE_SAMPLE_MARKDOWN, preset, style=style)
+        assert f'data-style="{style.key}"' in html
+        assert "@font-face" in html
+        assert style.font_faces, style.key
+        for face in style.font_faces:
+            assert face.path.is_file(), face.path
+
+
+def test_unknown_export_style_fails_closed():
+    from app.services.export_styles import resolve_style
+
+    with pytest.raises(ValueError, match="Unknown export style"):
+        resolve_style("fancy")
+    assert resolve_style(None).key == "classic"
+    assert resolve_style(" Modern ").key == "modern"
+
+
+def test_every_style_renders_pdf_and_docx():
+    from docx import Document
+
+    from app.services.export_styles import list_export_styles
+
+    for style in list_export_styles():
+        pdf_bytes = pdf_export._generate_pdf_with_autofit_sync(
+            _STYLE_SAMPLE_MARKDOWN, _personal_info(), "1_page", style
+        )
+        assert pdf_bytes.startswith(b"%PDF-"), style.key
+
+        docx_bytes = pdf_export._render_docx_sync(_STYLE_SAMPLE_MARKDOWN, _personal_info(), "1_page", style)
+        document = Document(io.BytesIO(docx_bytes))
+        assert document.styles["Normal"].font.name == style.docx_font
+        headings = [p.text for p in document.paragraphs if p.text in {"SUMMARY", "Summary"}]
+        expected = "SUMMARY" if style.heading_transform == "uppercase" else "Summary"
+        assert headings == [expected], style.key

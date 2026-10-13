@@ -170,6 +170,7 @@ class FakeProfileRepository:
         self.is_admin = False
         self.is_active = True
         self.subscription_tier = "basic"
+        self.export_style: str | None = None
 
     def fetch_profile(self, user_id: str):
         class Profile:
@@ -186,8 +187,12 @@ class FakeProfileRepository:
         profile.is_admin = self.is_admin
         profile.is_active = self.is_active
         profile.subscription_tier = self.subscription_tier
+        profile.export_style = self.export_style
 
         return profile
+
+    def update_export_style(self, user_id: str, export_style: str) -> None:
+        self.export_style = export_style
 
     def fetch_extension_connection(self, user_id: str):
         from app.db.profiles import ExtensionConnectionRecord
@@ -3299,8 +3304,9 @@ def test_export_docx_endpoint_returns_docx_attachment():
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    assert 'filename="' in response.headers["content-disposition"]
-    assert response.headers["content-disposition"].endswith('.docx"')
+    assert response.headers["content-disposition"] == (
+        "attachment; filename=\"Test User Resume.docx\"; filename*=UTF-8''Test%20User%20Resume.docx"
+    )
 
 
 def test_delete_application_endpoint_returns_409_for_active_record():
@@ -7145,3 +7151,185 @@ async def test_null_preference_choices_never_overwrite_saved_values():
     )
     # Null length/aggressiveness carry no choice; null instructions clear them.
     assert updated.application.generation_preferences == {"aggressiveness": "high", "additional_instructions": None}
+
+
+def _export_ready_application(service, repository, drafts, *, base_resume_id: Optional[str] = None):
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/1",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={"company": "Acme/Labs Inc.", "job_title": "Staff_Engineer"},
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="## Summary\nQuality engineer.\n",
+        generation_params={"page_length": "1_page", "aggressiveness": "medium"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+        source_snapshot={"base_resume_id": base_resume_id} if base_resume_id else None,
+    )
+    return created
+
+
+@pytest.mark.asyncio
+async def test_export_uses_requested_style_and_remembers_it(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = _export_ready_application(service, repository, drafts)
+    captured: dict[str, Any] = {}
+
+    async def fake_generate_pdf(*args, **kwargs):
+        captured.update(kwargs)
+        return b"pdf-bytes"
+
+    monkeypatch.setattr(application_manager_service, "generate_pdf", fake_generate_pdf)
+
+    _, filename = await service.export_pdf(user_id="user-1", application_id=created.id, style="modern")
+
+    assert captured["style"].key == "modern"
+    assert service.profile_repository.export_style == "modern"
+    assert filename == "Test User Resume.pdf"
+
+    await service.export_pdf(user_id="user-1", application_id=created.id)
+    assert captured["style"].key == "modern"
+
+
+@pytest.mark.asyncio
+async def test_export_rejects_unknown_style_without_failure_notification(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, notifications, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = _export_ready_application(service, repository, drafts)
+
+    async def fake_generate_pdf(*args, **kwargs):
+        raise AssertionError("renderer must not run for an unknown style")
+
+    monkeypatch.setattr(application_manager_service, "generate_pdf", fake_generate_pdf)
+
+    with pytest.raises(ValueError, match="Unknown export style"):
+        await service.export_pdf(user_id="user-1", application_id=created.id, style="bogus")
+
+    assert service.profile_repository.export_style is None
+    assert not notifications.notifications
+
+
+@pytest.mark.asyncio
+async def test_export_filename_uses_base_resume_template(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    service.base_resume_repository.resumes["resume-1"].export_filename_template = "{full name} Resume {company} {job title}"
+    created = _export_ready_application(service, repository, drafts, base_resume_id="resume-1")
+
+    async def fake_generate_docx(*args, **kwargs):
+        return b"docx-bytes"
+
+    monkeypatch.setattr(application_manager_service, "generate_docx", fake_generate_docx)
+
+    _, filename = await service.export_docx(user_id="user-1", application_id=created.id)
+    assert filename == "Test User Resume Acme Labs Inc. Staff Engineer.docx"
+
+    # A deleted base resume falls back to the default name.
+    del service.base_resume_repository.resumes["resume-1"]
+    _, filename = await service.export_docx(user_id="user-1", application_id=created.id)
+    assert filename == "Test User Resume.docx"
+
+
+def test_export_pdf_endpoint_rejects_unknown_style():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = _export_ready_application(service, repository, drafts)
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    app.dependency_overrides[get_application_service] = lambda: service
+    client = TestClient(app)
+
+    response = client.get(
+        f"/api/applications/{created.id}/export-pdf?style=bogus",
+        headers={"Authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unknown export style."
+
+
+def test_export_styles_endpoint_lists_styles():
+    app.dependency_overrides[get_auth_verifier] = lambda: StubVerifier()
+    client = TestClient(app)
+
+    response = client.get("/api/export-styles", headers={"Authorization": "Bearer valid-token"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["key"] for item in payload] == ["classic", "modern", "compact", "executive", "minimal"]
+    assert [item["key"] for item in payload if item["is_default"]] == ["classic"]
+    assert client.get("/api/export-styles").status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_export_succeeds_when_saving_style_preference_fails(monkeypatch, caplog):
+    drafts = FakeDraftRepository()
+    service, repository, notifications, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = _export_ready_application(service, repository, drafts)
+
+    async def fake_generate_pdf(*args, **kwargs):
+        return b"pdf-bytes"
+
+    def broken_update(user_id, export_style):
+        raise RuntimeError("column profiles.export_style does not exist")
+
+    monkeypatch.setattr(application_manager_service, "generate_pdf", fake_generate_pdf)
+    monkeypatch.setattr(service.profile_repository, "update_export_style", broken_update)
+
+    export_bytes, filename = await service.export_pdf(user_id="user-1", application_id=created.id, style="minimal")
+
+    assert export_bytes == b"pdf-bytes"
+    assert filename == "Test User Resume.pdf"
+    assert notifications.notifications[-1]["message"] == "PDF export completed successfully."
+    assert "Could not save export style preference" in caplog.text
+    assert "does not exist" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stale_saved_style_falls_back_to_classic(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = _export_ready_application(service, repository, drafts)
+    service.profile_repository.export_style = "retired-style"
+    captured: dict[str, Any] = {}
+
+    async def fake_generate_docx(*args, **kwargs):
+        captured.update(kwargs)
+        return b"docx-bytes"
+
+    monkeypatch.setattr(application_manager_service, "generate_docx", fake_generate_docx)
+
+    await service.export_docx(user_id="user-1", application_id=created.id)
+
+    assert captured["style"].key == "classic"
+    assert service.profile_repository.export_style == "classic"
+
+
+@pytest.mark.asyncio
+async def test_failed_export_keeps_saved_style(monkeypatch):
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    created = _export_ready_application(service, repository, drafts)
+    service.profile_repository.export_style = "executive"
+
+    async def failing_generate_pdf(*args, **kwargs):
+        raise RuntimeError("renderer crashed")
+
+    monkeypatch.setattr(application_manager_service, "generate_pdf", failing_generate_pdf)
+
+    with pytest.raises(ValueError, match="PDF export failed"):
+        await service.export_pdf(user_id="user-1", application_id=created.id, style="modern")
+
+    assert service.profile_repository.export_style == "executive"

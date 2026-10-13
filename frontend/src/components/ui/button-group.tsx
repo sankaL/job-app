@@ -20,9 +20,18 @@ export function ActionButtons({ children, label, size = "md", primaryIndex }: {
   /** Index among visible actions; defaults to the final action, usually Save/Continue. */
   primaryIndex?: number;
 }) {
-  const actions = actionsIn(children);
+  let actions = actionsIn(children);
   if (actions.length < 2) return <>{actions}</>;
-  const primary = Math.max(0, Math.min(primaryIndex ?? actions.length - 1, actions.length - 1));
+  let primary = Math.max(0, Math.min(primaryIndex ?? actions.length - 1, actions.length - 1));
+  // Keep the bright primary (orange) and solid red delete apart: primary first,
+  // neutral actions in the middle, delete/removal actions last.
+  const isDanger = (action: ReactNode) =>
+    isValidElement<{ variant?: string }>(action) && action.props.variant === "danger";
+  if (actions.length >= 3 && !isDanger(actions[primary]) && actions.some(isDanger)) {
+    const neutral = actions.filter((action, index) => index !== primary && !isDanger(action));
+    actions = [actions[primary], ...neutral, ...actions.filter(isDanger)];
+    primary = 0;
+  }
   return (
     <ButtonGroup label={label} size={size}>
       {actions.map((action, index) => (

@@ -1,11 +1,21 @@
 # Backend and Database Migration Runbook
 
 **Document status:** Baseline rollout guide  
-**Last updated:** 2026-10-06
+**Last updated:** 2026-10-12
 **Schema source of truth:** `docs/database_schema.md`  
 **Product source of truth:** `docs/resume_builder_PRD_v3.md`
 
 This runbook applies whenever backend or database work changes schema, compatibility, rollout order, backfills, retention, or post-deploy verification.
+
+## 2026-10-12 export styles and download file names
+
+- Apply `20261012_000025_export_styles_and_filenames.sql` **before** deploying the API. It adds two nullable `text` columns with check constraints and no backfill: `profiles.export_style` (one of `classic`, `modern`, `compact`, `executive`, `minimal`) and `base_resumes.export_filename_template` (non-blank, at most 120 characters). Lock acquisition is bounded at five seconds and SQL at sixty seconds; `if not exists` / `drop constraint if exists` make a retry safe.
+- Deploy order matters: the new API selects both columns in every profile and base-resume read, so running it before the migration fails those reads. The old API ignores the columns. Deploy the frontend after the API; an older API ignores the `style` export query parameter and has no `GET /api/export-styles`, so the new Export dialog would fail to load its style list.
+- The backend image now bundles OFL fonts under `backend/app/assets/fonts/` (the base image only has DejaVu). Confirm they are present in the built image.
+- `Content-Disposition` is now in the CORS `expose_headers`, so cross-origin frontends can read the server file name.
+- Existing rows keep `null`: exports default to Classic and to `{first name} {last name} Resume.<ext>`.
+- Verify migration 025 in the ledger and both columns exist as nullable `text`. Export a PDF and confirm the header is `attachment; filename="First Last Resume.pdf"; filename*=UTF-8''First%20Last%20Resume.pdf`. Export with `?style=modern` and confirm `profiles.export_style` becomes `modern`; `?style=bogus` returns 400 without a failure notification. PATCH a base resume with `{"export_filename_template": "{full name} Resume {company}"}` and confirm the next export from an application built on it uses that name; `{"export_filename_template": "{salary}"}` returns 400.
+- Rollback: revert the frontend and API first. The columns can stay; drop them only through a separate reviewed migration.
 
 ## 2026-10-06 application generation preferences
 

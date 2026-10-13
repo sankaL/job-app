@@ -35,6 +35,7 @@ const api = vi.hoisted(() => ({
   listAdminUsers: vi.fn(),
   listSubscriptionTiers: vi.fn(),
   listBaseResumes: vi.fn(),
+  listExportStyles: vi.fn(),
   listApplications: vi.fn(),
   listApplicationActivity: vi.fn(),
   listNotifications: vi.fn(),

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from app.core.config import Settings, get_settings
 from app.db.base_resumes import BaseResumeListRecord, BaseResumeRecord, BaseResumeRepository
 from app.db.profiles import ProfileRepository
+from app.services.export_filename import validate_template
 from app.services.resume_contacts import extract_contact_suggestions
 from app.services.resume_privacy import sanitize_resume_markdown
 from app.services.resume_document import (
@@ -52,6 +53,7 @@ class ResumeDetailWithDefaultFlag(BaseModel):
     import_warning: Optional[str] = None
     ready_for_generation: bool = False
     contact_suggestions: dict[str, str] = Field(default_factory=dict)
+    export_filename_template: Optional[str] = None
     created_at: str
     updated_at: str
     is_default: bool
@@ -138,10 +140,12 @@ class BaseResumeService:
         raw_source_md: Optional[str] = None,
         import_warning: Optional[str] = None,
         contact_suggestions: Optional[dict[str, str]] = None,
+        export_filename_template: Optional[str] = None,
     ) -> ResumeDetailWithDefaultFlag:
         stripped_name = name.strip()
         if not stripped_name:
             raise ValueError("Resume name cannot be blank.")
+        filename_template = validate_template(export_filename_template)
 
         parsed = validate_resume_document(document) if document is not None else parse_resume_document(sanitize_resume_markdown(content_md).sanitized_markdown, reviewed=False)
         parsed.revision = 1
@@ -156,6 +160,7 @@ class BaseResumeService:
             raw_source_md=raw_source_md if raw_source_md is not None else content_md or None,
             import_warning=import_warning,
             contact_suggestions=contact_suggestions if contact_suggestions is not None else extract_contact_suggestions(raw_source_md or content_md),
+            export_filename_template=filename_template,
         )
         return self._detail(record)
 
@@ -188,6 +193,11 @@ class BaseResumeService:
             if not stripped_name:
                 raise ValueError("Resume name cannot be blank.")
             updates["name"] = stripped_name
+        if "export_filename_template" in updates:
+            template = updates["export_filename_template"]
+            if template is not None and not isinstance(template, str):
+                raise ValueError("File name must be text.")
+            updates["export_filename_template"] = validate_template(template)
         existing_document = self._detail(existing).document
         if "document" in updates:
             if updates["document"] is None:

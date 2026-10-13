@@ -57,6 +57,7 @@ const api = vi.hoisted(() => ({
   listAdminUsers: vi.fn(),
   listSubscriptionTiers: vi.fn(),
   listBaseResumes: vi.fn(),
+  listExportStyles: vi.fn(),
   listApplications: vi.fn(),
   listApplicationActivity: vi.fn(),
   listNotifications: vi.fn(),
@@ -328,9 +329,18 @@ function buildProgressPayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const TEST_EXPORT_STYLES = [
+  { key: "classic", label: "Classic", description: "Traditional serif.", is_default: true },
+  { key: "modern", label: "Modern", description: "Clean sans-serif.", is_default: false },
+  { key: "compact", label: "Compact", description: "Dense layout.", is_default: false },
+  { key: "executive", label: "Executive", description: "Polished serif.", is_default: false },
+  { key: "minimal", label: "Minimal", description: "Light and airy.", is_default: false },
+];
+
 describe("phase 1 applications UI", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    api.listExportStyles.mockResolvedValue(TEST_EXPORT_STYLES);
     globalThis.URL.createObjectURL = vi.fn(() => "blob:mock-url");
     globalThis.URL.revokeObjectURL = vi.fn();
     api.openApplicationEventStream.mockImplementation(
@@ -2030,10 +2040,7 @@ describe("phase 1 applications UI", () => {
 
     expect(actionsButton).toHaveAttribute("aria-expanded", "true");
     expect(
-      screen.getByRole("menuitem", { name: /export pdf/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("menuitem", { name: /export docx/i }),
+      screen.getByRole("menuitem", { name: /^export…$/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("menuitem", { name: /mark applied/i }),
@@ -2606,7 +2613,7 @@ describe("phase 1 applications UI", () => {
       blob: new Blob(["docx"], {
         type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       }),
-      filename: "Alex_Example_resume_20260412_101500.docx",
+      filename: "Alex Example Resume.docx",
     });
 
     renderWithAppProvider(
@@ -2621,13 +2628,27 @@ describe("phase 1 applications UI", () => {
 
     await screen.findByRole("tab", { name: /Summary/ });
     await user.click(screen.getByRole("button", { name: /^actions$/i }));
-    await user.click(screen.getByRole("menuitem", { name: /export docx/i }));
+    await user.click(screen.getByRole("menuitem", { name: /export/i }));
 
-    await waitFor(() => expect(api.exportDocx).toHaveBeenCalledWith("app-1"));
+    const dialog = await screen.findByRole("dialog", { name: /export resume/i });
+    const classic = await within(dialog).findByRole("radio", { name: /classic style/i });
+    expect(classic).toHaveAttribute("aria-checked", "true");
+    await user.click(within(dialog).getByRole("radio", { name: /word \(docx\)/i }));
+    expect(within(dialog).getByTestId("export-filename-preview")).toHaveTextContent(
+      "Alex Example Resume.docx",
+    );
+    await user.click(within(dialog).getByRole("button", { name: /download docx/i }));
+
+    await waitFor(() =>
+      expect(api.exportDocx).toHaveBeenCalledWith("app-1", "classic"),
+    );
     const anchor = appendSpy.mock.calls.find(
       ([node]) => node instanceof HTMLAnchorElement,
     )?.[0] as HTMLAnchorElement;
-    expect(anchor.download).toBe("Alex_Example_resume_20260412_101500.docx");
+    expect(anchor.download).toBe("Alex Example Resume.docx");
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /export resume/i })).not.toBeInTheDocument(),
+    );
     expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
     expect(globalThis.URL.revokeObjectURL).toHaveBeenCalledWith(
       "blob:mock-url",
@@ -6415,7 +6436,7 @@ describe("phase 1 applications UI", () => {
       });
     api.exportPdf.mockResolvedValue({
       blob: new Blob(["pdf"], { type: "application/pdf" }),
-      filename: "Alex_Example_resume_20260412_101500.pdf",
+      filename: "Alex Example Resume.pdf",
     });
 
     renderWithAppProvider(
@@ -6432,9 +6453,12 @@ describe("phase 1 applications UI", () => {
     expect(within(judgeCard).getByText(/78\/100/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^actions$/i }));
-    await user.click(screen.getByRole("menuitem", { name: /export pdf/i }));
+    await user.click(screen.getByRole("menuitem", { name: /export/i }));
+    const dialog = await screen.findByRole("dialog", { name: /export resume/i });
+    await user.click(await within(dialog).findByRole("radio", { name: /modern style/i }));
+    await user.click(within(dialog).getByRole("button", { name: /download pdf/i }));
 
-    await waitFor(() => expect(api.exportPdf).toHaveBeenCalledWith("app-1"));
+    await waitFor(() => expect(api.exportPdf).toHaveBeenCalledWith("app-1", "modern"));
     await waitFor(() =>
       expect(api.fetchApplicationDetail).toHaveBeenCalledTimes(2),
     );

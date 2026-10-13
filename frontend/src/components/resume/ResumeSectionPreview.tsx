@@ -59,7 +59,9 @@ export function ResumeSectionPreview({
               fields.qualification ||
               "Role or qualification not set"}
           </span>
-          {fields.date_range && <span>{fields.date_range}</span>}
+          {fields.date_range && (section.kind !== "education" || section.show_dates) && (
+            <span>{fields.date_range}</span>
+          )}
         </div>
         {Object.entries(fields)
           .filter(([key, value]) => !rowFields.has(key) && value.trim())

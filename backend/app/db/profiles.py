@@ -26,6 +26,7 @@ class ProfileRecord(BaseModel):
     default_base_resume_id: Optional[str]
     section_preferences: dict[str, bool]
     section_order: list[str]
+    export_style: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -67,6 +68,7 @@ class ProfileRepository:
           default_base_resume_id::text,
           section_preferences,
           section_order,
+          export_style,
           created_at::text,
           updated_at::text
         from public.profiles
@@ -129,6 +131,7 @@ class ProfileRepository:
           default_base_resume_id::text,
           section_preferences,
           section_order,
+          export_style,
           created_at::text,
           updated_at::text
         from public.profiles
@@ -272,6 +275,17 @@ class ProfileRepository:
 
         with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
             cursor.execute(query, (resume_id, user_id))
+            connection.commit()
+
+    def update_export_style(self, user_id: str, export_style: str) -> None:
+        query = """
+        update public.profiles
+        set export_style = %s
+        where id = %s
+        """
+
+        with self._connection(user_id=user_id) as connection, connection.cursor() as cursor:
+            cursor.execute(query, (export_style, user_id))
             connection.commit()
 
     def fetch_default_resume_id(self, user_id: str) -> Optional[str]:

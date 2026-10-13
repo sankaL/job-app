@@ -13,7 +13,8 @@ type ConfirmModalProps = {
   message?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  variant?: "primary" | "danger" | "orange";
+  variant?: "primary" | "danger" | "orange" | "orange-muted";
+  confirmIcon?: ReactNode;
   loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -48,6 +49,7 @@ function ConfirmDialog({
   illustration,
   message,
   confirmLabel,
+  confirmIcon,
   cancelLabel,
   variant,
   loading,
@@ -102,10 +104,17 @@ function ConfirmDialog({
             <Button
               type="button"
               variant={variant === "danger" ? "danger" : "primary"}
-              className={variant === "orange" ? "app-button-orange" : undefined}
+              className={
+                variant === "orange"
+                  ? "app-button-orange"
+                  : variant === "orange-muted"
+                    ? "app-button-orange-muted"
+                    : undefined
+              }
               loading={loading}
               onClick={onConfirm}
             >
+              {confirmIcon}
               {confirmLabel}
             </Button>
 

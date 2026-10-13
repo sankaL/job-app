@@ -47,3 +47,26 @@ def test_upload_defaults_to_ai_entry_extraction_and_preserves_explicit_opt_out(m
     assert response.status_code == 201
     assert captured == {'source': '## Experience\nAcme\nEngineer', 'use_ai': expected, 'user_id': 'owner', 'saved_source': '## Experience\nAcme\nEngineer'}
     assert response.json()['needs_review'] is True
+
+
+def test_upload_rejects_invalid_filename_template_before_parsing(monkeypatch):
+    def fail_parse(_):
+        raise AssertionError("PDF parsing must not run for an invalid template")
+
+    class Service:
+        def create_resume(self, **kwargs):
+            raise AssertionError("resume must not be created")
+
+    monkeypatch.setattr('app.api.base_resumes.parse_pdf_with_timeout', fail_parse)
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_active_user] = lambda: SimpleNamespace(id='owner')
+    app.dependency_overrides[get_base_resume_service] = Service
+    with TestClient(app) as client:
+        response = client.post(
+            '/api/base-resumes/upload',
+            data={'name': 'Imported resume', 'export_filename_template': '{salary} Resume'},
+            files={'file': ('resume.pdf', b'%PDF-1.7\nsynthetic', 'application/pdf')},
+        )
+    assert response.status_code == 400
+    assert response.json()['detail'].startswith('Unknown placeholder {salary}.')

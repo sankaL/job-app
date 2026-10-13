@@ -48,7 +48,7 @@ export function renderSectionContent(section: ResumeSection): string {
       lines = [(f.company ?? "") + (f.location ? ` | ${f.location}` : ""), (f.title ?? "") + (f.date_range ? ` | ${f.date_range}` : "")];
       handled = new Set(["company", "title", "location", "date_range"]);
     } else if (section.kind === "education") {
-      lines = [(f.institution ?? "") + (f.location ? ` | ${f.location}` : ""), (f.qualification ?? "") + (f.date_range ? ` | ${f.date_range}` : "")];
+      lines = [(f.institution ?? "") + (f.location ? ` | ${f.location}` : ""), (f.qualification ?? "") + (f.date_range && section.show_dates ? ` | ${f.date_range}` : "")];
       handled = new Set(["institution", "qualification", "location", "date_range"]);
     } else {
       lines = [[f.name ?? f.text ?? "", f.issuer, f.date, f.url].filter(Boolean).join(" | ")];

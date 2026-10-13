@@ -280,7 +280,7 @@ describe("resume-owned section structure", () => {
     await user.click(screen.getByRole("tab", { name: /Community/ }));
     await user.click(screen.getByRole("button", { name: "Move Community up" }));
     await user.click(screen.getByRole("tab", { name: /Experience/ }));
-    await user.click(screen.getByRole("button", { name: "Include Experience" }));
+    await user.click(screen.getByRole("button", { name: "Exclude Experience" }));
     await user.click(screen.getByRole("button", { name: "Save Draft" }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     const saved = onSave.mock.calls[0][0] as ResumeDocument;
@@ -346,7 +346,7 @@ describe("focused source review", () => {
     await user.click(within(navigation).getByRole("tab", { name: /Experience/ }));
     editSection();
     expect(screen.getByLabelText("Employer")).toHaveValue("Acme Ltd");
-    await user.click(screen.getByRole("button", { name: "Include Experience" }));
+    await user.click(screen.getByRole("button", { name: "Exclude Experience" }));
     expect(screen.getByText("1 of 1 populated sections reviewed")).toBeInTheDocument();
     await user.click(within(navigation).getByRole("tab", { name: /Skills/ }));
     editSection("Skills");

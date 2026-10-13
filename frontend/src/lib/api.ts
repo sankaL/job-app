@@ -236,6 +236,8 @@ export type ResumeSection = {
   content_md: string; source_ids?: string[]; entries: ResumeSectionEntry[];
   /** Set when generation kept the original text because a tailored version could not be verified. */
   generation_notice?: "kept_original_unverified" | null;
+  /** Education only: show entry dates in the resume. Off by default. */
+  show_dates?: boolean;
 };
 export type ResumeDocument = { schema_version: 1; revision: number; sections: ResumeSection[] };
 export type ResumeSourceSnapshot = {
@@ -390,7 +392,19 @@ export type BaseResumeDetail = {
   updated_at: string;
   needs_review?: boolean;
   import_warning?: string | null;
+  export_filename_template?: string | null;
 };
+
+export type ExportStyleKey = "classic" | "modern" | "compact" | "executive" | "minimal";
+
+export type ExportStyleOption = {
+  key: ExportStyleKey;
+  label: string;
+  description: string;
+  is_default: boolean;
+};
+
+export type ExportFormat = "pdf" | "docx";
 
 export type ProfileData = {
   id: string;
@@ -408,6 +422,7 @@ export type ProfileData = {
   default_base_resume_id: string | null;
   section_preferences: Record<string, boolean>;
   section_order: string[];
+  export_style?: ExportStyleKey | null;
   created_at: string;
   updated_at: string;
 };
@@ -986,10 +1001,16 @@ export async function createBaseResume(
   name: string,
   contentMd: string,
   document?: ResumeDocument,
+  exportFilenameTemplate?: string | null,
 ): Promise<BaseResumeDetail> {
   return authenticatedRequest<BaseResumeDetail>("/api/base-resumes", {
     method: "POST",
-    body: { name, content_md: contentMd, ...(document ? { document } : {}) },
+    body: {
+      name,
+      content_md: contentMd,
+      ...(document ? { document } : {}),
+      ...(exportFilenameTemplate ? { export_filename_template: exportFilenameTemplate } : {}),
+    },
   });
 }
 
@@ -1003,7 +1024,13 @@ export async function fetchBaseResume(
 
 export async function updateBaseResume(
   resumeId: string,
-  updates: { name?: string; content_md?: string; document?: ResumeDocument; expected_revision?: number },
+  updates: {
+    name?: string;
+    content_md?: string;
+    document?: ResumeDocument;
+    export_filename_template?: string | null;
+    expected_revision?: number;
+  },
 ): Promise<BaseResumeDetail> {
   return authenticatedRequest<BaseResumeDetail>(
     `/api/base-resumes/${resumeId}`,
@@ -1042,12 +1069,16 @@ export async function uploadBaseResume(
   file: File,
   name: string,
   useLlmCleanup?: boolean,
+  exportFilenameTemplate?: string | null,
 ): Promise<BaseResumeDetail> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("name", name);
   if (useLlmCleanup !== undefined) {
     formData.append("use_llm_cleanup", String(useLlmCleanup));
+  }
+  if (exportFilenameTemplate) {
+    formData.append("export_filename_template", exportFilenameTemplate);
   }
   return authenticatedUpload<BaseResumeDetail>(
     "/api/base-resumes/upload",
@@ -1350,14 +1381,25 @@ async function exportDownload(
   };
 }
 
+function exportPath(format: ExportFormat, style?: ExportStyleKey): string {
+  const path = format === "pdf" ? "export-pdf" : "export-docx";
+  return style ? `${path}?style=${encodeURIComponent(style)}` : path;
+}
+
 export async function exportPdf(
   applicationId: string,
+  style?: ExportStyleKey,
 ): Promise<DownloadResponse> {
-  return exportDownload(applicationId, "export-pdf");
+  return exportDownload(applicationId, exportPath("pdf", style));
 }
 
 export async function exportDocx(
   applicationId: string,
+  style?: ExportStyleKey,
 ): Promise<DownloadResponse> {
-  return exportDownload(applicationId, "export-docx");
+  return exportDownload(applicationId, exportPath("docx", style));
+}
+
+export async function listExportStyles(): Promise<ExportStyleOption[]> {
+  return authenticatedRequest<ExportStyleOption[]>("/api/export-styles");
 }

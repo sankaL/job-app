@@ -832,8 +832,8 @@
   --color-accent: color-mix(in srgb, var(--color-text-secondary) 45%, var(--color-background-surface));
 }
 .aggressiveness-strip--high {
-  --strip-tint: var(--brand-orange);
-  --color-accent: var(--brand-orange);
+  --strip-tint: var(--brand-orange-muted);
+  --color-accent: var(--brand-orange-muted);
 }
 .aggressiveness-strip-badge {
   border: 0;
