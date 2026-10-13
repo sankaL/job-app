@@ -31,10 +31,10 @@ function Breadcrumbs({ overrides }: BreadcrumbsProps) {
     return (
       <nav
         aria-label="Breadcrumb"
-        className="flex items-center gap-1.5 text-sm"
+        className="flex min-w-0 items-center gap-1.5 text-sm"
       >
         <span
-          className="font-medium"
+          className="truncate font-medium"
           style={{ color: "var(--color-text-primary)" }}
         >
           Dashboard

@@ -494,6 +494,10 @@ export function DataTable<T>({
       <HStack gap={2} vAlign="center">
         <div className="min-w-0 flex-1">{searchInput}</div>
         <DropdownMenu
+          presentation="popover"
+          placement="below"
+          alignment="end"
+          menuWidth="max-content"
           button={{
             label: "View options",
             variant: "ghost",

@@ -504,9 +504,17 @@ export function ResumeSectionWorkbench({
   // Keep the active section pill visible in the phone scroll strip.
   useEffect(() => {
     if (verticalTabs || !selectedTab) return;
-    window.document
-      .getElementById(`${workbenchId}-tab-${selectedTab}`)
-      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    const tab = window.document.getElementById(`${workbenchId}-tab-${selectedTab}`);
+    const strip = tab?.parentElement;
+    if (!tab || !strip) return;
+    // Scroll only the pill strip. scrollIntoView also moves the page and the
+    // sticky header on phones.
+    const stripBox = strip.getBoundingClientRect();
+    const tabBox = tab.getBoundingClientRect();
+    if (tabBox.left < stripBox.left)
+      strip.scrollLeft += tabBox.left - stripBox.left;
+    else if (tabBox.right > stripBox.right)
+      strip.scrollLeft += tabBox.right - stripBox.right;
   }, [selectedTab, verticalTabs, workbenchId]);
   function handleTabKey(
     event: KeyboardEvent<HTMLButtonElement>,

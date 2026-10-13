@@ -53,6 +53,7 @@ import type {
   CreationActivityRange,
   SessionBootstrapResponse,
 } from "@/lib/api";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { useApplicationsQuery, useCreationActivityQuery } from "@/lib/queries";
 
 type StatusKey = keyof typeof visibleStatusLabels;
@@ -256,6 +257,7 @@ function buildDashboardModel(applications: ApplicationSummary[]) {
 }
 
 export function DashboardPage() {
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const { bootstrap } = useAppContext();
   const [activityRange, setActivityRange] =
@@ -348,7 +350,7 @@ export function DashboardPage() {
         subtitle="Application analytics and activity overview"
         actions={
           <Button onClick={() => navigate("/app/applications")}>
-            View All Applications
+            {isMobile ? "Applications" : "View All Applications"}
           </Button>
         }
       />
