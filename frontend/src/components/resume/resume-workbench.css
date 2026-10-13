@@ -59,7 +59,7 @@
   background: var(--color-border-emphasized);
 }
 .resume-index-dot.reviewed {
-  background: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 55%, white);
 }
 .resume-index-label {
   min-width: 0;
