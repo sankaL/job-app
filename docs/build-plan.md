@@ -10,7 +10,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Export styles and download file names
 
-**Status:** Complete locally, not committed (2026-10-12 EDT).
+**Status:** Deployed to production (2026-10-13 EDT, commit `14d62f1`). Migration 000025 was applied before the deploy.
 
 - An Export dialog replaces the Export PDF / Export DOCX menu items. It has five style cards with preview thumbnails (Classic, Modern, Compact, Executive, Minimal), a PDF/DOCX toggle and a file-name preview. The last-used style is pre-selected.
 - Downloads are named `{first name} {last name} Resume.<ext>`. Each base resume can set a placeholder template for the name, on the upload form and in the editor.
@@ -19,7 +19,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Optional education years
 
-**Status:** Complete locally, not committed (2026-10-12).
+**Status:** Deployed to production (2026-10-13 EDT, commit `14d62f1`).
 
 - Education sections gain a `show_dates` flag (default off, no migration). The Markdown projection, workbench preview and PDF omit entry dates unless the user turns on "Show year" in the section toolbar. Existing documents therefore hide years by default; the dates stay stored in the entry fields.
 - Tests: backend unit test added; frontend typecheck and suite pass.

@@ -1,7 +1,7 @@
 # Export styles and download file names
 
 **Date:** 2026-10-12 EDT  
-**Status:** Complete locally, not committed
+**Status:** Deployed to production 2026-10-13 EDT (commit `14d62f1`)
 
 ## What changed
 
@@ -51,3 +51,23 @@
 
 ## Regenerating thumbnails
 After changing a style, run `python scripts/render_export_style_thumbnails.py <dir>` in the backend container and copy the PNGs into `frontend/public/export-styles/`.
+
+## Code review follow-up (2026-10-13)
+- Fixed:
+  - The style-preference write is best-effort, with a sanitized warning.
+  - File names keep combining marks (Devanagari, Sinhala, Tamil, Thai) and avoid Windows reserved names; Python and TypeScript stay in parity.
+  - The dialog closes before the post-export refresh, so a refresh failure can't prompt a duplicate download.
+  - The education-years default is now recorded in the PRD and decisions log.
+- Added tests:
+  - Upload rejects an invalid template.
+  - A stale saved style falls back to Classic.
+  - A failed export keeps the saved style.
+  - The migration constraint matches the style registry.
+  - TypeScript filename parity.
+  - Export dialog: preselection, keyboard, load failure and error display.
+- Left as intentional: no timestamps in file names (identical names on repeat exports; the browser adds a suffix).
+
+## Release
+- Migration 025 was applied to production before the push.
+- Deploy run `38346137336` succeeded for all three services.
+- Verification is recorded in the migration runbook.

@@ -16,6 +16,11 @@ This runbook applies whenever backend or database work changes schema, compatibi
 - Existing rows keep `null`: exports default to Classic and to `{first name} {last name} Resume.<ext>`.
 - Verify migration 025 in the ledger and both columns exist as nullable `text`. Export a PDF and confirm the header is `attachment; filename="First Last Resume.pdf"; filename*=UTF-8''First%20Last%20Resume.pdf`. Export with `?style=modern` and confirm `profiles.export_style` becomes `modern`; `?style=bogus` returns 400 without a failure notification. PATCH a base resume with `{"export_filename_template": "{full name} Resume {company}"}` and confirm the next export from an application built on it uses that name; `{"export_filename_template": "{salary}"}` returns 400.
 - Rollback: revert the frontend and API first. The columns can stay; drop them only through a separate reviewed migration.
+- Production release 2026-10-13 EDT:
+  - Migration 025 and its ledger row were applied in one transaction through the backend service connection, before pushing `14d62f1`. Both nullable `text` columns and both check constraints were verified.
+  - The GitHub Actions Railway deploy succeeded for backend, frontend and agents.
+  - Post-deploy checks: `/healthz` 200, `/api/export-styles` 401 without auth, thumbnails served, CORS allows the frontend origin.
+  - All five styles render in the production container with their bundled fonts embedded (Classic: DejaVu Serif).
 
 ## 2026-10-06 application generation preferences
 
