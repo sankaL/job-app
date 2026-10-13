@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/card";
 import { IconButton } from "@/components/ui/icon-button";
 import { SkeletonTable } from "@/components/ui/skeleton";
-import { useToast } from "@/components/ui/toast";
+import { useToast, type ToastVariant } from "@/components/ui/toast";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { InviteUserModal } from "@/components/admin/InviteUserModal";
 import { EditUserModal } from "@/components/admin/EditUserModal";
@@ -129,7 +129,7 @@ function UserActionsCell({
 }) {
   return (
     <HStack gap={2} hAlign="end" vAlign="center">
-      <ActionButtons label="User actions" size="sm" primaryIndex={0}>
+      <ActionButtons label="User actions" size="sm" variant="plain">
         <IconButton
           onClick={onEdit}
           aria-label={`Edit ${user.email}`}
@@ -139,6 +139,7 @@ function UserActionsCell({
         </IconButton>
         <IconButton
           variant={user.is_active ? "danger" : "default"}
+          tone="success"
           onClick={onToggleActive}
           disabled={isSelf}
           aria-label={`${user.is_active ? "Deactivate" : "Reactivate"} ${user.email}`}
@@ -496,11 +497,11 @@ async function runAdminUserMutation(
   toast: ToastFn,
   successMessage: string,
   failureMessage: string,
-  rethrow = false,
+  { rethrow = false, successVariant = "success" }: { rethrow?: boolean; successVariant?: ToastVariant } = {},
 ) {
   try {
     await operation();
-    toast(successMessage);
+    toast(successMessage, successVariant);
     await onSuccess();
   } catch (error) {
     toast(error instanceof Error ? error.message : failureMessage, "error");
@@ -568,7 +569,7 @@ export function AdminUsersPage() {
       toast,
       "Invite sent.",
       "Invite failed.",
-      true,
+      { rethrow: true },
     );
   }
 
@@ -585,7 +586,7 @@ export function AdminUsersPage() {
       toast,
       "User updated.",
       "Update failed.",
-      true,
+      { rethrow: true },
     );
   }
 
@@ -596,6 +597,7 @@ export function AdminUsersPage() {
       toast,
       user.is_active ? "User deactivated." : "User reactivated.",
       "Status update failed.",
+      { successVariant: user.is_active ? "destructive" : "success" },
     );
   }
 
@@ -610,6 +612,7 @@ export function AdminUsersPage() {
       toast,
       "User deleted.",
       "Delete failed.",
+      { successVariant: "destructive" },
     );
     setIsDeleting(false);
   }

@@ -47,6 +47,7 @@ const api = vi.hoisted(() => ({
   fetchExtensionStatus: vi.fn(),
   fetchApplicationDetail: vi.fn(),
   fetchAdminMetrics: vi.fn(),
+  fetchWorkflowOutcomes: vi.fn(),
   fetchApplicationProgress: vi.fn(),
   fetchBaseResume: vi.fn(),
   fetchCreationActivity: vi.fn(),
@@ -204,6 +205,49 @@ function buildCreationActivity(
   };
 }
 
+type OutcomeOp = "extraction" | "generation" | "regeneration" | "export";
+
+function buildWorkflowOutcomes(
+  range: "7d" | "30d" | "3m" | "6m" | "1y" | "all",
+  counts: Record<number, Partial<Record<OutcomeOp, [number, number]>>> = {},
+) {
+  const bucketCount = { "7d": 7, "30d": 30, "3m": 13, "6m": 26, "1y": 52, all: 30 }[range];
+  const stepDays = ["3m", "6m", "1y"].includes(range) ? 7 : 1;
+  const end = new Date(Date.UTC(2026, 9, 3));
+  const ops: OutcomeOp[] = ["extraction", "generation", "regeneration", "export"];
+  const totals = Object.fromEntries(
+    ops.map((op) => [op, { success: 0, failure: 0 }]),
+  ) as Record<OutcomeOp, { success: number; failure: number }>;
+  const buckets = Array.from({ length: bucketCount }, (_, index) => {
+    const start = new Date(end);
+    start.setUTCDate(end.getUTCDate() - (bucketCount - 1 - index) * stepDays);
+    const bucketEnd = new Date(start);
+    bucketEnd.setUTCDate(start.getUTCDate() + stepDays - 1);
+    const operations = Object.fromEntries(
+      ops.map((op) => {
+        const [success, failure] = counts[index]?.[op] ?? [0, 0];
+        totals[op].success += success;
+        totals[op].failure += failure;
+        return [op, { success, failure }];
+      }),
+    );
+    return {
+      start_date: start.toISOString().slice(0, 10),
+      end_date: (bucketEnd > end ? end : bucketEnd).toISOString().slice(0, 10),
+      operations,
+    };
+  });
+  return {
+    range,
+    granularity: stepDays === 7 ? "week" : "day",
+    timezone: "UTC",
+    start_date: buckets[0].start_date,
+    end_date: "2026-10-03",
+    totals,
+    buckets,
+  };
+}
+
 function buildApplicationDetail(overrides: Record<string, unknown> = {}) {
   const summary = buildApplicationSummary(overrides);
   return {
@@ -296,6 +340,24 @@ function buildNotificationSummary(overrides: Record<string, unknown> = {}) {
     created_at: "2026-04-09T12:00:00Z",
     ...overrides,
   };
+}
+
+// Astryx also echoes each toast into a live region, so assert on the visible card.
+async function findToast(text: string | RegExp) {
+  return waitFor(() => {
+    const card = Array.from(document.querySelectorAll<HTMLElement>(".astryx-toast")).find(
+      (element) => {
+        const content = element.textContent ?? "";
+        return typeof text === "string" ? content.includes(text) : text.test(content);
+      },
+    );
+    expect(card).toBeDefined();
+    return card!;
+  });
+}
+
+function toastVariant(card: HTMLElement) {
+  return card.querySelector("[data-app-toast-variant]")?.getAttribute("data-app-toast-variant");
 }
 
 function latestStreamHandlers() {
@@ -969,8 +1031,8 @@ describe("phase 1 applications UI", () => {
       screen.queryByText("Export completed successfully."),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText("Cleared notifications that do not need attention."),
-    ).toBeInTheDocument();
+      toastVariant(await findToast("Cleared notifications that do not need attention.")),
+    ).toBe("destructive");
     expect(dispatchSpy).not.toHaveBeenCalled();
   });
 
@@ -1019,9 +1081,9 @@ describe("phase 1 applications UI", () => {
     expect(
       await screen.findByText("Resume needs manual review."),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("Failed to clear notifications"),
-    ).toBeInTheDocument();
+    expect(toastVariant(await findToast("Failed to clear notifications"))).toBe(
+      "error",
+    );
   });
 
   it("filters applications by multiple statuses and clears the selection", async () => {
@@ -1159,8 +1221,8 @@ describe("phase 1 applications UI", () => {
       applied: true,
     });
     expect(
-      await screen.findByText(/marked 1 application as applied/i),
-    ).toBeInTheDocument();
+      toastVariant(await findToast(/marked 1 application as applied/i)),
+    ).toBe("success");
     expect(
       screen.queryByText("2 applications selected"),
     ).not.toBeInTheDocument();
@@ -1260,9 +1322,9 @@ describe("phase 1 applications UI", () => {
       await screen.findByText("1 application selected"),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Select Platform Engineer")).toBeChecked();
-    expect(
-      await screen.findByText(/1 application failed/i),
-    ).toBeInTheDocument();
+    expect(toastVariant(await findToast(/1 application failed/i))).toBe(
+      "error",
+    );
   });
 
   it("renders row-level icon delete controls for idle applications", async () => {
@@ -1322,7 +1384,8 @@ describe("phase 1 applications UI", () => {
     ).toBeDisabled();
   });
 
-  it("summarizes admin metrics with labeled composition and outcome rows", async () => {
+  it("summarizes admin metrics and charts workflow outcomes for the selected range", async () => {
+    const user = userEvent.setup();
     api.fetchAdminMetrics.mockResolvedValue({
       total_users: 10,
       active_users: 8,
@@ -1332,38 +1395,39 @@ describe("phase 1 applications UI", () => {
       invites_sent: 8,
       invites_accepted: 5,
       invites_pending: 2,
-      extraction: {
-        total: 8,
-        success_count: 6,
-        failure_count: 2,
-        success_rate: 75,
-      },
-      generation: {
-        total: 3,
-        success_count: 3,
-        failure_count: 0,
-        success_rate: 100,
-      },
-      regeneration: {
-        total: 0,
-        success_count: 0,
-        failure_count: 0,
-        success_rate: 0,
-      },
-      export: {
-        total: 9,
-        success_count: 9,
-        failure_count: 0,
-        success_rate: 100,
-      },
     });
+    api.fetchWorkflowOutcomes.mockImplementation(
+      async (range: "7d" | "30d" | "3m" | "6m" | "1y" | "all") =>
+        range === "30d"
+          ? buildWorkflowOutcomes(range, {
+              27: { extraction: [4, 2], export: [9, 0] },
+              29: { extraction: [2, 0], generation: [3, 0] },
+            })
+          : buildWorkflowOutcomes(range, { 25: { generation: [5, 1] } }),
+    );
 
     renderWithAppProvider(<AdminDashboardPage />);
 
-    expect(await screen.findByText("Workflow outcomes")).toBeInTheDocument();
+    const chart = await screen.findByTestId("workflow-outcomes-chart");
+    expect(chart).toHaveAttribute("data-range", "30d");
+    expect(chart).toHaveAttribute("data-operation", "all");
+    expect(chart.getAttribute("aria-label")).toMatch(
+      /All operations: .* 18 succeeded, 2 failed/,
+    );
+    expect(api.fetchWorkflowOutcomes).toHaveBeenCalledTimes(1);
+    expect(api.fetchWorkflowOutcomes).toHaveBeenCalledWith(
+      "30d",
+      expect.any(String),
+    );
+    expect(screen.getByRole("radio", { name: "1M" })).toBeChecked();
+    expect(
+      screen.getByText("Succeeded and failed runs per day, last 30 days"),
+    ).toBeInTheDocument();
     expect(screen.getByText("62.5%")).toBeInTheDocument();
     expect(screen.getByText("90.0%")).toBeInTheDocument();
-    expect(screen.getByText("2 failed of 20 runs")).toBeInTheDocument();
+    expect(
+      screen.getByText("2 failed of 20 runs, last 30 days"),
+    ).toBeInTheDocument();
     expect(
       within(screen.getByTestId("composition-row-onboarded")).getByText("5"),
     ).toBeInTheDocument();
@@ -1371,15 +1435,157 @@ describe("phase 1 applications UI", () => {
       within(screen.getByTestId("composition-row-closed")).getByText("1"),
     ).toBeInTheDocument();
     expect(
+      within(screen.getByTestId("operation-row-extraction")).getByText("75.0%"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("operation-row-extraction")).getByText(
+        "6 ok · 2 failed",
+      ),
+    ).toBeInTheDocument();
+    expect(
       within(screen.getByTestId("operation-row-regeneration")).getByText(
         "No runs",
       ),
     ).toBeInTheDocument();
+    const table = screen.getByTestId("workflow-outcomes-table");
+    expect(within(table).getAllByRole("row")).toHaveLength(31);
+
+    await user.click(
+      screen.getByRole("button", { name: "Workflow operation" }),
+    );
+    await user.click(screen.getByRole("menuitemradio", { name: "Extraction" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("workflow-outcomes-chart")).toHaveAttribute(
+        "data-operation",
+        "extraction",
+      ),
+    );
     expect(
-      screen.getByRole("img", {
-        name: "Extraction outcomes: Succeeded 6 (75%), Failed 2 (25%)",
-      }),
+      screen.getByTestId("workflow-outcomes-chart").getAttribute("aria-label"),
+    ).toMatch(/Extraction: .* 6 succeeded, 2 failed/);
+    const lastRow = within(screen.getByTestId("workflow-outcomes-table"))
+      .getAllByRole("row")
+      .at(-1)!;
+    expect(within(lastRow).getAllByRole("cell").map((c) => c.textContent)).toEqual([
+      "2",
+      "0",
+    ]);
+    expect(api.fetchWorkflowOutcomes).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("radio", { name: "6M" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("workflow-outcomes-chart")).toHaveAttribute(
+        "data-range",
+        "6m",
+      ),
+    );
+    expect(api.fetchWorkflowOutcomes).toHaveBeenLastCalledWith(
+      "6m",
+      expect.any(String),
+    );
+    expect(
+      screen.getByText("Succeeded and failed runs per week, last 6 months"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("1 failed of 6 runs, last 6 months"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the last loaded outcomes visible when a range switch fails", async () => {
+    const user = userEvent.setup();
+    api.fetchAdminMetrics.mockResolvedValue({
+      total_users: 1,
+      active_users: 1,
+      deactivated_users: 0,
+      invited_users: 0,
+      total_applications: 0,
+      invites_sent: 0,
+      invites_accepted: 0,
+      invites_pending: 0,
+    });
+    const failure = new Error("Outcomes unavailable.");
+    // The shared query client retries once before surfacing the error.
+    api.fetchWorkflowOutcomes
+      .mockResolvedValueOnce(buildWorkflowOutcomes("30d", { 29: { export: [3, 1] } }))
+      .mockRejectedValueOnce(failure)
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(buildWorkflowOutcomes("6m", { 25: { export: [5, 0] } }));
+
+    renderWithAppProvider(<AdminDashboardPage />);
+
+    const chart = await screen.findByTestId("workflow-outcomes-chart");
+    expect(chart).toHaveAttribute("data-range", "30d");
+
+    await user.click(screen.getByRole("radio", { name: "6M" }));
+
+    expect(
+      await screen.findByText(
+        /workflow outcomes could not be refreshed\. showing the last loaded range/i,
+        undefined,
+        { timeout: 4000 },
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("workflow-outcomes-chart")).toHaveAttribute(
+      "data-range",
+      "30d",
+    );
+    expect(
+      screen.getByText("Succeeded and failed runs per day, last 30 days"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("1 failed of 4 runs, last 30 days"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("workflow-outcomes-chart")).toHaveAttribute(
+        "data-range",
+        "6m",
+      ),
+    );
+    expect(
+      screen.queryByText(/workflow outcomes could not be refreshed/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps admin metrics usable when workflow outcomes fail", async () => {
+    const user = userEvent.setup();
+    api.fetchAdminMetrics.mockResolvedValue({
+      total_users: 1,
+      active_users: 1,
+      deactivated_users: 0,
+      invited_users: 0,
+      total_applications: 0,
+      invites_sent: 0,
+      invites_accepted: 0,
+      invites_pending: 0,
+    });
+    const failure = new Error("Outcomes unavailable.");
+    // The shared query client retries once before surfacing the error.
+    api.fetchWorkflowOutcomes
+      .mockRejectedValueOnce(failure)
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(buildWorkflowOutcomes("30d", { 29: { export: [1, 0] } }));
+
+    renderWithAppProvider(<AdminDashboardPage />);
+
+    expect(
+      await screen.findByText(/workflow outcomes could not be loaded/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Invites")).toBeInTheDocument();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(
+      await screen.findByTestId("workflow-outcomes-chart"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/workflow outcomes could not be loaded/i),
+    ).not.toBeInTheDocument();
   });
 
   it("surfaces dashboard load failures instead of showing the empty state", async () => {
@@ -3383,8 +3589,49 @@ describe("phase 1 applications UI", () => {
       { ...tier, monthly_resume_generation_limit: 25 },
     ]);
     await user.click(screen.getByRole("button", { name: /refresh/i }));
-    await screen.findByText("25 requests/month");
+    await waitFor(() =>
+      expect(screen.getByTestId("basic-current-limit")).toHaveTextContent(
+        "25",
+      ),
+    );
     expect(input).toHaveValue(15);
+    expect(
+      screen.getByText("Changes 25 → 15 requests/month"),
+    ).toBeInTheDocument();
+  });
+
+  it("only shows save and reset once a tier allowance changes", async () => {
+    const user = userEvent.setup();
+    api.listSubscriptionTiers.mockResolvedValue([
+      {
+        key: "basic" as const,
+        name: "Basic",
+        monthly_resume_generation_limit: 10,
+        is_active: true,
+        created_at: "2026-09-30T00:00:00Z",
+        updated_at: "2026-09-30T00:00:00Z",
+      },
+    ]);
+    renderWithAppProvider(<AdminSubscriptionsPage />);
+    const input = await screen.findByLabelText("Monthly requests");
+    await waitFor(() => expect(input).toHaveValue(10));
+    expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", { name: /increase basic monthly requests/i }),
+    );
+    expect(input).toHaveValue(11);
+    expect(
+      screen.getByText("Changes 10 → 11 requests/month"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save/i })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "60" }));
+    expect(input).toHaveValue(60);
+
+    await user.click(screen.getByRole("button", { name: /reset/i }));
+    expect(input).toHaveValue(10);
+    expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
   });
 
   it("renders a stop icon on the detail page while extraction is active", async () => {
@@ -6234,9 +6481,7 @@ describe("phase 1 applications UI", () => {
     expect(
       await screen.findByRole("dialog", { name: /resume judge breakdown/i }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/verdict: review at 77\.6 \/ 100\./i),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/verdict: review at/i)).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /regenerate with judge feedback/i }),
     ).toBeInTheDocument();

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   ChevronDown,
-  Sparkles,
+  Cpu,
   Layers,
   CheckCircle2,
   FileText,
@@ -71,7 +71,7 @@ export function CompareHeroBar({
                 color: "var(--color-accent)",
               }}
             >
-              <Sparkles size={14} />
+              <Cpu size={14} />
             </span>
             <span>Tailored Comparison</span>
           </div>
@@ -153,7 +153,7 @@ export function CompareHeroBar({
               className="flex items-center gap-1.5 font-medium"
               style={{ color: "var(--color-accent)" }}
             >
-              <Sparkles size={13} />
+              <Cpu size={13} />
               <span>+{stats.addedSkillsCount} Keywords Aligned</span>
             </div>
           )}

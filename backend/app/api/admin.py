@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -9,20 +10,19 @@ from app.core.access import get_current_admin_user
 from app.core.auth import AuthenticatedUser
 from app.services.admin import (
     AdminMetricsPayload,
-    AdminOperationMetric,
     AdminService,
     MAX_MONTHLY_RESUME_GENERATION_LIMIT,
     get_admin_service,
 )
+from app.services.creation_activity import TIMEZONE_MAX_LENGTH
+from app.services.workflow_outcomes import (
+    OutcomeCounts,
+    OutcomeGranularity,
+    OutcomeRange,
+    WorkflowOutcomes,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-
-class AdminOperationMetricResponse(BaseModel):
-    total: int
-    success_count: int
-    failure_count: int
-    success_rate: float
 
 
 class AdminMetricsResponse(BaseModel):
@@ -34,10 +34,34 @@ class AdminMetricsResponse(BaseModel):
     invites_sent: int
     invites_accepted: int
     invites_pending: int
-    extraction: AdminOperationMetricResponse
-    generation: AdminOperationMetricResponse
-    regeneration: AdminOperationMetricResponse
-    export: AdminOperationMetricResponse
+
+
+class WorkflowOutcomeCountsResponse(BaseModel):
+    success: int
+    failure: int
+
+
+class WorkflowOperationCountsResponse(BaseModel):
+    extraction: WorkflowOutcomeCountsResponse
+    generation: WorkflowOutcomeCountsResponse
+    regeneration: WorkflowOutcomeCountsResponse
+    export: WorkflowOutcomeCountsResponse
+
+
+class WorkflowOutcomeBucketResponse(BaseModel):
+    start_date: date
+    end_date: date
+    operations: WorkflowOperationCountsResponse
+
+
+class WorkflowOutcomesResponse(BaseModel):
+    range: OutcomeRange
+    granularity: OutcomeGranularity
+    timezone: str
+    start_date: date
+    end_date: date
+    totals: WorkflowOperationCountsResponse
+    buckets: list[WorkflowOutcomeBucketResponse]
 
 
 class AdminUserResponse(BaseModel):
@@ -153,8 +177,29 @@ def _map_error(error: Exception) -> HTTPException:
     return HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Admin request failed.")
 
 
-def _to_operation_metric(metric: AdminOperationMetric) -> AdminOperationMetricResponse:
-    return AdminOperationMetricResponse.model_validate(metric.model_dump())
+def _to_operation_counts(counts: dict[str, OutcomeCounts]) -> WorkflowOperationCountsResponse:
+    return WorkflowOperationCountsResponse.model_validate(
+        {op: {"success": value.success, "failure": value.failure} for op, value in counts.items()}
+    )
+
+
+def _to_workflow_outcomes_response(outcomes: WorkflowOutcomes) -> WorkflowOutcomesResponse:
+    return WorkflowOutcomesResponse(
+        range=outcomes.range_key,
+        granularity=outcomes.granularity,
+        timezone=outcomes.timezone,
+        start_date=outcomes.start_date,
+        end_date=outcomes.end_date,
+        totals=_to_operation_counts(outcomes.totals),
+        buckets=[
+            WorkflowOutcomeBucketResponse(
+                start_date=bucket.start_date,
+                end_date=bucket.end_date,
+                operations=_to_operation_counts(bucket.operations),
+            )
+            for bucket in outcomes.buckets
+        ],
+    )
 
 
 def _to_metrics_response(payload: AdminMetricsPayload) -> AdminMetricsResponse:
@@ -167,10 +212,6 @@ def _to_metrics_response(payload: AdminMetricsPayload) -> AdminMetricsResponse:
         invites_sent=payload.invites_sent,
         invites_accepted=payload.invites_accepted,
         invites_pending=payload.invites_pending,
-        extraction=_to_operation_metric(payload.extraction),
-        generation=_to_operation_metric(payload.generation),
-        regeneration=_to_operation_metric(payload.regeneration),
-        export=_to_operation_metric(payload.export),
     )
 
 
@@ -180,6 +221,22 @@ def get_admin_metrics(
     service: Annotated[AdminService, Depends(get_admin_service)],
 ) -> AdminMetricsResponse:
     return _to_metrics_response(service.get_metrics())
+
+
+@router.get("/workflow-outcomes", response_model=WorkflowOutcomesResponse)
+def get_workflow_outcomes(
+    _: Annotated[AuthenticatedUser, Depends(get_current_admin_user)],
+    service: Annotated[AdminService, Depends(get_admin_service)],
+    range_key: Annotated[OutcomeRange, Query(alias="range")] = "30d",
+    timezone: Annotated[str, Query(min_length=1, max_length=TIMEZONE_MAX_LENGTH)] = "UTC",
+) -> WorkflowOutcomesResponse:
+    try:
+        outcomes = service.get_workflow_outcomes(range_key=range_key, timezone_name=timezone)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except TimeoutError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    return _to_workflow_outcomes_response(outcomes)
 
 
 @router.get("/users", response_model=list[AdminUserResponse])

@@ -1,7 +1,7 @@
 import { Children, Fragment, cloneElement, createContext, isValidElement, useContext, type ReactNode } from "react";
 import { ButtonGroup } from "@astryxdesign/core/ButtonGroup";
 
-const ActionGroupContext = createContext<{ size: "sm" | "md" | "lg"; isPrimary: boolean } | null>(null);
+const ActionGroupContext = createContext<{ size: "sm" | "md" | "lg"; isPrimary: boolean; plain: boolean } | null>(null);
 export const useActionGroup = () => useContext(ActionGroupContext);
 
 function actionsIn(children: ReactNode, prefix = ""): ReactNode[] {
@@ -12,15 +12,29 @@ function actionsIn(children: ReactNode, prefix = ""): ReactNode[] {
   );
 }
 
-/** Related actions share a connected Astryx surface; a lone action stays a Button. */
-export function ActionButtons({ children, label, size = "md", primaryIndex }: {
+/**
+ * Related actions share a connected Astryx surface; a lone action stays a Button.
+ * `plain` (table rows and resume cards) drops the surface: borderless coloured icons.
+ */
+export function ActionButtons({ children, label, size = "md", primaryIndex, variant = "group" }: {
   children: ReactNode;
   label: string;
   size?: "sm" | "md" | "lg";
+  variant?: "group" | "plain";
   /** Index among visible actions; defaults to the final action, usually Save/Continue. */
   primaryIndex?: number;
 }) {
   let actions = actionsIn(children);
+  if (variant === "plain")
+    return (
+      <div role="group" aria-label={label} className="inline-flex items-center gap-1">
+        {actions.map((action, index) => (
+          <ActionGroupContext.Provider key={isValidElement(action) ? action.key : index} value={{ size, isPrimary: false, plain: true }}>
+            {action}
+          </ActionGroupContext.Provider>
+        ))}
+      </div>
+    );
   if (actions.length < 2) return <>{actions}</>;
   let primary = Math.max(0, Math.min(primaryIndex ?? actions.length - 1, actions.length - 1));
   // Keep the bright primary (orange) and solid red delete apart: primary first,
@@ -35,7 +49,7 @@ export function ActionButtons({ children, label, size = "md", primaryIndex }: {
   return (
     <ButtonGroup label={label} size={size}>
       {actions.map((action, index) => (
-        <ActionGroupContext.Provider key={isValidElement(action) ? action.key : index} value={{ size, isPrimary: index === primary }}>
+        <ActionGroupContext.Provider key={isValidElement(action) ? action.key : index} value={{ size, isPrimary: index === primary, plain: false }}>
           {action}
         </ActionGroupContext.Provider>
       ))}

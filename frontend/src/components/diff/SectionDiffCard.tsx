@@ -8,7 +8,7 @@ import {
   Wrench,
   Award,
   Layers,
-  Sparkles,
+  Cpu,
   Check,
   Copy,
   Plus,
@@ -110,7 +110,7 @@ export function SectionDiffCard({
                 border: "1px solid var(--color-success-muted)",
               }}
             >
-              <Sparkles size={10} />{" "}
+              <Cpu size={10} />{" "}
               {sectionDiff.status === "added"
                 ? "Added"
                 : sectionDiff.status === "removed"
@@ -208,7 +208,7 @@ export function SectionDiffCard({
                 }}
               >
                 <div className="mb-2 flex items-center gap-1.5">
-                  <Sparkles
+                  <Cpu
                     size={13}
                     style={{ color: "var(--color-accent)" }}
                   />
@@ -282,7 +282,7 @@ export function SectionDiffCard({
                   className="mb-2 flex items-center gap-1.5 text-xs font-bold"
                   style={{ color: "var(--color-accent)" }}
                 >
-                  <Sparkles size={12} /> Target ATS Keywords Added (
+                  <Cpu size={12} /> Target ATS Keywords Added (
                   {sectionDiff.skillsDiff.addedSkills.length})
                 </span>
                 <ul className="flex flex-wrap gap-2 list-none p-0 m-0">

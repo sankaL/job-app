@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-query";
 import {
   fetchAdminMetrics,
+  fetchWorkflowOutcomes,
   fetchBaseResume,
   fetchApplicationDetail,
   fetchCreationActivity,
@@ -15,6 +16,7 @@ import {
   listExportStyles,
   listNotifications,
   type CreationActivityRange,
+  type WorkflowOutcomeRange,
   type ProfileData,
   type SessionBootstrapResponse,
 } from "@/lib/api";
@@ -39,6 +41,8 @@ export const queryKeys = {
   exportStyles: ["exportStyles"] as const,
   notifications: ["notifications"] as const,
   adminMetrics: ["adminMetrics"] as const,
+  adminWorkflowOutcomes: (range: WorkflowOutcomeRange, timezone: string) =>
+    ["adminWorkflowOutcomes", range, timezone] as const,
   subscriptionTiers: ["subscriptionTiers"] as const,
   adminUsersRoot: ADMIN_USERS_QUERY_KEY,
   adminUsers: (search: string, status: string) => [...ADMIN_USERS_QUERY_KEY, search, status] as const,
@@ -154,6 +158,18 @@ export function useAdminMetricsQuery() {
     queryKey: queryKeys.adminMetrics,
     queryFn: fetchAdminMetrics,
     staleTime: ONE_MINUTE_MS,
+  });
+}
+
+export function useAdminWorkflowOutcomesQuery(
+  range: WorkflowOutcomeRange,
+  timezone: string,
+) {
+  return useQuery({
+    queryKey: queryKeys.adminWorkflowOutcomes(range, timezone),
+    queryFn: () => fetchWorkflowOutcomes(range, timezone),
+    staleTime: ONE_MINUTE_MS,
+    placeholderData: keepPreviousData,
   });
 }
 

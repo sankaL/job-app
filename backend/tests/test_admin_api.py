@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.core.auth import AuthVerifier, AuthenticatedUser, get_auth_verifier
 from app.db.profiles import ProfileRecord, ProfileRepository, get_profile_repository
 from app.main import app
-from app.services.admin import AdminMetricsPayload, AdminOperationMetric, AdminService, get_admin_service
+from app.services.admin import AdminMetricsPayload, AdminService, get_admin_service
 
 
 class StubVerifier(AuthVerifier):
@@ -67,7 +67,6 @@ class StubAdminService(AdminService):
         pass
 
     def get_metrics(self) -> AdminMetricsPayload:
-        metric = AdminOperationMetric(total=10, success_count=9, failure_count=1, success_rate=90.0)
         return AdminMetricsPayload(
             total_users=5,
             active_users=4,
@@ -77,10 +76,6 @@ class StubAdminService(AdminService):
             invites_sent=8,
             invites_accepted=6,
             invites_pending=2,
-            extraction=metric,
-            generation=metric,
-            regeneration=metric,
-            export=metric,
         )
 
     def list_users(self, *, search: Optional[str], status: Optional[str]):
@@ -156,7 +151,7 @@ def test_admin_metrics_returns_payload():
     assert response.status_code == 200
     payload = response.json()
     assert payload["total_users"] == 5
-    assert payload["generation"]["success_rate"] == 90.0
+    assert not {"extraction", "generation", "regeneration", "export"} & set(payload)
 
 
 def test_admin_invite_returns_created_payload():

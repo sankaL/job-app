@@ -1,242 +1,95 @@
-import { Button } from "@/components/ui/button";
+import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { Icon } from "@astryxdesign/core/Icon";
+import { StackItem } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 import {
-  createContext,
+  ToastViewport,
+  useToast as useAstryxToast,
+  type ToastContentRenderProps,
+} from "@astryxdesign/core/Toast";
+import {
   useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
+  useMemo,
   type PropsWithChildren,
   type ReactNode,
 } from "react";
 
 /* ── Types ── */
-type ToastVariant = "success" | "error" | "info";
-
-type Toast = {
-  id: string;
-  message: ReactNode;
-  variant: ToastVariant;
-  dismissing?: boolean;
-};
+/**
+ * success/info: black card. error: red card that stays until dismissed.
+ * destructive: a completed delete, deactivate or stop, shown on the red card
+ * but announced politely and auto-hidden like any other success.
+ */
+export type ToastVariant = "success" | "info" | "error" | "destructive";
 
 type ToastContextValue = {
   toast: (message: ReactNode, variant?: ToastVariant) => void;
 };
 
-/* ── Context ── */
-const ToastContext = createContext<ToastContextValue | null>(null);
-
-export function useToast() {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error("useToast must be inside <ToastProvider>");
-  return ctx;
-}
-
 /* ── Constants ── */
-const AUTO_DISMISS_MS = 4000;
-const DISMISS_ANIMATION_MS = 300;
+const AUTO_DISMISS_MS = 5000;
+const MAX_VISIBLE = 4;
 
-let nextId = 0;
+const variantIcons = {
+  success: "success",
+  info: "info",
+  error: "error",
+  destructive: "success",
+} as const satisfies Record<ToastVariant, string>;
 
-/* ── Icons ── */
-const CheckIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M3.5 8.5l3 3 6-7" />
-  </svg>
-);
-
-const ErrorIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <circle cx="8" cy="8" r="6" />
-    <path d="M8 5v3.5M8 10.5v.5" />
-  </svg>
-);
-
-const InfoIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <circle cx="8" cy="8" r="6" />
-    <path d="M8 7v4M8 5v.5" />
-  </svg>
-);
-
-const variantStyles: Record<
-  ToastVariant,
-  { bg: string; border: string; color: string; icon: ReactNode }
-> = {
-  success: {
-    bg: "var(--color-accent-muted)",
-    border: "var(--color-accent)",
-    color: "var(--color-accent)",
-    icon: <CheckIcon />,
-  },
-  error: {
-    bg: "var(--color-error-muted)",
-    border: "var(--color-error)",
-    color: "var(--color-error)",
-    icon: <ErrorIcon />,
-  },
-  info: {
-    bg: "var(--color-background-muted)",
-    border: "var(--color-border-emphasized)",
-    color: "var(--color-text-primary)",
-    icon: <InfoIcon />,
-  },
-};
+/*
+ * Astryx Toast ships two surfaces: inverted (info) and error-inverted (error).
+ * Destructive reuses the info card's status semantics and is recoloured red in
+ * index.css through the data-app-toast-variant marker on this content.
+ */
+function renderToastContent(variant: ToastVariant) {
+  return function ToastContent({ body, dismiss }: ToastContentRenderProps) {
+    return (
+      <HStack gap={3} vAlign="center" data-app-toast-variant={variant}>
+        <Icon icon={variantIcons[variant]} size="sm" color="inherit" aria-hidden />
+        <StackItem size="fill">
+          <Text type="body" weight="medium" color="inherit" wordBreak="break-word">
+            {body}
+          </Text>
+        </StackItem>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Icon icon="close" size="sm" color="inherit" />}
+          label="Dismiss"
+          onClick={dismiss}
+          isIconOnly
+        />
+      </HStack>
+    );
+  };
+}
 
 /* ── Provider ── */
 export function ToastProvider({ children }: PropsWithChildren) {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const timersRef = useRef<Map<string, number>>(new Map());
-  const removalTimersRef = useRef<Map<string, number>>(new Map());
+  return (
+    <ToastViewport position="bottomEnd" maxVisible={MAX_VISIBLE}>
+      {children}
+    </ToastViewport>
+  );
+}
 
-  const dismiss = useCallback((id: string) => {
-    if (removalTimersRef.current.has(id)) return;
-    const autoTimer = timersRef.current.get(id);
-    if (autoTimer !== undefined) window.clearTimeout(autoTimer);
-    timersRef.current.delete(id);
-    setToasts((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, dismissing: true } : t)),
-    );
-    const removalTimer = window.setTimeout(() => {
-      removalTimersRef.current.delete(id);
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, DISMISS_ANIMATION_MS);
-    removalTimersRef.current.set(id, removalTimer);
-  }, []);
+/* ── Hook ── */
+export function useToast(): ToastContextValue {
+  const showToast = useAstryxToast();
 
   const toast = useCallback(
     (message: ReactNode, variant: ToastVariant = "success") => {
-      const id = `toast-${++nextId}`;
-      setToasts((prev) => [...prev, { id, message, variant }]);
-
-      const timer = window.setTimeout(() => {
-        dismiss(id);
-        timersRef.current.delete(id);
-      }, AUTO_DISMISS_MS);
-      timersRef.current.set(id, timer);
+      showToast({
+        body: message,
+        type: variant === "error" ? "error" : "info",
+        autoHideDuration: AUTO_DISMISS_MS,
+        renderContent: renderToastContent(variant),
+      });
     },
-    [dismiss],
+    [showToast],
   );
 
-  useEffect(() => {
-    const timers = timersRef.current;
-    const removalTimers = removalTimersRef.current;
-    return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
-      removalTimers.forEach((timer) => window.clearTimeout(timer));
-      timers.clear();
-      removalTimers.clear();
-    };
-  }, []);
-
-  return (
-    <ToastContext.Provider value={{ toast }}>
-      {children}
-
-      {/* Toast Container */}
-      {toasts.length > 0 && (
-        <div
-          className="app-toast-stack"
-          style={{
-            position: "fixed",
-            right: "24px",
-            zIndex: 9999,
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-            pointerEvents: "none",
-            maxWidth: "min(420px, calc(100vw - 48px))",
-            width: "100%",
-          }}
-        >
-          {toasts.map((t) => {
-            const style = variantStyles[t.variant];
-            return (
-              <div
-                key={t.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  padding: "12px 16px",
-                  borderRadius: "var(--radius-container)",
-                  border: `1px solid ${style.border}`,
-                  background: style.bg,
-                  backdropFilter: "blur(12px)",
-                  boxShadow: "var(--shadow-med)",
-                  color: style.color,
-                  pointerEvents: "auto",
-                  animation: t.dismissing
-                    ? `toastSlideOut ${DISMISS_ANIMATION_MS}ms var(--ease-out) forwards`
-                    : `toastSlideIn 350ms var(--ease-spring) both`,
-                }}
-              >
-                <span style={{ flexShrink: 0 }}>{style.icon}</span>
-                <span
-                  style={{
-                    flex: 1,
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    lineHeight: 1.4,
-                    color: "var(--color-text-primary)",
-                  }}
-                >
-                  {t.message}
-                </span>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    const timer = timersRef.current.get(t.id);
-                    if (timer) {
-                      window.clearTimeout(timer);
-                      timersRef.current.delete(t.id);
-                    }
-                    dismiss(t.id);
-                  }}
-                  style={{
-                    flexShrink: 0,
-                    cursor: "pointer",
-                    padding: "2px",
-                    lineHeight: 1,
-                    fontSize: "16px",
-                  }}
-                  aria-label="Dismiss"
-                >
-                  ✕
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </ToastContext.Provider>
-  );
+  return useMemo(() => ({ toast }), [toast]);
 }

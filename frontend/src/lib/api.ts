@@ -470,13 +470,6 @@ export type AccessRequestResponse = {
   message: string;
 };
 
-export type AdminOperationMetric = {
-  total: number;
-  success_count: number;
-  failure_count: number;
-  success_rate: number;
-};
-
 export type AdminMetrics = {
   total_users: number;
   active_users: number;
@@ -486,10 +479,42 @@ export type AdminMetrics = {
   invites_sent: number;
   invites_accepted: number;
   invites_pending: number;
-  extraction: AdminOperationMetric;
-  generation: AdminOperationMetric;
-  regeneration: AdminOperationMetric;
-  export: AdminOperationMetric;
+};
+
+export type WorkflowOperation =
+  | "extraction"
+  | "generation"
+  | "regeneration"
+  | "export";
+
+export const WORKFLOW_OUTCOME_RANGES = [
+  "7d",
+  "30d",
+  "3m",
+  "6m",
+  "1y",
+  "all",
+] as const;
+export type WorkflowOutcomeRange = (typeof WORKFLOW_OUTCOME_RANGES)[number];
+
+export type WorkflowOutcomeCounts = { success: number; failure: number };
+export type WorkflowOperationCounts = Record<
+  WorkflowOperation,
+  WorkflowOutcomeCounts
+>;
+
+export type WorkflowOutcomes = {
+  range: WorkflowOutcomeRange;
+  granularity: "day" | "week" | "month";
+  timezone: string;
+  start_date: string;
+  end_date: string;
+  totals: WorkflowOperationCounts;
+  buckets: Array<{
+    start_date: string;
+    end_date: string;
+    operations: WorkflowOperationCounts;
+  }>;
 };
 
 export type AdminUser = ProfileData & {
@@ -1134,6 +1159,16 @@ export async function submitAccessRequest(
 
 export async function fetchAdminMetrics(): Promise<AdminMetrics> {
   return authenticatedRequest<AdminMetrics>("/api/admin/metrics");
+}
+
+export async function fetchWorkflowOutcomes(
+  range: WorkflowOutcomeRange,
+  timezone: string,
+): Promise<WorkflowOutcomes> {
+  const query = new URLSearchParams({ range, timezone });
+  return authenticatedRequest<WorkflowOutcomes>(
+    `/api/admin/workflow-outcomes?${query.toString()}`,
+  );
 }
 
 export async function listAdminUsers(params?: {

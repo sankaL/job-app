@@ -1,5 +1,5 @@
 import { createRef } from "react";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Theme } from "@astryxdesign/core/theme";
@@ -172,28 +172,76 @@ describe("shared app controls", () => {
     expect(confirm).toHaveClass("app-button-danger");
   });
 
-  it("cleans up toast removal and automatic-dismiss timers on unmount", () => {
-    vi.useFakeTimers();
-    try {
-      function Trigger() {
-        const { toast } = useToast();
-        return <Button onClick={() => toast("Saved")}>Show toast</Button>;
-      }
-      const { unmount } = render(
+  it("renders plain row actions as borderless coloured icons in source order", () => {
+    render(
+      <ActionButtons label="Row actions" size="sm" variant="plain">
+        <IconButton aria-label="Edit">Edit</IconButton>
+        <IconButton aria-label="Mark applied" tone="success">Check</IconButton>
+        <IconButton aria-label="Delete" variant="danger">Delete</IconButton>
+      </ActionButtons>,
+    );
+    expect(screen.getByRole("group", { name: "Row actions" })).toBeInTheDocument();
+    const names = screen.getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+    expect(names).toEqual(["Edit", "Mark applied", "Delete"]);
+    for (const button of screen.getAllByRole("button")) {
+      expect(button).toHaveAttribute("data-variant", "ghost");
+      expect(button).toHaveClass("app-icon-plain");
+    }
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveClass("app-icon-neutral");
+    expect(screen.getByRole("button", { name: "Mark applied" })).toHaveClass("app-icon-success");
+    const remove = screen.getByRole("button", { name: "Delete" });
+    expect(remove).toHaveClass("app-icon-danger");
+    expect(remove).not.toHaveClass("app-button-danger");
+  });
+
+  it("styles Astryx toasts by action type and keeps errors until dismissed", async () => {
+    function Trigger() {
+      const { toast } = useToast();
+      return (
+        <>
+          <Button onClick={() => toast("Saved")}>Success toast</Button>
+          <Button onClick={() => toast("Save failed", "error")}>Error toast</Button>
+          <Button onClick={() => toast("Resume deleted", "destructive")}>Destructive toast</Button>
+          <Button onClick={() => toast("Queued", "info")}>Info toast</Button>
+        </>
+      );
+    }
+    render(
+      <Theme theme={neutralTheme} mode="light">
         <ToastProvider>
           <Trigger />
-        </ToastProvider>,
-      );
-      fireEvent.click(screen.getByRole("button", { name: "Show toast" }));
-      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-      fireEvent.click(screen.getByRole("button", { name: "Show toast" }));
-      expect(vi.getTimerCount()).toBe(2);
-      unmount();
-      expect(vi.getTimerCount()).toBe(0);
-      act(() => vi.runAllTimers());
-    } finally {
-      vi.useRealTimers();
+        </ToastProvider>
+      </Theme>,
+    );
+    for (const name of ["Success", "Error", "Destructive", "Info"]) {
+      fireEvent.click(screen.getByRole("button", { name: `${name} toast` }));
     }
+    // The live region also announces each message, so match the toast card itself.
+    const toastCard = (text: string) =>
+      Array.from(document.querySelectorAll<HTMLElement>(".astryx-toast")).find((card) =>
+        card.textContent?.includes(text),
+      );
+    const variantOf = (text: string) =>
+      toastCard(text)?.querySelector("[data-app-toast-variant]")?.getAttribute("data-app-toast-variant");
+    await waitFor(() => expect(toastCard("Queued")).toBeDefined());
+    expect(variantOf("Saved")).toBe("success");
+    expect(variantOf("Save failed")).toBe("error");
+    expect(variantOf("Resume deleted")).toBe("destructive");
+    expect(variantOf("Queued")).toBe("info");
+    expect(toastCard("Save failed")).toHaveAttribute("role", "alert");
+    expect(toastCard("Saved")).toHaveAttribute("role", "status");
+    // A completed destructive action is red but is not an alert.
+    expect(toastCard("Resume deleted")).toHaveAttribute("role", "status");
+
+    // jsdom reports the toast viewport's top-layer popover as hidden.
+    fireEvent.click(
+      within(toastCard("Save failed")!).getByRole("button", { name: "Dismiss", hidden: true }),
+    );
+    // jsdom runs no CSS transitions, so finish the row's exit the way Astryx's own tests do.
+    const errorRow = toastCard("Save failed")!.closest<HTMLElement>("[data-toast-id]")!;
+    fireEvent.transitionEnd(errorRow, { propertyName: "grid-template-rows" });
+    await waitFor(() => expect(toastCard("Save failed")).toBeUndefined());
+    expect(toastCard("Saved")).toBeDefined();
   });
 
   it("keeps pending dialogs open for Escape and backdrop clicks", () => {

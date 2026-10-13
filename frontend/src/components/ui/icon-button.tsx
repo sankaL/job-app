@@ -6,13 +6,16 @@ import { useActionGroup } from "./button-group";
 type IconButtonProps = PropsWithChildren<
   ButtonHTMLAttributes<HTMLButtonElement>
 > & {
-  /** `danger` is a solid red button with a white icon, inside or outside a group. */
+  /** `danger` is a solid red button with a white icon, or a red icon in a plain group. */
   variant?: "default" | "danger";
+  /** Icon colour inside a plain `ActionButtons` group; `danger` implies red. */
+  tone?: "neutral" | "success";
 };
 
 export function IconButton({
   className,
   variant = "default",
+  tone = "neutral",
   children,
   disabled,
   title,
@@ -27,7 +30,9 @@ export function IconButton({
       {...{ title }}
       icon={children}
       variant={
-        variant === "danger"
+        group?.plain
+          ? "ghost"
+          : variant === "danger"
           ? "destructive"
           : group?.isPrimary
             ? "primary"
@@ -37,7 +42,12 @@ export function IconButton({
       }
       size={group?.size ?? "sm"}
       isDisabled={disabled}
-      className={cn(variant === "danger" && "app-button-danger", className)}
+      className={cn(
+        group?.plain
+          ? cn("app-icon-plain", variant === "danger" ? "app-icon-danger" : `app-icon-${tone}`)
+          : variant === "danger" && "app-button-danger",
+        className,
+      )}
     />
   );
 }

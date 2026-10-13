@@ -214,7 +214,7 @@ export function TopBar() {
           current.filter((notification) => notification.action_required),
       );
       await invalidateNotificationQueries(queryClient);
-      toast("Cleared notifications that do not need attention.");
+      toast("Cleared notifications that do not need attention.", "destructive");
     } catch (err) {
       toast(
         err instanceof Error ? err.message : "Failed to clear notifications",

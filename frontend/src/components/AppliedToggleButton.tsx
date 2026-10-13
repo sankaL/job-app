@@ -32,6 +32,7 @@ export function AppliedToggleButton({
         }
         onClick={onClick}
         disabled={disabled}
+        tone="success"
         className={className}
       >
         {applied ? (

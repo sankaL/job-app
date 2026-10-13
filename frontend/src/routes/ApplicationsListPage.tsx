@@ -160,7 +160,7 @@ function ApplicationActionsCell({
       vAlign="center"
       onClick={(event) => event.stopPropagation()}
     >
-      <ActionButtons label="Application row actions" size="sm" primaryIndex={0}>
+      <ActionButtons label="Application row actions" size="sm" variant="plain">
       <AppliedToggleButton
         applied={application.applied}
         compact
@@ -1048,7 +1048,7 @@ export function ApplicationsListPage() {
       setDeleteConfirmationOpen(false);
 
       if (failedIds.length === 0) {
-        toast(`Deleted ${formatApplicationCount(successCount)}.`);
+        toast(`Deleted ${formatApplicationCount(successCount)}.`, "destructive");
         return;
       }
 
@@ -1072,11 +1072,11 @@ export function ApplicationsListPage() {
       if (rowActionTarget.mode === "delete") {
         await deleteApplication(rowActionTarget.application.id);
         await syncApplicationLists();
-        toast("Application deleted.");
+        toast("Application deleted.", "destructive");
       } else {
         await cancelExtraction(rowActionTarget.application.id);
         await syncApplicationLists();
-        toast("Extraction stopped.");
+        toast("Extraction stopped.", "destructive");
       }
       setRowActionTarget(null);
     } catch (err) {

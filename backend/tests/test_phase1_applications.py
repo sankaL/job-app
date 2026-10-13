@@ -555,10 +555,6 @@ class FakeUsageEventRepository:
 
         return [UsageEventRecord.model_validate(row) for row in rows]
 
-    def get_operation_metrics(self):
-        return []
-
-
 class FakeSubscriptionRepository:
     def __init__(self) -> None:
         self.limit = 10

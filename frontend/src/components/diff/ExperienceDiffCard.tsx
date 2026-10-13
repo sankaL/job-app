@@ -6,7 +6,7 @@ import {
   Building2,
   Calendar,
   MapPin,
-  Sparkles,
+  Cpu,
   ArrowRight,
   Check,
   Copy,
@@ -83,7 +83,7 @@ export function ExperienceDiffCard({
             border: "1px solid var(--color-success-muted)",
           }}
         >
-          <Sparkles size={11} /> Retitled & Tailored
+          <Cpu size={11} /> Retitled & Tailored
         </span>
       );
     }
@@ -226,7 +226,7 @@ export function ExperienceDiffCard({
               className="flex items-center gap-1.5 text-xs font-bold"
               style={{ color: "var(--color-accent)" }}
             >
-              <Sparkles size={13} /> Role Title Targeted
+              <Cpu size={13} /> Role Title Targeted
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
               <span
@@ -344,7 +344,7 @@ export function ExperienceDiffCard({
                 style={{ borderColor: "var(--color-success-muted)" }}
               >
                 <div className="flex items-center gap-1.5">
-                  <Sparkles
+                  <Cpu
                     size={13}
                     style={{ color: "var(--color-accent)" }}
                   />

@@ -62,7 +62,17 @@ export function Button({
       aria-label={props["aria-label"]}
       {...{ title }}
       // Danger stays red even as a group's primary action (e.g. a confirm dialog's Delete).
-      variant={variant === "danger" ? "destructive" : group?.isPrimary ? "primary" : group ? "secondary" : variant}
+      variant={
+        variant === "danger"
+          ? "destructive"
+          : group?.plain
+            ? variant
+            : group?.isPrimary
+              ? "primary"
+              : group
+                ? "secondary"
+                : variant
+      }
       size={group?.size ?? size}
       isLoading={loading}
       isDisabled={disabled}

@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import { afterEach } from "vitest";
 
 // jsdom does not implement the media queries used by Astryx's responsive shell.
 Object.defineProperty(window, "matchMedia", {
@@ -38,3 +39,12 @@ if (!HTMLDialogElement.prototype.showModal) {
     this.removeAttribute("open");
   };
 }
+
+// Astryx's singleton screen-reader live regions outlive each test's render, so a toast
+// announced in one test would still match role queries in the next. Astryx re-attaches a
+// removed region on its next announcement, so remove them between tests.
+afterEach(() => {
+  document
+    .querySelectorAll("[data-astryx-live-region]")
+    .forEach((region) => region.remove());
+});

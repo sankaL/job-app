@@ -53,6 +53,7 @@ import type {
   CreationActivityRange,
   SessionBootstrapResponse,
 } from "@/lib/api";
+import { formatLocalDate, resolveBrowserTimezone } from "@/lib/local-dates";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { useApplicationsQuery, useCreationActivityQuery } from "@/lib/queries";
 
@@ -129,38 +130,19 @@ const JOB_SOURCES_LIMIT = 4;
 const TOP_COMPANIES_LIMIT = 5;
 const RECENT_APPS_LIMIT = 5;
 
-function resolveBrowserTimezone() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-function parseLocalDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day);
-}
-
-function formatDate(value: string, options: Intl.DateTimeFormatOptions) {
-  return new Intl.DateTimeFormat(undefined, options).format(
-    parseLocalDate(value),
-  );
-}
-
 function formatBucketLabel(
   datum: Pick<ActivityDatum, "start" | "end">,
   granularity: CreationActivity["granularity"],
 ) {
   if (granularity === "day") {
-    return formatDate(datum.start, {
+    return formatLocalDate(datum.start, {
       weekday: "short",
       month: "short",
       day: "numeric",
     });
   }
-  const start = formatDate(datum.start, { month: "short", day: "numeric" });
-  const end = formatDate(datum.end, { month: "short", day: "numeric" });
+  const start = formatLocalDate(datum.start, { month: "short", day: "numeric" });
+  const end = formatLocalDate(datum.end, { month: "short", day: "numeric" });
   return start === end ? `Week of ${start}` : `${start} – ${end}`;
 }
 
@@ -693,10 +675,10 @@ function ActivityChart({ activity }: { activity: CreationActivity }) {
     activity.range === "7d"
       ? { weekday: "short", day: "numeric" }
       : { month: "short", day: "numeric" };
-  const rangeLabel = `${formatDate(activity.start_date, {
+  const rangeLabel = `${formatLocalDate(activity.start_date, {
     month: "short",
     day: "numeric",
-  })} to ${formatDate(activity.end_date, { month: "short", day: "numeric" })}`;
+  })} to ${formatLocalDate(activity.end_date, { month: "short", day: "numeric" })}`;
 
   return (
     <>
@@ -716,7 +698,7 @@ function ActivityChart({ activity }: { activity: CreationActivity }) {
           <CartesianGrid vertical={false} stroke="var(--color-border)" />
           <XAxis
             dataKey="start"
-            tickFormatter={(value: string) => formatDate(value, tickOptions)}
+            tickFormatter={(value: string) => formatLocalDate(value, tickOptions)}
             interval="preserveStartEnd"
             minTickGap={28}
             tickLine={false}

@@ -28,7 +28,6 @@ import {
   FileText,
   History,
   Cpu,
-  Sparkles,
   Trash2,
   ExternalLink,
   FileDown,
@@ -1218,10 +1217,6 @@ function KeywordOptimization({
         >
           Optimization
         </Text>
-        <ProcessingAvatar
-          active={optimizing}
-          className="h-9 w-9 text-[var(--color-text-primary)]"
-        />
       </div>
       <div className="mt-3 flex items-center justify-between gap-3 text-sm">
         <span>Missing keywords</span>
@@ -1234,7 +1229,7 @@ function KeywordOptimization({
         className="app-button-orange mt-4 inline-flex w-full items-center justify-center gap-1.5 px-4 py-2 text-sm disabled:opacity-50"
         onClick={onOptimize}
       >
-        <Sparkles size={14} />
+        <Cpu size={14} />
         {optimizing ? "Starting..." : "Optimize for missing keywords"}
       </Button>
       {blocker && (
@@ -2932,7 +2927,7 @@ export function ApplicationDetailPage() {
       setProgress(null);
       setShowCancelExtractionConfirm(false);
       refreshActivityTimeline();
-      toast("Extraction stopped.");
+      toast("Extraction stopped.", "destructive");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Unable to stop extraction.",
@@ -2953,7 +2948,7 @@ export function ApplicationDetailPage() {
       await deleteApplication(activeApplicationId);
       await invalidateApplicationQueries(queryClient, activeApplicationId);
       setShowDeleteConfirm(false);
-      toast("Application deleted.");
+      toast("Application deleted.", "destructive");
       navigate("/app/applications");
     } catch (err) {
       setError(
@@ -3313,6 +3308,7 @@ export function ApplicationDetailPage() {
         resumeJudgeStale
           ? "Resume re-evaluation queued"
           : "Resume Judge queued",
+        "info",
       );
     } catch (err) {
       setError(
@@ -3376,7 +3372,7 @@ export function ApplicationDetailPage() {
       )
     ) {
       setManualKeywordInput("");
-      toast("Keyword already exists");
+      toast("Keyword already exists", "info");
       return;
     }
     const saved = await persistManualKeywords([...manualKeywords, cleaned]);
@@ -3411,7 +3407,7 @@ export function ApplicationDetailPage() {
       setGenerationProgress(null);
       setShowKeywordDialog(false);
       refreshActivityTimeline();
-      toast("Keyword optimization queued");
+      toast("Keyword optimization queued", "info");
     } catch (err) {
       setShowOptimisticProgress(false);
       setIsRegenerating(false);
@@ -4506,7 +4502,7 @@ export function ApplicationDetailPage() {
                         className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                         onClick={() => void handleTriggerGeneration()}
                       >
-                        <Sparkles size={16} />
+                        <Cpu size={16} />
                         Generate Resume
                       </Button>
                       {generationStartBlocker ? (
@@ -5175,21 +5171,18 @@ export function ApplicationDetailPage() {
                         </span>
                       ) : null}
                     </div>
-                    <Text
-                      as="p"
-                      display="block"
-                      type="supporting"
-                      className="mt-3 leading-5"
-                      style={{
-                        color: resumeJudgeStale
-                          ? "var(--color-warning)"
-                          : "var(--color-text-secondary)",
-                      }}
-                    >
-                      {resumeJudgeStale
-                        ? "This score was calculated for an older draft. Re-evaluate after reviewing the breakdown."
-                        : `Verdict: ${resumeJudgeVerdictLabel(resumeJudge.verdict)} at ${resumeJudge.final_score?.toFixed(1) ?? "0.0"} / 100.`}
-                    </Text>
+                    {resumeJudgeStale ? (
+                      <Text
+                        as="p"
+                        display="block"
+                        type="supporting"
+                        className="mt-3 leading-5"
+                        style={{ color: "var(--color-warning)" }}
+                      >
+                        This score was calculated for an older draft.
+                        Re-evaluate after reviewing the breakdown.
+                      </Text>
+                    ) : null}
                   </div>
 
                   <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
@@ -5492,10 +5485,10 @@ export function ApplicationDetailPage() {
                                 guidance.
                               </Text>
                               <Button
-                                variant="ghost"
+                                variant="primary"
                                 type="button"
                                 disabled={Boolean(fullRegenerationBlocker)}
-                                className="mt-4 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
+                                className="app-button-orange mt-4 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm transition-all disabled:cursor-not-allowed disabled:opacity-50"
                                 onClick={() => {
                                   setShowResumeJudgeDialog(false);
                                   void handleFullRegeneration(
@@ -5504,7 +5497,7 @@ export function ApplicationDetailPage() {
                                   );
                                 }}
                               >
-                                <Sparkles size={14} />
+                                <Cpu size={14} />
                                 Regenerate with Judge Feedback
                               </Button>
                             </>

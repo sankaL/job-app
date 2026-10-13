@@ -455,28 +455,22 @@ body,
 }
 
 /* ============================================================
-   Toast Animations
+   Toasts — Astryx Toast, black or red
+   Astryx paints info on --color-background-inverted (black) and error on
+   --color-background-error-inverted (red). Destructive successes keep the
+   info card's polite status role and swap in the red surface. Content is
+   pinned to white rather than left to MediaTheme's luminance guess.
    ============================================================ */
-@keyframes toastSlideIn {
-  from {
-    opacity: 0;
-    transform: translateY(16px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+.astryx-toast:has([data-app-toast-variant="destructive"]) {
+  --color-background-inverted: var(--color-background-error-inverted);
 }
 
-@keyframes toastSlideOut {
-  from {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(8px) scale(0.96);
-  }
+/* The dismiss button paints from --color-text-primary, so set the tokens too. */
+[data-app-toast-variant] {
+  --color-text-primary: var(--color-on-dark);
+  --color-icon-primary: var(--color-on-dark);
+  width: 100%;
+  color: var(--color-on-dark);
 }
 
 /* ============================================================
@@ -828,10 +822,6 @@ body,
   --shadow-high: var(--shadow-panel);
 }
 
-.app-toast-stack {
-  bottom: var(--spacing-6);
-}
-
 .app-topbar-page-actions {
   min-width: 0;
   flex-shrink: 0;
@@ -872,6 +862,30 @@ body,
 :is(.astryx-button, .astryx-icon-button).app-button-danger:disabled,
 :is(.astryx-button, .astryx-icon-button).app-button-danger[aria-disabled="true"] {
   opacity: 0.5 !important;
+  cursor: not-allowed !important;
+}
+
+/* Plain row/card actions: no surface or outline, just a coloured icon. */
+.app-icon-plain {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.app-icon-plain:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--color-overlay-hover) !important;
+}
+.app-icon-plain.app-icon-neutral {
+  color: var(--color-icon-primary) !important;
+}
+.app-icon-plain.app-icon-success {
+  color: var(--color-icon-green) !important;
+}
+.app-icon-plain.app-icon-danger {
+  color: var(--brand-red) !important;
+}
+.app-icon-plain:disabled,
+.app-icon-plain[aria-disabled="true"] {
+  opacity: 0.4 !important;
   cursor: not-allowed !important;
 }
 

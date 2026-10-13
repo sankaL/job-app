@@ -59,7 +59,7 @@ function ResumeActions({
 }: ResumeCardProps) {
   return (
     <HStack gap={1} vAlign="center" hAlign="end" className="ml-auto shrink-0">
-      <ActionButtons label="Resume actions" size="sm" primaryIndex={resume.is_default ? 0 : 1}>
+      <ActionButtons label="Resume actions" size="sm" variant="plain">
         {!resume.is_default && (
           <Button
             size="sm"
@@ -279,7 +279,7 @@ export function BaseResumesPage() {
     setError(null);
     try {
       await deleteBaseResume(deleteTarget.id);
-      toast(`"${deleteTarget.name}" deleted`);
+      toast(`"${deleteTarget.name}" deleted`, "destructive");
       await invalidateBaseResumeQueries(queryClient);
       setDeleteTarget(null);
     } catch (err) {

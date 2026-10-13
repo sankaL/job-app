@@ -200,10 +200,6 @@ class StubUsageEventRepository:
     def create_usage_event(self, *, user_id: str, event_type: str, event_status: str, **_kwargs) -> None:
         self.usage_events.append((user_id, event_type, event_status))
 
-    def get_operation_metrics(self):
-        return []
-
-
 @pytest.mark.asyncio
 async def test_invite_user_fails_closed_when_email_notifications_disabled(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EMAIL_NOTIFICATIONS_ENABLED", "false")

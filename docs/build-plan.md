@@ -1,12 +1,71 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-12
+**Last updated:** 2026-10-13
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## Admin workflow outcomes over time
+
+**Status:** Complete locally, not deployed (2026-10-13 19:10 EDT).
+
+- Admin Metrics "Workflow outcomes" is now a smooth two-line chart (Succeeded, Failed) with a range control: 1W, 1M (default), 3M, 6M, 1Y, All. An operation dropdown (All operations, Extraction, Generation, Regeneration, Export) filters the chart without a refetch. Per-operation rate rows sit below the chart, and the Workflow success tile follows the range.
+- New admin-only `GET /api/admin/workflow-outcomes?range=&timezone=` aggregates one bounded, timezone-aware window per local day in Postgres (`backend/app/services/workflow_outcomes.py`). Buckets: day for 1W/1M, Monday-start week for 3M/6M/1Y, and for All day/week/month chosen from the earliest event (max 120 months). The existing `(event_type, created_at)` index covers the query, so no migration is needed.
+- `GET /api/admin/metrics` no longer returns workflow counts, so the page no longer scans all usage history on every load. The unused all-time `AdminRepository.get_operation_metrics` and the frontend `CompositionBar` were removed. `resolveBrowserTimezone`/`formatLocalDate` moved to `frontend/src/lib/local-dates.ts`.
+- Review follow-ups:
+  - A failed range switch keeps the last loaded range on screen beside Retry. TanStack's `keepPreviousData` covers only the pending state.
+  - A database statement timeout returns 503 with a "try a shorter range" message instead of a 500.
+  - Tests clear Astryx's singleton live regions between runs, so one test's toast announcement cannot match `role="alert"` in the next.
+  - The `onSave` mock in `resume-section-workbench.test.tsx` is now typed, which unblocks `npm run build`.
+- Tests:
+  - New `backend/tests/test_workflow_outcomes.py` covers windows (including a daylight-saving change), rollups, fail-closed validation, timezone and timeout error mapping, the admin-only route, and local-Postgres aggregation.
+  - Backend suite: 609 passed. Frontend suite: 352 passed. `npm run build` passes.
+  - Headless screenshots at 1440px and 400px show no horizontal overflow.
+  - See `docs/task-output/2026-10-13-admin-workflow-outcomes.md`.
+
+## Astryx toasts styled by action type
+
+**Status:** Complete locally, not deployed (2026-10-13).
+
+- `components/ui/toast.tsx` now uses Astryx `ToastViewport` and `useToast` (bottom-right, up to 4 visible). The app keeps its `toast(message, variant)` API.
+- There are two surfaces, both with white text and icons:
+  - **Black:** `success` (check icon) and `info` (info icon).
+  - **Red:** `error`, which stays until dismissed and is announced assertively. Also the new `destructive` variant, for a successful delete, deactivate, stop or clear. It auto-hides and is announced politely, like other successes.
+- `destructive` recolours the Astryx card through `data-app-toast-variant` in `index.css`.
+- Non-error toasts hide after 5s (was 4s). Errors no longer auto-hide.
+- Uses `destructive`:
+  - application, bulk and base-resume deletes
+  - stop extraction
+  - clearing notifications
+  - admin user deactivate and delete (`runAdminUserMutation` takes `successVariant`)
+- "Keyword already exists" and the queued Resume Judge/keyword optimization messages use `info`. Partial bulk failures stay `error`.
+- Tests:
+  - The design-system test covers each variant, the destructive status role, error persistence and dismissal.
+  - The applications tests assert on the visible toast card and its variant.
+
+## UI polish: AI chip icon, judge dialog, row actions, tier editor
+
+**Status:** Complete locally, not deployed (2026-10-13).
+
+- AI actions and AI-tailoring badges use the chip (`Cpu`) icon instead of `Sparkles`. This covers Generate Resume, Optimize for missing keywords, Regenerate with Judge Feedback and the compare/diff badges.
+- Judge dialog: "Regenerate with Judge Feedback" is now an orange primary button, and the redundant "Verdict: … / 100." line is gone. The stale-score warning stays.
+- Optimization card: the paper mascot is removed.
+- `ActionButtons` has an opt-in `variant="plain"`: borderless icon buttons with coloured icons (neutral, green for applied/reactivate, red for delete/deactivate). It is used only on application table rows, admin user rows and base resume cards.
+- Admin subscription tiers:
+  - Each card shows the current allowance as a large value.
+  - Editing uses a −/+ stepper and presets (10/25/60/100).
+  - Save and Reset appear only once the value changes, with a "Changes X → Y" hint.
+- Tests: the plain-variant test and the tier dirty-state test were added, and the judge-dialog and tier-refresh tests were updated.
+
+## Fix: "newer draft" banner flashing on save
+
+**Status:** Complete locally, not deployed (2026-10-13).
+
+- Saving a manual edit to an application draft briefly showed the yellow "A newer draft is available" banner. The parent applied the saved draft before `onSave` resolved, so the workbench read its own save as an external change while still dirty. `DraftSectionWorkbench` now waits for its save to settle: on success it syncs, on failure it flags the newer draft as before.
+- Tests: regression test added in `resume-section-workbench.test.tsx` (fails without the fix).
 
 ## Export styles and download file names
 

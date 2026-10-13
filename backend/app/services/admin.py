@@ -23,15 +23,14 @@ from app.db.usage_events import UsageEventRepository, get_usage_event_repository
 from app.services.email import EmailMessage, EmailSender, build_email_sender
 from app.services.email_templates import render_branded_email
 from app.services.user_manager import UserManager, build_user_manager
+from app.services.workflow_outcomes import (
+    DailyOperationOutcome,
+    WorkflowOutcomes,
+    build_outcome_window,
+    summarize_outcomes,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class AdminOperationMetric(BaseModel):
-    total: int
-    success_count: int
-    failure_count: int
-    success_rate: float
 
 
 class AdminMetricsPayload(BaseModel):
@@ -43,10 +42,6 @@ class AdminMetricsPayload(BaseModel):
     invites_sent: int
     invites_accepted: int
     invites_pending: int
-    extraction: AdminOperationMetric
-    generation: AdminOperationMetric
-    regeneration: AdminOperationMetric
-    export: AdminOperationMetric
 
 
 class InviteResultPayload(BaseModel):
@@ -115,25 +110,6 @@ class AdminService:
         invite_counts = self.repository.get_invite_counts()
         total_applications = self.repository.get_total_applications()
 
-        operation_rows = {row.event_type: row for row in self.usage_event_repository.get_operation_metrics()}
-
-        def build_operation(name: str) -> AdminOperationMetric:
-            row = operation_rows.get(name)
-            if row is None:
-                return AdminOperationMetric(
-                    total=0,
-                    success_count=0,
-                    failure_count=0,
-                    success_rate=0.0,
-                )
-            success_rate = (row.success_count / row.total * 100.0) if row.total > 0 else 0.0
-            return AdminOperationMetric(
-                total=row.total,
-                success_count=row.success_count,
-                failure_count=row.failure_count,
-                success_rate=round(success_rate, 2),
-            )
-
         return AdminMetricsPayload(
             total_users=user_counts["total_users"],
             active_users=user_counts["active_users"],
@@ -143,10 +119,37 @@ class AdminService:
             invites_sent=invite_counts["invites_sent"],
             invites_accepted=invite_counts["invites_accepted"],
             invites_pending=invite_counts["invites_pending"],
-            extraction=build_operation("extraction"),
-            generation=build_operation("generation"),
-            regeneration=build_operation("regeneration"),
-            export=build_operation("export"),
+        )
+
+    def get_workflow_outcomes(
+        self,
+        *,
+        range_key: str,
+        timezone_name: str,
+        now: Optional[datetime] = None,
+    ) -> WorkflowOutcomes:
+        window = build_outcome_window(
+            range_key,
+            timezone_name,
+            now or datetime.now(timezone.utc),
+            load_earliest_event_at=self.usage_event_repository.fetch_earliest_operation_event_at,
+        )
+        records = self.usage_event_repository.fetch_daily_operation_outcomes(
+            timezone=window.timezone,
+            start_at=window.start_at,
+            end_before=window.end_before,
+        )
+        return summarize_outcomes(
+            window,
+            (
+                DailyOperationOutcome(
+                    local_date=record.local_date,
+                    event_type=record.event_type,
+                    success=record.success_count,
+                    failure=record.failure_count,
+                )
+                for record in records
+            ),
         )
 
     async def invite_user(

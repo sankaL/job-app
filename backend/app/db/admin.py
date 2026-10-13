@@ -55,13 +55,6 @@ class InviteValidationRecord(BaseModel):
     profile_is_active: bool
 
 
-class OperationMetricRecord(BaseModel):
-    event_type: str
-    total: int
-    success_count: int
-    failure_count: int
-
-
 class AdminRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
@@ -392,22 +385,6 @@ class AdminRepository:
             cursor.execute(query)
             row = cursor.fetchone()
         return int(row["total_applications"])
-
-    def get_operation_metrics(self) -> list[OperationMetricRecord]:
-        query = """
-        select
-          event_type,
-          count(*)::int as total,
-          count(*) filter (where event_status = 'success'::public.usage_event_status_enum)::int as success_count,
-          count(*) filter (where event_status = 'failure'::public.usage_event_status_enum)::int as failure_count
-        from public.usage_events
-        where event_type in ('extraction', 'generation', 'regeneration', 'export')
-        group by event_type
-        """
-        with self._connection() as connection, connection.cursor() as cursor:
-            cursor.execute(query)
-            rows = cursor.fetchall()
-        return [OperationMetricRecord.model_validate(row) for row in rows]
 
     @staticmethod
     def _derive_full_name(*, first_name: Optional[str], last_name: Optional[str]) -> Optional[str]:

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any, Optional
 
+from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.db.connection import rls_connection
+
+
+OUTCOMES_TIMEOUT_MESSAGE = "Workflow outcomes took too long to load. Try a shorter range."
 
 
 class UsageEventRecord(BaseModel):
@@ -19,9 +24,9 @@ class UsageEventRecord(BaseModel):
     created_at: str
 
 
-class OperationMetricRecord(BaseModel):
+class DailyOperationOutcomeRecord(BaseModel):
+    local_date: date
     event_type: str
-    total: int
     success_count: int
     failure_count: int
 
@@ -94,22 +99,54 @@ class UsageEventRepository:
 
         return [UsageEventRecord.model_validate(row) for row in rows]
 
-    def get_operation_metrics(self) -> list[OperationMetricRecord]:
+    def fetch_daily_operation_outcomes(
+        self,
+        *,
+        timezone: str,
+        start_at: datetime,
+        end_before: datetime,
+    ) -> list[DailyOperationOutcomeRecord]:
+        """Admin aggregate of workflow outcomes per local day inside one bounded window."""
         query = """
         select
+          (created_at at time zone %s)::date as local_date,
           event_type,
-          count(*) filter (where event_status in ('success'::public.usage_event_status_enum, 'failure'::public.usage_event_status_enum))::int as total,
           count(*) filter (where event_status = 'success'::public.usage_event_status_enum)::int as success_count,
           count(*) filter (where event_status = 'failure'::public.usage_event_status_enum)::int as failure_count
         from public.usage_events
         where event_type in ('extraction', 'generation', 'regeneration', 'export')
-        group by event_type
+          and created_at >= %s
+          and created_at < %s
+        group by local_date, event_type
+        order by local_date, event_type
         """
-        with self._connection(service=True) as connection, connection.cursor() as cursor:
-            cursor.execute(query)
-            rows = cursor.fetchall()
+        try:
+            with self._connection(service=True) as connection, connection.cursor() as cursor:
+                cursor.execute("set local statement_timeout = '5s'")
+                cursor.execute(query, (timezone, start_at, end_before))
+                rows = cursor.fetchall()
+        except pg_errors.InvalidParameterValue as error:
+            raise ValueError("Unsupported timezone.") from error
+        except pg_errors.QueryCanceled as error:
+            raise TimeoutError(OUTCOMES_TIMEOUT_MESSAGE) from error
 
-        return [OperationMetricRecord.model_validate(row) for row in rows]
+        return [DailyOperationOutcomeRecord.model_validate(row) for row in rows]
+
+    def fetch_earliest_operation_event_at(self) -> Optional[datetime]:
+        query = """
+        select min(created_at) as earliest_at
+        from public.usage_events
+        where event_type in ('extraction', 'generation', 'regeneration', 'export')
+        """
+        try:
+            with self._connection(service=True) as connection, connection.cursor() as cursor:
+                cursor.execute("set local statement_timeout = '5s'")
+                cursor.execute(query)
+                row = cursor.fetchone()
+        except pg_errors.QueryCanceled as error:
+            raise TimeoutError(OUTCOMES_TIMEOUT_MESSAGE) from error
+
+        return row["earliest_at"] if row else None
 
 
 def get_usage_event_repository() -> UsageEventRepository:

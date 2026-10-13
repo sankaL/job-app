@@ -48,40 +48,6 @@ export function SectionTitle({
   );
 }
 
-// One horizontal stacked bar; segments are separated by a 2px surface gap, not strokes.
-export function CompositionBar({
-  ariaLabel,
-  items,
-  total,
-}: {
-  ariaLabel: string;
-  items: CompositionDatum[];
-  total: number;
-}) {
-  const visible = items.filter((item) => item.count > 0);
-  const summary = describe(items, total);
-
-  return (
-    <div
-      role="img"
-      aria-label={`${ariaLabel}: ${summary}`}
-      className={cn(
-        "flex h-3 w-full gap-0.5 overflow-hidden rounded-sm",
-        visible.length === 0 && "bg-[var(--color-background-muted)]",
-      )}
-    >
-      {visible.map((item) => (
-        <span
-          key={item.key}
-          title={`${item.label}: ${item.count} (${formatShare(item.count, total)})`}
-          className="h-full min-w-1"
-          style={{ flexGrow: item.count, background: item.color }}
-        />
-      ))}
-    </div>
-  );
-}
-
 function describe(items: CompositionDatum[], total: number) {
   const visible = items.filter((item) => item.count > 0);
   return visible.length

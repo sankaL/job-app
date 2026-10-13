@@ -58,6 +58,7 @@ export function DraftSectionWorkbench({
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [changedElsewhere, setChangedElsewhere] = useState(false);
+  const [savePending, setSavePending] = useState(false);
   const saveInFlightRef = useRef(false);
   const revisionRef = useRef(draft.document?.revision ?? 1);
   const signatureRef = useRef(
@@ -66,6 +67,8 @@ export function DraftSectionWorkbench({
   const currentSignature = `${draft.id}:${draft.updated_at}:${draft.document?.revision ?? 1}`;
   useEffect(() => {
     if (signatureRef.current === currentSignature) return;
+    // Our own save updates the draft before onSave resolves; wait for it to settle.
+    if (savePending) return;
     if (dirty) {
       setChangedElsewhere(true);
       return;
@@ -74,7 +77,7 @@ export function DraftSectionWorkbench({
     revisionRef.current = draft.document?.revision ?? 1;
     setDocument(draft.document ?? documentFromMarkdown(draft.content_md));
     setChangedElsewhere(false);
-  }, [currentSignature, draft, dirty]);
+  }, [currentSignature, draft, dirty, savePending]);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -103,10 +106,12 @@ export function DraftSectionWorkbench({
     }
     setError(null);
     saveInFlightRef.current = true;
+    setSavePending(true);
     try {
       if (await onSave(document, revisionRef.current)) setDirty(false);
     } finally {
       saveInFlightRef.current = false;
+      setSavePending(false);
     }
   }
 

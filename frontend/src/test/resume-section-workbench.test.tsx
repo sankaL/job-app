@@ -189,6 +189,28 @@ describe("section workbench", () => {
     expect(screen.getByLabelText("Entry 1 bullet 1")).toHaveValue("Built services");
   });
 
+  it.each([true, false])("does not flag its own save as a newer draft while saving (save succeeds: %s)", async (saved) => {
+    const user = userEvent.setup();
+    let finishSave: (ok: boolean) => void = () => {};
+    const onSave = vi.fn((_document: ResumeDocument, _revision: number) => new Promise<boolean>((resolve) => { finishSave = resolve; }));
+    const props = { profile: null, onSave, onRegenerate: vi.fn() };
+    const { rerender } = render(<MemoryRouter><DraftSectionWorkbench draft={draft} {...props} /></MemoryRouter>);
+    editSection();
+    await user.type(screen.getByLabelText("Entry 1 bullet 1"), " locally");
+    await user.click(screen.getByRole("button", { name: "Save Draft" }));
+    const edited = onSave.mock.calls[0][0];
+    // The parent applies the saved draft before onSave resolves.
+    rerender(<MemoryRouter><DraftSectionWorkbench draft={{ ...draft, document: { ...edited, revision: 5 }, updated_at: "2026-09-30T00:01:00Z" }} {...props} /></MemoryRouter>);
+    expect(screen.queryByText(/A newer draft is available/)).not.toBeInTheDocument();
+    finishSave(saved);
+    if (saved) {
+      await waitFor(() => expect(screen.queryByText(/A newer draft is available/)).not.toBeInTheDocument());
+      expect(screen.getByLabelText("Entry 1 bullet 1")).toHaveValue("Built services locally");
+    } else {
+      expect(await screen.findByText(/A newer draft is available/)).toBeInTheDocument();
+    }
+  });
+
   it("disables fixed facts and opaque experience without disabling direct editing", async () => {
     const user = userEvent.setup();
     const sections: ResumeDocument["sections"] = [

@@ -209,7 +209,7 @@ export function ExportResumeModal({
             <div
               role="radiogroup"
               aria-label="File format"
-              className="grid grid-cols-2 gap-1 rounded-xl border p-1 sm:max-w-sm"
+              className="grid w-full grid-cols-2 gap-1 rounded-xl border p-1"
               style={{
                 borderColor: "var(--color-border)",
                 background: "var(--color-background-muted)",
@@ -226,6 +226,17 @@ export function ExportResumeModal({
                   disabled={exporting}
                   onClick={() => setFormat(option.value)}
                   className="inline-flex min-h-10 items-center justify-center gap-2 px-3 text-sm transition-all"
+                  // Segmented toggle: the chosen format sits on a raised surface.
+                  style={
+                    format === option.value
+                      ? {
+                          background: "var(--color-background-surface)",
+                          color: "var(--color-text-primary)",
+                          boxShadow: "0 1px 3px var(--color-shadow)",
+                          fontWeight: 600,
+                        }
+                      : { background: "transparent", color: "var(--color-text-secondary)" }
+                  }
                 >
                   <FileText size={14} aria-hidden="true" />
                   <span>{option.label}</span>

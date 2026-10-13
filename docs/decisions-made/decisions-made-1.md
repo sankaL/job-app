@@ -1,3 +1,14 @@
+## 2026-10-13 EDT - Admin workflow outcomes become a range-filtered line chart
+
+- Context: Admin Metrics showed one all-time success/failure bar per workflow operation, and `GET /api/admin/metrics` aggregated every usage event on each load. The owner asked to see trends over a selectable range, with the last month as the default, a smooth two-line chart (succeeded and failed), and an endpoint that does not load everything every time.
+- Decision (user-approved plan):
+  - One chart with an operation dropdown (All operations by default) instead of four small charts. Per-operation rate rows stay below the chart for the selected range.
+  - A new admin-only `GET /api/admin/workflow-outcomes` returns per-bucket counts for each operation, so the operation filter runs on the client and only a range change refetches.
+  - Buckets keep every range bounded: day ×7 and ×30, Monday-start week ×13, ×26 and ×52. "All" picks day (≤31 days of history, at least 7 buckets), week (≤1 year) or calendar month (capped at 120) from the earliest event. Weekly buckets for 3M (where the user dashboard uses daily) keep sparse admin data readable as a line.
+  - The Workflow success tile follows the selected range. `/api/admin/metrics` drops workflow counts entirely, so no all-time scan runs by default.
+  - Smooth lines use Recharts `monotone` interpolation, which does not overshoot below zero between buckets.
+- Rejected: four small charts (more space, harder to compare), keeping an all-time tile (still scans the whole history on every load), and calendar-month buckets for 1Y (too few points for a trend line).
+
 ## 2026-10-13 EDT - Education years hidden by default
 
 - Context: Graduation years can invite age bias, and many candidates leave them off. Education entries always printed their `date_range`.
