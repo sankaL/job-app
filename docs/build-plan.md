@@ -10,7 +10,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Admin workflow outcomes over time
 
-**Status:** Complete locally, not deployed (2026-10-13 19:10 EDT).
+**Status:** Deployed to production (2026-10-13 EDT, commit `beb9329`). The backend and frontend Railway deploys succeeded, and agents were skipped as unchanged. No migration. The production `/api/admin/workflow-outcomes` returns 401 without auth, which confirms the route is live.
 
 - Admin Metrics "Workflow outcomes" is now a smooth two-line chart (Succeeded, Failed) with a range control: 1W, 1M (default), 3M, 6M, 1Y, All. An operation dropdown (All operations, Extraction, Generation, Regeneration, Export) filters the chart without a refetch. Per-operation rate rows sit below the chart, and the Workflow success tile follows the range.
 - New admin-only `GET /api/admin/workflow-outcomes?range=&timezone=` aggregates one bounded, timezone-aware window per local day in Postgres (`backend/app/services/workflow_outcomes.py`). Buckets: day for 1W/1M, Monday-start week for 3M/6M/1Y, and for All day/week/month chosen from the earliest event (max 120 months). The existing `(event_type, created_at)` index covers the query, so no migration is needed.
@@ -28,7 +28,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Astryx toasts styled by action type
 
-**Status:** Complete locally, not deployed (2026-10-13).
+**Status:** Deployed to production (2026-10-13 EDT, commit `beb9329`).
 
 - `components/ui/toast.tsx` now uses Astryx `ToastViewport` and `useToast` (bottom-right, up to 4 visible). The app keeps its `toast(message, variant)` API.
 - There are two surfaces, both with white text and icons:
