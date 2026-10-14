@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { gsap } from "gsap";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider } from "@/components/layout/AppContext";
@@ -218,10 +219,34 @@ it("fills the upload workspace and explains a pending import before opening the 
   expect(screen.getByTestId("resume-generation-skeleton")).toBeInTheDocument();
   expect(screen.getByRole("progressbar")).not.toHaveAttribute("value");
   expect(screen.getByRole("button", { name: "Import in progress" })).toBeDisabled();
-  expect(screen.getByRole("textbox", { name: "Resume Name" })).toBeDisabled();
+  // The import card is the page's focus; the form stays mounted but hidden so a failure can restore it.
+  expect(screen.getByLabelText("Resume Name")).not.toBeVisible();
+  expect(screen.getByLabelText("Resume Name")).toBeDisabled();
   await act(async () => { finishUpload({ ...resume, raw_source_md: "Original extracted text" }); });
   expect(await screen.findByRole("tab", { name: /Experience/ })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Reading and structuring your resume" })).not.toBeInTheDocument();
+  // The finished import hands off to the parsed sections with the shared generation animation.
+  const ghost = window.document.querySelector("[data-testid='generation-handoff-ghost']");
+  expect(ghost).not.toBeNull();
+  act(() => gsap.globalTimeline.getChildren(false, true, true).forEach((animation) => animation.progress(1)));
+  expect(window.document.querySelector("[data-testid='generation-handoff-ghost']")).toBeNull();
+  expect(window.document.querySelector(".resume-sheet")?.getAttribute("style") ?? "").toBe("");
+});
+
+it("moves focus from the hidden upload form to the parsed sections after import", async () => {
+  const user = userEvent.setup();
+  let finishUpload!: (resume: api.BaseResumeDetail) => void;
+  vi.mocked(api.uploadBaseResume).mockReturnValue(new Promise((resolve) => { finishUpload = resolve; }));
+  renderEditor("/app/resumes/new?mode=upload");
+  await user.upload(screen.getByLabelText("PDF File"), new File(["synthetic"], "resume.pdf", { type: "application/pdf" }));
+  await user.type(screen.getByRole("textbox", { name: "Resume Name" }), "Keyboard import");
+  // Submit without moving focus, as Enter in the name field would; hiding the form then strands it.
+  fireEvent.click(screen.getByRole("button", { name: "Upload & Parse" }));
+  expect(api.uploadBaseResume).toHaveBeenCalledTimes(1);
+  expect(window.document.activeElement).toHaveAttribute("id", "resume-name");
+  await act(async () => { finishUpload({ ...resume, raw_source_md: "Original extracted text" }); });
+  await waitFor(() => expect(window.document.activeElement).toHaveAttribute("role", "tab"));
+  expect(window.document.activeElement).toHaveAttribute("aria-selected", "true");
 });
 
 it("keeps upload inputs for retry after failure and explains local-only import accurately", async () => {
@@ -237,8 +262,10 @@ it("keeps upload inputs for retry after failure and explains local-only import a
   await user.click(screen.getByRole("button", { name: "Upload & Parse" }));
   expect(screen.getByRole("status", { name: "Resume processing status" })).toHaveTextContent("without AI entry extraction");
   expect(screen.queryByText("What this includes")).not.toBeInTheDocument();
+  expect(name).not.toBeVisible();
   await act(async () => { failUpload(new Error("Import unavailable. Retry your PDF.")); });
   expect(await screen.findByText("Import unavailable. Retry your PDF.")).toBeInTheDocument();
+  expect(name).toBeVisible();
   expect(name).toHaveValue("Retry me");
   expect(file).not.toBeDisabled();
   expect((file as HTMLInputElement).files).toHaveLength(1);

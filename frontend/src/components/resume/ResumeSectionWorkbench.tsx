@@ -1,5 +1,6 @@
 import { ActionButtons } from "@/components/ui/button-group";
 import { Text } from "@astryxdesign/core/Text";
+import { Token } from "@astryxdesign/core/Token";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Textarea } from "@/components/ui/textarea";
 import { useIsMobile } from "@/lib/use-is-mobile";
@@ -311,14 +312,12 @@ function EntryEditor({
         <div className="resume-bullets">
           {entry.bullets.map((bullet, bulletIndex) => (
             <div key={bullet.id} className="resume-bullet-row">
-              <span aria-hidden="true" className="resume-bullet-marker">
-                •
-              </span>
+              <span aria-hidden="true" className="resume-bullet-marker" />
               <div className="min-w-0 flex-1">
                 <GrowingTextarea
                   disabled={disabled}
                   aria-label={`Entry ${index + 1} bullet ${bulletIndex + 1}`}
-                  rows={2}
+                  rows={1}
                   value={bullet.text}
                   onChange={(event) =>
                     onChange({
@@ -345,8 +344,9 @@ function EntryEditor({
               </div>
               <Button
                 size="sm"
-                variant="secondary"
+                variant="ghost"
                 type="button"
+                className="resume-bullet-remove"
                 disabled={disabled}
                 aria-label={`Remove bullet ${bulletIndex + 1} from entry ${index + 1}`}
                 onClick={() =>
@@ -365,7 +365,8 @@ function EntryEditor({
           <Button
             size="sm"
             type="button"
-            variant="secondary"
+            variant="ghost"
+            className="resume-bullet-add"
             disabled={disabled}
             onClick={() =>
               onChange({
@@ -874,11 +875,12 @@ export function ResumeSectionWorkbench({
                 {editingId === section.id && source && (
                   <details className="resume-section-settings">
                     <summary>Section settings</summary>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <label className="block text-xs">
-                        <span>Section type</span>
+                    <div className="resume-section-settings-body">
+                      <label className="resume-section-settings-field">
+                        <span className="resume-section-settings-label">
+                          Section type
+                        </span>
                         <Select
-                          className="mt-1"
                           disabled={disabled}
                           value={section.kind}
                           onChange={(event) =>
@@ -909,15 +911,28 @@ export function ResumeSectionWorkbench({
                             ))}
                         </Select>
                       </label>
+                      {section.confidence !== null && (
+                        <Token
+                          label={`Import match ${Math.round(section.confidence * 100)}%`}
+                          color={
+                            section.confidence >= 0.8
+                              ? "green"
+                              : section.confidence >= 0.5
+                                ? "yellow"
+                                : "red"
+                          }
+                          size="md"
+                          className="resume-section-settings-pill rounded-full"
+                        />
+                      )}
                       <Text
                         as="p"
                         display="block"
                         type="supporting"
-                        className="self-center"
-                        style={{ color: "var(--color-text-secondary)" }}
+                        className="resume-section-settings-help"
                       >
                         {section.confidence !== null
-                          ? `Import match ${Math.round(section.confidence * 100)}%. This describes the section type, not the accuracy of its facts.`
+                          ? "This describes the section type, not the accuracy of its facts."
                           : "Choose the type that matches this content."}{" "}
                         Changing type preserves entry content as text for
                         review.

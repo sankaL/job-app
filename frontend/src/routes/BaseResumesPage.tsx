@@ -54,22 +54,11 @@ function ResumeActions({
   resume,
   busy,
   onEdit,
-  onSetDefault,
   onDelete,
-}: ResumeCardProps) {
+}: Omit<ResumeCardProps, "onSetDefault">) {
   return (
     <HStack gap={1} vAlign="center" hAlign="end" className="ml-auto shrink-0">
       <ActionButtons label="Resume actions" size="sm" variant="plain">
-        {!resume.is_default && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={onSetDefault}
-          >
-            Set Default
-          </Button>
-        )}
         <IconButton
           onClick={onEdit}
           aria-label={`Edit ${resume.name}`}
@@ -129,6 +118,17 @@ function ResumeCard(props: ResumeCardProps) {
             >
               {resume.name}
             </Text>
+            {!resume.is_default && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="shrink-0"
+                disabled={props.busy}
+                onClick={props.onSetDefault}
+              >
+                Set Default
+              </Button>
+            )}
             {resume.is_default && (
               <Token
                 label="Default"

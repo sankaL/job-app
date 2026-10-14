@@ -1,12 +1,26 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-13
+**Last updated:** 2026-10-14
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## Resume import as the page focus, with animated handoff
+
+**Status:** Complete locally, not deployed (2026-10-14).
+
+- While a PDF imports, the base resume editor hides the upload form (kept mounted so the file, name and AI choice survive a failure) and shows the import card full-height over the resume skeleton, like the generation workspace. Previously the card sat below the form.
+- On success, `GenerationHandoff` plays from the import view into the source-resume workbench: the card lifts away, the paper crossfades into the resume sheet as it moves into place, and the section index and import warning slide in. Reduced motion switches instantly.
+- `GenerationHandoff` now takes optional view, region and chrome selectors (defaults keep the application page unchanged) and lifts a centred card away when no strip is showing. This also applies to a generation that finishes before any sections arrive.
+- Focus: hiding the form during import stranded keyboard focus. When the import ends, focus moves to the selected section tab after success or back to the name field after failure, unless the user moved it elsewhere. Leaving the draft mid-handoff (for example Re-upload) now ends the animation at once, so the clone never covers the upload form.
+- Bundled in the same release from a parallel session:
+  - Source-resume bullet rows are restyled: a dot marker, single-row textareas, rounded rows with a focus ring, and a ghost remove button shown on hover or focus (always visible on touch).
+  - Section settings show the import match as a coloured "Import match %" token above the help text.
+  - On the resume library, Set Default moved from the card's action group to the title row as a standard small secondary button. The custom pill shape flagged in review was removed.
+- Tests: new card-handoff and mid-handoff cases in `generation-handoff.test.tsx`; the upload tests assert the hidden form, its return after a failure, focus after import and the handoff clean-up. Frontend suite: 355 passed. Typecheck passes.
 
 ## Admin workflow outcomes over time
 

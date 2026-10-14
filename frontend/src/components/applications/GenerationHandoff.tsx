@@ -17,18 +17,30 @@ function prefersReducedMotion() {
   return typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
 }
 
+type HandoffProps = {
+  mode: HandoffMode;
+  scope: RefObject<HTMLElement | null>;
+  children: ReactNode;
+  /** The processing view to clone. */
+  viewSelector?: string;
+  /** The workbench region that replaces it; holds the `.resume-sheet` and `.resume-index`. */
+  regionSelector?: string;
+  /** Region elements around the sheet that slide in last. */
+  chromeSelector?: string;
+};
+
 /**
- * Plays the move from the finished generation view into the draft workbench. The generation view
- * is cloned just before React removes it. The clone's strip lifts away while the partial paper
- * crossfades into the real resume sheet as the sheet moves into place. The section index and the
- * workbench footer then slide in. Reduced motion switches instantly.
+ * Plays the move from a finished processing view (generation or resume import) into the section
+ * workbench. The processing view is cloned just before React removes it. The clone's strip or
+ * card lifts away while the paper crossfades into the real resume sheet as the sheet moves into
+ * place. The section index and the workbench chrome then slide in. Reduced motion switches instantly.
  */
-export class GenerationHandoff extends Component<{ mode: HandoffMode; scope: RefObject<HTMLElement | null>; children: ReactNode }> {
+export class GenerationHandoff extends Component<HandoffProps> {
   private stop: (() => void) | null = null;
 
   getSnapshotBeforeUpdate(previous: Readonly<{ mode: HandoffMode }>): Snapshot | null {
     if (previous.mode !== "generation" || this.props.mode !== "draft" || prefersReducedMotion()) return null;
-    const view = this.props.scope.current?.querySelector<HTMLElement>(".application-resume-placeholder");
+    const view = this.props.scope.current?.querySelector<HTMLElement>(this.props.viewSelector ?? ".application-resume-placeholder");
     const paper = view?.querySelector<HTMLElement>(".resume-generation-paper");
     if (!view || !paper) return null;
     const ghost = view.cloneNode(true) as HTMLElement;
@@ -41,8 +53,10 @@ export class GenerationHandoff extends Component<{ mode: HandoffMode; scope: Ref
     return { ghost, view: view.getBoundingClientRect(), paper: paper.getBoundingClientRect(), scrollTop: view.scrollTop };
   }
 
-  componentDidUpdate(_previous: unknown, _state: unknown, snapshot: Snapshot | null) {
+  componentDidUpdate(previous: Readonly<{ mode: HandoffMode }>, _state: unknown, snapshot: Snapshot | null) {
     if (snapshot) this.play(snapshot);
+    // Leaving the draft mid-handoff (for example Re-upload) ends it, so the clone never covers the next view.
+    else if (previous.mode !== this.props.mode) this.stop?.();
   }
 
   componentWillUnmount() {
@@ -51,7 +65,7 @@ export class GenerationHandoff extends Component<{ mode: HandoffMode; scope: Ref
 
   private play({ ghost, view, paper, scrollTop }: Snapshot) {
     this.stop?.();
-    const region = this.props.scope.current?.querySelector<HTMLElement>(".draft-workbench-region");
+    const region = this.props.scope.current?.querySelector<HTMLElement>(this.props.regionSelector ?? ".draft-workbench-region");
     const sheet = region?.querySelector<HTMLElement>(".resume-sheet");
     const host = this.props.scope.current?.closest<HTMLElement>("[data-astryx-theme]") ?? document.body;
     if (!region || !sheet) return;
@@ -74,13 +88,16 @@ export class GenerationHandoff extends Component<{ mode: HandoffMode; scope: Ref
     const dx = target.left - paper.left;
     const dy = target.top - paper.top;
     const index = region.querySelector<HTMLElement>(".resume-index");
-    const chrome = [...region.querySelectorAll<HTMLElement>(".draft-workbench > :not(.draft-workbench-content)")];
+    const chrome = [...region.querySelectorAll<HTMLElement>(this.props.chromeSelector ?? ".draft-workbench > :not(.draft-workbench-content)")];
     const strip = ghost.querySelector<HTMLElement>("[data-testid='processing-strip']");
+    const card = strip ? null : ghost.querySelector<HTMLElement>("[data-flip-id='processing-panel']");
     const ghostPaper = ghost.querySelector<HTMLElement>(".resume-generation-paper");
     const live = [sheet, index, ...chrome].filter((element): element is HTMLElement => Boolean(element));
 
     const timeline = gsap.timeline({ onComplete: () => this.stop?.() });
     if (strip) timeline.to(strip, { yPercent: -100, opacity: 0, duration: 0.4, ease: "power2.in" }, 0);
+    // A centred card (no sections arrived first) rises and fades so the paper behind it takes focus.
+    if (card) timeline.to(card, { y: -16, scale: 0.96, opacity: 0, duration: 0.35, ease: "power2.in" }, 0);
     // The old paper and the sheet travel together, so the swap reads as one surface. The clone's
     // frame stays put (it clips the paper) so it never slides over the details panel.
     if (ghostPaper) timeline.to(ghostPaper, { x: dx, y: dy, duration: 0.7, ease: "power3.inOut" }, 0.1);

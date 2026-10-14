@@ -4,14 +4,16 @@ import { useRef } from "react";
 import { expect, it } from "vitest";
 import { GenerationHandoff, type HandoffMode } from "@/components/applications/GenerationHandoff";
 
-function Column({ mode }: { mode: HandoffMode }) {
+function Column({ mode, card = false }: { mode: HandoffMode; card?: boolean }) {
   const scope = useRef<HTMLDivElement>(null);
   return (
     <div ref={scope}>
       <GenerationHandoff mode={mode} scope={scope}>
         {mode === "generation" ? (
           <div className="application-resume-placeholder" aria-label="Resume generation workspace">
-            <div data-testid="processing-strip" role="status">Preparing your tailored resume</div>
+            {card
+              ? <div data-flip-id="processing-panel" role="status">Reading and structuring your resume</div>
+              : <div data-testid="processing-strip" data-flip-id="processing-panel" role="status">Preparing your tailored resume</div>}
             <div className="resume-generation-paper">Partial sections</div>
           </div>
         ) : (
@@ -52,6 +54,26 @@ it("hands the finished generation view off to the workbench and cleans up", () =
   finishAnimations();
   expect(ghost()).toBeNull();
   expect(liveStyles()).toEqual([]);
+});
+
+it("lifts a centred card away when no strip is showing", () => {
+  const { rerender } = render(<Column mode="generation" card />);
+  rerender(<Column mode="draft" card />);
+  const panel = ghost()?.querySelector<HTMLElement>("[data-flip-id='processing-panel']");
+  expect(panel).toBeTruthy();
+  act(() => gsap.globalTimeline.getChildren(false, true, true).forEach((animation) => animation.progress(0.5)));
+  expect(panel?.style.opacity).not.toBe("");
+  finishAnimations();
+  expect(ghost()).toBeNull();
+  expect(liveStyles()).toEqual([]);
+});
+
+it("ends the handoff when the draft is left mid-animation", () => {
+  const { rerender } = render(<Column mode="generation" />);
+  rerender(<Column mode="draft" />);
+  expect(ghost()).not.toBeNull();
+  rerender(<Column mode="other" />);
+  expect(ghost()).toBeNull();
 });
 
 it("only plays when generation gives way to the draft", () => {

@@ -21,6 +21,10 @@ import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  GenerationHandoff,
+  type HandoffMode,
+} from "@/components/applications/GenerationHandoff";
 import { ExportFilenameModal } from "@/components/resume/ExportFilenameModal";
 import { ResumePdfInput } from "@/components/resume/ResumePdfInput";
 import { validateFilenameTemplate } from "@/lib/exportFilename";
@@ -59,7 +63,9 @@ export function BaseResumeEditorPage() {
   const queryClient = useQueryClient();
   const { bootstrap } = useAppContext();
   const { toast } = useToast();
+  const editorRef = useRef<HTMLDivElement>(null);
   const savingRef = useRef(false);
+  const wasUploadingRef = useRef(false);
   const uploadingRef = useRef(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const isNew = !resumeId || resumeId === "new";
@@ -132,6 +138,31 @@ export function BaseResumeEditorPage() {
       cancelled = true;
     };
   }, [resumeId, isNew, uploadMode, queryClient]);
+
+  // Hiding the form during import drops focus to the page body. Once the import ends, move it to
+  // the selected section after success or back to the form after failure, unless the user moved it.
+  useEffect(() => {
+    if (uploading) {
+      wasUploadingRef.current = true;
+      return;
+    }
+    if (!wasUploadingRef.current) return;
+    wasUploadingRef.current = false;
+    const active = window.document.activeElement;
+    const focusLost =
+      !active ||
+      active === window.document.body ||
+      !active.isConnected ||
+      Boolean(active.closest(".resume-upload-layout"));
+    if (!focusLost) return;
+    const root = editorRef.current;
+    const target = resume
+      ? root?.querySelector<HTMLElement>(
+          ".resume-index [role='tab'][aria-selected='true']",
+        )
+      : root?.querySelector<HTMLElement>("#resume-name");
+    target?.focus({ preventScroll: true });
+  }, [uploading, resume]);
 
   useEffect(() => {
     if (!saved) return;
@@ -296,6 +327,14 @@ export function BaseResumeEditorPage() {
     ? editorSnapshot(name, document, filenameTemplate) !== savedSnapshot
     : Boolean(name.trim() || document.sections.length);
   const reviewingUpload = uploadMode && Boolean(resume);
+  // The import view becomes the page's focus, then hands off to the parsed sections.
+  const importHandoffMode: HandoffMode = uploading
+    ? "generation"
+    : reviewingUpload
+      ? "draft"
+      : "other";
+  const workbenchLayout =
+    !loading && (resume || uploading || (!uploadMode && isNew));
   const primaryAction =
     !loading && (resume || (!uploadMode && isNew)) ? (
       <Button
@@ -352,7 +391,8 @@ export function BaseResumeEditorPage() {
       : undefined;
   return (
     <div
-      className={`resume-editor page-enter w-full ${!loading && (resume || (!uploadMode && isNew)) ? "resume-editor--workbench" : "space-y-5"}`}
+      ref={editorRef}
+      className={`resume-editor page-enter w-full ${workbenchLayout ? "resume-editor--workbench" : "space-y-5"}`}
     >
       <PageHeader
         hasBodyHeading
@@ -477,146 +517,161 @@ export function BaseResumeEditorPage() {
             </Text>
           </Section>
         ))}
-      {loading ? (
-        <SkeletonSection />
-      ) : !isNew && !resume ? (
-        <Section>
-          <Text as="p" display="block" type="body">
-            This resume could not be loaded.
-          </Text>
-          <Button
-            className="mt-3"
-            variant="secondary"
-            onClick={() => navigate("/app/resumes")}
-          >
-            Back to resumes
-          </Button>
-        </Section>
-      ) : uploadMode && !resume ? (
-        <div className="resume-upload-layout">
-          <form
-            id="resume-upload-form"
-            className="resume-upload-form"
-            aria-busy={uploading}
-            onSubmit={handleUpload}
-          >
-            <ResumePdfInput
-              file={uploadFile}
-              disabled={uploading}
-              onChange={(file) => {
-                setUploadFile(file);
-                setError(null);
-              }}
-              onError={setError}
-            />
-            <div>
-              <Label htmlFor="resume-name">Resume Name</Label>
-              <Input
-                id="resume-name"
-                value={name}
-                maxLength={200}
-                placeholder="e.g., Senior Engineer Resume"
-                required
-                disabled={uploading}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm">
-              <Input
-                type="checkbox"
-                disabled={uploading}
-                checked={classify}
-                onChange={(event) => setClassify(event.target.checked)}
-              />{" "}
-              Use AI to extract roles, education and their details
-            </label>
-            <Text
-              as="p"
-              display="block"
-              type="supporting"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              Contact information stays local. Unknown or uncertain sections are
-              kept for your review.
+      <GenerationHandoff
+        mode={importHandoffMode}
+        scope={editorRef}
+        viewSelector=".resume-import-view"
+        regionSelector=".resume-editor-form"
+        chromeSelector=".resume-import-warning"
+      >
+        {loading ? (
+          <SkeletonSection />
+        ) : !isNew && !resume ? (
+          <Section>
+            <Text as="p" display="block" type="body">
+              This resume could not be loaded.
             </Text>
-          </form>
-          {uploading && <ResumeImportProgress useAi={classify} />}
-        </div>
-      ) : (
-        <form
-          id="base-resume-edit-form"
-          className="resume-editor-form"
-          onSubmit={handleSave}
-        >
-          {resume?.needs_review && (
-            <div className="resume-import-warning">
-              <Text as="p" display="block" type="label">
-                Check your import before tailoring
-              </Text>
-              <Text as="p" display="block" type="body" className="mt-1">
-                {resume.import_warning ??
-                  "Check the imported facts and section types."}{" "}
-                Confirm that each job has its own role, employer, dates and
-                bullets.
-              </Text>
-            </div>
-          )}
-          <ResumeSectionWorkbench
-            key={resumeId ?? "new"}
-            document={document}
-            onChange={changeDocument}
-            source
-            disabled={saving}
-            contactPanel={
-              <ResumeContactSection
-                profile={bootstrap?.profile ?? null}
-                suggestions={resume?.contact_suggestions}
-              />
-            }
-            referencePanel={
-              resume?.raw_source_md || reviewingUpload ? (
+            <Button
+              className="mt-3"
+              variant="secondary"
+              onClick={() => navigate("/app/resumes")}
+            >
+              Back to resumes
+            </Button>
+          </Section>
+        ) : uploadMode && !resume ? (
+          <>
+            {/* Hidden rather than unmounted while importing, so the chosen file and name survive a failed import. */}
+            <div className="resume-upload-layout" hidden={uploading}>
+              <form
+                id="resume-upload-form"
+                className="resume-upload-form"
+                aria-busy={uploading}
+                onSubmit={handleUpload}
+              >
+                <ResumePdfInput
+                  file={uploadFile}
+                  disabled={uploading}
+                  onChange={(file) => {
+                    setUploadFile(file);
+                    setError(null);
+                  }}
+                  onError={setError}
+                />
                 <div>
-                  <Heading level={3} className="resume-section-heading">
-                    Original extracted text
-                  </Heading>
-                  <Text
-                    as="p"
-                    display="block"
-                    type="supporting"
-                    className="mt-2"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    Check uncertain imports against this text. Add contact
-                    details to your profile.
-                  </Text>
-                  <pre className="mt-4 whitespace-pre-wrap break-words text-sm">
-                    {resume?.raw_source_md ||
-                      "Original extracted text is unavailable."}
-                  </pre>
-                  {reviewingUpload && (
-                    <Button
-                      className="mt-4"
-                      type="button"
-                      variant="secondary"
-                      onClick={() => {
-                        setResume(null);
-                        setUploadFile(null);
-                        setEditingName(false);
-                        setDocument(emptyResumeDocument());
-                        setSavedSnapshot("");
-                        setSaved(false);
-                      }}
-                    >
-                      Re-upload
-                    </Button>
-                  )}
+                  <Label htmlFor="resume-name">Resume Name</Label>
+                  <Input
+                    id="resume-name"
+                    value={name}
+                    maxLength={200}
+                    placeholder="e.g., Senior Engineer Resume"
+                    required
+                    disabled={uploading}
+                    onChange={(event) => setName(event.target.value)}
+                  />
                 </div>
-              ) : undefined
-            }
-          />
+                <label className="flex items-center gap-2 text-sm">
+                  <Input
+                    type="checkbox"
+                    disabled={uploading}
+                    checked={classify}
+                    onChange={(event) => setClassify(event.target.checked)}
+                  />{" "}
+                  Use AI to extract roles, education and their details
+                </label>
+                <Text
+                  as="p"
+                  display="block"
+                  type="supporting"
+                  style={{ color: "var(--color-text-secondary)" }}
+                >
+                  Contact information stays local. Unknown or uncertain sections are
+                  kept for your review.
+                </Text>
+              </form>
+            </div>
+            {uploading && (
+              <div className="resume-import-view">
+                <ResumeImportProgress useAi={classify} />
+              </div>
+            )}
+          </>
+        ) : (
+          <form
+            id="base-resume-edit-form"
+            className="resume-editor-form"
+            onSubmit={handleSave}
+          >
+            {resume?.needs_review && (
+              <div className="resume-import-warning">
+                <Text as="p" display="block" type="label">
+                  Check your import before tailoring
+                </Text>
+                <Text as="p" display="block" type="body" className="mt-1">
+                  {resume.import_warning ??
+                    "Check the imported facts and section types."}{" "}
+                  Confirm that each job has its own role, employer, dates and
+                  bullets.
+                </Text>
+              </div>
+            )}
+            <ResumeSectionWorkbench
+              key={resumeId ?? "new"}
+              document={document}
+              onChange={changeDocument}
+              source
+              disabled={saving}
+              contactPanel={
+                <ResumeContactSection
+                  profile={bootstrap?.profile ?? null}
+                  suggestions={resume?.contact_suggestions}
+                />
+              }
+              referencePanel={
+                resume?.raw_source_md || reviewingUpload ? (
+                  <div>
+                    <Heading level={3} className="resume-section-heading">
+                      Original extracted text
+                    </Heading>
+                    <Text
+                      as="p"
+                      display="block"
+                      type="supporting"
+                      className="mt-2"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      Check uncertain imports against this text. Add contact
+                      details to your profile.
+                    </Text>
+                    <pre className="mt-4 whitespace-pre-wrap break-words text-sm">
+                      {resume?.raw_source_md ||
+                        "Original extracted text is unavailable."}
+                    </pre>
+                    {reviewingUpload && (
+                      <Button
+                        className="mt-4"
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          setResume(null);
+                          setUploadFile(null);
+                          setEditingName(false);
+                          setDocument(emptyResumeDocument());
+                          setSavedSnapshot("");
+                          setSaved(false);
+                        }}
+                      >
+                        Re-upload
+                      </Button>
+                    )}
+                  </div>
+                ) : undefined
+              }
+            />
 
-        </form>
-      )}
+          </form>
+        )}
+      </GenerationHandoff>
       <ExportFilenameModal
         open={filenameModalOpen}
         value={filenameTemplate}
