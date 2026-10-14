@@ -10,7 +10,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Resume import as the page focus, with animated handoff
 
-**Status:** Complete locally, not deployed (2026-10-14).
+**Status:** Deployed to production (2026-10-14 EDT, commit `7c76eda`). The frontend Railway deploy succeeded, and backend and agents were skipped as unchanged. No migration.
 
 - While a PDF imports, the base resume editor hides the upload form (kept mounted so the file, name and AI choice survive a failure) and shows the import card full-height over the resume skeleton, like the generation workspace. Previously the card sat below the form.
 - On success, `GenerationHandoff` plays from the import view into the source-resume workbench: the card lifts away, the paper crossfades into the resume sheet as it moves into place, and the section index and import warning slide in. Reduced motion switches instantly.
