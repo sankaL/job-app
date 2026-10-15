@@ -10,7 +10,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Keyword optimization level and result feedback
 
-**Status:** Implemented locally (2026-10-14 EDT), not yet committed or deployed. No migration.
+**Status:** Deployed to production (2026-10-14 EDT, commits `ebe09ce` and `fd1a24c`, GitHub Actions run `38666295485`). The backend and frontend Railway deploys succeeded, and agents were skipped as unchanged. No migration.
 
 - Keyword optimization now runs at the application's saved aggressiveness (the one the page shows), falling back to the draft's level only when none is saved. Before this it always used the draft's level, so a Medium draft stayed on strict Medium rules even with High selected.
 - Accepted runs store `keyword_optimization.result` on the draft (additive JSON in `resume_drafts.generation_params`). The page shows a completion toast with before/after coverage, an error toast on failure, and a "Last optimization" line on the ATS Keywords card. Activity entries show the level, coverage, matched counts and added keywords.
