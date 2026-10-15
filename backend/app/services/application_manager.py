@@ -2620,7 +2620,8 @@ class ApplicationService:
                 raise ValueError("This section contains fixed source facts. Edit it directly in the workbench.")
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
         generation_settings = {
-            **draft.generation_params,
+            # A previous optimization's contract would steer the section writer and its coverage gate.
+            **{key: value for key, value in draft.generation_params.items() if key != "keyword_optimization"},
             "base_resume_id": source_settings["_source_snapshot"]["base_resume_id"],
             "instructions": instructions.strip(),
             **self._keyword_generation_settings(
@@ -3327,14 +3328,14 @@ class ApplicationService:
         )
         if result is None:
             return generation_params
-        starting_match = optimization.get("starting_match") if isinstance(optimization.get("starting_match"), dict) else {}
-        starting_matched = {
+        # Only the run's targets count as added; keywords edited in during the run were not its work.
+        targets = {
             str(keyword).strip().lower()
-            for keyword in starting_match.get("matched_keywords") or []
+            for keyword in optimization.get("target_keywords") or []
             if str(keyword).strip()
         }
         added_keywords = [
-            keyword for keyword in result["matched_keywords"] if keyword.strip().lower() not in starting_matched
+            keyword for keyword in result["matched_keywords"] if keyword.strip().lower() in targets
         ]
         return {
             **generation_params,

@@ -985,6 +985,7 @@ async def test_keyword_optimization_success_records_before_and_after_coverage():
                     {"text": "Kubernetes", "source": "extracted"},
                     {"text": "GraphQL", "source": "extracted"},
                     {"text": "Terraform", "source": "extracted"},
+                    {"text": "apps", "source": "manual", "added_at": "2026-04-07T12:05:00+00:00"},
                 ],
             }
         }
@@ -1047,15 +1048,16 @@ async def test_keyword_optimization_success_records_before_and_after_coverage():
     )
 
     result = drafts.fetch_draft("user-1", record.id).generation_params["keyword_optimization"]["result"]
-    assert result == {"matched_count": 2, "total_count": 4, "percentage": 50.0, "added_keywords": ["Kubernetes"]}
+    # "apps" was added as a manual keyword during the run; it matches but was not a target, so it is not "added".
+    assert result == {"matched_count": 3, "total_count": 5, "percentage": 60.0, "added_keywords": ["Kubernetes"]}
     activity = await service.list_application_activity(user_id="user-1", application_id=record.id)
     succeeded = next(item for item in activity if item.type == "keyword_optimization_succeeded")
-    assert succeeded.summary == "Keyword coverage went from 25% to 50% (1 keyword added)."
+    assert succeeded.summary == "Keyword coverage went from 25% to 60% (1 keyword added)."
     assert succeeded.details["aggressiveness"] == "high"
     assert succeeded.details["starting_percentage"] == 25.0
-    assert succeeded.details["ending_percentage"] == 50.0
+    assert succeeded.details["ending_percentage"] == 60.0
     assert succeeded.details["starting_matched_count"] == 1
-    assert succeeded.details["ending_matched_count"] == 2
+    assert succeeded.details["ending_matched_count"] == 3
     assert succeeded.details["added_keywords"] == ["Kubernetes"]
 
 
@@ -5011,6 +5013,64 @@ async def test_section_regeneration_consumes_subscription_quota_and_passes_tier_
     assert "_generation_reasoning_effort" not in queued_settings
     assert "_generation_fallback_model" not in queued_settings
     assert "_generation_fallback_reasoning_effort" not in queued_settings
+
+
+@pytest.mark.asyncio
+async def test_section_regeneration_after_keyword_optimization_drops_the_optimization_contract():
+    drafts = FakeDraftRepository()
+    service, repository, _, _, _, _, drafts = build_service(draft_repository=drafts)
+    service.base_resume_repository.add_resume(
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="## Summary\nQuality engineer.\n",
+    )
+    created = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/section-after-optimization",
+        visible_status="in_progress",
+        internal_state="resume_ready",
+    )
+    repository.update_application(
+        application_id=created.id,
+        user_id="user-1",
+        updates={
+            "job_title": "Quality Engineer",
+            "job_description": "Build reliable delivery systems.",
+            "base_resume_id": "resume-1",
+        },
+    )
+    drafts.upsert_draft(
+        application_id=created.id,
+        user_id="user-1",
+        content_md="# Test User\ninvite-only@example.com | 555-0100 | Toronto, ON\n\n## Summary\nQuality engineer.\n",
+        generation_params={
+            "page_length": "1_page",
+            "aggressiveness": "medium",
+            "keyword_optimization": {
+                "enabled": True,
+                "target_keywords": ["delivery systems"],
+                "preserve_keywords": [],
+                "starting_match": {"matched_count": 0, "total_count": 1, "percentage": 0.0, "matched_keywords": []},
+                "result": {"matched_count": 1, "total_count": 1, "percentage": 100.0, "added_keywords": ["delivery systems"]},
+            },
+        },
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    saved_draft = service.draft_repository.fetch_draft("user-1", created.id)
+    base = service.base_resume_repository.fetch_resume("user-1", "resume-1")
+    saved_draft.document = parse_resume_document(saved_draft.content_md, reviewed=True, previous=base.document).model_dump(mode="json")
+    saved_draft.source_snapshot = {"base_resume_id": "resume-1", "revision": 1, "document": base.document, "content_md": base.content_md}
+
+    await service.trigger_section_regeneration(
+        user_id="user-1",
+        application_id=created.id,
+        section_name="summary",
+        instructions="Make the summary more direct.",
+    )
+
+    queued_settings = service.generation_job_queue.regenerations[0]["generation_settings"]
+    assert "keyword_optimization" not in queued_settings
+    assert queued_settings["aggressiveness"] == "medium"
 
 
 @pytest.mark.asyncio

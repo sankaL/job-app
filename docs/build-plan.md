@@ -15,7 +15,8 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 - Keyword optimization now runs at the application's saved aggressiveness (the one the page shows), falling back to the draft's level only when none is saved. Before this it always used the draft's level, so a Medium draft stayed on strict Medium rules even with High selected.
 - Accepted runs store `keyword_optimization.result` on the draft (additive JSON in `resume_drafts.generation_params`). The page shows a completion toast with before/after coverage, an error toast on failure, and a "Last optimization" line on the ATS Keywords card. Activity entries show the level, coverage, matched counts and added keywords.
 - The confirmation dialog names the level and what it allows, and the button reads Optimize. Optimize is blocked while an aggressiveness change is saving.
-- Tests: backend level-selection (parametrized) and before/after result cases. Frontend: confirm-dialog level, completion toast and card line, and the activity details view. Backend 614 passed; frontend 359 passed; typecheck and build pass.
+- Review fixes: section regeneration no longer copies the previous optimization's `keyword_optimization` settings. Before, it sent that optimization's targets to the section writer and coverage gate, and would have recomputed a misleading result and toast. `added_keywords` counts only the run's own targets.
+- Tests: backend level-selection (parametrized), before/after result (including a keyword edited in mid-run) and section-regeneration-after-optimization cases. Frontend: confirm-dialog level, completion toast and card line, and the activity details view. Backend 614 passed; frontend 359 passed; typecheck and build pass.
 
 ## Resume import as the page focus, with animated handoff
 
