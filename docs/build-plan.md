@@ -10,7 +10,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## Export formatting fixes (Classic and Modern)
 
-**Status:** Implemented locally (2026-10-14 EDT), not yet deployed. No migration.
+**Status:** Deployed to production (2026-10-14 EDT, commits `bfe36af` and `43216f1`, GitHub Actions run `38671601545`). The backend and frontend Railway deploys succeeded, and agents were skipped as unchanged. No migration. Post-deploy: `/healthz` 200, `/api/export-styles` 401 without auth, new thumbnails served (Cloudflare edge copies refresh within the 4-hour cache). In the production container all five styles render with their bundled fonts (Classic: Gelasio) in 0.1–1.0 s for a sample resume.
 
 - The structured two-row Experience/Education layout now applies to alias headings (Experience, Work Experience, Employment, Academic Background). An alias section whose entries do not fit falls back to Markdown.
 - Company is bold and one step larger, and the role title is bold italic (PDF and DOCX). Project names lead each project bullet in bold. Skills labels are bold.
