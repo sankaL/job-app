@@ -646,11 +646,11 @@ Users can edit section Markdown and structured entries in one workbench when gen
   - row 2 left-aligned role/degree
   - row 2 right-aligned duration or graduation date when available
   - bullets below the two-row header
-  - the same layout applies when the source uses an alias heading such as Experience, Work Experience or Employment. An alias section whose entries do not fit the two-row contract exports as plain Markdown instead of failing.
+  - the same layout applies when the source uses an alias heading such as Experience, Work Experience or Employment. An alias section exports as plain Markdown instead of failing when its entries do not fit the two-row contract, when an entry block has neither a `|` row nor bullets, or when a block line is a Markdown heading.
   - Professional Experience row 1 (organization) is bold and one step larger than body text. Row 2 (role title) is bold italic. Education keeps a bold school and an italic degree.
-- Projects lead with the project name in bold. A bullet written as "Built Gust, a voice-first task manager …" exports as "**Gust:** Built a voice-first task manager …": the words are unchanged and only the name moves. A short "Name:" prefix or a project name on its own line is bolded as it stands.
+- Projects lead with the project name in bold. A bullet written as "Built Gust, a voice-first task manager …" exports as "**Gust:** Built a voice-first task manager …": the words are unchanged and only the name moves. A short "Name:" prefix or a project name on its own line is bolded as it stands. Bullets under a project header row or name line keep their wording, and a bullet whose appositive is a short parenthetical ("Used LangChain, an LLM framework, to …") is left unchanged.
 - Skills category labels ("AI evaluation:") are bold. Each labelled line of a plain Skills paragraph stays on its own line.
-- No bullet or paragraph ends on a line with one or two short words: the last words are joined with non-breaking spaces until the last line holds at least 16 characters (at most 4 words, 24 characters).
+- In PDF, no bullet or paragraph ends on a line with one or two short words: the last words (until they hold at least 16 characters, at most 4 words and 24 characters) sit in a `white-space: nowrap` span. The text keeps plain spaces, so ATS text extraction is unaffected. DOCX leaves line breaking to Word.
 - The contact line shows LinkedIn as `linkedin.com/in/<handle>`. Location is the profile address exactly as entered.
 - When a one-page resume fits with room to spare, the extra space goes first to line spacing (up to 1.34), then margins (up to 0.75 in), then type size, then gaps between sections.
 - PDF and DOCX must be rendered from the same semantic resume model so field placement stays consistent across formats

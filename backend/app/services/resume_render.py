@@ -323,6 +323,20 @@ def _normalize_structured_entries(
     return RenderSection(heading=heading, kind=section_kind, entries=entries)
 
 
+def _require_entry_shaped_blocks(lines: list[str]) -> None:
+    """An alias heading only gets the two-row layout when every block clearly is an entry.
+
+    Free text or Markdown headings under "Experience" would otherwise be read as company and role.
+    """
+    for block in _blocks_from_lines(lines):
+        header_lines = [line.strip() for line in block if not BULLET_RE.match(line.strip())]
+        has_bullets = len(header_lines) < len(block)
+        if any(line.startswith("#") for line in header_lines):
+            raise ValueError("Markdown heading inside an entry block.")
+        if not has_bullets and not any("|" in line for line in header_lines):
+            raise ValueError("Entry block has no location/date row and no bullets.")
+
+
 def _normalize_markdown_section(*, heading: str, lines: list[str]) -> RenderSection:
     body = "\n".join(lines).strip("\n")
     return RenderSection(heading=heading, kind="markdown", markdown_body=body)
@@ -380,6 +394,7 @@ def build_render_document(markdown_content: str) -> RenderBuildResult:
         alias_kind = STRUCTURED_SECTION_ALIASES.get(normalized_heading)
         if alias_kind is not None:
             try:
+                _require_entry_shaped_blocks(lines)
                 sections.append(_normalize_structured_entries(heading=heading, section_kind=alias_kind, lines=lines))
             except ValueError:
                 sections.append(_normalize_markdown_section(heading=heading, lines=lines))

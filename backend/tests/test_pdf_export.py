@@ -45,7 +45,7 @@ def test_build_html_renders_one_header_for_existing_assembly_header():
     assert html.count("<header class='resume-header'>") == 1
     assert html.count("<h1>Alex Example</h1>") == 1
     assert "## Summary" not in html
-    assert "Built backend\u00a0systems." in html
+    assert "Built <span class='keep-together'>backend systems.</span>" in html
 
 
 def test_normalize_markdown_replaces_plain_text_header_matching_profile():
@@ -86,13 +86,13 @@ def test_build_html_uses_point_spacing_units():
 def test_render_content_blocks_unwraps_single_item_list_markup_inside_bullets():
     html = pdf_export._render_content_blocks(["- * nested bullet"])
 
-    assert html == "<ul><li>nested\u00a0bullet</li></ul>"
+    assert html == "<ul><li><span class='keep-together'>nested bullet</span></li></ul>"
 
 
 def test_render_content_blocks_preserves_literal_star_content_inside_bullets():
     html = pdf_export._render_content_blocks(["- *nix operations"])
 
-    assert "*nix\u00a0operations" in html
+    assert "*nix operations" in html
     assert "<ul><li><ul>" not in html
 
 
@@ -420,7 +420,7 @@ def test_render_docx_sync_renders_header_bullets_and_split_rows_without_tables()
     assert any("PROFESSIONAL EXPERIENCE" == text for text in paragraph_text)
     assert any("Acme Corp\tToronto, ON" == text for text in paragraph_text)
     assert any("Senior Data Architect\tJan 2020 - Present" == text for text in paragraph_text)
-    assert any("Led migration\u00a0program" in text for text in paragraph_text)
+    assert any("Led migration program" in text for text in paragraph_text)
 
 
 def test_render_docx_sync_bolds_only_professional_experience_role_title_split_rows():
@@ -579,13 +579,26 @@ def test_skills_paragraph_lines_keep_bold_labels_on_separate_lines():
 
 
 def test_bullets_and_paragraphs_never_end_on_one_short_word():
-    nbsp = "\u00a0"
+    def keep(text: str) -> str:
+        return f"<span class='keep-together'>{text}</span>"
 
-    assert pdf_export._bind_trailing_words("shipping every release on budget.") == f"shipping every release{nbsp}on{nbsp}budget."
-    assert pdf_export._bind_trailing_words("cutting work from days to hours.") == f"cutting work from{nbsp}days{nbsp}to{nbsp}hours."
-    assert pdf_export._bind_trailing_words("experiment management.") == f"experiment{nbsp}management."
-    assert pdf_export._bind_trailing_words("<strong>Gust:</strong> a tool") == f"<strong>Gust:</strong> a{nbsp}tool"
+    assert pdf_export._bind_trailing_words("shipping every release on budget.") == f"shipping every {keep('release on budget.')}"
+    assert pdf_export._bind_trailing_words("cutting work from days to hours.") == f"cutting work {keep('from days to hours.')}"
+    assert pdf_export._bind_trailing_words("experiment management.") == keep("experiment management.")
+    assert pdf_export._bind_trailing_words("<strong>Gust:</strong> a tool") == f"<strong>Gust:</strong> {keep('a tool')}"
     assert pdf_export._bind_trailing_words("short") == "short"
+
+
+def test_trailing_word_binding_keeps_plain_spaces_out_of_docx_and_pdf_text():
+    from docx import Document
+
+    markdown_content = "## Summary\nShipped every release on budget.\n"
+    html = pdf_export._build_html(markdown_content, pdf_export.LAYOUT_PRESETS[0])
+    document = Document(io.BytesIO(pdf_export._render_docx_sync(markdown_content, None, "1_page")))
+
+    assert "\u00a0" not in html
+    assert ".keep-together {\n      white-space: nowrap;" in html
+    assert any(paragraph.text == "Shipped every release on budget." for paragraph in document.paragraphs)
 
 
 def test_linkedin_contact_keeps_the_domain():
@@ -605,3 +618,103 @@ def test_render_docx_sync_bolds_project_names_and_skill_labels():
     assert project.runs[0].text == "Gust:" and project.runs[0].bold is True
     assert skill.runs[0].text == "AI evaluation:" and skill.runs[0].bold is True
     assert role.runs[0].bold is True
+
+
+def test_project_bullets_under_a_named_project_keep_their_wording():
+    for markdown_content in (
+        "## Projects\nGust | 2024\n- Leveraged LangChain, a framework for agents, to build the planner.\n",
+        "## Projects\nGust\n- Leveraged LangChain, a framework for agents, to build the planner.\n",
+    ):
+        html = pdf_export._build_html(markdown_content, pdf_export.LAYOUT_PRESETS[0])
+
+        assert "<strong>LangChain:</strong>" not in html
+        assert "Leveraged LangChain, a framework for agents, to" in html
+        assert "<span class='split-left split-left-strong'>Gust</span>" in html or "<h3>Gust</h3>" in html
+
+
+def test_project_name_lead_skips_a_short_parenthetical_appositive():
+    text = "Leveraged LangChain, an LLM framework, to build agents."
+
+    assert pdf_export._lead_with_project_name(text) == text
+
+
+def test_experience_alias_free_text_and_markdown_headings_stay_markdown():
+    for markdown_content in (
+        "## Experience\nWorked across many teams.\nLed hiring for the group.\n",
+        "## Experience\n### Acme Corp | Toronto, ON\nEngineer | Jan 2020 - Present\n- Built APIs.\n",
+    ):
+        document = pdf_export._build_export_document(markdown_content)
+
+        assert not any(isinstance(block, pdf_export.ExportStructuredEntry) for block in document.sections[0].blocks)
+
+
+def test_render_docx_sync_skills_rows_have_single_line_breaks():
+    from docx import Document
+
+    docx_bytes = pdf_export._render_docx_sync("## Skills\nLanguages: Python, SQL\nCloud: AWS, Azure\n", None, "1_page")
+    document = Document(io.BytesIO(docx_bytes))
+
+    assert any(paragraph.text == "Languages: Python, SQL\nCloud: AWS, Azure" for paragraph in document.paragraphs)
+
+
+def test_linkedin_bare_handle_gets_the_domain():
+    assert pdf_export._format_linkedin_value("in/sankal") == "linkedin.com/in/sankal"
+    assert pdf_export._format_linkedin_value("sankal") == "sankal"
+
+
+def test_classic_pdf_embeds_gelasio():
+    import weasyprint
+
+    from app.services.export_styles import resolve_style
+
+    html = pdf_export._build_html(_STYLE_SAMPLE_MARKDOWN, pdf_export.LAYOUT_PRESETS[0], style=resolve_style("classic"))
+    document = weasyprint.HTML(string=html).render()
+    document.write_pdf()
+
+    assert {font.family for font in document.fonts.values()} == {"Resume Gelasio"}
+
+
+def test_one_page_fill_grows_line_spacing_then_margins_and_never_shrinks(monkeypatch):
+    monkeypatch.setattr(
+        pdf_export,
+        "LAYOUT_PRESETS",
+        [pdf_export.LayoutPreset(body_font_size=10.0, line_height=1.30, page_margin=0.5, spacing_scale=0.9)],
+    )
+    renders: list[tuple[float, float, float]] = []
+
+    def fake_render_html_to_pdf(html_content: str) -> tuple[bytes, int]:
+        line_height = float(re.search(r"line-height: ([0-9.]+);", html_content).group(1))
+        margin = float(re.search(r"margin: ([0-9.]+)in;", html_content).group(1))
+        font = float(re.search(r"font-size:\s*([0-9.]+)pt;", html_content).group(1))
+        renders.append((line_height, margin, font))
+        return (b"pdf", 1)
+
+    monkeypatch.setattr(pdf_export, "_render_html_to_pdf", fake_render_html_to_pdf)
+
+    pdf_export._generate_pdf_with_autofit_sync("## Summary\nBuilt backend systems.\n", _personal_info(), "1_page")
+
+    accepted = renders[1:]
+    # Line spacing is tried first, then margins, before type size grows.
+    assert accepted[0] == (1.33, 0.5, 10.0)
+    assert accepted[1] == (1.33, 0.55, 10.0)
+    assert accepted[2][2] > 10.0
+    assert all(later[0] >= earlier[0] and later[1] >= earlier[1] for earlier, later in zip(accepted, accepted[1:]))
+    assert max(line for line, _margin, _font in renders) <= pdf_export.ROOMY_MAX_LINE_HEIGHT
+    assert max(margin for _line, margin, _font in renders) <= pdf_export.ROOMY_MAX_PAGE_MARGIN
+    assert len(renders) <= 1 + pdf_export.ONE_PAGE_VALIDATION_ROOMIER_STEPS * 4
+
+
+def test_one_page_fill_returns_best_fit_when_time_budget_runs_out(monkeypatch):
+    monkeypatch.setattr(pdf_export, "ONE_PAGE_VALIDATION_BUDGET_SECONDS", 0.0)
+    renders: list[str] = []
+
+    def fake_render_html_to_pdf(html_content: str) -> tuple[bytes, int]:
+        renders.append(html_content)
+        return (b"base-fit", 1)
+
+    monkeypatch.setattr(pdf_export, "_render_html_to_pdf", fake_render_html_to_pdf)
+
+    pdf_bytes = pdf_export._generate_pdf_with_autofit_sync("## Summary\nBuilt backend systems.\n", _personal_info(), "1_page")
+
+    assert pdf_bytes == b"base-fit"
+    assert len(renders) == 1

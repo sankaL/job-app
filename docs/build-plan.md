@@ -14,10 +14,11 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 - The structured two-row Experience/Education layout now applies to alias headings (Experience, Work Experience, Employment, Academic Background). An alias section whose entries do not fit falls back to Markdown.
 - Company is bold and one step larger, and the role title is bold italic (PDF and DOCX). Project names lead each project bullet in bold. Skills labels are bold.
-- The last words of bullets and paragraphs are joined with non-breaking spaces, so no line ends on one or two short words.
+- In PDF, the last words of bullets and paragraphs sit in a nowrap span, so no line ends on one or two short words. The text keeps plain spaces, and DOCX is unaffected.
 - Classic embeds Gelasio (Georgia-metric, OFL) instead of falling back to DejaVu Serif. Spare one-page room now goes to line spacing, then margins (up to 0.75 in), then type size, then section gaps.
 - LinkedIn prints as `linkedin.com/in/<handle>`.
-- Tests: alias layout and fallback, project-name lead, Skills labels in bullets and paragraphs, trailing-word binding, LinkedIn format, DOCX emphasis, Classic font face. Backend 623 passed.
+- Review fixes: the fill steps only grow values and stop after an 8-second budget, DOCX Skills rows no longer get a blank line between them, bullets under a named project keep their wording, alias Experience free text stays Markdown, and a bare `in/<handle>` gets the domain.
+- Tests: alias layout and fallback, project-name lead and its guards, Skills labels in bullets and paragraphs, trailing-word binding (no NBSP in PDF or DOCX text), fill order, caps and time budget, LinkedIn format, DOCX emphasis and line breaks, and Gelasio embedded in Classic. Backend 632 passed.
 
 ## Keyword optimization level and result feedback
 

@@ -5,6 +5,7 @@ import html
 import io
 import logging
 import re
+import time
 from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
 from typing import Optional, Union
@@ -50,12 +51,18 @@ PROJECT_NAME_LEAD_RE = re.compile(
 # "AI evaluation: LLM-as-judge, ..." or "Gust: voice-first task manager".
 LEADING_LABEL_RE = re.compile(r"^(?P<label>[A-Za-z0-9][\w&/+#.()' -]{0,38}?[\w)+#]):\s+(?P<rest>\S.*)$", re.S)
 LEADING_LABEL_MAX_WORDS = 5
-# Join the last words of a bullet or paragraph so a line never ends with one short word.
+# Keep the last words of a PDF bullet or paragraph together so a line never ends with one short word.
+# A nowrap span keeps plain spaces in the PDF text layer for ATS parsers; DOCX is left to Word.
 WIDOW_MIN_TAIL_CHARS = 16
 WIDOW_MAX_TAIL_CHARS = 24
 WIDOW_MAX_TAIL_WORDS = 4
-NBSP = "\u00a0"
+KEEP_TOGETHER_CLASS = "keep-together"
+# A short appositive closed by a comma ("Used LangChain, an LLM framework, to ...") is parenthetical;
+# moving the name would break the sentence.
+PROJECT_APPOSITIVE_MIN_WORDS = 5
 ONE_PAGE_VALIDATION_ROOMIER_STEPS = 6
+# The whole export has a 20s timeout; stop growing early and keep the best fitting PDF.
+ONE_PAGE_VALIDATION_BUDGET_SECONDS = 8.0
 ROOMY_MAX_LINE_HEIGHT = 1.34
 ROOMY_MAX_PAGE_MARGIN = 0.75
 MIN_READABLE_BODY_FONT_SIZE = 9.4
@@ -282,7 +289,7 @@ def _format_linkedin_value(value: object) -> str:
 
     normalized = re.sub(r"^https?://", "", linkedin, flags=re.I)
     normalized = re.sub(r"^[a-z]{2,3}\.(?=linkedin\.com)|^www\.", "", normalized, flags=re.I).rstrip("/")
-    match = re.search(r"linkedin\.com/(in|pub|company)/(.+)", normalized, re.I)
+    match = re.search(r"(?:linkedin\.com/|^)(in|pub|company)/(.+)", normalized, re.I)
     if match:
         return f"linkedin.com/{match.group(1).lower()}/{match.group(2).strip('/')}"
     return normalized
@@ -424,10 +431,6 @@ def _section_kind(section_heading: Optional[str]) -> Optional[str]:
     return SECTION_ALIASES.get(normalized)
 
 
-def _is_professional_experience_section(section_heading: Optional[str]) -> bool:
-    return _section_kind(section_heading) == "professional_experience"
-
-
 def _has_inline_markup(text: str) -> bool:
     return bool(re.search(r"[*_`\[<]", text))
 
@@ -453,34 +456,36 @@ def _lead_with_project_name(text: str) -> str:
     match = PROJECT_NAME_LEAD_RE.match(text)
     if match is None or _has_inline_markup(match.group("name")):
         return text
+    first_sentence = re.split(r"[.!?](?:\s|$)", match.group("rest"), maxsplit=1)[0]
+    if "," in first_sentence and len(first_sentence.split(",")[0].split()) + 1 < PROJECT_APPOSITIVE_MIN_WORDS:
+        return text
     return f"**{match.group('name')}:** {match.group('verb')} {match.group('article')} {match.group('rest')}"
 
 
 def _bind_trailing_words(html_fragment: str) -> str:
-    """Replace the last breakable spaces with non-breaking ones so the final line keeps a few words."""
+    """Wrap the last few words in a nowrap span so the final line keeps more than one short word."""
     parts = re.split(r"(<[^>]+>)", html_fragment)
-    tail_chars = 0
-    tail_words = 1
-    for part_index in range(len(parts) - 1, -1, -1):
-        part = parts[part_index]
-        if part.startswith("<"):
-            continue
-        characters = list(part)
-        for char_index in range(len(characters) - 1, -1, -1):
-            if characters[char_index] != " ":
-                tail_chars += 1
-                continue
-            if tail_chars >= WIDOW_MIN_TAIL_CHARS or tail_words >= WIDOW_MAX_TAIL_WORDS:
-                parts[part_index] = "".join(characters)
-                return "".join(parts)
-            next_word = re.search(r"(\S+)\s*$", "".join(characters[:char_index]))
-            if next_word is None or tail_chars + 1 + len(next_word.group(1)) > WIDOW_MAX_TAIL_CHARS:
-                parts[part_index] = "".join(characters)
-                return "".join(parts)
-            characters[char_index] = NBSP
-            tail_chars += 1
-            tail_words += 1
-        parts[part_index] = "".join(characters)
+    part_index = next(
+        (index for index in range(len(parts) - 1, -1, -1) if not parts[index].startswith("<") and parts[index].strip()),
+        None,
+    )
+    if part_index is None:
+        return html_fragment
+    text = parts[part_index].rstrip()
+    trailing = parts[part_index][len(text):]
+    words = text.split(" ")
+    tail_start = len(words) - 1
+    while tail_start > 0 and len(words) - tail_start < WIDOW_MAX_TAIL_WORDS:
+        tail = " ".join(words[tail_start:])
+        candidate = " ".join(words[tail_start - 1:])
+        if len(tail) >= WIDOW_MIN_TAIL_CHARS or not words[tail_start - 1] or len(candidate) > WIDOW_MAX_TAIL_CHARS:
+            break
+        tail_start -= 1
+    if tail_start == len(words) - 1:
+        return html_fragment
+    head = " ".join(words[:tail_start]) + " " if tail_start else ""
+    tail = " ".join(words[tail_start:])
+    parts[part_index] = f"{head}<span class='{KEEP_TOGETHER_CLASS}'>{tail}</span>{trailing}"
     return "".join(parts)
 
 
@@ -511,8 +516,8 @@ def _render_list_item_content(text: str) -> str:
     stripped = rendered.strip()
     match = SINGLE_LIST_WRAPPER_RE.fullmatch(stripped)
     if match:
-        stripped = match.group(1).strip()
-    return _bind_trailing_words(stripped)
+        return match.group(1).strip()
+    return stripped
 
 
 def _emphasize_list_item(text: str, section_kind: Optional[str]) -> str:
@@ -558,6 +563,7 @@ def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = 
     section_kind = _section_kind(section_heading)
     in_professional_experience = section_kind == "professional_experience"
     in_projects = section_kind == "projects"
+    project_named = False
 
     while index < len(lines):
         stripped = lines[index].strip()
@@ -595,6 +601,7 @@ def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = 
                     index += 1
                 if rows:
                     blocks.append(ExportSplitGroup(rows=rows))
+                    project_named = in_projects
                 continue
 
         bullet_match = BULLET_RE.match(stripped)
@@ -605,7 +612,11 @@ def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = 
                 current_match = BULLET_RE.match(current)
                 if current_match is None:
                     break
-                items.append(_render_list_item_content(_emphasize_list_item(current_match.group(1).strip(), section_kind)))
+                item = current_match.group(1).strip()
+                # Bullets under a project header describe that project; only standalone bullets lead with a name.
+                if not project_named:
+                    item = _emphasize_list_item(item, section_kind)
+                items.append(_render_list_item_content(item))
                 index += 1
             blocks.append(ExportBulletList(items=items))
             continue
@@ -620,6 +631,7 @@ def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = 
         ):
             # A project name on its own line, followed by its bullets.
             blocks.append(ExportSubheading(text=stripped))
+            project_named = True
             index += 1
             continue
 
@@ -643,7 +655,7 @@ def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = 
                 labelled = [line + "  " for line in labelled[:-1]] + labelled[-1:]
             paragraph_lines = labelled
 
-        blocks.append(ExportParagraph(html_fragment=_bind_trailing_words(_render_markdown_block("\n".join(paragraph_lines)))))
+        blocks.append(ExportParagraph(html_fragment=_render_markdown_block("\n".join(paragraph_lines))))
 
     return blocks
 
@@ -726,7 +738,7 @@ def _render_html_blocks(blocks: list[ExportBlock]) -> str:
     def render_structured_entry(entry: ExportStructuredEntry) -> str:
         bullet_html = ""
         if entry.bullets:
-            items = "".join(f"<li>{item}</li>" for item in entry.bullets)
+            items = "".join(f"<li>{_bind_trailing_words(item)}</li>" for item in entry.bullets)
             bullet_html = f"<ul>{items}</ul>"
         return (
             f"<div class='structured-entry structured-entry-{entry.variant}'>"
@@ -744,11 +756,11 @@ def _render_html_blocks(blocks: list[ExportBlock]) -> str:
 
     for block in blocks:
         if isinstance(block, ExportParagraph):
-            html_blocks.append(block.html_fragment)
+            html_blocks.append(_bind_trailing_words(block.html_fragment))
         elif isinstance(block, ExportSubheading):
             html_blocks.append(f"<h3>{html.escape(block.text)}</h3>")
         elif isinstance(block, ExportBulletList):
-            items = "".join(f"<li>{item}</li>" for item in block.items)
+            items = "".join(f"<li>{_bind_trailing_words(item)}</li>" for item in block.items)
             html_blocks.append(f"<ul>{items}</ul>")
         elif isinstance(block, ExportSplitGroup):
             html_blocks.append(render_split_group(block))
@@ -1063,6 +1075,9 @@ def _build_html(
     }}
     em {{
       font-style: italic;
+    }}
+    .{KEEP_TOGETHER_CLASS} {{
+      white-space: nowrap;
     }}{_style_override_css(style, preset)}
   </style>
 </head>
@@ -1087,22 +1102,27 @@ def _is_readable_preset(preset: LayoutPreset) -> bool:
     return preset.body_font_size >= MIN_READABLE_BODY_FONT_SIZE and preset.line_height >= MIN_READABLE_LINE_HEIGHT
 
 
+def _grow(value: float, step: float, cap: float) -> float:
+    # Never shrink a value another relief step already raised past this cap.
+    return round(max(value, min(cap, value + step)), 2)
+
+
 def _build_roomier_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
     return LayoutPreset(
-        body_font_size=round(min(12.8, preset.body_font_size + 0.22), 2),
-        line_height=round(min(1.32, preset.line_height + 0.02), 2),
+        body_font_size=_grow(preset.body_font_size, 0.22, 12.8),
+        line_height=_grow(preset.line_height, 0.02, ROOMY_MAX_LINE_HEIGHT),
         page_margin=preset.page_margin,
-        spacing_scale=round(min(1.35, preset.spacing_scale + 0.07), 2),
-        section_spacing_scale=round(min(1.75, preset.section_spacing_scale + 0.08), 2),
+        spacing_scale=_grow(preset.spacing_scale, 0.07, 1.35),
+        section_spacing_scale=_grow(preset.section_spacing_scale, 0.08, 1.75),
     )
 
 
 def _build_line_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
-    return replace(preset, line_height=round(min(ROOMY_MAX_LINE_HEIGHT, preset.line_height + 0.03), 2))
+    return replace(preset, line_height=_grow(preset.line_height, 0.03, ROOMY_MAX_LINE_HEIGHT))
 
 
 def _build_margin_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
-    return replace(preset, page_margin=round(min(ROOMY_MAX_PAGE_MARGIN, preset.page_margin + 0.05), 2))
+    return replace(preset, page_margin=_grow(preset.page_margin, 0.05, ROOMY_MAX_PAGE_MARGIN))
 
 
 def _build_section_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
@@ -1111,7 +1131,7 @@ def _build_section_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset
         line_height=preset.line_height,
         page_margin=preset.page_margin,
         spacing_scale=preset.spacing_scale,
-        section_spacing_scale=round(min(1.9, preset.section_spacing_scale + 0.14), 2),
+        section_spacing_scale=_grow(preset.section_spacing_scale, 0.14, 1.9),
     )
 
 
@@ -1125,6 +1145,7 @@ def _validate_roomier_one_page_fit(
 ) -> bytes:
     best_pdf = base_pdf
     best_preset = base_preset
+    deadline = time.monotonic() + ONE_PAGE_VALIDATION_BUDGET_SECONDS
 
     for _step in range(ONE_PAGE_VALIDATION_ROOMIER_STEPS):
         improved = False
@@ -1138,6 +1159,9 @@ def _validate_roomier_one_page_fit(
             candidate_preset = build_candidate(best_preset)
             if candidate_preset == best_preset:
                 continue
+            if time.monotonic() >= deadline:
+                logger.warning("One-page fit search hit its time budget; exporting the best fit so far.")
+                return best_pdf
             html_content = _build_html(document, candidate_preset, preset_index=base_index, style=style)
             pdf_bytes, page_count = _render_html_to_pdf(html_content)
             if page_count > 1:
@@ -1190,6 +1214,7 @@ class _InlineHTMLToDocxParser(HTMLParser):
         self.paragraph = paragraph
         self.bold_depth = 1 if default_bold else 0
         self.italic_depth = 1 if default_italic else 0
+        self.after_break = False
 
     def handle_starttag(self, tag: str, attrs) -> None:  # noqa: ANN001
         if tag in {"strong", "b"}:
@@ -1198,6 +1223,7 @@ class _InlineHTMLToDocxParser(HTMLParser):
             self.italic_depth += 1
         elif tag == "br":
             self.paragraph.add_run().add_break()
+            self.after_break = True
 
     def handle_endtag(self, tag: str) -> None:
         if tag in {"strong", "b"} and self.bold_depth > 0:
@@ -1206,6 +1232,10 @@ class _InlineHTMLToDocxParser(HTMLParser):
             self.italic_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        if self.after_break:
+            # Markdown emits "<br />\n"; python-docx would turn that newline into a second break.
+            data = data.lstrip("\n")
+            self.after_break = False
         if not data:
             return
         run = self.paragraph.add_run(html.unescape(data))
