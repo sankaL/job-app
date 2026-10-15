@@ -1627,19 +1627,23 @@ class ApplicationService:
                 kept_original = _kept_original_section_count(generated.document)
                 if kept_original:
                     details["kept_original_sections"] = kept_original
+                metadata: dict[str, Any] = {
+                    "activity_type": (
+                        "keyword_optimization_succeeded"
+                        if is_keyword_optimization
+                        else "regeneration_full_succeeded"
+                    ),
+                }
+                if is_keyword_optimization:
+                    details.update(self._keyword_optimization_activity_details(draft.generation_params))
+                    metadata["summary"] = self._keyword_optimization_summary(details)
+                metadata["details"] = details or None
                 self._record_usage_event(
                     user_id=record.user_id,
                     application_id=record.id,
                     event_type="regeneration",
                     event_status="success",
-                    metadata={
-                        "activity_type": (
-                            "keyword_optimization_succeeded"
-                            if is_keyword_optimization
-                            else "regeneration_full_succeeded"
-                        ),
-                        "details": details or None,
-                    },
+                    metadata=metadata,
                 )
         except Exception:
             logger.exception("Failed reconciling cached generation success notifications for %s", record.id)
@@ -1836,7 +1840,9 @@ class ApplicationService:
                 raise ValueError("The generated source snapshot does not match the queued source.")
             extra = {"document": generated.document, "source_snapshot": generated.source_snapshot}
             content = self._document_content(document=generated.document, user_id=record.user_id)
-        return self.draft_repository.upsert_draft(application_id=record.id, user_id=record.user_id, content_md=self._normalize_draft_content(content), generation_params=generated.generation_params, sections_snapshot=generated.sections_snapshot, **extra)
+        content_md = self._normalize_draft_content(content)
+        generation_params = self._with_keyword_optimization_result(record=record, generation_params=generated.generation_params, content_md=content_md)
+        return self.draft_repository.upsert_draft(application_id=record.id, user_id=record.user_id, content_md=content_md, generation_params=generation_params, sections_snapshot=generated.sections_snapshot, **extra)
 
     async def trigger_generation(
         self,
@@ -2404,9 +2410,7 @@ class ApplicationService:
         # Keyword optimization uses monthly resume_generation_usage quota; full_regeneration_count is legacy.
         source_settings = self._source_settings(base_resume=base_resume, profile=profile, draft=draft, use_snapshot=True)
         quota_reservation = self._reserve_generation_quota(user_id=user_id)
-        aggressiveness = str(draft.generation_params.get("aggressiveness") or "medium").strip().lower()
-        if aggressiveness not in KEYWORD_COVERAGE_TARGETS:
-            aggressiveness = "medium"
+        aggressiveness = self._keyword_optimization_aggressiveness(record=record, draft=draft)
         target_length = str(
             draft.generation_params.get("page_length")
             or draft.generation_params.get("target_length")
@@ -2502,9 +2506,12 @@ class ApplicationService:
                 application_id=application_id,
                 activity_type="keyword_optimization_started",
                 details={
+                    "aggressiveness": aggressiveness,
                     "target_keyword_count": len(keyword_match["missing_keywords"]),
                     "preserve_keyword_count": len(keyword_match["matched_keywords"]),
                     "starting_percentage": keyword_match["percentage"],
+                    "starting_matched_count": keyword_match["matched_count"],
+                    "total_count": keyword_match["total_count"],
                 },
             )
             return self._detail_payload(updated)
@@ -2933,10 +2940,7 @@ class ApplicationService:
                 if instructions:
                     details["instructions"] = instructions
             elif is_keyword_optimization:
-                optimization = payload.generated.generation_params.get("keyword_optimization")
-                if isinstance(optimization, dict):
-                    details["target_keyword_count"] = len(optimization.get("target_keywords") or [])
-                    details["preserve_keyword_count"] = len(optimization.get("preserve_keywords") or [])
+                details.update(self._keyword_optimization_activity_details(draft.generation_params))
             else:
                 if additional_instructions:
                     details["additional_instructions"] = additional_instructions
@@ -2951,7 +2955,7 @@ class ApplicationService:
             if is_keyword_optimization:
                 activity_type = "keyword_optimization_succeeded"
                 title = "Keyword optimization completed"
-                summary = "Resume keyword optimization completed."
+                summary = self._keyword_optimization_summary(details)
             elif not is_section and use_judge_feedback:
                 title = "Regeneration with Judge Feedback completed"
                 summary = "Full resume regeneration with Resume Judge feedback completed."
@@ -3288,6 +3292,97 @@ class ApplicationService:
         record = self._require_application(user_id=user_id, application_id=application_id)
         updated_draft = await self._save_draft_edit_for_record(record=record, content=content, document=document, expected_revision=expected_revision)
         return updated_draft, self._build_keyword_match_for_draft(record=record, draft=updated_draft)
+
+    def _keyword_optimization_aggressiveness(
+        self,
+        *,
+        record: ApplicationRecord,
+        draft: ResumeDraftRecord,
+    ) -> str:
+        """The level selected on the application wins; the draft's own level applies only when none is saved."""
+        for value in (
+            (record.generation_preferences or {}).get("aggressiveness"),
+            draft.generation_params.get("aggressiveness"),
+        ):
+            level = str(value or "").strip().lower()
+            if level in KEYWORD_COVERAGE_TARGETS:
+                return level
+        return "medium"
+
+    def _with_keyword_optimization_result(
+        self,
+        *,
+        record: ApplicationRecord,
+        generation_params: dict[str, Any],
+        content_md: str,
+    ) -> dict[str, Any]:
+        """Stores the coverage the saved optimized draft reached next to its starting coverage."""
+        optimization = generation_params.get("keyword_optimization")
+        if not isinstance(optimization, dict) or not optimization.get("enabled"):
+            return generation_params
+        result = self.build_keyword_match_payload(
+            job_keywords=record.job_keywords,
+            content_md=content_md,
+            aggressiveness=str(generation_params.get("aggressiveness") or "medium"),
+        )
+        if result is None:
+            return generation_params
+        starting_match = optimization.get("starting_match") if isinstance(optimization.get("starting_match"), dict) else {}
+        starting_matched = {
+            str(keyword).strip().lower()
+            for keyword in starting_match.get("matched_keywords") or []
+            if str(keyword).strip()
+        }
+        added_keywords = [
+            keyword for keyword in result["matched_keywords"] if keyword.strip().lower() not in starting_matched
+        ]
+        return {
+            **generation_params,
+            "keyword_optimization": {
+                **optimization,
+                "result": {
+                    "matched_count": result["matched_count"],
+                    "total_count": result["total_count"],
+                    "percentage": result["percentage"],
+                    "added_keywords": added_keywords[:KEYWORD_MANUAL_MAX_COUNT],
+                },
+            },
+        }
+
+    @staticmethod
+    def _keyword_optimization_activity_details(generation_params: dict[str, Any]) -> dict[str, Any]:
+        optimization = generation_params.get("keyword_optimization")
+        if not isinstance(optimization, dict):
+            return {}
+        starting_match = optimization.get("starting_match") if isinstance(optimization.get("starting_match"), dict) else {}
+        result = optimization.get("result") if isinstance(optimization.get("result"), dict) else {}
+        details: dict[str, Any] = {
+            "aggressiveness": generation_params.get("aggressiveness"),
+            "target_keyword_count": len(optimization.get("target_keywords") or []),
+            "preserve_keyword_count": len(optimization.get("preserve_keywords") or []),
+            "starting_percentage": starting_match.get("percentage"),
+            "starting_matched_count": starting_match.get("matched_count"),
+            "ending_percentage": result.get("percentage"),
+            "ending_matched_count": result.get("matched_count"),
+            "total_count": result.get("total_count", starting_match.get("total_count")),
+            "added_keywords": [
+                str(keyword).strip()[:KEYWORD_TEXT_MAX_CHARS]
+                for keyword in result.get("added_keywords") or []
+                if str(keyword).strip()
+            ],
+        }
+        return {key: value for key, value in details.items() if value not in (None, "", [])}
+
+    @staticmethod
+    def _keyword_optimization_summary(details: dict[str, Any]) -> str:
+        start = details.get("starting_percentage")
+        end = details.get("ending_percentage")
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+            return "Resume keyword optimization completed."
+        added = len(details.get("added_keywords") or [])
+        if added == 0:
+            return f"Keyword coverage stayed at {end:g}%; no new keywords were added."
+        return f"Keyword coverage went from {start:g}% to {end:g}% ({added} keyword{'' if added == 1 else 's'} added)."
 
     def _keyword_optimization_failure_details(
         self,

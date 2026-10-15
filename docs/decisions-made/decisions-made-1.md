@@ -1,3 +1,13 @@
+## 2026-10-14 EDT - Keyword optimization uses the selected aggressiveness and reports its result
+
+- Context: On a local application the owner had High selected and ran keyword optimization several times, but coverage never passed 40%. The backend read the level from the current draft's `generation_params`, which was Medium, so every run used the strict Medium patch contract. That contradicted the PRD ("follows the selected level"), and nothing in the UI showed it. A finished run also gave no toast and no before/after coverage, so the owner could not tell whether a run worked or changed anything.
+- Decision (owner-approved):
+  - Keyword optimization uses the application's saved `generation_preferences.aggressiveness`, the level the detail page shows. It falls back to the draft's level only when none is saved. The confirmation dialog names the level and what it allows, and Optimize waits while an aggressiveness change is still saving.
+  - An accepted run stores `keyword_optimization.result` (matched count, total, percentage, added keywords) on the draft, computed with the same deterministic matcher on the saved content.
+  - The page shows a toast when the run finishes ("32% → 36% (+1 keyword)", or that no keywords were added), and an error toast on failure. The ATS Keywords card shows the last optimization's before/after. The activity entry records the level, both coverages, the matched counts and the added keywords, and its summary states the change.
+- Not changed: a run that adds no keywords still succeeds and still uses a writing request. Exact-phrase matching and the extractor's phrase choice are also unchanged. Both were raised as follow-ups.
+- Rejected: keeping the draft's level and only labelling it in the UI. The PRD already says the selected level applies, and the page lets the user select it.
+
 ## 2026-10-13 EDT - Admin workflow outcomes become a range-filtered line chart
 
 - Context: Admin Metrics showed one all-time success/failure bar per workflow operation, and `GET /api/admin/metrics` aggregated every usage event on each load. The owner asked to see trends over a selectable range, with the last month as the default, a smooth two-line chart (succeeded and failed), and an endpoint that does not load everything every time.

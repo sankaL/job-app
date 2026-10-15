@@ -806,11 +806,13 @@ function KeywordCoverageBody({
   manualCount,
   percentage,
   tone,
+  lastOptimization,
 }: {
   match: KeywordMatch | null;
   manualCount: number;
   percentage: number;
   tone: ReturnType<typeof keywordTone>;
+  lastOptimization: KeywordOptimizationOutcome | null;
 }) {
   if (!match) return null;
   const targetPercentage = match.target_percentage ?? 80;
@@ -849,6 +851,18 @@ function KeywordCoverageBody({
           {`${manualCount} manual keyword${manualCount === 1 ? "" : "s"}`}
         </Text>
       ) : null}
+      {lastOptimization ? (
+        <Text
+          as="p"
+          display="block"
+          type="supporting"
+          className="mt-2"
+          data-testid="keyword-last-optimization"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          {`Last optimization: ${keywordOptimizationOutcomeText(lastOptimization)}`}
+        </Text>
+      ) : null}
     </div>
   );
 }
@@ -856,10 +870,12 @@ function KeywordCoverageBody({
 function KeywordMatchSection({
   jobKeywords,
   match,
+  lastOptimization,
   onOpen,
 }: {
   jobKeywords: JobKeywordsPayload | null;
   match: KeywordMatch | null;
+  lastOptimization: KeywordOptimizationOutcome | null;
   onOpen: () => void;
 }) {
   const entries = getKeywordEntries(jobKeywords);
@@ -925,6 +941,7 @@ function KeywordMatchSection({
             manualCount={manualCount}
             percentage={percentage}
             tone={tone}
+            lastOptimization={lastOptimization}
           />
         ) : (
           <Text
@@ -1087,14 +1104,71 @@ function KeywordGroup({
   );
 }
 
+type KeywordOptimizationOutcome = {
+  startPercentage: number;
+  endPercentage: number;
+  addedKeywords: string[];
+};
+
+/** The coverage a keyword optimization started from and the coverage its saved draft reached. */
+function getKeywordOptimizationOutcome(
+  draft: ResumeDraft | null | undefined,
+): KeywordOptimizationOutcome | null {
+  const optimization = draft?.generation_params?.keyword_optimization as
+    | {
+        starting_match?: { percentage?: unknown } | null;
+        result?: { percentage?: unknown; added_keywords?: unknown } | null;
+      }
+    | null
+    | undefined;
+  const start = optimization?.starting_match?.percentage;
+  const end = optimization?.result?.percentage;
+  if (typeof start !== "number" || typeof end !== "number") return null;
+  const added = optimization?.result?.added_keywords;
+  return {
+    startPercentage: start,
+    endPercentage: end,
+    addedKeywords: Array.isArray(added)
+      ? added.filter((item): item is string => typeof item === "string")
+      : [],
+  };
+}
+
+function formatKeywordPercent(value: number) {
+  return `${Number(value.toFixed(1))}%`;
+}
+
+function keywordOptimizationOutcomeText(outcome: KeywordOptimizationOutcome) {
+  const added = outcome.addedKeywords.length;
+  if (added === 0)
+    return `Coverage stayed at ${formatKeywordPercent(outcome.endPercentage)}; no keywords added`;
+  return `${formatKeywordPercent(outcome.startPercentage)} → ${formatKeywordPercent(outcome.endPercentage)} (+${added} keyword${added === 1 ? "" : "s"})`;
+}
+
+const KEYWORD_OPTIMIZATION_LEVEL_COPY: Record<string, string> = {
+  low: "Low: adds only missing keywords your source resume supports, with the smallest edits.",
+  medium:
+    "Medium: adds only missing keywords your source resume supports, with small edits.",
+  high: "High: works missing keywords into your experience, skills and summary, and may add claims your source resume doesn't show.",
+};
+
+function keywordOptimizationConfirmMessage(aggressiveness: string) {
+  const level =
+    KEYWORD_OPTIMIZATION_LEVEL_COPY[aggressiveness] ??
+    KEYWORD_OPTIMIZATION_LEVEL_COPY.medium;
+  return `Optimizes the current draft at ${level} Keywords you already match are kept. Uses one writing request.`;
+}
+
 function keywordOptimizeBlocker(
   active: boolean,
   updating: boolean,
   hasDraft: boolean,
   entries: KeywordEntry[],
   match: KeywordMatch | null,
+  savingAggressiveness = false,
 ) {
   if (active) return "Generation is already running.";
+  if (savingAggressiveness) return "Saving aggressiveness...";
   if (updating) return "Keyword extraction is still updating.";
   if (!hasDraft) return "Generate a draft before optimizing keywords.";
   if (entries.length === 0) return "Add or extract keywords before optimizing.";
@@ -1112,6 +1186,7 @@ type KeywordDialogProps = {
   input: string;
   saving: boolean;
   optimizing: boolean;
+  savingAggressiveness: boolean;
   onInputChange: (value: string) => void;
   onClose: () => void;
   onAdd: (event: FormEvent<HTMLFormElement>) => void;
@@ -1373,6 +1448,7 @@ function KeywordDialog(props: KeywordDialogProps) {
     props.hasDraft,
     entries,
     props.match,
+    props.savingAggressiveness,
   );
   const content = (
     <KeywordDialogContent
@@ -2202,6 +2278,8 @@ export function ApplicationDetailPage() {
   const lastHandledExtractionProgressRef = useRef<string | null>(null);
   const lastHandledGenerationProgressRef = useRef<string | null>(null);
   const draftKeyRef = useRef<string | null>(null);
+  // Set when this page queued a keyword optimization, so its terminal failure gets a toast.
+  const keywordOptimizationRunRef = useRef(false);
   const resumeColumnRef = useRef<HTMLDivElement>(null);
   const lastDraftSyncDetailRef = useRef<string | null>(null);
   const lastKeywordSignatureRef = useRef<string | null>(null);
@@ -2466,6 +2544,7 @@ export function ApplicationDetailPage() {
     // so its response or rollback cannot land on the next application.
     aggressivenessSaveRef.current += 1;
     setIsSavingAggressiveness(false);
+    keywordOptimizationRunRef.current = false;
   }, [applicationId]);
 
   useEffect(() => {
@@ -2603,6 +2682,9 @@ export function ApplicationDetailPage() {
     }
     const succeeded =
       nextProgress.state === "resume_ready" && !nextProgress.terminal_error_code;
+    const previousDraftKey = draftKeyRef.current;
+    const keywordOptimizationRun = keywordOptimizationRunRef.current;
+    keywordOptimizationRunRef.current = false;
     if (succeeded && nextProgress.workflow_kind !== "regeneration_section") {
       setGenerationHandoff({
         applicationId,
@@ -2633,6 +2715,22 @@ export function ApplicationDetailPage() {
           if (draftKeyOf(fetched ?? null) === draftKeyRef.current) {
             setGenerationHandoff(null);
           }
+          const outcome =
+            draftKeyOf(fetched ?? null) !== previousDraftKey
+              ? getKeywordOptimizationOutcome(fetched)
+              : null;
+          if (outcome) {
+            toast(
+              `Keyword optimization finished: ${keywordOptimizationOutcomeText(outcome)}`,
+              outcome.addedKeywords.length > 0 ? "success" : "info",
+            );
+          }
+        } else if (
+          keywordOptimizationRun ||
+          response.generation_failure_details?.failure_stage ===
+            "keyword_optimization"
+        ) {
+          toast("Keyword optimization failed. Your previous draft was kept.", "error");
         }
         setError(null);
       })
@@ -3395,7 +3493,8 @@ export function ApplicationDetailPage() {
       );
       return;
     }
-    if (!draft || generationActive || isOptimizingKeywords) return;
+    if (!draft || generationActive || isOptimizingKeywords || isSavingAggressiveness)
+      return;
     setIsOptimizingKeywords(true);
     setGenerationScope("resume");
     setShowOptimisticProgress(true);
@@ -3403,6 +3502,7 @@ export function ApplicationDetailPage() {
     setError(null);
     try {
       const response = await triggerKeywordOptimization(activeApplicationId);
+      keywordOptimizationRunRef.current = true;
       applyDetailState(response, { refreshShell: true });
       setGenerationProgress(null);
       setShowKeywordDialog(false);
@@ -3595,6 +3695,7 @@ export function ApplicationDetailPage() {
       <KeywordMatchSection
         jobKeywords={detail?.job_keywords ?? null}
         match={draft?.keyword_match ?? null}
+        lastOptimization={getKeywordOptimizationOutcome(draft)}
         onOpen={() => setShowKeywordDialog(true)}
       />
     );
@@ -3611,6 +3712,7 @@ export function ApplicationDetailPage() {
         input={manualKeywordInput}
         saving={isSavingManualKeywords}
         optimizing={isOptimizingKeywords}
+        savingAggressiveness={isSavingAggressiveness}
         onInputChange={setManualKeywordInput}
         onClose={() => setShowKeywordDialog(false)}
         onAdd={handleAddManualKeyword}
@@ -4823,8 +4925,8 @@ export function ApplicationDetailPage() {
                 className="h-20 w-20 text-[var(--color-text-primary)]"
               />
             }
-            message="This will trigger a full resume regeneration specifically tailored to optimize keywords. Are you sure you want to proceed?"
-            confirmLabel="Generate"
+            message={keywordOptimizationConfirmMessage(aggressiveness)}
+            confirmLabel="Optimize"
             cancelLabel="Cancel"
             variant="orange"
             loading={isOptimizingKeywords}

@@ -8,6 +8,15 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Keyword optimization level and result feedback
+
+**Status:** Implemented locally (2026-10-14 EDT), not yet committed or deployed. No migration.
+
+- Keyword optimization now runs at the application's saved aggressiveness (the one the page shows), falling back to the draft's level only when none is saved. Before this it always used the draft's level, so a Medium draft stayed on strict Medium rules even with High selected.
+- Accepted runs store `keyword_optimization.result` on the draft (additive JSON in `resume_drafts.generation_params`). The page shows a completion toast with before/after coverage, an error toast on failure, and a "Last optimization" line on the ATS Keywords card. Activity entries show the level, coverage, matched counts and added keywords.
+- The confirmation dialog names the level and what it allows, and the button reads Optimize. Optimize is blocked while an aggressiveness change is saving.
+- Tests: backend level-selection (parametrized) and before/after result cases. Frontend: confirm-dialog level, completion toast and card line, and the activity details view. Backend 614 passed; frontend 359 passed; typecheck and build pass.
+
 ## Resume import as the page focus, with animated handoff
 
 **Status:** Deployed to production (2026-10-14 EDT, commit `7c76eda`). The frontend Railway deploy succeeded, and backend and agents were skipped as unchanged. No migration.

@@ -363,7 +363,7 @@ describe("Resume Judge and ATS Keywords UI enhancements", () => {
     expect(keywordCard.querySelector("svg.lucide-external-link")).toBeNull();
   });
 
-  it("shows confirmation modal with mascot and orange Generate button on keyword optimize click", async () => {
+  it("shows confirmation modal with mascot, the optimization level and an orange Optimize button", async () => {
     const user = userEvent.setup();
     api.fetchApplicationDetail.mockResolvedValue(buildApplicationDetail());
     api.fetchDraft.mockResolvedValue({
@@ -412,10 +412,10 @@ describe("Resume Judge and ATS Keywords UI enhancements", () => {
     const confirmModal = await screen.findByRole("dialog", { name: /optimize for missing keywords\?/i });
     expect(confirmModal).toBeInTheDocument();
     expect(confirmModal.querySelector("svg")).not.toBeNull(); // Mascot in confirm modal
-    expect(within(confirmModal).getByText(/trigger a full resume regeneration/i)).toBeInTheDocument();
+    expect(within(confirmModal).getByText(/optimizes the current draft at high:/i)).toBeInTheDocument();
 
-    // The Generate button in confirm modal is orange
-    const generateBtn = within(confirmModal).getByRole("button", { name: /^generate$/i });
+    // The Optimize button in confirm modal is orange
+    const generateBtn = within(confirmModal).getByRole("button", { name: /^optimize$/i });
     expect(generateBtn).toHaveClass("app-button-orange");
 
     // Clicking cancel closes confirm without triggering
@@ -427,7 +427,7 @@ describe("Resume Judge and ATS Keywords UI enhancements", () => {
     // Reopen and confirm
     await user.click(optimizeBtn);
     const reopenConfirm = await screen.findByRole("dialog", { name: /optimize for missing keywords\?/i });
-    const confirmGenerateBtn = within(reopenConfirm).getByRole("button", { name: /^generate$/i });
+    const confirmGenerateBtn = within(reopenConfirm).getByRole("button", { name: /^optimize$/i });
     await user.click(confirmGenerateBtn);
 
     await waitFor(() => {

@@ -2566,13 +2566,177 @@ describe("phase 1 applications UI", () => {
     });
     expect(confirmModal).toBeInTheDocument();
     expect(confirmModal.querySelector("svg")).not.toBeNull();
+    expect(
+      within(confirmModal).getByText(/optimizes the current draft at medium:/i),
+    ).toBeInTheDocument();
     await user.click(
-      within(confirmModal).getByRole("button", { name: /^generate$/i }),
+      within(confirmModal).getByRole("button", { name: /^optimize$/i }),
     );
 
     await waitFor(() =>
       expect(api.triggerKeywordOptimization).toHaveBeenCalledWith("app-1"),
     );
+  });
+
+  it("names the selected aggressiveness, not the draft's, in the keyword optimization confirmation", async () => {
+    const user = userEvent.setup();
+    api.fetchApplicationDetail.mockResolvedValue(
+      buildApplicationDetail({
+        id: "app-1",
+        visible_status: "in_progress",
+        internal_state: "resume_ready",
+        generation_preferences: { aggressiveness: "high" },
+        job_keywords: {
+          status: "succeeded",
+          source_hash: "hash-1",
+          updated_at: "2026-04-07T12:08:00Z",
+          keywords: [{ text: "React Native" }, { text: "Kubernetes" }],
+        },
+      }),
+    );
+    api.fetchDraft.mockResolvedValue({
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nBuilt React Native apps.",
+      generation_params: { page_length: "1_page", aggressiveness: "medium" },
+      sections_snapshot: { enabled_sections: ["summary"], section_order: ["summary"] },
+      keyword_match: {
+        matched_count: 1,
+        total_count: 2,
+        percentage: 50,
+        target_percentage: 65,
+        target_met: false,
+        matched_keywords: ["React Native"],
+        missing_keywords: ["Kubernetes"],
+      },
+      last_generated_at: "2026-04-07T12:10:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:10:00Z",
+    });
+
+    renderWithAppProvider(
+      <Routes>
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    const card = await screen.findByTestId("keyword-match-card");
+    await user.click(
+      within(card).getByRole("button", { name: /ats keywords/i }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: /ats keyword breakdown/i,
+    });
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: /optimize for missing keywords/i,
+      }),
+    );
+    const confirmModal = await screen.findByRole("dialog", {
+      name: /optimize for missing keywords\?/i,
+    });
+    expect(
+      within(confirmModal).getByText(/optimizes the current draft at high:/i),
+    ).toBeInTheDocument();
+  });
+
+  it("toasts and shows before and after coverage when keyword optimization finishes", async () => {
+    const optimizedDraft = {
+      id: "draft-1",
+      application_id: "app-1",
+      content_md: "# Resume\n\n## Summary\nBuilt React Native apps on Kubernetes.",
+      generation_params: {
+        page_length: "1_page",
+        aggressiveness: "high",
+        keyword_optimization: {
+          enabled: true,
+          starting_match: { percentage: 32, matched_count: 8, total_count: 25 },
+          result: {
+            percentage: 36,
+            matched_count: 9,
+            total_count: 25,
+            added_keywords: ["Kubernetes"],
+          },
+        },
+      },
+      sections_snapshot: { enabled_sections: ["summary"], section_order: ["summary"] },
+      keyword_match: {
+        matched_count: 9,
+        total_count: 25,
+        percentage: 36,
+        target_percentage: 80,
+        target_met: false,
+        matched_keywords: ["React Native", "Kubernetes"],
+        missing_keywords: ["GraphQL"],
+      },
+      last_generated_at: "2026-04-07T12:20:00Z",
+      last_exported_at: null,
+      updated_at: "2026-04-07T12:20:00Z",
+    };
+    api.fetchApplicationDetail
+      .mockResolvedValueOnce(
+        buildApplicationDetail({
+          id: "app-1",
+          visible_status: "in_progress",
+          internal_state: "regenerating_full",
+          failure_reason: null,
+        }),
+      )
+      .mockResolvedValue(
+        buildApplicationDetail({
+          id: "app-1",
+          visible_status: "in_progress",
+          internal_state: "resume_ready",
+          failure_reason: null,
+          job_keywords: {
+            status: "succeeded",
+            source_hash: "hash-1",
+            updated_at: "2026-04-07T12:08:00Z",
+            keywords: [{ text: "React Native" }, { text: "Kubernetes" }],
+          },
+        }),
+      );
+    api.fetchApplicationProgress.mockResolvedValue(
+      buildProgressPayload({
+        workflow_kind: "regeneration_full",
+        state: "resume_ready",
+        message: "Regeneration completed.",
+        percent_complete: 100,
+        updated_at: "2026-04-07T12:20:00Z",
+        completed_at: "2026-04-07T12:20:00Z",
+        terminal_error_code: null,
+      }),
+    );
+    api.fetchDraft
+      .mockResolvedValueOnce({
+        ...optimizedDraft,
+        generation_params: { page_length: "1_page", aggressiveness: "medium" },
+        last_generated_at: "2026-04-07T12:10:00Z",
+      })
+      .mockResolvedValue(optimizedDraft);
+
+    renderWithAppProvider(
+      <Routes>
+        <Route
+          path="/app/applications/:applicationId"
+          element={<ApplicationDetailPage />}
+        />
+      </Routes>,
+      { initialEntries: ["/app/applications/app-1"] },
+    );
+
+    expect(
+      await screen.findByText(
+        "Keyword optimization finished: 32% → 36% (+1 keyword)",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("keyword-last-optimization"),
+    ).toHaveTextContent("Last optimization: 32% → 36% (+1 keyword)");
   });
 
   it("shows keyword extraction updating state and opens the application stream", async () => {

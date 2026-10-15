@@ -910,6 +910,163 @@ async def test_keyword_optimization_queues_missing_and_preserved_keywords():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("saved_level", "draft_level", "expected_level"),
+    [("high", "medium", "high"), ("low", "high", "low"), (None, "low", "low")],
+)
+async def test_keyword_optimization_uses_selected_aggressiveness_over_draft_level(saved_level, draft_level, expected_level):
+    service, repository, *_ = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/keyword-level",
+        visible_status="needs_action",
+        internal_state="resume_ready",
+    )
+    repository.records[record.id] = record.model_copy(
+        update={
+            "job_title": "Mobile Platform Engineer",
+            "company": "Acme",
+            "job_description": "Build React Native apps with Kubernetes.",
+            "base_resume_id": "resume-1",
+            "generation_preferences": {"aggressiveness": saved_level} if saved_level else None,
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": "hash-1",
+                "keywords": [
+                    {"text": "React Native", "source": "extracted"},
+                    {"text": "Kubernetes", "source": "extracted"},
+                ],
+            },
+        }
+    )
+    service.base_resume_repository.add_resume(  # type: ignore[attr-defined]
+        user_id="user-1",
+        resume_id="resume-1",
+        content_md="# Base\n\nBuilt React Native apps.",
+    )
+    service.draft_repository.upsert_draft(
+        application_id=record.id,
+        user_id="user-1",
+        content_md="# Resume\n\nBuilt React Native apps.",
+        generation_params={"page_length": "1_page", "aggressiveness": draft_level, "base_resume_id": "resume-1"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    saved_draft = service.draft_repository.fetch_draft("user-1", record.id)
+    base = service.base_resume_repository.fetch_resume("user-1", "resume-1")
+    saved_draft.document = parse_resume_document(saved_draft.content_md, reviewed=True, previous=base.document).model_dump(mode="json")
+    saved_draft.source_snapshot = {"base_resume_id": "resume-1", "revision": 1, "document": base.document, "content_md": base.content_md}
+
+    await service.trigger_keyword_optimization(user_id="user-1", application_id=record.id)
+
+    settings = service.generation_job_queue.regenerations[-1]["generation_settings"]  # type: ignore[attr-defined]
+    assert settings["aggressiveness"] == expected_level
+    assert settings["keyword_coverage_target"] == {"low": 45, "medium": 65, "high": 80}[expected_level]
+    started = service.usage_event_repository.events[-1]["metadata"]  # type: ignore[attr-defined]
+    assert started["activity_type"] == "keyword_optimization_started"
+    assert started["details"]["aggressiveness"] == expected_level
+
+
+@pytest.mark.asyncio
+async def test_keyword_optimization_success_records_before_and_after_coverage():
+    service, repository, _, progress_store, _, _, drafts = build_service()
+    record = repository.create_application(
+        user_id="user-1",
+        job_url="https://example.com/jobs/keyword-result",
+        visible_status="in_progress",
+        internal_state="regenerating_full",
+    )
+    repository.records[record.id] = record.model_copy(
+        update={
+            "job_keywords": {
+                "status": "succeeded",
+                "source_hash": "hash-1",
+                "keywords": [
+                    {"text": "React Native", "source": "extracted"},
+                    {"text": "Kubernetes", "source": "extracted"},
+                    {"text": "GraphQL", "source": "extracted"},
+                    {"text": "Terraform", "source": "extracted"},
+                ],
+            }
+        }
+    )
+    drafts.upsert_draft(
+        application_id=record.id,
+        user_id="user-1",
+        content_md="# Resume\n\nBuilt React Native apps.",
+        generation_params={"page_length": "1_page", "aggressiveness": "high"},
+        sections_snapshot={"enabled_sections": ["summary"], "section_order": ["summary"]},
+    )
+    await progress_store.set(
+        record.id,
+        ProgressRecord(
+            job_id="regen-keyword-result-1",
+            workflow_kind="regeneration_full",
+            state="regenerating_full",
+            message="Keyword optimization is running.",
+            percent_complete=50,
+            created_at="2026-04-07T12:00:00+00:00",
+            updated_at="2026-04-07T12:00:00+00:00",
+            completed_at=None,
+            terminal_error_code=None,
+        ),
+    )
+
+    await service.handle_regeneration_callback(
+        application_manager_service.RegenerationCallbackPayload.model_validate(
+            {
+                "application_id": record.id,
+                "user_id": "user-1",
+                "job_id": "regen-keyword-result-1",
+                "event": "succeeded",
+                "regeneration_target": "keyword_optimization",
+                "quota_period_start": "2026-04-01",
+                "generated": {
+                    "content_md": "# Resume\n\nBuilt React Native apps on Kubernetes.",
+                    "generation_params": {
+                        "page_length": "1_page",
+                        "aggressiveness": "high",
+                        "keyword_optimization": {
+                            "enabled": True,
+                            "target_keywords": ["Kubernetes", "GraphQL", "Terraform"],
+                            "preserve_keywords": ["React Native"],
+                            "starting_match": {
+                                "matched_count": 1,
+                                "total_count": 4,
+                                "percentage": 25.0,
+                                "target_percentage": 80,
+                                "target_met": False,
+                                "matched_keywords": ["React Native"],
+                                "missing_keywords": ["Kubernetes", "GraphQL", "Terraform"],
+                            },
+                        },
+                    },
+                    "sections_snapshot": {"enabled_sections": ["summary"], "section_order": ["summary"]},
+                },
+            }
+        )
+    )
+
+    result = drafts.fetch_draft("user-1", record.id).generation_params["keyword_optimization"]["result"]
+    assert result == {"matched_count": 2, "total_count": 4, "percentage": 50.0, "added_keywords": ["Kubernetes"]}
+    activity = await service.list_application_activity(user_id="user-1", application_id=record.id)
+    succeeded = next(item for item in activity if item.type == "keyword_optimization_succeeded")
+    assert succeeded.summary == "Keyword coverage went from 25% to 50% (1 keyword added)."
+    assert succeeded.details["aggressiveness"] == "high"
+    assert succeeded.details["starting_percentage"] == 25.0
+    assert succeeded.details["ending_percentage"] == 50.0
+    assert succeeded.details["starting_matched_count"] == 1
+    assert succeeded.details["ending_matched_count"] == 2
+    assert succeeded.details["added_keywords"] == ["Kubernetes"]
+
+
+def test_keyword_optimization_summary_reports_no_gain():
+    summary = ApplicationService._keyword_optimization_summary(
+        {"starting_percentage": 36.0, "ending_percentage": 36.0, "added_keywords": []}
+    )
+    assert summary == "Keyword coverage stayed at 36%; no new keywords were added."
+
+
+@pytest.mark.asyncio
 async def test_keyword_optimization_callback_keeps_old_draft_when_coverage_regresses():
     service, repository, _, progress_store, _, _, drafts = build_service()
     service.subscription_repository.count_by_user["user-1"] = 2

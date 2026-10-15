@@ -37,9 +37,17 @@ const GENERATION_DETAIL_KEYS = [
   "instructions",
   "regeneration_instructions",
 ] as const;
+const KEYWORD_OPTIMIZATION_DETAIL_KEYS = [
+  "aggressiveness",
+  "starting_percentage",
+  "ending_percentage",
+  "added_keywords",
+] as const;
 const DETAIL_KEYS_BY_TYPE: Record<string, readonly string[]> = {
   extraction_succeeded: EXTRACTION_DETAIL_KEYS,
   resume_judge_succeeded: JUDGE_DETAIL_KEYS,
+  keyword_optimization_started: KEYWORD_OPTIMIZATION_DETAIL_KEYS,
+  keyword_optimization_succeeded: KEYWORD_OPTIMIZATION_DETAIL_KEYS,
 };
 
 function hasValue(details: ActivityDetails, key: string) {
@@ -217,6 +225,54 @@ function GenerationDetails({ details }: { details: ActivityDetails }) {
   );
 }
 
+function formatPercent(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${Number(value.toFixed(1))}%`
+    : null;
+}
+
+function matchedCountLabel(matched: unknown, total: unknown) {
+  if (typeof matched !== "number") return null;
+  return typeof total === "number" ? `${matched} of ${total}` : String(matched);
+}
+
+function KeywordOptimizationDetails({ details }: { details: ActivityDetails }) {
+  const start = formatPercent(details.starting_percentage);
+  const end = formatPercent(details.ending_percentage);
+  const added = Array.isArray(details.added_keywords)
+    ? details.added_keywords.map(String)
+    : [];
+  const finished = end !== null;
+  return (
+    <div className="space-y-1">
+      <DetailLine label="Aggressiveness" value={details.aggressiveness} />
+      <DetailLine
+        label="Coverage"
+        value={finished && start ? `${start} → ${end}` : start}
+      />
+      <DetailLine
+        label="Matched keywords"
+        value={
+          finished
+            ? [
+                matchedCountLabel(details.starting_matched_count, details.total_count),
+                matchedCountLabel(details.ending_matched_count, details.total_count),
+              ]
+                .filter(Boolean)
+                .join(" → ")
+            : matchedCountLabel(details.starting_matched_count, details.total_count)
+        }
+      />
+      {finished ? (
+        <DetailLine
+          label="Added"
+          value={added.length > 0 ? added.join(", ") : "None"}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function LengthDiagnostics({ details }: { details: ActivityDetails }) {
   const diagnostics = details.length_diagnostics;
   if (!diagnostics || typeof diagnostics !== "object") return null;
@@ -348,6 +404,11 @@ function ActivityTypeDetails({
     return <ExtractionDetails details={details} />;
   if (type === "resume_judge_succeeded")
     return <JudgeDetails details={details} />;
+  if (
+    type === "keyword_optimization_started" ||
+    type === "keyword_optimization_succeeded"
+  )
+    return <KeywordOptimizationDetails details={details} />;
   if (isGenerationActivity(type))
     return <GenerationDetails details={details} />;
   return null;
