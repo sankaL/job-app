@@ -11,6 +11,7 @@ from typing import Optional, Union
 
 import markdown
 from app.services.export_styles import ExportStyle, resolve_style
+from app.services.resume_document import ALIASES as SECTION_ALIASES
 from app.services.resume_render import build_render_document
 
 logger = logging.getLogger(__name__)
@@ -37,8 +38,26 @@ MONTH_YEAR_RE = re.compile(
 YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
 PRESENT_RE = re.compile(r"\b(?:present|current)\b", re.I)
 DATE_RANGE_SEPARATOR_RE = re.compile(r"\bto\b|[-/–—]", re.I)
-PROFESSIONAL_EXPERIENCE_HEADING = "professional experience"
+PROJECT_SECTION_HEADINGS = {"project experience", "selected projects"}
+# "Built Gust, a voice-first task manager ..." -> verb, project name, article.
+# Every word stays; only the name moves to the front so it can lead the bullet.
+PROJECT_NAME_LEAD_RE = re.compile(
+    r"^(?P<verb>[A-Z][a-z]+(?:-[a-z]+)?)\s+"
+    r"(?P<name>[A-Z0-9][\w.+#-]*(?:\s+[A-Z0-9][\w.+#-]*){0,4}),\s+"
+    r"(?P<article>an?|the)\s+(?P<rest>\S.*)$",
+    re.S,
+)
+# "AI evaluation: LLM-as-judge, ..." or "Gust: voice-first task manager".
+LEADING_LABEL_RE = re.compile(r"^(?P<label>[A-Za-z0-9][\w&/+#.()' -]{0,38}?[\w)+#]):\s+(?P<rest>\S.*)$", re.S)
+LEADING_LABEL_MAX_WORDS = 5
+# Join the last words of a bullet or paragraph so a line never ends with one short word.
+WIDOW_MIN_TAIL_CHARS = 16
+WIDOW_MAX_TAIL_CHARS = 24
+WIDOW_MAX_TAIL_WORDS = 4
+NBSP = "\u00a0"
 ONE_PAGE_VALIDATION_ROOMIER_STEPS = 6
+ROOMY_MAX_LINE_HEIGHT = 1.34
+ROOMY_MAX_PAGE_MARGIN = 0.75
 MIN_READABLE_BODY_FONT_SIZE = 9.4
 MIN_READABLE_LINE_HEIGHT = 1.1
 SINGLE_LIST_WRAPPER_RE = re.compile(r"^<(?:ul|ol)>\s*<li>(.*)</li>\s*</(?:ul|ol)>$", re.S)
@@ -262,10 +281,10 @@ def _format_linkedin_value(value: object) -> str:
         return ""
 
     normalized = re.sub(r"^https?://", "", linkedin, flags=re.I)
-    normalized = re.sub(r"^www\.", "", normalized, flags=re.I).rstrip("/")
+    normalized = re.sub(r"^[a-z]{2,3}\.(?=linkedin\.com)|^www\.", "", normalized, flags=re.I).rstrip("/")
     match = re.search(r"linkedin\.com/(in|pub|company)/(.+)", normalized, re.I)
     if match:
-        return f"{match.group(1).lower()}/{match.group(2).strip('/')}"
+        return f"linkedin.com/{match.group(1).lower()}/{match.group(2).strip('/')}"
     return normalized
 
 
@@ -396,8 +415,73 @@ def _render_markdown_block(text: str) -> str:
     return markdown.markdown(text, extensions=["extra", "sane_lists"]).strip()
 
 
+def _section_kind(section_heading: Optional[str]) -> Optional[str]:
+    if not section_heading:
+        return None
+    normalized = section_heading.strip().lower()
+    if normalized in PROJECT_SECTION_HEADINGS:
+        return "projects"
+    return SECTION_ALIASES.get(normalized)
+
+
 def _is_professional_experience_section(section_heading: Optional[str]) -> bool:
-    return bool(section_heading and section_heading.strip().lower() == PROFESSIONAL_EXPERIENCE_HEADING)
+    return _section_kind(section_heading) == "professional_experience"
+
+
+def _has_inline_markup(text: str) -> bool:
+    return bool(re.search(r"[*_`\[<]", text))
+
+
+def _bold_leading_label(text: str) -> str:
+    """Bold a short "Label:" prefix, as in Skills categories. Sentences are left alone."""
+    match = LEADING_LABEL_RE.match(text)
+    if match is None:
+        return text
+    label = match.group("label").strip()
+    if _has_inline_markup(label) or len(label.split()) > LEADING_LABEL_MAX_WORDS:
+        return text
+    return f"**{label}:** {match.group('rest')}"
+
+
+def _lead_with_project_name(text: str) -> str:
+    """Put a project's name first and bold it without adding or dropping any words."""
+    if text.startswith("**"):
+        return text
+    labelled = _bold_leading_label(text)
+    if labelled != text:
+        return labelled
+    match = PROJECT_NAME_LEAD_RE.match(text)
+    if match is None or _has_inline_markup(match.group("name")):
+        return text
+    return f"**{match.group('name')}:** {match.group('verb')} {match.group('article')} {match.group('rest')}"
+
+
+def _bind_trailing_words(html_fragment: str) -> str:
+    """Replace the last breakable spaces with non-breaking ones so the final line keeps a few words."""
+    parts = re.split(r"(<[^>]+>)", html_fragment)
+    tail_chars = 0
+    tail_words = 1
+    for part_index in range(len(parts) - 1, -1, -1):
+        part = parts[part_index]
+        if part.startswith("<"):
+            continue
+        characters = list(part)
+        for char_index in range(len(characters) - 1, -1, -1):
+            if characters[char_index] != " ":
+                tail_chars += 1
+                continue
+            if tail_chars >= WIDOW_MIN_TAIL_CHARS or tail_words >= WIDOW_MAX_TAIL_WORDS:
+                parts[part_index] = "".join(characters)
+                return "".join(parts)
+            next_word = re.search(r"(\S+)\s*$", "".join(characters[:char_index]))
+            if next_word is None or tail_chars + 1 + len(next_word.group(1)) > WIDOW_MAX_TAIL_CHARS:
+                parts[part_index] = "".join(characters)
+                return "".join(parts)
+            characters[char_index] = NBSP
+            tail_chars += 1
+            tail_words += 1
+        parts[part_index] = "".join(characters)
+    return "".join(parts)
 
 
 def _looks_like_experience_date_range(value: str) -> bool:
@@ -427,8 +511,16 @@ def _render_list_item_content(text: str) -> str:
     stripped = rendered.strip()
     match = SINGLE_LIST_WRAPPER_RE.fullmatch(stripped)
     if match:
-        return match.group(1).strip()
-    return stripped
+        stripped = match.group(1).strip()
+    return _bind_trailing_words(stripped)
+
+
+def _emphasize_list_item(text: str, section_kind: Optional[str]) -> str:
+    if section_kind == "skills":
+        return _bold_leading_label(text)
+    if section_kind == "projects":
+        return _lead_with_project_name(text)
+    return text
 
 
 def _calculate_content_density_metrics(markdown_content: str) -> dict[str, float | int | bool | str]:
@@ -463,7 +555,9 @@ def _calculate_content_density_metrics(markdown_content: str) -> dict[str, float
 def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = None) -> list[ExportBlock]:
     blocks: list[ExportBlock] = []
     index = 0
-    in_professional_experience = _is_professional_experience_section(section_heading)
+    section_kind = _section_kind(section_heading)
+    in_professional_experience = section_kind == "professional_experience"
+    in_projects = section_kind == "projects"
 
     while index < len(lines):
         stripped = lines[index].strip()
@@ -492,8 +586,9 @@ def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = 
                             left_html=_render_inline_markdown(current_match.group(1).strip()),
                             right_html=_render_inline_markdown(right_column),
                             emphasize_left=(
-                                in_professional_experience
-                                and _looks_like_experience_date_range(right_column)
+                                (in_professional_experience and _looks_like_experience_date_range(right_column))
+                                # A project header row: "Name | date or context".
+                                or (in_projects and not rows)
                             ),
                         )
                     )
@@ -510,9 +605,22 @@ def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = 
                 current_match = BULLET_RE.match(current)
                 if current_match is None:
                     break
-                items.append(_render_list_item_content(current_match.group(1).strip()))
+                items.append(_render_list_item_content(_emphasize_list_item(current_match.group(1).strip(), section_kind)))
                 index += 1
             blocks.append(ExportBulletList(items=items))
+            continue
+
+        next_line = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        if (
+            in_projects
+            and BULLET_RE.match(next_line)
+            and not _has_inline_markup(stripped)
+            and not re.search(r"[.!?]$", stripped)
+            and len(stripped.split()) <= 10
+        ):
+            # A project name on its own line, followed by its bullets.
+            blocks.append(ExportSubheading(text=stripped))
+            index += 1
             continue
 
         paragraph_lines = [stripped]
@@ -528,8 +636,14 @@ def _parse_content_blocks(lines: list[str], *, section_heading: Optional[str] = 
                 break
             paragraph_lines.append(current)
             index += 1
+        if section_kind == "skills":
+            # One "Category: items" line per row, each with a bold category.
+            labelled = [_bold_leading_label(line) for line in paragraph_lines]
+            if len(labelled) > 1 and all(line.startswith("**") for line in labelled):
+                labelled = [line + "  " for line in labelled[:-1]] + labelled[-1:]
+            paragraph_lines = labelled
 
-        blocks.append(ExportParagraph(html_fragment=_render_markdown_block("\n".join(paragraph_lines))))
+        blocks.append(ExportParagraph(html_fragment=_bind_trailing_words(_render_markdown_block("\n".join(paragraph_lines)))))
 
     return blocks
 
@@ -664,9 +778,19 @@ def _rule_css(rule: str, width: float, color: str) -> str:
 
 
 def _style_override_css(style: ExportStyle, preset: LayoutPreset) -> str:
-    """CSS appended after the base sheet so non-Classic styles override it via the cascade."""
+    """CSS appended after the base sheet so styles override it via the cascade.
+
+    Classic only swaps in its bundled Georgia-metric serif; every other token is the base sheet.
+    """
     if style.is_classic:
-        return ""
+        if not style.font_family_css:
+            return ""
+        return f"""
+    {_font_face_css(style)}
+    body {{
+      font-family: {style.font_family_css};
+    }}
+"""
     heading_size = preset.section_heading_size
     if style.heading_transform != "uppercase":
         # Mixed-case and small-caps headings read smaller than all-caps at the same size.
@@ -755,6 +879,8 @@ def _build_html(
         2,
     )
     structured_entry_gap = round(max(split_group_margin * 3.0, paragraph_margin * 3.2), 2)
+    # The employer line leads each role, so it sits a step above the bullet text.
+    company_font_size = round(max(subheader_font_size, min(preset.section_heading_size, preset.body_font_size * 0.94)), 2)
 
     intro_html = _render_html_blocks(document.intro_blocks)
     sections_html = "".join(
@@ -893,6 +1019,13 @@ def _build_html(
     .structured-left-secondary {{
       font-style: italic;
     }}
+    .structured-entry-professional_experience .structured-left-primary,
+    .structured-entry-professional_experience .structured-right-primary {{
+      font-size: {company_font_size}pt;
+    }}
+    .structured-entry-professional_experience .structured-left-secondary {{
+      font-weight: 700;
+    }}
     .structured-entry ul {{
       margin-top: {round(max(1.8, paragraph_margin * 0.5), 2)}pt;
     }}
@@ -964,6 +1097,14 @@ def _build_roomier_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
     )
 
 
+def _build_line_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
+    return replace(preset, line_height=round(min(ROOMY_MAX_LINE_HEIGHT, preset.line_height + 0.03), 2))
+
+
+def _build_margin_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
+    return replace(preset, page_margin=round(min(ROOMY_MAX_PAGE_MARGIN, preset.page_margin + 0.05), 2))
+
+
 def _build_section_relief_one_page_variant(preset: LayoutPreset) -> LayoutPreset:
     return LayoutPreset(
         body_font_size=preset.body_font_size,
@@ -987,9 +1128,12 @@ def _validate_roomier_one_page_fit(
 
     for _step in range(ONE_PAGE_VALIDATION_ROOMIER_STEPS):
         improved = False
+        # Spare room goes to line spacing and margins before larger type or wider section gaps.
         for build_candidate in (
-            _build_section_relief_one_page_variant,
+            _build_line_relief_one_page_variant,
+            _build_margin_relief_one_page_variant,
             _build_roomier_one_page_variant,
+            _build_section_relief_one_page_variant,
         ):
             candidate_preset = build_candidate(best_preset)
             if candidate_preset == best_preset:
@@ -1052,6 +1196,8 @@ class _InlineHTMLToDocxParser(HTMLParser):
             self.bold_depth += 1
         elif tag in {"em", "i"}:
             self.italic_depth += 1
+        elif tag == "br":
+            self.paragraph.add_run().add_break()
 
     def handle_endtag(self, tag: str) -> None:
         if tag in {"strong", "b"} and self.bold_depth > 0:
@@ -1262,13 +1408,19 @@ def _render_docx_sync(
                 if block.primary_right_html:
                     primary.add_run("\t")
                     _append_inline_html_runs(primary, block.primary_right_html, italic=True)
-                _apply_font_to_paragraph_runs(primary, size=subheader_font_size, font_name=font_name)
+                primary_size = layout.body_font_size if block.variant == "professional_experience" else subheader_font_size
+                _apply_font_to_paragraph_runs(primary, size=primary_size, font_name=font_name)
 
                 secondary = doc.add_paragraph()
                 secondary.paragraph_format.tab_stops.add_tab_stop(usable_width, WD_TAB_ALIGNMENT.RIGHT)
                 secondary_after = entry_spacing_after if not block.bullets else max(2.2, layout.paragraph_spacing + 0.4)
                 _set_paragraph_spacing(secondary, after=secondary_after, line_spacing=1.0)
-                _append_inline_html_runs(secondary, block.secondary_left_html, italic=True)
+                _append_inline_html_runs(
+                    secondary,
+                    block.secondary_left_html,
+                    bold=block.variant == "professional_experience",
+                    italic=True,
+                )
                 if block.secondary_right_html:
                     secondary.add_run("\t")
                     _append_inline_html_runs(secondary, block.secondary_right_html, italic=True)

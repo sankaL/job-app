@@ -8,6 +8,17 @@
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
 
+## Export formatting fixes (Classic and Modern)
+
+**Status:** Implemented locally (2026-10-14 EDT), not yet deployed. No migration.
+
+- The structured two-row Experience/Education layout now applies to alias headings (Experience, Work Experience, Employment, Academic Background). An alias section whose entries do not fit falls back to Markdown.
+- Company is bold and one step larger, and the role title is bold italic (PDF and DOCX). Project names lead each project bullet in bold. Skills labels are bold.
+- The last words of bullets and paragraphs are joined with non-breaking spaces, so no line ends on one or two short words.
+- Classic embeds Gelasio (Georgia-metric, OFL) instead of falling back to DejaVu Serif. Spare one-page room now goes to line spacing, then margins (up to 0.75 in), then type size, then section gaps.
+- LinkedIn prints as `linkedin.com/in/<handle>`.
+- Tests: alias layout and fallback, project-name lead, Skills labels in bullets and paragraphs, trailing-word binding, LinkedIn format, DOCX emphasis, Classic font face. Backend 623 passed.
+
 ## Keyword optimization level and result feedback
 
 **Status:** Deployed to production (2026-10-14 EDT, commits `ebe09ce` and `fd1a24c`, GitHub Actions run `38666295485`). The backend and frontend Railway deploys succeeded, and agents were skipped as unchanged. No migration.

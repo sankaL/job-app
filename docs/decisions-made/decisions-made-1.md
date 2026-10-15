@@ -1,3 +1,17 @@
+## 2026-10-14 EDT - Export formatting: alias headings, bold entry headers, project and Skills labels, Classic font
+
+- Context: The owner exported a resume in Classic and Modern and listed problems. Company and title lines were plain, project names and Skills labels were not bold, bullets ended on one or two words, Classic looked dense with narrow margins, Modern left space at the bottom, and LinkedIn printed as `in/sankal`. Causes: (1) the exporter used the structured two-row layout only for the exact heading "Professional Experience", and this resume's heading was "Experience", so roles rendered as plain rows; (2) Classic asked for Georgia, which the backend image does not have, so it fell back to the wide, heavy DejaVu Serif; (3) the one-page fill step spent spare room on section gaps (scale up to 1.86) and never on line spacing or margins.
+- Decision:
+  - The render model treats the section aliases already defined in `resume_document.ALIASES` (Experience, Work Experience, Employment, Academic Background) as structured sections. An alias section whose entries do not fit the two-row contract falls back to Markdown, so renaming a heading never blocks an export. The canonical headings still fail closed as before.
+  - Experience row 1 (company) is bold and one step larger. Row 2 (title) is bold italic, in PDF and DOCX.
+  - Projects lead with a bold name. "Verb Name, a/an/the …" becomes "**Name:** Verb a/an/the …", keeping every word. "Name: …" prefixes and name-only lines are bolded in place. Skills "Label:" prefixes are bold.
+  - The last words of each bullet and paragraph are joined with non-breaking spaces until the last line holds at least 16 characters (at most 4 words, 24 characters).
+  - Classic embeds Gelasio, an OFL font metric-compatible with Georgia, so the PDF matches the Georgia DOCX.
+  - Spare one-page room goes to line spacing (up to 1.34), then margins (up to 0.75 in), then type size, then section gaps.
+  - LinkedIn prints as `linkedin.com/in/<handle>`.
+- Not changed: the location text comes from the profile address verbatim, so "Vaughan, ON" needs the profile updated; the exporter does not add a province. Bullet length is content, not layout, so a long bullet is edited in the draft rather than split by the exporter. Base preset margins (0.40–0.60 in) are unchanged, although the PRD lists 0.75–1 in. That gap predates this change and needs an owner decision.
+- Rejected: bolding the name inside "Built **Gust**, a …" without moving it (it does not lead the line, which the owner asked for); CSS `text-wrap: pretty` (WeasyPrint 70 does not support it); renaming the user's heading to "Professional Experience" on export (the heading is the user's wording).
+
 ## 2026-10-14 EDT - Keyword optimization uses the selected aggressiveness and reports its result
 
 - Context: On a local application the owner had High selected and ran keyword optimization several times, but coverage never passed 40%. The backend read the level from the current draft's `generation_params`, which was Medium, so every run used the strict Medium patch contract. That contradicted the PRD ("follows the selected level"), and nothing in the UI showed it. A finished run also gave no toast and no before/after coverage, so the owner could not tell whether a run worked or changed anything.

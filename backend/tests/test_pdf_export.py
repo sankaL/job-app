@@ -25,7 +25,7 @@ def test_normalize_markdown_replaces_legacy_placeholder_header():
     )
 
     assert normalized.startswith(
-        "# Alex Example\nalex@example.com | 555-0100 | Toronto, ON | in/alex-example\n\n## Summary\n"
+        "# Alex Example\nalex@example.com | 555-0100 | Toronto, ON | linkedin.com/in/alex-example\n\n## Summary\n"
     )
     assert "(Name)" not in normalized
     assert "invite-only@example.com" not in normalized
@@ -34,7 +34,7 @@ def test_normalize_markdown_replaces_legacy_placeholder_header():
 def test_build_html_renders_one_header_for_existing_assembly_header():
     markdown_content = (
         "# Alex Example\n"
-        "alex@example.com | 555-0100 | Toronto, ON | in/alex-example\n\n"
+        "alex@example.com | 555-0100 | Toronto, ON | linkedin.com/in/alex-example\n\n"
         "## Summary\n"
         "Built backend systems.\n"
     )
@@ -45,7 +45,7 @@ def test_build_html_renders_one_header_for_existing_assembly_header():
     assert html.count("<header class='resume-header'>") == 1
     assert html.count("<h1>Alex Example</h1>") == 1
     assert "## Summary" not in html
-    assert "Built backend systems." in html
+    assert "Built backend\u00a0systems." in html
 
 
 def test_normalize_markdown_replaces_plain_text_header_matching_profile():
@@ -55,7 +55,7 @@ def test_normalize_markdown_replaces_plain_text_header_matching_profile():
     )
 
     assert normalized.startswith(
-        "# Alex Example\nalex@example.com | 555-0100 | Toronto, ON | in/alex-example\n\n## Summary\n"
+        "# Alex Example\nalex@example.com | 555-0100 | Toronto, ON | linkedin.com/in/alex-example\n\n## Summary\n"
     )
     assert "\n\nAlex Example\nalex@example.com | 555-0100\n" not in normalized
 
@@ -86,13 +86,13 @@ def test_build_html_uses_point_spacing_units():
 def test_render_content_blocks_unwraps_single_item_list_markup_inside_bullets():
     html = pdf_export._render_content_blocks(["- * nested bullet"])
 
-    assert html == "<ul><li>nested bullet</li></ul>"
+    assert html == "<ul><li>nested\u00a0bullet</li></ul>"
 
 
 def test_render_content_blocks_preserves_literal_star_content_inside_bullets():
     html = pdf_export._render_content_blocks(["- *nix operations"])
 
-    assert "*nix operations" in html
+    assert "*nix\u00a0operations" in html
     assert "<ul><li><ul>" not in html
 
 
@@ -348,7 +348,7 @@ def test_build_export_document_reuses_one_normalized_header():
 
     assert document.header is not None
     assert document.header.name == "Alex Example"
-    assert document.header.contact_line == "alex@example.com | 555-0100 | Toronto, ON | in/alex-example"
+    assert document.header.contact_line == "alex@example.com | 555-0100 | Toronto, ON | linkedin.com/in/alex-example"
     assert len(document.sections) == 1
     assert document.sections[0].heading == "Summary"
 
@@ -420,7 +420,7 @@ def test_render_docx_sync_renders_header_bullets_and_split_rows_without_tables()
     assert any("PROFESSIONAL EXPERIENCE" == text for text in paragraph_text)
     assert any("Acme Corp\tToronto, ON" == text for text in paragraph_text)
     assert any("Senior Data Architect\tJan 2020 - Present" == text for text in paragraph_text)
-    assert any("Led migration program" in text for text in paragraph_text)
+    assert any("Led migration\u00a0program" in text for text in paragraph_text)
 
 
 def test_render_docx_sync_bolds_only_professional_experience_role_title_split_rows():
@@ -444,6 +444,7 @@ def test_render_docx_sync_bolds_only_professional_experience_role_title_split_ro
 
     assert company_paragraph.runs[0].bold is True
     assert role_paragraph.runs[0].italic is True
+    assert role_paragraph.runs[0].bold is True
     assert summary_paragraph.runs[0].bold in {False, None}
 
 
@@ -475,8 +476,11 @@ def test_classic_style_html_matches_unstyled_output():
     classic = pdf_export._build_html(_STYLE_SAMPLE_MARKDOWN, preset, style=resolve_style("classic"))
 
     assert classic == unstyled
-    assert "@font-face" not in classic
-    assert "font-family: 'Georgia', 'Times New Roman', serif;" in classic
+    # The image has no Georgia, so Classic bundles a Georgia-metric serif instead of falling back to DejaVu.
+    assert "font-family: 'Resume Gelasio', 'Georgia', 'Times New Roman', serif;" in classic
+    assert "gelasio-400-normal.ttf" in classic
+    for face in resolve_style("classic").font_faces:
+        assert face.path.is_file(), face.path
 
 
 def test_non_classic_styles_override_fonts_with_bundled_files():
@@ -520,3 +524,84 @@ def test_every_style_renders_pdf_and_docx():
         headings = [p.text for p in document.paragraphs if p.text in {"SUMMARY", "Summary"}]
         expected = "SUMMARY" if style.heading_transform == "uppercase" else "Summary"
         assert headings == [expected], style.key
+
+
+_EXPERIENCE_ALIAS_MARKDOWN = (
+    "## Experience\n"
+    "Acme Corp | Toronto, ON\n"
+    "Senior Data Architect | Jan 2020 - Present\n"
+    "- Led platform work.\n\n"
+    "## Projects\n"
+    "- Built Gust, a voice-first task manager that turns speech into tasks.\n"
+    "- Ledger: a budgeting tool for small teams.\n\n"
+    "## Skills\n"
+    "- AI evaluation: LLM-as-judge, RAG evaluation\n"
+    "- Python, SQL\n"
+)
+
+
+def test_experience_heading_alias_uses_structured_entry_layout():
+    html = pdf_export._build_html(_EXPERIENCE_ALIAS_MARKDOWN, pdf_export.LAYOUT_PRESETS[0])
+
+    assert html.count("class='structured-entry structured-entry-professional_experience'") == 1
+    assert ".structured-entry-professional_experience .structured-left-secondary {\n      font-weight: 700;" in html
+
+
+def test_experience_heading_alias_falls_back_to_markdown_when_entries_do_not_fit():
+    document = pdf_export._build_export_document("## Experience\nWorked across many teams.\n")
+
+    assert document.sections[0].heading == "Experience"
+    assert not any(isinstance(block, pdf_export.ExportStructuredEntry) for block in document.sections[0].blocks)
+
+
+def test_project_names_lead_and_skill_labels_are_bold():
+    html = pdf_export._build_html(_EXPERIENCE_ALIAS_MARKDOWN, pdf_export.LAYOUT_PRESETS[0])
+
+    assert "<strong>Gust:</strong> Built a voice-first task manager" in html
+    assert "<strong>Ledger:</strong> a budgeting tool" in html
+    assert "<strong>AI evaluation:</strong> LLM-as-judge" in html
+    assert "<strong>Python" not in html
+
+
+def test_project_name_lead_keeps_every_word():
+    text = "Built AbleRoute, a layered extraction pipeline for delivery photos."
+
+    assert pdf_export._lead_with_project_name(text) == "**AbleRoute:** Built a layered extraction pipeline for delivery photos."
+    assert pdf_export._lead_with_project_name("Built the RAG suite for retrieval.") == "Built the RAG suite for retrieval."
+
+
+def test_skills_paragraph_lines_keep_bold_labels_on_separate_lines():
+    document = pdf_export._build_export_document("## Skills\nLanguages: Python, SQL\nCloud: AWS, Azure\n")
+    paragraph = document.sections[0].blocks[0]
+
+    assert "<strong>Languages:</strong> Python, SQL<br />" in paragraph.html_fragment
+    assert "<strong>Cloud:</strong> AWS," in paragraph.html_fragment
+
+
+def test_bullets_and_paragraphs_never_end_on_one_short_word():
+    nbsp = "\u00a0"
+
+    assert pdf_export._bind_trailing_words("shipping every release on budget.") == f"shipping every release{nbsp}on{nbsp}budget."
+    assert pdf_export._bind_trailing_words("cutting work from days to hours.") == f"cutting work from{nbsp}days{nbsp}to{nbsp}hours."
+    assert pdf_export._bind_trailing_words("experiment management.") == f"experiment{nbsp}management."
+    assert pdf_export._bind_trailing_words("<strong>Gust:</strong> a tool") == f"<strong>Gust:</strong> a{nbsp}tool"
+    assert pdf_export._bind_trailing_words("short") == "short"
+
+
+def test_linkedin_contact_keeps_the_domain():
+    assert pdf_export._format_linkedin_value("https://www.linkedin.com/in/sankal/") == "linkedin.com/in/sankal"
+    assert pdf_export._format_linkedin_value("ca.linkedin.com/in/sankal") == "linkedin.com/in/sankal"
+
+
+def test_render_docx_sync_bolds_project_names_and_skill_labels():
+    from docx import Document
+
+    docx_bytes = pdf_export._render_docx_sync(_EXPERIENCE_ALIAS_MARKDOWN, _personal_info(), "1_page")
+    document = Document(io.BytesIO(docx_bytes))
+    project = next(paragraph for paragraph in document.paragraphs if paragraph.text.startswith("Gust:"))
+    skill = next(paragraph for paragraph in document.paragraphs if paragraph.text.startswith("AI evaluation:"))
+    role = next(paragraph for paragraph in document.paragraphs if paragraph.text.startswith("Senior Data Architect"))
+
+    assert project.runs[0].text == "Gust:" and project.runs[0].bold is True
+    assert skill.runs[0].text == "AI evaluation:" and skill.runs[0].bold is True
+    assert role.runs[0].bold is True

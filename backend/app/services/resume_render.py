@@ -4,6 +4,8 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
+from app.services.resume_document import ALIASES as SECTION_ALIASES
+
 
 RENDER_CONTRACT_VERSION = "2026-04-19.v1"
 
@@ -41,6 +43,14 @@ DEGREE_RE = re.compile(
 STRUCTURED_SECTION_KINDS = {
     "professional experience": "professional_experience",
     "education": "education",
+}
+# Source headings such as "Experience" keep the user's wording but are the same
+# section kind. They use the structured layout when their entries fit it and stay
+# Markdown otherwise, so a heading rename never blocks export.
+STRUCTURED_SECTION_ALIASES = {
+    heading: kind
+    for heading, kind in SECTION_ALIASES.items()
+    if kind in STRUCTURED_SECTION_KINDS.values() and heading not in STRUCTURED_SECTION_KINDS
 }
 
 
@@ -365,7 +375,15 @@ def build_render_document(markdown_content: str) -> RenderBuildResult:
     sections: list[RenderSection] = []
 
     for heading, lines in section_pairs:
-        section_kind = STRUCTURED_SECTION_KINDS.get(heading.strip().lower())
+        normalized_heading = heading.strip().lower()
+        section_kind = STRUCTURED_SECTION_KINDS.get(normalized_heading)
+        alias_kind = STRUCTURED_SECTION_ALIASES.get(normalized_heading)
+        if alias_kind is not None:
+            try:
+                sections.append(_normalize_structured_entries(heading=heading, section_kind=alias_kind, lines=lines))
+            except ValueError:
+                sections.append(_normalize_markdown_section(heading=heading, lines=lines))
+            continue
         if section_kind is None:
             sections.append(_normalize_markdown_section(heading=heading, lines=lines))
             continue

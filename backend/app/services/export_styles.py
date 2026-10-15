@@ -28,7 +28,8 @@ class ExportStyle:
 
     Every style is single-column with standard headings so ATS parsing is not
     affected; styles differ only in typography, header treatment, colour and
-    spacing. Classic keeps the original export look and adds no CSS overrides.
+    spacing. Classic keeps the original export look and only bundles its serif,
+    because the backend image has no Georgia and would fall back to DejaVu Serif.
     """
 
     key: str
@@ -76,6 +77,8 @@ EXPORT_STYLES: dict[str, ExportStyle] = {
         label="Classic",
         description="Traditional serif with a centred name and ruled headings. Safe for any role.",
         docx_font="Georgia",
+        font_family_css="'Resume Gelasio', 'Georgia', 'Times New Roman', serif",
+        font_faces=_faces("Resume Gelasio", "gelasio", (400, 700)),
     ),
     "modern": ExportStyle(
         key="modern",

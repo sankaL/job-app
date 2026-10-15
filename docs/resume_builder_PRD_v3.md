@@ -636,7 +636,7 @@ Users can edit section Markdown and structured entries in one workbench when gen
 - Two ATS-safe formats only: PDF and DOCX
 - Clean, industry-standard single-column layout
 - No tables, no images, no decorative elements. Styles vary only typography, a single accent colour, header alignment, heading treatment and spacing.
-- Classic uses Georgia-style serif fonts. Other PDF styles embed bundled OFL fonts (Carlito, Source Sans 3, EB Garamond, Lato). In DOCX, each style names a common Office font (Calibri, Arial, Garamond, Calibri Light).
+- Every PDF style embeds a bundled OFL font, because the export image has no Office fonts: Classic uses Gelasio (metric-compatible with Georgia), and the others use Carlito, Source Sans 3, EB Garamond and Lato. In DOCX, each style names a common Office font (Georgia, Calibri, Arial, Garamond, Calibri Light).
 - Margins: 0.75–1 inch
 - Section headings as bold text with visibly larger size than body copy
 - Sections in the saved resume document order, respecting its enabled flags
@@ -646,6 +646,13 @@ Users can edit section Markdown and structured entries in one workbench when gen
   - row 2 left-aligned role/degree
   - row 2 right-aligned duration or graduation date when available
   - bullets below the two-row header
+  - the same layout applies when the source uses an alias heading such as Experience, Work Experience or Employment. An alias section whose entries do not fit the two-row contract exports as plain Markdown instead of failing.
+  - Professional Experience row 1 (organization) is bold and one step larger than body text. Row 2 (role title) is bold italic. Education keeps a bold school and an italic degree.
+- Projects lead with the project name in bold. A bullet written as "Built Gust, a voice-first task manager …" exports as "**Gust:** Built a voice-first task manager …": the words are unchanged and only the name moves. A short "Name:" prefix or a project name on its own line is bolded as it stands.
+- Skills category labels ("AI evaluation:") are bold. Each labelled line of a plain Skills paragraph stays on its own line.
+- No bullet or paragraph ends on a line with one or two short words: the last words are joined with non-breaking spaces until the last line holds at least 16 characters (at most 4 words, 24 characters).
+- The contact line shows LinkedIn as `linkedin.com/in/<handle>`. Location is the profile address exactly as entered.
+- When a one-page resume fits with room to spare, the extra space goes first to line spacing (up to 1.34), then margins (up to 0.75 in), then type size, then gaps between sections.
 - PDF and DOCX must be rendered from the same semantic resume model so field placement stays consistent across formats
 - Body text should be slightly smaller than structured entry headers, with increased spacing between sections and between adjacent experience/education entries for readability
 - DOCX uses Word-native formatting with Letter page size and best-effort spacing aligned to the saved page-length target; exact pagination parity with PDF is not required
