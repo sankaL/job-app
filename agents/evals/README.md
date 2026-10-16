@@ -10,6 +10,8 @@ Default execution is offline. An `httpx.MockTransport` returns typed tool respon
 | `full_high` | Unsupported technologies and credentials in the job posting remain absent from candidate claims | Yes |
 | `entry_preservation` | One source-backed role changes; manually edited, reordered, and user-added siblings remain exact | Yes |
 | `keyword_preservation` | Minimal truthful keyword patches preserve matched phrases and unrelated edits | Yes |
+| `keyword_high_coverage` | High keyword optimization of a low-coverage draft against a 26-keyword platform posting: reaches the 80% target, spreads keywords across roles, never claims the listed credential, keeps employers, dates and titles | Live only |
+| `keyword_high_dense` | Same checks on a 29-keyword data engineering posting with two credentials and a years-of-experience phrase | Live only |
 | `schema_recovery` | A malformed envelope causes one Pydantic AI output correction | Offline only |
 | `metric_recovery` | A false metric causes repair of the affected section while other sections stay valid | Offline only |
 | `audit_recovery` | A semantic audit rejects invented technology and repairs only the affected section | Offline only |
@@ -56,3 +58,7 @@ Import parsing and Jev classification are outside this runner. They need a separ
 Use `make test-local-guards`, then `make test-browser`. Browser testing requires local `API_URL` and `APP_URL`, including exported shell overrides, and a stopped local agents worker. The target refuses hosted endpoints, running workers and an unknown worker state. It starts the API and frontend with a test-only provider key, email and tracing disabled.
 
 Log in with the fictional walkthrough account and save the reviewed source described in `scripts/seed_section_walkthrough.py`. `make test-browser-seed` adds one manually authored draft without calling a provider. Reruns preserve existing edits and the stored source snapshot. `make test-browser-seed-check` exercises a fresh atomic insert and rolls it back. `make test-browser-export` verifies PDF and DOCX bytes against the latest saved fixture content and closes its temporary login session. It creates the normal local export status, activity and in-app notifications. These fixtures do not measure generation quality.
+
+## High keyword coverage scenarios
+
+`keyword_high_coverage` and `keyword_high_dense` need `--live`: the offline provider has no scripted answer for them, so offline runs skip them and name them an error if selected. Each reports `keyword_coverage` (start and end percentage, missing keywords, roles changed, the most new keywords any one bullet gained) next to the pass/fail checks. A bullet that gains more than four keywords counts as crowded. One run costs about $0.04 to $0.15; use `--max-cost-usd 0.40` and a `--min-remaining-usd` floor that leaves the shared production balance intact.

@@ -7546,3 +7546,24 @@ async def test_failed_export_keeps_saved_style(monkeypatch):
         await service.export_pdf(user_id="user-1", application_id=created.id, style="modern")
 
     assert service.profile_repository.export_style == "executive"
+
+
+def test_agents_keyword_matcher_agrees_with_the_backend_rule():
+    """agents/keyword_match.py is a copy of the backend's exact-phrase rule; the High keyword loop relies on it."""
+    import importlib.util
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[2]
+    path = next((candidate for candidate in (repo / "agents" / "keyword_match.py", Path("/agents/keyword_match.py")) if candidate.exists()), None)
+    if path is None:
+        pytest.skip("agents/ is not available in this build context")
+    spec = importlib.util.spec_from_file_location("agents_keyword_match", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    keywords = ["Python", "CI/CD", "REST APIs", "data pipelines", "C++", "Node.js", "5+ years of experience", "AWS", "Java"]
+    texts = ["python and ci/cd", "Built REST API clients", "data\n pipelines on AWS", "C++ and Node.js", "JavaScript, 5+ years of experience",
+             "AWSome Java", "Used REST APIs; (Python)"]
+    for text in texts:
+        backend = ApplicationService.build_keyword_match_payload(
+            job_keywords={"keywords": [{"text": keyword, "source": "extracted"} for keyword in keywords]}, content_md=text, aggressiveness="high")
+        agents = module.match_keywords(keywords, text)
+        assert backend["matched_keywords"] == agents["matched_keywords"], text

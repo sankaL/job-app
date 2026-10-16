@@ -23,4 +23,4 @@ dev = [
 ]
 
 [tool.setuptools]
-py-modules = ["worker", "generation", "validation", "assembly", "privacy", "length_policy", "url_security", "unslop_prompt", "langsmith_tracing", "experience_contract", "resume_judge", "resume_document", "llm_runtime", "section_generation"]
+py-modules = ["worker", "generation", "validation", "assembly", "privacy", "length_policy", "url_security", "unslop_prompt", "langsmith_tracing", "experience_contract", "resume_judge", "resume_document", "llm_runtime", "section_generation", "keyword_match"]

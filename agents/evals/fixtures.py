@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from resume_document import render_resume_document, validate_resume_document
+from evals import keyword_scenario, keyword_scenario_dense
+from keyword_match import match_keywords
 
 
 PRIVACY_VALUES = ["Morgan Synthetic", "morgan.synthetic@example.test", "72 Fictional Lane"]
@@ -79,6 +81,7 @@ class Case:
     aggressiveness: str = "medium"
     fault: str | None = None
     description: str = ""
+    scenario: str | None = None  # A richer fixture set in evals.keyword_scenario; live runs only.
 
 
 CASES = [
@@ -86,6 +89,10 @@ CASES = [
     Case("full_high", aggressiveness="high", description="Full generation with unsupported job requirements as factual traps."),
     Case("entry_preservation", "regeneration_section", description="Regenerate one role while preserving reordered and added siblings."),
     Case("keyword_preservation", "keyword_optimization", description="Add truthful missing keywords without overwriting manual edits."),
+    Case("keyword_high_coverage", "keyword_optimization", "high", scenario="keyword_high",
+         description="Live only: High keyword optimization of a low-coverage draft against a 26-keyword platform posting."),
+    Case("keyword_high_dense", "keyword_optimization", "high", scenario="keyword_high_dense",
+         description="Live only: High keyword optimization of a near-full draft against a 29-keyword data engineering posting."),
     Case("schema_recovery", fault="schema", description="Offline only: malformed envelope triggers Pydantic AI correction."),
     Case("metric_recovery", fault="metric", description="Offline only: wrong metric repairs only the failed section."),
     Case("audit_recovery", fault="audit", description="Offline only: semantic audit rejects invented technology and targets repair."),
@@ -93,6 +100,8 @@ CASES = [
 
 
 def case_settings(case: Case) -> dict[str, Any]:
+    if case.scenario:
+        return keyword_case_settings(case)
     source = source_document()
     settings: dict[str, Any] = {"aggressiveness": case.aggressiveness, "page_length": "1_page",
         "_operation": case.operation, "_privacy_values": list(PRIVACY_VALUES),
@@ -122,3 +131,19 @@ def offline_writer(payload: dict[str, Any]) -> dict[str, Any]:
         sections.append({"id": source["id"], "paragraph": source["content_md"] if not entries else "",
             "source_ids": [source["id"]] if not entries else [], "entries": entries})
     return {"sections": sections}
+
+
+SCENARIOS = {"keyword_high": keyword_scenario, "keyword_high_dense": keyword_scenario_dense}
+
+
+def keyword_case_settings(case: Case) -> dict[str, Any]:
+    """Settings as the backend builds them for a keyword optimization request on a keyword scenario."""
+    scenario = SCENARIOS[case.scenario]
+    current = validate_resume_document(scenario.current_document())
+    start = match_keywords(scenario.KEYWORDS, render_resume_document(current))
+    return {"aggressiveness": case.aggressiveness, "page_length": "1_page", "_operation": case.operation,
+        "_privacy_values": list(PRIVACY_VALUES), "_source_snapshot": scenario.snapshot(),
+        "_current_document": scenario.current_document(),
+        "job_keywords": list(scenario.KEYWORDS), "keyword_coverage_target": 80,
+        "keyword_optimization": {"enabled": True, "target_keywords": start["missing_keywords"],
+            "preserve_keywords": start["matched_keywords"], "starting_match": start}}

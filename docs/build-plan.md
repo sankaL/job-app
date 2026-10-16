@@ -18,6 +18,15 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 - Tests: list-item splitting (with and without full stops, numbered lists, wrapped prose), High off-policy codes rejected and Medium unaffected, escalation view per line; two High tests that used `unsupported_scope` now use `implausible_claim`.
 - Code review fix: a wrapped line starting with a number ("from\n2019. Built APIs.") was read as a numbered-list item and lost its year or metric before Jev saw it. Inside an item only a bullet marker starts a new item; a number does so only inside a numbered list. Regression cases for a wrapped year and a wrapped metric. Rationale in `docs/decisions-made/decisions-made-2.md`. Agents 445 passed.
 
+## High keyword optimization toward the 80% target
+
+**Status:** DONE 2026-10-15 EDT on branch `feat/high-keyword-optimization` (not yet deployed). No migration, no backend change.
+
+- At High, keyword optimization now gets a coverage brief (target, current count, placement rules) and keeps going: after each pass the worker recomputes coverage with a local copy of the backend matcher and runs up to two more passes on the missing keywords, discarding any pass that loses a matched keyword, breaks boundary checks or passes the length hard cap. Verified sections are kept when another never verifies. Low and Medium are unchanged.
+- Benchmarked live on two fictional postings: 19.2% to 96.2% (platform) and 6.9% to 89.7% (data engineering, 79.3% with the old flow), spread across every role instead of piled into one bullet. About $0.36 of OpenRouter spend in total.
+- New live-only eval cases `keyword_high_coverage` and `keyword_high_dense`.
+- Code review follow-ups (2026-10-15): first-pass keyword-loss revert, 90s reserve before each gap pass, gap-pass branch tests, stale-doc fixes. 467 agents and 633 backend tests pass.
+
 ## Export formatting fixes (Classic and Modern)
 
 **Status:** Deployed to production (2026-10-14 EDT, commits `bfe36af` and `43216f1`, GitHub Actions run `38671601545`). The backend and frontend Railway deploys succeeded, and agents were skipped as unchanged. No migration. Post-deploy: `/healthz` 200, `/api/export-styles` 401 without auth, new thumbnails served (Cloudflare edge copies refresh within the 4-hour cache). In the production container all five styles render with their bundled fonts (Classic: Gelasio) in 0.1–1.0 s for a sample resume.

@@ -20,7 +20,7 @@ import model_config
 from langsmith_tracing import trace_scope, end_trace_safely, sanitize_trace_data, trace_content_enabled
 
 
-SAFE_AI_OPERATIONS = {"generation", "regeneration_full", "regeneration_section", "keyword_optimization", "section_generation", "section_repair", "section_grounding_audit", "keyword_patch", "job_extraction", "keyword_extraction", "resume_judge", "structured_call"}
+SAFE_AI_OPERATIONS = {"generation", "regeneration_full", "regeneration_section", "keyword_optimization", "section_generation", "section_repair", "section_grounding_audit", "keyword_patch", "keyword_gap_pass", "job_extraction", "keyword_extraction", "resume_judge", "structured_call"}
 SAFE_PROVIDER_ERROR_CATEGORIES = {"strict_required", "invalid_schema", "reasoning", "unsupported_parameter", "authentication", "rate_limited", "provider_unavailable", "invalid_request", "provider_error"}
 SAFE_PROVIDER_SCHEMA_FLAGS = {"strict", "required", "default", "nullable", "additionalProperties", "$ref", "$defs", "minLength", "maxLength", "minItems", "maxItems", "anyOf", "definitions", "parameters", "properties", "items", "type", "enum", "null", "function_declarations", "parameters_json_schema", "tool_config", "function_calling_config", "min_length", "max_length", "min_items", "max_items", "additional_properties"}
 SAFE_PROVIDER_ERROR_CODES = {"invalid_json_schema", "invalid_schema", "invalid_request_error", "unsupported_parameter", "rate_limit_exceeded", "invalid_api_key", "insufficient_quota"}
