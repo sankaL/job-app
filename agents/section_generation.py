@@ -1415,8 +1415,40 @@ def validate_keyword_document(*, output: ResumeDocument, current: ResumeDocument
 
 # After the first patch, High keeps going toward the coverage target with up to this many extra passes.
 KEYWORD_GAP_PASSES = 2
+# A gap pass is optional: it starts only with this much of the workflow budget left (one write plus one audit),
+# so a late pass cannot run into the worker timeout and discard the verified first pass.
+KEYWORD_GAP_MIN_SECONDS = 90.0
 HIGH_KEYWORD_COVERAGE_TARGET = 80.0
 MAX_KEYWORDS_PER_BULLET = 3
+
+
+def restore_lost_keywords(*, output: ResumeDocument, current: ResumeDocument, keywords: list[str],
+        matched: list[str]) -> tuple[ResumeDocument, int]:
+    """Revert patched sections to their current version until every keyword in `matched` matches again.
+    Each step reverts the section that restores the most lost keywords and, on a tie, keeps the most coverage.
+    Returns the document and how many sections were reverted."""
+    original = {section.id: section for section in current.sections}
+
+    def lost_and_matched(document: ResumeDocument) -> tuple[int, int]:
+        found = match_keywords(keywords, render_resume_document(document))
+        return len(set(matched) - set(found["matched_keywords"])), found["matched_count"]
+
+    output = output.model_copy(deep=True)
+    reverted = 0
+    while lost_and_matched(output)[0]:
+        changed = [index for index, section in enumerate(output.sections)
+            if section.id in original and section.model_dump() != original[section.id].model_dump()]
+        if not changed:
+            break
+        def after_revert(index: int) -> tuple[int, int]:
+            trial = output.model_copy(deep=True)
+            trial.sections[index] = original[trial.sections[index].id].model_copy(deep=True)
+            lost, count = lost_and_matched(trial)
+            return lost, -count
+        best = min(changed, key=after_revert)
+        output.sections[best] = original[output.sections[best].id].model_copy(deep=True)
+        reverted += 1
+    return output, reverted
 
 
 def high_keyword_brief(status: dict[str, Any], target: float) -> str:
@@ -1567,12 +1599,21 @@ async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDo
         source=source, base=current, targets=targets, generation_settings=settings, job_title=job_title,
         company_name=company_name, job_description=job_description, model=model, fallback_model=fallback_model,
         api_key=api_key, base_url=base_url, on_progress=on_progress, budget=budget, rounds=3, gap=0, brief=brief)
-    if errors and not (high and output.model_dump() != current.model_dump()):
-        raise SectionGenerationError(errors, budget.attempts)
+    if high and keywords:
+        # The gap baseline must never start below the draft the user already had.
+        output, reverted = restore_lost_keywords(output=output, current=current, keywords=keywords, matched=status["matched_keywords"])
+        if reverted:
+            budget.attempts.append({"operation": "keyword_first_pass", "outcome": "reverted_lost_keywords", "sections_reverted": reverted})
     # High keeps the sections that verified and leaves the others as they were: nothing unverified lands.
+    kept_verified_sections = high and output.model_dump() != current.model_dump()
+    if errors and not kept_verified_sections:
+        raise SectionGenerationError(errors, budget.attempts)
     for gap in range(1, KEYWORD_GAP_PASSES + 1 if high and keywords else 1):
         settings, status = high_settings(output)
-        if status["percentage"] >= target_percent or not status["missing_keywords"] or not budget.can_afford(ROUND_REQUESTS):
+        if status["percentage"] >= target_percent or not status["missing_keywords"]:
+            break
+        if not budget.can_afford(ROUND_REQUESTS) or budget.deadline - perf_counter() < KEYWORD_GAP_MIN_SECONDS:
+            budget.attempts.append({"operation": "keyword_gap_pass", "outcome": "skipped_budget"})
             break
         try:
             candidate, _gap_errors, gap_prompt, gap_model = await _keyword_patch_pass(

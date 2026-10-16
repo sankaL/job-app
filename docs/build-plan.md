@@ -14,7 +14,8 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 - At High, keyword optimization now gets a coverage brief (target, current count, placement rules) and keeps going: after each pass the worker recomputes coverage with a local copy of the backend matcher and runs up to two more passes on the missing keywords, discarding any pass that loses a matched keyword, breaks boundary checks or passes the length hard cap. Verified sections are kept when another never verifies. Low and Medium are unchanged.
 - Benchmarked live on two fictional postings: 19.2% to 96.2% (platform) and 6.9% to 89.7% (data engineering, 79.3% with the old flow), spread across every role instead of piled into one bullet. About $0.36 of OpenRouter spend in total.
-- New live-only eval cases `keyword_high_coverage` and `keyword_high_dense`; 457 agents tests pass.
+- New live-only eval cases `keyword_high_coverage` and `keyword_high_dense`.
+- Code review follow-ups (2026-10-15): first-pass keyword-loss revert, 90s reserve before each gap pass, gap-pass branch tests, stale-doc fixes. 467 agents and 633 backend tests pass.
 
 ## Export formatting fixes (Classic and Modern)
 
