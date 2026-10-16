@@ -1436,7 +1436,7 @@ async def run_keyword_pipeline(monkeypatch, patches, aggressiveness='high', keyw
         if kwargs['output_type'] is pipeline.GroundingAudit:
             payload = json.loads(kwargs['prompt'][1][1])
             return pipeline.GroundingAudit(sections=[pipeline.GroundingAssessment(id=section['id'], supported=section['id'] not in audit_fails,
-                issues=[] if section['id'] not in audit_fails else ['unsupported_scope']) for section in payload['sections_to_verify']])
+                issues=[] if section['id'] not in audit_fails else ['implausible_claim']) for section in payload['sections_to_verify']])
         writer_prompts.append(kwargs['prompt'])
         if on_writer:
             on_writer(len(writer_prompts), kwargs['budget'])
