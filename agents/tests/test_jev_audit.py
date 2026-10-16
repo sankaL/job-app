@@ -102,6 +102,21 @@ def test_section_claims_split_bullets_and_sentences_with_role_evidence_and_flag_
     assert set(request["questions"][claims[3].id]["criteria"]) == set(jev_audit.HIGH_OPTIONS)
 
 
+@pytest.mark.parametrize("text,expected", [
+    # Production: a sentence split alone joined one project's last sentence to the next project's name.
+    ("- AbleRoute, paid client build. Built a layered\nextraction pipeline.\n- Gust, gustapp.ca. Built a task manager.",
+     ["AbleRoute, paid client build.", "Built a layered extraction pipeline.", "Gust, gustapp.ca.", "Built a task manager."]),
+    # Items without final full stops (the user asked for no dots) must not merge.
+    ("- Gust, a voice-first task manager\n- Applix Resume Judge, an LLM-as-judge. Scores drafts",
+     ["Gust, a voice-first task manager", "Applix Resume Judge, an LLM-as-judge.", "Scores drafts"]),
+    ("1. First item\n2) Second item", ["First item", "Second item"]),
+    # Plain prose keeps the sentence split; wrapped lines and blank-line paragraphs are handled.
+    ("Backend engineer. Builds\nAPIs.\n\nLeads a team", ["Backend engineer.", "Builds APIs.", "Leads a team"]),
+])
+def test_split_paragraph_splits_list_items_before_sentences(text, expected):
+    assert jev_audit.split_paragraph("projects", text) == expected
+
+
 SKILLS_SOURCE = ("- Testing & Automation: Playwright, Selenium, PyTest, JMeter, CI/CD, Agile, Scrum\n"
                  "- Languages and platforms: Python, JavaScript, SQL, Jira, Azure DevOps, Page Object Model")
 

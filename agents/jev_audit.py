@@ -264,6 +264,22 @@ def route(answer: JevAnswer, level: str, thresholds: Optional[tuple[float, float
 
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
+_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+•]|\d+[.)])\s+")
+
+
+def _blocks(text: str) -> list[str]:
+    """Markdown list items and paragraphs; wrapped lines join the block they continue."""
+    blocks: list[str] = []
+    new_block = True
+    for line in text.splitlines():
+        if not line.strip():
+            new_block = True
+        elif new_block or _LIST_ITEM_RE.match(line):
+            blocks.append(_LIST_ITEM_RE.sub("", line, count=1).strip())
+            new_block = False
+        else:
+            blocks[-1] += " " + line.strip()
+    return blocks
 
 
 def split_paragraph(kind: str, text: str) -> list[str]:
@@ -275,7 +291,10 @@ def split_paragraph(kind: str, text: str) -> list[str]:
         if len(parts) == 1:
             parts = [part.strip() for part in re.split(r"(?<=\.)\s+(?=[A-Z])", parts[0]) if part.strip()]
         return parts
-    return [part.strip() for part in _SENTENCE_RE.split(text) if part.strip()]
+    # Split list items before sentences: a sentence split alone joined one project's last sentence to the
+    # next project's name ("...left unread. - Gust, gustapp.ca."), and items without final full stops
+    # merged whole projects, so Jev judged mixed claims (production section regeneration, 2026-10-15).
+    return [part.strip() for block in _blocks(text) for part in _SENTENCE_RE.split(block) if part.strip()]
 
 
 # Summary and Skills condense the whole resume, but writers cite only some of it: production

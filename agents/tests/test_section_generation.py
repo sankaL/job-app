@@ -551,7 +551,7 @@ async def test_repeated_semantic_rejection_supplies_feedback_and_switches_repair
             audits += any(s['id'] == 'summary-id' for s in payload['sections_to_verify'])
             return pipeline.GroundingAudit(sections=[{'id':s['id'],
                 'supported':s['id'] != 'summary-id' or audits > 2,
-                'issues':['unsupported_scope'] if s['id']=='summary-id' and audits <= 2 else []}
+                'issues':['implausible_claim'] if s['id']=='summary-id' and audits <= 2 else []}
                 for s in payload['sections_to_verify']])
         writes.append(kwargs)
         outputs = {'summary-id':summary_output(),'experience-id':experience_output(),'custom-id':custom_output()}
@@ -569,7 +569,7 @@ async def test_repeated_semantic_rejection_supplies_feedback_and_switches_repair
         feedback = json.loads(write['prompt'][-1][1])
         assert feedback['repair_only_section_ids'] == ['summary-id']
         assert feedback['rejected_outputs'][0]['id'] == 'summary-id'
-        assert feedback['repair_errors'] == {'summary-id':'unsupported_scope'}
+        assert feedback['repair_errors'] == {'summary-id':'implausible_claim'}
 
 
 @pytest.mark.asyncio
@@ -892,19 +892,59 @@ async def test_keyword_audit_follows_the_selected_level(monkeypatch, aggressiven
         system = kwargs['prompt'][0][1]
         assert ('light fit check' in system) == (aggressiveness == 'high')
         assert json.loads(kwargs['prompt'][1][1])['aggressiveness'] == aggressiveness
-        return pipeline.GroundingAudit(sections=[{'id': 'summary-id', 'supported': False, 'issues': ['unsupported_technology']}]), 'audit'
+        return pipeline.GroundingAudit(sections=[{'id': 'summary-id', 'supported': False, 'issues': [issue]}]), 'audit'
 
+    issue = 'implausible_claim' if aggressiveness == 'high' else 'unsupported_technology'
     monkeypatch.setattr(pipeline, 'call_with_fallback', audit)
     result = await pipeline.audit_section_grounding(sections=[view], source=doc,
         generation_settings={'aggressiveness': aggressiveness, '_operation': 'keyword_optimization'},
         model='audit', api_key='test', base_url='https://provider.invalid', budget=pipeline.CallBudget.for_seconds(5))
-    assert result == {'summary-id': 'unsupported_technology'}
+    assert result == {'summary-id': issue}
     prompt = pipeline.build_section_prompt(source=doc, requested=doc.sections[:2],
         generation_settings={'aggressiveness': aggressiveness, '_operation': 'keyword_optimization'},
         job_title='Engineer', company_name='Acme', job_description='Kubernetes', instructions=None, current=doc, target_entry_id=None)
     human = json.loads(prompt[1][1])
     assert ('plausible' in json.dumps(human['aggressiveness_contract'])) == (aggressiveness == 'high')
     assert human['title_policy'] == 'Preserve current titles exactly.'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('aggressiveness,issue,accepted', [
+    ('high', 'unsupported_scope', False),
+    ('high', 'unsupported_technology', False),
+    ('high', 'implausible_claim', True),
+    ('medium', 'unsupported_scope', True),
+])
+async def test_high_llm_audit_rejects_issue_codes_high_does_not_enforce(monkeypatch, aggressiveness, issue, accepted):
+    """Production: a High Projects regeneration failed because the escalation audit returned unsupported_scope."""
+    doc = validate_resume_document(source_document())
+    validators = []
+
+    async def audit(**kwargs):
+        validators.append(kwargs['output_validator'])
+        assert 'Use only these six issue codes' in kwargs['prompt'][0][1] or aggressiveness != 'high'
+        return pipeline.GroundingAudit(sections=[{'id': 'summary-id', 'supported': False, 'issues': [issue]}]), 'audit'
+
+    monkeypatch.setattr(pipeline, 'call_with_fallback', audit)
+    result = await pipeline.audit_section_grounding(sections=[doc.sections[0]], source=doc,
+        generation_settings={'aggressiveness': aggressiveness},
+        model='audit', api_key='test', base_url='https://provider.invalid', budget=pipeline.CallBudget.for_seconds(5))
+    # The validator asks the model for a correction; a final off-policy answer fails closed, never passes.
+    assert result == {'summary-id': issue if accepted else 'grounding_audit_unavailable'}
+    response = pipeline.GroundingAudit(sections=[{'id': 'summary-id', 'supported': False, 'issues': [issue]}])
+    if accepted:
+        validators[0](response)
+    else:
+        with pytest.raises(ValueError, match='grounding_audit_issue_not_enforced_at_high'):
+            validators[0](response)
+
+
+def test_escalation_view_keeps_each_uncertain_prose_claim_on_its_own_line():
+    doc = validate_resume_document(source_document())
+    claims = [pipeline.jev_audit.Claim('c0', 'summary-id', 'AbleRoute, a paid client build.', ''),
+              pipeline.jev_audit.Claim('c1', 'summary-id', 'Files results automatically', '')]
+    view = pipeline._escalation_view(doc.sections[0], claims, whole=False)
+    assert view.content_md == 'AbleRoute, a paid client build.\nFiles results automatically'
 
 
 def test_writer_receives_job_keywords_from_generation_settings():

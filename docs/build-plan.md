@@ -1,12 +1,21 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-14
+**Last updated:** 2026-10-15
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
 
 This roadmap now includes the committed Phase 0 foundation, the committed Phase 1 application-intake workflow, the committed Phase 1A blocked-site recovery plus Chrome extension intake follow-on, Phase 2 base resumes and profile preferences, Phase 3 generation/validation/assembly, and Phase 4 editing/regeneration/export. Phase 5 hardening and operations work is in progress.
+
+## High section regeneration grounding-audit fix
+
+**Status:** Implemented (2026-10-15 EDT). Not yet deployed. Agents-only change, no migration.
+
+- Production incident: a High Projects section regeneration failed with "Regeneration failed unexpectedly" (`SectionGenerationError: unsupported_scope`, 7 attempts).
+- Cause 1: `jev_audit.split_paragraph` split prose only on sentence ends, so a Projects list joined one project's last sentence to the next project's name, and items without final full stops (the user asked for no dots) merged whole projects. Jev rejected those mixed claims in rounds 1 and 2. Prose is now split into list items and paragraphs before sentences. A live Jev replay of the failed outputs accepted every claim.
+- Cause 2: in round 3 the escalation LLM audit returned `unsupported_scope`, a code High does not enforce, and it was accepted. The High audit prompt now names its six codes, and the validator rejects any other code at High (one bounded correction, then fallback, then fail closed). Escalated prose claims are now sent one per line.
+- Tests: list-item splitting (with and without full stops, numbered lists, wrapped prose), High off-policy codes rejected and Medium unaffected, escalation view per line; two High tests that used `unsupported_scope` now use `implausible_claim`. Agents 443 passed.
 
 ## Export formatting fixes (Classic and Modern)
 

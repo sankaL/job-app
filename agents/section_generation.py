@@ -73,6 +73,9 @@ class SectionBatch(BaseModel):
 
 
 GroundingIssue = Literal["unsupported_technology", "unsupported_metric", "unsupported_scope", "unsupported_credential", "unsupported_employer", "unsupported_role_reframe", "insufficient_source_evidence", "unsupported_date_or_tenure", "implausible_claim"]
+# The only failures High enforces (PRD): larger scope, new technologies and other job-fit additions pass there.
+HIGH_GROUNDING_ISSUES = frozenset({"unsupported_employer", "unsupported_credential", "unsupported_date_or_tenure",
+                                   "unsupported_role_reframe", "unsupported_metric", "implausible_claim"})
 
 # High is an explicit opt-in to fit the job closely; the user accepted that its content may not be true.
 # Employer, dates, seniority, education and credentials stay fixed; everything else may be rewritten.
@@ -592,6 +595,7 @@ def grounding_audit_system_prompt(aggressiveness: str) -> str:
             "(unsupported_date_or_tenure), or a title's seniority (unsupported_role_reframe). Fail a claim that reuses a number from "
             "the source for different work or a different quantity (unsupported_metric). Fail claims that could not fit the role, "
             "such as a technology that did not exist in that period or an absurd scale for the employer (implausible_claim). "
+            "Use only these six issue codes; larger scope, new technologies or thin source evidence are not High failures. "
             "Return one decision per requested section in order. " + data_rule)
     common = ("Return one decision per requested section in order. "
         "A role-title reframe requires the same seniority and demonstrated responsibilities supporting its core role family. "
@@ -729,7 +733,8 @@ def _escalation_view(section: ResumeSection, claims: Optional[list[Any]], whole:
         for entry in view.entries:
             entry.bullets = [bullet for bullet in entry.bullets if bullet.text in uncertain]
     else:
-        view.content_md = " ".join(claim.text for claim in claims)
+        # One claim per line: run together, a claim reads as part of the previous item.
+        view.content_md = "\n".join(claim.text for claim in claims)
     return view
 
 
@@ -826,13 +831,17 @@ async def _llm_grounding_audit(
     # Summary and Skills condense the whole resume, so they are judged against all of it.
     if not any(section.kind in {"summary", "skills"} for section in sections):
         context.sections = [section for section in context.sections if section.id in requested_ids or references.intersection(_ids(ResumeDocument(sections=[section])))]
+    audit_aggressiveness = str(generation_settings.get("aggressiveness") or "medium").lower()
     def verify(response: GroundingAudit) -> GroundingAudit:
         if [assessment.id for assessment in response.sections] != requested_ids:
             raise ValueError("grounding_audit_section_identity_mismatch")
         if any(assessment.supported == bool(assessment.issues) for assessment in response.sections):
             raise ValueError("grounding_audit_decision_inconsistent")
+        # An off-policy code (a High section failed for unsupported_scope) gets one bounded correction,
+        # then the fallback model; a final off-policy answer still fails closed as unavailable.
+        if audit_aggressiveness == "high" and any(set(assessment.issues) - HIGH_GROUNDING_ISSUES for assessment in response.sections):
+            raise ValueError("grounding_audit_issue_not_enforced_at_high")
         return response
-    audit_aggressiveness = str(generation_settings.get("aggressiveness") or "medium").lower()
     payload: dict[str, Any] = {
         "reviewed_source": context.model_dump(mode="json"),
         "sections_to_verify": [section.model_dump(mode="json") for section in sections],
