@@ -1,7 +1,7 @@
 # AI Resume Builder Build Plan
 
 **Document status:** Active roadmap  
-**Last updated:** 2026-10-15
+**Last updated:** 2026-10-16
 **Implementation status:** Phases 0 through 4 implemented; Phase 5 in progress  
 **Primary product source:** `docs/resume_builder_PRD_v3.md`  
 **Database contract:** `docs/database_schema.md`
@@ -10,7 +10,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## High section regeneration grounding-audit fix
 
-**Status:** Implemented (2026-10-15 EDT). Not yet deployed. Agents-only change, no migration.
+**Status:** Deployed to production (2026-10-16 EDT, merged to `main` as `cea7773`, GitHub Actions run `38850599521`: backend and agents deployed, frontend skipped as unchanged). Agents-only change, no migration.
 
 - Production incident: a High Projects section regeneration failed with "Regeneration failed unexpectedly" (`SectionGenerationError: unsupported_scope`, 7 attempts).
 - Cause 1: `jev_audit.split_paragraph` split prose only on sentence ends, so a Projects list joined one project's last sentence to the next project's name, and items without final full stops (the user asked for no dots) merged whole projects. Jev rejected those mixed claims in rounds 1 and 2. Prose is now split into list items and paragraphs before sentences. A live Jev replay of the failed outputs accepted every claim.
@@ -20,7 +20,7 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 
 ## High keyword optimization toward the 80% target
 
-**Status:** DONE 2026-10-15 EDT on branch `feat/high-keyword-optimization` (not yet deployed). No migration, no backend change.
+**Status:** Deployed to production (2026-10-16 EDT, merged to `main` as `cea7773`, GitHub Actions run `38850599521`). No migration, no backend change.
 
 - At High, keyword optimization now gets a coverage brief (target, current count, placement rules) and keeps going: after each pass the worker recomputes coverage with a local copy of the backend matcher and runs up to two more passes on the missing keywords, discarding any pass that loses a matched keyword, breaks boundary checks or passes the length hard cap. Verified sections are kept when another never verifies. Low and Medium are unchanged.
 - Benchmarked live on two fictional postings: 19.2% to 96.2% (platform) and 6.9% to 89.7% (data engineering, 79.3% with the old flow), spread across every role instead of piled into one bullet. About $0.36 of OpenRouter spend in total.
