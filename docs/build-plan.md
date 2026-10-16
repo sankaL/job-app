@@ -15,7 +15,8 @@ This roadmap now includes the committed Phase 0 foundation, the committed Phase 
 - Production incident: a High Projects section regeneration failed with "Regeneration failed unexpectedly" (`SectionGenerationError: unsupported_scope`, 7 attempts).
 - Cause 1: `jev_audit.split_paragraph` split prose only on sentence ends, so a Projects list joined one project's last sentence to the next project's name, and items without final full stops (the user asked for no dots) merged whole projects. Jev rejected those mixed claims in rounds 1 and 2. Prose is now split into list items and paragraphs before sentences. A live Jev replay of the failed outputs accepted every claim.
 - Cause 2: in round 3 the escalation LLM audit returned `unsupported_scope`, a code High does not enforce, and it was accepted. The High audit prompt now names its six codes, and the validator rejects any other code at High (one bounded correction, then fallback, then fail closed). Escalated prose claims are now sent one per line.
-- Tests: list-item splitting (with and without full stops, numbered lists, wrapped prose), High off-policy codes rejected and Medium unaffected, escalation view per line; two High tests that used `unsupported_scope` now use `implausible_claim`. Agents 443 passed.
+- Tests: list-item splitting (with and without full stops, numbered lists, wrapped prose), High off-policy codes rejected and Medium unaffected, escalation view per line; two High tests that used `unsupported_scope` now use `implausible_claim`.
+- Code review fix: a wrapped line starting with a number ("from\n2019. Built APIs.") was read as a numbered-list item and lost its year or metric before Jev saw it. Inside an item only a bullet marker starts a new item; a number does so only inside a numbered list. Regression cases for a wrapped year and a wrapped metric. Rationale in `docs/decisions-made/decisions-made-2.md`. Agents 445 passed.
 
 ## Export formatting fixes (Classic and Modern)
 

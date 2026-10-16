@@ -110,6 +110,9 @@ def test_section_claims_split_bullets_and_sentences_with_role_evidence_and_flag_
     ("- Gust, a voice-first task manager\n- Applix Resume Judge, an LLM-as-judge. Scores drafts",
      ["Gust, a voice-first task manager", "Applix Resume Judge, an LLM-as-judge.", "Scores drafts"]),
     ("1. First item\n2) Second item", ["First item", "Second item"]),
+    # A wrapped line starting with a number continues the item, so the year or metric stays in the claim.
+    ("Led the platform team at Acme from\n2019. Built APIs.", ["Led the platform team at Acme from 2019.", "Built APIs."]),
+    ("Led a migration that cut costs by\n40. Built APIs.", ["Led a migration that cut costs by 40.", "Built APIs."]),
     # Plain prose keeps the sentence split; wrapped lines and blank-line paragraphs are handled.
     ("Backend engineer. Builds\nAPIs.\n\nLeads a team", ["Backend engineer.", "Builds APIs.", "Leads a team"]),
 ])

@@ -265,16 +265,22 @@ def route(answer: JevAnswer, level: str, thresholds: Optional[tuple[float, float
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+•]|\d+[.)])\s+")
+_BULLET_RE = re.compile(r"^\s*[-*+•]\s+")
+_NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+")
 
 
 def _blocks(text: str) -> list[str]:
     """Markdown list items and paragraphs; wrapped lines join the block they continue."""
     blocks: list[str] = []
     new_block = True
+    numbered = False
     for line in text.splitlines():
         if not line.strip():
             new_block = True
-        elif new_block or _LIST_ITEM_RE.match(line):
+        # Mid-block, a number starts an item only inside a numbered list: a wrapped "from\n2019. Built
+        # APIs." would otherwise lose the year as if it were a list marker, and Jev would never see it.
+        elif new_block or _BULLET_RE.match(line) or (numbered and _NUMBERED_RE.match(line)):
+            numbered = bool(_NUMBERED_RE.match(line))
             blocks.append(_LIST_ITEM_RE.sub("", line, count=1).strip())
             new_block = False
         else:
