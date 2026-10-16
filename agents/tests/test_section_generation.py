@@ -1370,3 +1370,114 @@ def test_keyword_patch_rejects_present_tense_in_an_ended_role_but_keeps_user_wor
     # The user's own current wording already starts with that verb: keep their voice.
     current.entries[0].bullets[1].text = 'Maintain FastAPI services.'
     pipeline.apply_keyword_patch(patch=patch, source=doc.sections[1], current=current, document=doc, privacy_values=[])
+
+
+KEYWORDS = ['Python', 'FastAPI', 'Kubernetes', 'Terraform', 'Docker', 'CI/CD', 'Kafka', 'Redis', 'Grafana', 'AWS Certified Solutions Architect']
+
+
+def keyword_patch(*texts, summary=None):
+    sections = [{'id': 'experience-id', 'paragraph': None, 'source_ids': [], 'entries': [
+        {'id': 'role-one', 'bullets': [{'id': bullet_id, 'text': text, 'source_ids': [bullet_id]} for bullet_id, text in texts]}]}]
+    if summary:
+        sections.append({'id': 'summary-id', 'paragraph': summary, 'source_ids': ['summary-id'], 'entries': []})
+    return {'sections': sections}
+
+
+async def run_keyword_pipeline(monkeypatch, patches, aggressiveness='high', keywords=KEYWORDS, audit_fails=()):
+    """Serve scripted keyword patches in order and record each writer prompt."""
+    writer_prompts = []
+
+    async def call(**kwargs):
+        kwargs['budget'].requests += 1
+        kwargs['budget'].attempts.append({'model': kwargs['model_name'], 'outcome': 'success'})
+        if kwargs['output_type'] is pipeline.GroundingAudit:
+            payload = json.loads(kwargs['prompt'][1][1])
+            return pipeline.GroundingAudit(sections=[pipeline.GroundingAssessment(id=section['id'], supported=section['id'] not in audit_fails,
+                issues=[] if section['id'] not in audit_fails else ['unsupported_scope']) for section in payload['sections_to_verify']])
+        writer_prompts.append(kwargs['prompt'])
+        return kwargs['output_type'].model_validate(patches.pop(0))
+
+    monkeypatch.setattr(pipeline, 'structured_call', call)
+    current = validate_resume_document(source_document())
+    result = await pipeline.generate_keyword_document(
+        source=validate_resume_document(source_document()), current=current,
+        generation_settings={'aggressiveness': aggressiveness, 'job_keywords': keywords, 'keyword_coverage_target': 80,
+            '_source_snapshot': {'base_resume_id': 'base-1'}, '_current_document': current.model_dump(mode='json'),
+            'keyword_optimization': {'enabled': True}},
+        job_title='Platform Engineer', company_name='Employer', job_description='Run Kubernetes.',
+        model='primary', fallback_model='fallback', api_key='test', base_url='https://provider.invalid/v1', on_progress=None)
+    return result, writer_prompts
+
+
+def coverage_of(result):
+    return pipeline.match_keywords(KEYWORDS, render_resume_document(validate_resume_document(result['document'])))
+
+
+@pytest.mark.asyncio
+async def test_high_keyword_optimization_keeps_working_until_the_coverage_target(monkeypatch):
+    first = keyword_patch(('bullet-one', 'Built Python APIs with FastAPI on Kubernetes and Docker, with 35% lower latency.'))
+    second = keyword_patch(('bullet-two', 'Maintained FastAPI services deployed with Terraform and CI/CD.'), summary='Built and maintained Python APIs on Kafka and Redis.')
+    third = keyword_patch(('bullet-two', 'Maintained FastAPI services with Terraform, CI/CD and Grafana dashboards.'))
+    result, prompts = await run_keyword_pipeline(monkeypatch, [first, second, third])
+    coverage = coverage_of(result)
+    # 7 of 10 after the first pass, 9 of 10 after the second; the credential is never added.
+    assert coverage['percentage'] >= 80 and 'AWS Certified Solutions Architect' in coverage['missing_keywords']
+    assert len(prompts) == 2  # the third scripted patch was never requested: the target was met
+    second_payload = json.loads(prompts[1][1][1])
+    contract = second_payload['keyword_contract']
+    assert contract['target_keywords'] == [keyword for keyword in KEYWORDS if keyword not in ('Python', 'FastAPI', 'Kubernetes', 'Docker')]
+    assert set(contract['preserve_keywords']) >= {'Python', 'FastAPI', 'Kubernetes', 'Docker'}
+    assert 'at least 80% of keyword_contract.job_keywords' in prompts[0][0][1]
+    assert 'no bullet holds more than 3 job keywords' in prompts[0][0][1]
+    # The second pass patches the first pass's result, not the original draft.
+    assert 'Kubernetes and Docker' in json.dumps(second_payload['current_document'])
+    assert {attempt.get('outcome') for attempt in result['attempt_diagnostics'] if attempt.get('operation') == 'keyword_gap_pass'} == {'success'}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('aggressiveness', ['low', 'medium'])
+async def test_low_and_medium_keyword_optimization_stay_a_single_minimal_pass(monkeypatch, aggressiveness):
+    patch = keyword_patch(('bullet-one', 'Built Python APIs with FastAPI, with 35% lower latency.'))
+    result, prompts = await run_keyword_pipeline(monkeypatch, [patch, keyword_patch(('bullet-two', 'Used Kafka.'))], aggressiveness=aggressiveness)
+    assert len(prompts) == 1
+    assert 'smallest necessary edit' in prompts[0][0][1] and 'High keyword optimization' not in prompts[0][0][1]
+    assert not [attempt for attempt in result['attempt_diagnostics'] if attempt.get('operation') == 'keyword_gap_pass']
+
+
+@pytest.mark.asyncio
+async def test_high_keyword_gap_pass_that_loses_a_matched_keyword_is_discarded(monkeypatch):
+    first = keyword_patch(('bullet-one', 'Built Python APIs with FastAPI on Kubernetes and Docker, with 35% lower latency.'))
+    losing = keyword_patch(('bullet-one', 'Built Python APIs on Kubernetes with Terraform, with 35% lower latency.'))
+    result, prompts = await run_keyword_pipeline(monkeypatch, [first, losing])
+    text = render_resume_document(validate_resume_document(result['document']))
+    assert 'FastAPI on Kubernetes and Docker' in text and 'Terraform' not in text
+    assert [attempt['outcome'] for attempt in result['attempt_diagnostics'] if attempt.get('operation') == 'keyword_gap_pass'] == ['discarded_lost_keywords']
+
+
+@pytest.mark.asyncio
+async def test_high_keyword_optimization_keeps_verified_sections_when_another_never_verifies(monkeypatch):
+    patch = keyword_patch(('bullet-one', 'Built Python APIs with FastAPI on Kubernetes and Docker, with 35% lower latency.'),
+                          summary='Built Python APIs on Kafka, Redis and Terraform.')
+    # Summary fails every audit round; Experience verifies and is kept.
+    retry = {'sections': [{'id': 'summary-id', 'paragraph': 'Built Python APIs on Kafka, Redis and Terraform.', 'source_ids': ['summary-id'], 'entries': []}]}
+    result, _prompts = await run_keyword_pipeline(monkeypatch, [patch, deepcopy(retry), deepcopy(retry), keyword_patch()],
+                                                  audit_fails=('summary-id',))
+    text = render_resume_document(validate_resume_document(result['document']))
+    assert 'Kubernetes and Docker' in text and 'Kafka' not in text
+
+
+@pytest.mark.asyncio
+async def test_medium_keyword_optimization_still_fails_when_a_section_never_verifies(monkeypatch):
+    patch = keyword_patch(('bullet-one', 'Built Python APIs with FastAPI on Kubernetes and Docker, with 35% lower latency.'))
+    with pytest.raises(pipeline.SectionGenerationError):
+        await run_keyword_pipeline(monkeypatch, [patch, deepcopy(patch), deepcopy(patch)], aggressiveness='medium', audit_fails=('experience-id',))
+
+
+def test_keyword_matching_is_exact_phrase_only():
+    match = pipeline.match_keywords
+    assert match(['CI/CD'], 'Owned ci/cd pipelines')['matched_count'] == 1
+    assert match(['data pipelines'], 'Built data\n  pipelines')['matched_count'] == 1
+    assert match(['Java'], 'Wrote JavaScript')['matched_count'] == 0
+    assert match(['REST APIs'], 'Designed REST API')['matched_count'] == 0
+    assert match(['Kafka'], 'Used Kafka, Redis')['matched_keywords'] == ['Kafka']
+    assert match(['Python', 'Python', ' '], 'python')['total_count'] == 1

@@ -36,7 +36,8 @@ import model_config
 import langsmith_tracing as tracing
 import section_generation as pipeline
 from resume_document import render_resume_document, validate_resume_document
-from evals.fixtures import CASES, JOB_DESCRIPTION, PRIVACY_VALUES, UNSUPPORTED_TERMS, Case, case_settings, current_document, offline_writer, source_document
+from keyword_match import match_keywords
+from evals.fixtures import CASES, SCENARIOS, JOB_DESCRIPTION, PRIVACY_VALUES, UNSUPPORTED_TERMS, Case, case_settings, current_document, offline_writer, source_document
 
 
 # Concurrent writer groups share one meter; tag each HTTP request with its call.
@@ -340,6 +341,41 @@ class RunMeter:
             "usage": {"prompt_tokens": 100, "completion_tokens": 100, "total_tokens": 200, "cost": 0.0001}})
 
 
+def keyword_high_assertions(case: Case, result: dict[str, Any], settings: dict[str, Any]) -> tuple[dict[str, bool], dict[str, Any]]:
+    """Coverage, boundary and stuffing checks for the High keyword scenario."""
+    scenario = SCENARIOS[case.scenario]
+    source = validate_resume_document(scenario.source_document())
+    current = validate_resume_document(settings["_current_document"])
+    output = validate_resume_document(result["document"])
+    rendered = render_resume_document(output)
+    start = settings["keyword_optimization"]["starting_match"]
+    end = match_keywords(scenario.KEYWORDS, rendered)
+    reachable = [keyword for keyword in scenario.KEYWORDS if keyword not in scenario.UNREACHABLE]
+    # Stuffing means piling new keywords onto one bullet, so count the keywords a bullet gained.
+    before_text = {bullet.id: bullet.text for section in current.sections for entry in section.entries for bullet in entry.bullets}
+    gained = [len(set(match_keywords(scenario.KEYWORDS, bullet.text)["matched_keywords"])
+                  - set(match_keywords(scenario.KEYWORDS, before_text.get(bullet.id, ""))["matched_keywords"]))
+              for section in output.sections for entry in section.entries for bullet in entry.bullets]
+    crowded = [count for count in gained if count > pipeline.MAX_KEYWORDS_PER_BULLET + 1]
+    facts = lambda document: [(entry.id, entry.fields) for section in document.sections for entry in section.entries]
+    checks = {"source_snapshot_exact": result["source_snapshot"] == settings["_source_snapshot"],
+        "no_contact_in_enabled_output": not any(value.casefold() in rendered.casefold() for value in PRIVACY_VALUES),
+        "local_boundary_valid": pipeline.validate_keyword_document(output=output, current=current, source=source,
+            privacy_values=PRIVACY_VALUES, aggressiveness="high")["valid"],
+        "matched_keywords_preserved": all(keyword in end["matched_keywords"] for keyword in start["matched_keywords"]),
+        "coverage_at_least_80": end["percentage"] >= 80.0,
+        "credential_not_claimed": not any(keyword.casefold() in rendered.casefold() for keyword in scenario.UNREACHABLE),
+        "employers_dates_titles_unchanged": facts(output) == facts(current),
+        "no_crowded_bullets": not crowded}
+    metrics = {"start_percentage": start["percentage"], "end_percentage": end["percentage"],
+        "matched": end["matched_count"], "total": end["total_count"], "reachable_total": len(reachable),
+        "missing_keywords": end["missing_keywords"], "crowded_bullets": len(crowded), "max_new_keywords_in_a_bullet": max(gained, default=0),
+        "roles_changed": sum(entry.model_dump() != prior.model_dump() for section, before in zip(output.sections, current.sections)
+                             if section.kind == "professional_experience" for entry, prior in zip(section.entries, before.entries)),
+        "roles_total": sum(len(section.entries) for section in output.sections if section.kind == "professional_experience")}
+    return checks, metrics
+
+
 def assertions(case: Case, result: dict[str, Any], settings: dict[str, Any]) -> dict[str, bool]:
     source = validate_resume_document(source_document())
     output = validate_resume_document(result["document"])
@@ -451,16 +487,25 @@ async def run_cases(cases: list[Case], values: dict[str, str], args: argparse.Na
             case_started = perf_counter()
             try:
                 meter.check()
-                result = await pipeline.generate_document(source_payload=source_document(), generation_settings=settings, section_preferences=[],
-                    job_title="Backend Engineer", company_name="Fictional Northstar Tools", job_description=JOB_DESCRIPTION,
+                scenario = SCENARIOS.get(case.scenario)
+                result = await pipeline.generate_document(source_payload=scenario.source_document() if scenario else source_document(),
+                    generation_settings=settings, section_preferences=[],
+                    job_title=scenario.JOB_TITLE if scenario else "Backend Engineer",
+                    company_name=scenario.COMPANY if scenario else "Fictional Northstar Tools",
+                    job_description=scenario.JOB_DESCRIPTION if scenario else JOB_DESCRIPTION,
                     model=model, fallback_model=fallback, api_key=values["OPENROUTER_API_KEY"] if live else "synthetic",
                     base_url=values["OPENROUTER_BASE_URL"] if live else "https://synthetic.invalid/v1", on_progress=None,
                     reasoning_effort="auto",
                     target_section_id="experience" if case.operation == "regeneration_section" else None,
                     instructions="Emphasize grounded API testing and documentation for this role. Preserve the factual source history." if case.operation == "regeneration_section" else None)
-                checks = assertions(case, result, settings)
+                if scenario:
+                    checks, keyword_metrics = keyword_high_assertions(case, result, settings)
+                else:
+                    checks, keyword_metrics = assertions(case, result, settings), None
                 row: dict[str, Any] = {"case": case.id, "status": "passed" if all(checks.values()) else "failed",
                     "checks": checks, "word_count": len(render_resume_document(validate_resume_document(result["document"])).split())}
+                if keyword_metrics:
+                    row["keyword_coverage"] = keyword_metrics
                 if args.save_documents:
                     row["document"] = result["document"]  # Synthetic material only.
                 row["attempts"] = safe_attempts(result.get("attempt_diagnostics", []), meter.model_roles)
@@ -522,7 +567,9 @@ def main() -> int:
         # Default live limits are deliberately smaller than offline coverage.
         args.max_requests = min(args.max_requests, 8)
         args.max_output_tokens = min(args.max_output_tokens, 128000)
-    selected = args.case or (["full_low"] if args.live else [case.id for case in CASES])
+    selected = args.case or (["full_low"] if args.live else [case.id for case in CASES if not case.scenario])
+    if not args.live and any(next(case for case in CASES if case.id == identifier).scenario for identifier in selected):
+        raise SystemExit("Scenario cases need --live: the offline provider has no scripted answer for them.")
     cases = [next(case for case in CASES if case.id == identifier) for identifier in selected]
     try:
         report = asyncio.run(run_cases(cases, values, args))

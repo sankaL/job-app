@@ -69,8 +69,9 @@ async def test_all_synthetic_cases_use_real_runtime_without_network(monkeypatch)
     monkeypatch.setenv("LANGSMITH_PROJECT", "ambient-project")
     monkeypatch.setenv("LANGSMITH_API_KEY", "ambient-key")
     monkeypatch.setattr(tracing, "_build_client", lambda *_args: pytest.fail("Offline evaluation created a telemetry client"))
-    report = await run_cases(CASES, {}, arguments())
-    assert len(report["results"]) == len(CASES)
+    offline = [case for case in CASES if not case.scenario]
+    report = await run_cases(offline, {}, arguments())
+    assert len(report["results"]) == len(offline)
     for case in report["results"]:
         assert case["status"] == "passed", case
     # Parallel writer groups are written and audited separately (Experience vs other sections);

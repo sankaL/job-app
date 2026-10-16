@@ -6,6 +6,7 @@ from copy import deepcopy
 from hashlib import sha256
 import json
 import logging
+import math
 import re
 from dataclasses import replace
 from time import perf_counter
@@ -14,6 +15,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, SkipValidation, ValidationError, field_validator
 
 import jev_audit
+from keyword_match import match_keywords
 from langsmith_tracing import end_trace_safely, trace_scope
 from llm_runtime import AIBudgetExhausted, AIDeadlineReached, AIRequestError, CallBudget, structured_call
 
@@ -1411,34 +1413,62 @@ def validate_keyword_document(*, output: ResumeDocument, current: ResumeDocument
     return {"valid": not errors, "errors": errors, "warnings": [], "auto_corrections": []}
 
 
-async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDocument,
-        generation_settings: dict[str, Any], job_title: str, company_name: str,
-        job_description: str, model: str, fallback_model: str, api_key: str,
-        base_url: str, on_progress: Any) -> dict[str, Any]:
-    output = current.model_copy(deep=True)
-    current_sections = {section.id: section for section in current.sections}
+# After the first patch, High keeps going toward the coverage target with up to this many extra passes.
+KEYWORD_GAP_PASSES = 2
+HIGH_KEYWORD_COVERAGE_TARGET = 80.0
+MAX_KEYWORDS_PER_BULLET = 3
+
+
+def high_keyword_brief(status: dict[str, Any], target: float) -> str:
+    """The High keyword writing brief: a coverage goal with placement rules, not a request for minimal edits."""
+    needed = max(0, math.ceil(target / 100 * status["total_count"]) - status["matched_count"])
+    return (
+        f"High keyword optimization. The finished resume must contain at least {target:g}% of keyword_contract.job_keywords "
+        f"as exact phrases. It contains {status['matched_count']} of {status['total_count']} ({status['percentage']:g}%), so at least "
+        f"{needed} more must land; aim for every keyword in target_keywords. A keyword counts only as the same words in the same "
+        "order (case may differ); a synonym, plural, reordering or hyphenated variant does not count. Place each keyword where it "
+        "belongs, as a deliberate edit and not a list: tools, platforms and methods go into a concrete bullet of the role, employer "
+        "and period where that work could have happened, and into Skills; role, domain and process phrases go into the bullets "
+        "where that work would show and into Summary; a years-of-experience keyword such as '5+ years of experience' is written word for word in "
+        "Summary (for example 'with 5+ years of experience') whenever the dates in the reviewed source span at least that many "
+        "years, replacing a different figure there. Credentials, certifications, licences and degrees that "
+        "the reviewed source does not hold are never added: skip them. Spread keywords across every role, most relevant role "
+        f"first; no bullet holds more than {MAX_KEYWORDS_PER_BULLET} job keywords, so give related work its own bullet "
+        "(reword a sibling bullet) and never append a run of keywords to a sentence. Skills lists tools, technologies and methods "
+        "only; soft and process phrases belong in bullets and Summary. Each keyword appears in at most two places. Rewrite a "
+        "bullet around the keyword with a concrete action and outcome, and keep it under 35 words. The draft is length-limited: "
+        "tighten surrounding words instead of making it longer. Keep every keyword in preserve_keywords. Return one patch per "
+        "changed section.")
+
+
+async def _keyword_patch_pass(*, source: ResumeDocument, base: ResumeDocument, targets: list[ResumeSection],
+        generation_settings: dict[str, Any], job_title: str, company_name: str, job_description: str,
+        model: str, fallback_model: str, api_key: str, base_url: str, on_progress: Any, budget: CallBudget,
+        rounds: int, gap: int, brief: str) -> tuple[ResumeDocument, dict[str, str], list[Any], str]:
+    """One write-audit-repair pass over `base`. Returns the patched document, the sections that never verified,
+    the last prompt and the model that answered. Unverified patches never reach the returned document."""
+    output = base.model_copy(deep=True)
+    base_sections = {section.id: section for section in base.sections}
     aggressiveness = str(generation_settings.get("aggressiveness") or "medium").lower()
-    targets = [section for section in source.sections if section.review_state == "reviewed" and section.id in current_sections and current_sections[section.id].enabled and not _frozen(section, aggressiveness)]
-    budget = CallBudget.for_seconds(240, max_requests=WRITING_MAX_REQUESTS)
     pending = targets
     errors: dict[str, str] = {}
-    last_prompt = []
+    last_prompt: list[Any] = []
     used_model = model
-    for round_index in range(3):
+    for round_index in range(rounds):
         if not pending:
             break
         if round_index and not budget.can_afford(ROUND_REQUESTS):
             break
         if on_progress:
-            await on_progress(35 + round_index * 15, "Applying small grounded keyword changes" if not round_index else "Repairing keyword changes")
+            label = ("Applying small grounded keyword changes" if aggressiveness != "high" else
+                     "Working keywords into the draft" if not gap else "Closing remaining keyword gaps")
+            await on_progress(min(85, 35 + (gap * 20) + round_index * 15), label if not round_index else "Repairing keyword changes")
         prompt = build_section_prompt(
             source=source, requested=pending, generation_settings=generation_settings,
             job_title=job_title, company_name=company_name, job_description=job_description,
-            instructions=None, current=current, target_entry_id=None,
+            instructions=None, current=base, target_entry_id=None,
         )
-        keyword_rule = ("For keyword optimization at High, return patches that work each missing keyword into the draft, including "
-            "plausible new claims within the High limits; keep edits focused and keep every already matched keyword. "
-            if aggressiveness == "high" else
+        keyword_rule = (brief + " " if aggressiveness == "high" else
             "For keyword optimization, return ONLY patches that add a supported missing keyword with the smallest necessary edit. ")
         prompt[0] = ("system", prompt[0][1] + "\n\n" + keyword_rule +
             "The output envelope is sections:[{id,paragraph:null|new prose,source_ids:[],entries:[{id,bullets:[{id,text,source_ids}]}]}]. "
@@ -1488,7 +1518,7 @@ async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDo
                 if section.id in duplicates:
                     raise SectionValidationError('duplicate_keyword_section')
                 changed, view = apply_keyword_patch(patch=received[section.id], source=section,
-                    current=current_sections[section.id], document=source,
+                    current=base_sections[section.id], document=source,
                     privacy_values=generation_settings.get('_privacy_values') or [], aggressiveness=aggressiveness)
                 replacements[section.id] = changed
                 if render_section_content(view):
@@ -1503,16 +1533,77 @@ async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDo
             if section.id in replacements and section.id not in errors:
                 output.sections[index] = replacements[section.id]
         pending = [section for section in pending if section.id in errors]
-    if pending:
+    return output, {section.id: errors.get(section.id, "keyword_patch_unverified") for section in pending}, last_prompt, used_model
+
+
+async def generate_keyword_document(*, source: ResumeDocument, current: ResumeDocument,
+        generation_settings: dict[str, Any], job_title: str, company_name: str,
+        job_description: str, model: str, fallback_model: str, api_key: str,
+        base_url: str, on_progress: Any) -> dict[str, Any]:
+    current_sections = {section.id: section for section in current.sections}
+    aggressiveness = str(generation_settings.get("aggressiveness") or "medium").lower()
+    high = aggressiveness == "high"
+    targets = [section for section in source.sections if section.review_state == "reviewed" and section.id in current_sections and current_sections[section.id].enabled and not _frozen(section, aggressiveness)]
+    budget = CallBudget.for_seconds(240, max_requests=WRITING_MAX_REQUESTS)
+    keywords = [str(value).strip() for value in generation_settings.get("job_keywords") or [] if str(value).strip()]
+    target_percent = float(generation_settings.get("keyword_coverage_target") or HIGH_KEYWORD_COVERAGE_TARGET) if high else 0.0
+
+    def high_settings(document: ResumeDocument) -> tuple[dict[str, Any], dict[str, Any]]:
+        status = match_keywords(keywords, render_resume_document(document))
+        contract = {**(generation_settings.get("keyword_optimization") or {}), "enabled": True,
+            "job_keywords": keywords, "coverage_target_percent": target_percent,
+            "target_keywords": status["missing_keywords"], "preserve_keywords": status["matched_keywords"],
+            "starting_match": {key: status[key] for key in ("matched_count", "total_count", "percentage")}}
+        return {**generation_settings, "keyword_optimization": contract}, status
+
+    def above_hard_cap(document: ResumeDocument) -> bool:
+        from length_policy import assess_resume_length
+        return assess_resume_length(generated_text=render_resume_document(document), source_text=render_resume_document(source),
+            target_length=str(generation_settings.get("page_length") or generation_settings.get("target_length") or "1_page"))["above_hard_cap"]
+
+    settings, status = high_settings(current) if high and keywords else (generation_settings, {})
+    brief = high_keyword_brief(status, target_percent) if status else ""
+    output, errors, last_prompt, used_model = await _keyword_patch_pass(
+        source=source, base=current, targets=targets, generation_settings=settings, job_title=job_title,
+        company_name=company_name, job_description=job_description, model=model, fallback_model=fallback_model,
+        api_key=api_key, base_url=base_url, on_progress=on_progress, budget=budget, rounds=3, gap=0, brief=brief)
+    if errors and not (high and output.model_dump() != current.model_dump()):
         raise SectionGenerationError(errors, budget.attempts)
+    # High keeps the sections that verified and leaves the others as they were: nothing unverified lands.
+    for gap in range(1, KEYWORD_GAP_PASSES + 1 if high and keywords else 1):
+        settings, status = high_settings(output)
+        if status["percentage"] >= target_percent or not status["missing_keywords"] or not budget.can_afford(ROUND_REQUESTS):
+            break
+        try:
+            candidate, _gap_errors, gap_prompt, gap_model = await _keyword_patch_pass(
+                source=source, base=output, targets=targets, generation_settings=settings, job_title=job_title,
+                company_name=company_name, job_description=job_description, model=model, fallback_model=fallback_model,
+                api_key=api_key, base_url=base_url, on_progress=on_progress, budget=budget, rounds=2, gap=gap,
+                brief=high_keyword_brief(status, target_percent))
+        except Exception as error:
+            if isinstance(error, AIRequestError) and not error.can_fallback:
+                raise
+            # The first pass already verified; a failed extra pass costs only the extra coverage.
+            budget.attempts.append({"operation": "keyword_gap_pass", "outcome": "failed", "error_type": type(error).__name__})
+            break
+        after = match_keywords(keywords, render_resume_document(candidate))
+        if after["matched_count"] < status["matched_count"] or set(status["matched_keywords"]) - set(after["matched_keywords"]):
+            budget.attempts.append({"operation": "keyword_gap_pass", "outcome": "discarded_lost_keywords"})
+            break
+        if above_hard_cap(candidate) or not validate_keyword_document(output=candidate, current=current, source=source,
+                privacy_values=generation_settings.get('_privacy_values') or [], aggressiveness=aggressiveness)['valid']:
+            budget.attempts.append({"operation": "keyword_gap_pass", "outcome": "discarded_invalid"})
+            break
+        gained = after["matched_count"] - status["matched_count"]
+        budget.attempts.append({"operation": "keyword_gap_pass", "outcome": "success" if gained else "no_gain"})
+        output, last_prompt, used_model = candidate, gap_prompt, gap_model
+        if not gained:
+            break
     checked = validate_keyword_document(output=output, current=current, source=source,
                                         privacy_values=generation_settings.get('_privacy_values') or [], aggressiveness=aggressiveness)
     if not checked['valid']:
         raise SectionGenerationError({error['section']: error['type'] for error in checked['errors']}, budget.attempts)
-    from length_policy import assess_resume_length
-    assessment = assess_resume_length(generated_text=render_resume_document(output), source_text=render_resume_document(source),
-        target_length=str(generation_settings.get("page_length") or generation_settings.get("target_length") or "1_page"))
-    if assessment["above_hard_cap"]:
+    if above_hard_cap(output):
         raise SectionGenerationError({section.id: "keyword_draft_above_word_hard_cap" for section in targets}, budget.attempts)
     output.revision = current.revision + 1
     snapshot = deepcopy(generation_settings.get('_source_snapshot') or {})
